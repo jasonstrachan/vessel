@@ -83,6 +83,51 @@ describe('parseVesselCollaborationCommand', () => {
     })).toThrow('settings.fillResolution must be between 1 and 64');
   });
 
+  it('accepts the brush-specific Color Cycle and dither controls', () => {
+    const settings = {
+      patternStyle: 'crosshatch' as const,
+      ditherBackgroundFill: false,
+      ditherGradBgFill: true,
+      ditherPaletteSpread: 25,
+      ditherPatternDiversity: 80,
+      ditherPhaseJitter: 12,
+      ccGradientRangeContrast: 70,
+      ccSampledSoftSeamEnabled: true,
+      lostEdge: 18,
+      pxlEdge: true,
+      colorCycleSpeed: 0.75,
+      gradientBands: 16,
+      colorCycleFillMode: 'linear' as const,
+      ccGradientDrawingShape: 'freehand' as const,
+      colorCycleStampDitherEnabled: true,
+      colorCycleStampDitherPixelSize: 6,
+      colorCycleStampDitherPressureLinked: false,
+      colorCycleStampDitherBgFill: true,
+      colorCycleStampShape: 'checkered' as const,
+    };
+    expect(parseVesselCollaborationCommand({
+      id: 'command-cc-controls',
+      action: 'set-brush',
+      settings,
+    })).toEqual({
+      id: 'command-cc-controls',
+      action: 'set-brush',
+      settings,
+    });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-speed-invalid',
+      action: 'set-brush',
+      settings: { colorCycleSpeed: 1.51 },
+    })).toThrow('settings.colorCycleSpeed must be between 0 and 1.5');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-tile-without-identity',
+      action: 'set-brush',
+      settings: { patternStyle: 'image-tile' },
+    })).toThrow('unsupported pattern style: image-tile');
+  });
+
   it('accepts a base64-encoded project transfer', () => {
     expect(parseVesselCollaborationCommand({
       id: 'command-open',
@@ -116,6 +161,137 @@ describe('parseVesselCollaborationCommand', () => {
     });
   });
 
+  it('accepts normal and Color Cycle layer creation', () => {
+    expect(parseVesselCollaborationCommand({
+      id: 'command-create-cc-layer',
+      action: 'create-layer',
+      layerType: 'color-cycle',
+      name: 'Sky texture',
+    })).toEqual({
+      id: 'command-create-cc-layer',
+      action: 'create-layer',
+      layerType: 'color-cycle',
+      name: 'Sky texture',
+    });
+
+    expect(parseVesselCollaborationCommand({
+      id: 'command-create-normal-layer',
+      action: 'create-layer',
+      layerType: 'normal',
+    })).toEqual({
+      id: 'command-create-normal-layer',
+      action: 'create-layer',
+      layerType: 'normal',
+      name: undefined,
+    });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-create-invalid-layer',
+      action: 'create-layer',
+      layerType: 'sequential',
+    })).toThrow('layerType must be normal or color-cycle');
+  });
+
+  it('accepts palette, gradient-source, gradient, and eraser controls', () => {
+    expect(parseVesselCollaborationCommand({
+      id: 'command-palette',
+      action: 'set-palette',
+      foreground: '#102030',
+      background: '#f0e0d0',
+      activeSlot: 'foreground',
+    })).toEqual({
+      id: 'command-palette',
+      action: 'set-palette',
+      foreground: '#102030',
+      background: '#f0e0d0',
+      activeSlot: 'foreground',
+      swap: undefined,
+    });
+
+    expect(parseVesselCollaborationCommand({
+      id: 'command-source',
+      action: 'set-gradient-source',
+      source: 'sampled',
+    })).toEqual({
+      id: 'command-source',
+      action: 'set-gradient-source',
+      source: 'sampled',
+    });
+
+    expect(parseVesselCollaborationCommand({
+      id: 'command-gradient',
+      action: 'set-gradient',
+      stops: [
+        { position: 0, color: '#000000', opacity: 0.5 },
+        { position: 1, color: '#ffffff' },
+      ],
+      foreground: {
+        lightness: 40,
+        hueShift: -20,
+        saturationShift: 10,
+        opacity: 90,
+        stopCount: 4,
+      },
+      resetSample: true,
+    })).toEqual({
+      id: 'command-gradient',
+      action: 'set-gradient',
+      stops: [
+        { position: 0, color: '#000000', opacity: 0.5 },
+        { position: 1, color: '#ffffff', opacity: undefined },
+      ],
+      foreground: {
+        lightness: 40,
+        hueShift: -20,
+        saturationShift: 10,
+        opacity: 90,
+        stopCount: 4,
+      },
+      resetSample: true,
+    });
+
+    expect(parseVesselCollaborationCommand({
+      id: 'command-eraser',
+      action: 'set-eraser',
+      settings: { size: 18, opacity: 0.75, linkSizeToBrush: false, tip: 'diamond5' },
+    })).toEqual({
+      id: 'command-eraser',
+      action: 'set-eraser',
+      settings: { size: 18, opacity: 0.75, linkSizeToBrush: false, tip: 'diamond5' },
+    });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-palette-ambiguous',
+      action: 'set-palette',
+      foreground: '#000000',
+      swap: true,
+    })).toThrow('swap cannot be combined with foreground or background');
+  });
+
+  it('accepts painting controls inside one batch', () => {
+    const command = parseVesselCollaborationCommand({
+      id: 'command-control-batch',
+      action: 'batch',
+      capture: 'none',
+      operations: [
+        { action: 'set-palette', foreground: '#ffffff' },
+        { action: 'set-gradient-source', source: 'fg' },
+        { action: 'set-gradient', foreground: { stopCount: 3 } },
+        { action: 'set-eraser', settings: { tip: 'round' } },
+      ],
+    });
+
+    expect(command).toMatchObject({
+      action: 'batch',
+      operations: [
+        { action: 'set-palette', foreground: '#ffffff' },
+        { action: 'set-gradient-source', source: 'fg' },
+        { action: 'set-gradient', foreground: { stopCount: 3 } },
+        { action: 'set-eraser', settings: { tip: 'round' } },
+      ],
+    });
+  });
+
   it('accepts a bounded batch with capture and point batching controls', () => {
     expect(parseVesselCollaborationCommand({
       id: 'command-batch',
@@ -130,6 +306,11 @@ describe('parseVesselCollaborationCommand', () => {
             ditherAlgorithm: 'sierra-lite',
             fillResolution: 6,
           },
+        },
+        {
+          action: 'create-layer',
+          layerType: 'color-cycle',
+          name: 'AI details',
         },
         {
           action: 'stroke',
@@ -156,6 +337,11 @@ describe('parseVesselCollaborationCommand', () => {
             ditherAlgorithm: 'sierra-lite',
             fillResolution: 6,
           },
+        },
+        {
+          action: 'create-layer',
+          layerType: 'color-cycle',
+          name: 'AI details',
         },
         {
           action: 'stroke',
@@ -222,6 +408,77 @@ describe('parseVesselCollaborationCommand', () => {
       points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 10 }],
       direction: [{ x: 5, y: 5 }],
     })).toThrow('direction must contain at least two points');
+  });
+
+  it('accepts bounded named checkpoints and rejects ambiguous frame batches', () => {
+    expect(parseVesselCollaborationCommand({
+      id: 'command-checkpoints',
+      action: 'batch',
+      capture: 'none',
+      operations: [
+        { action: 'stroke', points: [{ x: 10, y: 20 }] },
+        { action: 'checkpoint', name: 'landscape' },
+        {
+          action: 'shape',
+          points: [{ x: 50, y: 60 }, { x: 70, y: 80 }, { x: 60, y: 90 }],
+        },
+        { action: 'checkpoint', name: 'final-hat' },
+      ],
+    })).toEqual({
+      id: 'command-checkpoints',
+      action: 'batch',
+      capture: 'none',
+      operations: [
+        {
+          action: 'stroke',
+          tool: undefined,
+          points: [{ x: 10, y: 20, pressure: undefined }],
+        },
+        { action: 'checkpoint', name: 'landscape' },
+        {
+          action: 'shape',
+          points: [
+            { x: 50, y: 60, pressure: undefined },
+            { x: 70, y: 80, pressure: undefined },
+            { x: 60, y: 90, pressure: undefined },
+          ],
+          direction: undefined,
+        },
+        { action: 'checkpoint', name: 'final-hat' },
+      ],
+    });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-duplicate-checkpoints',
+      action: 'batch',
+      operations: [
+        { action: 'checkpoint', name: 'same' },
+        { action: 'checkpoint', name: 'same' },
+      ],
+    })).toThrow('checkpoint names must be unique within a batch');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-too-many-checkpoints',
+      action: 'batch',
+      operations: Array.from({ length: 9 }, (_, index) => ({
+        action: 'checkpoint',
+        name: `checkpoint-${index}`,
+      })),
+    })).toThrow('batches cannot return more than 8 checkpoint or gesture thumbnails');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-too-many-mixed-frames',
+      action: 'batch',
+      capture: 'each-thumbnail',
+      operations: [
+        ...Array.from({ length: 7 }, () => ({
+          action: 'stroke',
+          points: [{ x: 1, y: 2 }],
+        })),
+        { action: 'checkpoint', name: 'one' },
+        { action: 'checkpoint', name: 'two' },
+      ],
+    })).toThrow('batches cannot return more than 8 checkpoint or gesture thumbnails');
   });
 
   it('accepts revision waits and rejects invalid capture bounds', () => {

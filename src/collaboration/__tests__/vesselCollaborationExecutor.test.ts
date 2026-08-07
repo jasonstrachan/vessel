@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { BrushShape } from '@/types';
 import { deserializeProject } from '@/utils/projectIO';
 
 import { dispatchVesselCollaborationStroke } from '../dispatchVesselCollaborationStroke';
@@ -29,7 +30,7 @@ describe('createVesselCollaborationExecutor', () => {
     mockedGetAppStoreState.mockReturnValue({
       project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
       activeLayerId: 'layer-1',
-      currentBrushPreset: { id: 'flat-dither' },
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
       layers: [{
         id: 'layer-1',
         name: 'AI paint',
@@ -154,7 +155,7 @@ describe('createVesselCollaborationExecutor', () => {
       layers: [{
         id: 'layer-1',
         name: 'Shape paint',
-        layerType: 'normal',
+        layerType: 'color-cycle',
         visible: true,
         locked: false,
         opacity: 1,
@@ -171,6 +172,7 @@ describe('createVesselCollaborationExecutor', () => {
       },
       autosave: { dirtyRevision: 0 },
       setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
     } as unknown as ReturnType<typeof getAppStoreState>);
     const dispatchStroke = jest.fn(async () => undefined);
     const execute = createVesselCollaborationExecutor(() => ({
@@ -206,11 +208,11 @@ describe('createVesselCollaborationExecutor', () => {
     mockedGetAppStoreState.mockReturnValue({
       project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
       activeLayerId: 'layer-1',
-      currentBrushPreset: { id: 'color-cycle-stroke' },
+      currentBrushPreset: null,
       layers: [{
         id: 'layer-1',
         name: 'Stroke paint',
-        layerType: 'normal',
+        layerType: 'color-cycle',
         visible: true,
         locked: false,
         opacity: 1,
@@ -223,10 +225,12 @@ describe('createVesselCollaborationExecutor', () => {
           color: '#112233',
           spacing: 1,
           shapeEnabled: false,
+          brushShape: BrushShape.COLOR_CYCLE,
         },
       },
       autosave: { dirtyRevision: 0 },
       setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
     } as unknown as ReturnType<typeof getAppStoreState>);
     const dispatchStroke = jest.fn(async () => undefined);
     const execute = createVesselCollaborationExecutor(() => ({
@@ -346,6 +350,405 @@ describe('createVesselCollaborationExecutor', () => {
     expect(result.frame).toBeUndefined();
   });
 
+  it('creates and activates a Color Cycle layer through the layer store', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'layer-1',
+        name: 'CC Layer 3',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: {
+          size: 20,
+          opacity: 1,
+          color: '#112233',
+          spacing: 1,
+          colorCycleGradient: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+          colorCycleFlowMode: 'reverse',
+        },
+      },
+      autosave: { dirtyRevision: 0 },
+      addLayer: jest.fn(),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    (state.addLayer as jest.Mock).mockImplementation((layer) => {
+      const id = 'layer-created';
+      state.layers.push({ ...layer, id, order: 1 });
+      state.activeLayerId = id;
+      state.autosave.dirtyRevision += 1;
+      return id;
+    });
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const rebuildStaticComposite = jest.fn();
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite,
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-create-layer',
+      action: 'create-layer',
+      layerType: 'color-cycle',
+    });
+
+    expect(state.addLayer).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'CC Layer 4',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        isAnimating: true,
+        flowMode: 'reverse',
+      },
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      revision: 1,
+      state: { activeLayerId: 'layer-created' },
+    });
+    expect(result.frame).toBeUndefined();
+    expect(rebuildStaticComposite).not.toHaveBeenCalled();
+  });
+
+  it('erases through the canonical stroke path on a Color Cycle layer', async () => {
+    const setCurrentTool = jest.fn();
+    mockedGetAppStoreState.mockReturnValue({
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'pixel-square' },
+      layers: [{
+        id: 'layer-1',
+        name: 'CC details',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+        eraserSettings: { linkSizeToBrush: true, opacity: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool,
+      setShapeMode: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>);
+    const dispatchStroke = jest.fn(async () => undefined);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-erase',
+      action: 'stroke',
+      tool: 'eraser',
+      capture: 'none',
+      points: [{ x: 10, y: 20 }, { x: 30, y: 40 }],
+    });
+
+    expect(setCurrentTool).toHaveBeenCalledWith('eraser');
+    expect(dispatchStroke).toHaveBeenCalledWith(
+      [{ x: 10, y: 20 }, { x: 30, y: 40 }],
+      { pointsPerFrame: 2 },
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('refuses a Color Cycle brush on a normal layer before dispatching pointers', async () => {
+    const setCurrentTool = jest.fn();
+    mockedGetAppStoreState.mockReturnValue({
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'normal',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool,
+    } as unknown as ReturnType<typeof getAppStoreState>);
+    const dispatchStroke = jest.fn();
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-wrong-layer',
+      action: 'stroke',
+      capture: 'none',
+      points: [{ x: 10, y: 20 }],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'Color Cycle brush requires a Color Cycle layer: Layer 1',
+    });
+    expect(setCurrentTool).not.toHaveBeenCalled();
+    expect(dispatchStroke).not.toHaveBeenCalled();
+  });
+
+  it('applies palette, gradient, dither, and eraser controls through canonical store actions', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      brushPresets: [{
+        id: 'color-cycle-flat-dither',
+        name: 'CC Flat Dither',
+        category: 'Color Cycle',
+        isCustomBrush: false,
+      }],
+      layers: [{
+        id: 'layer-1',
+        name: 'CC Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      palette: {
+        foregroundColor: '#000000',
+        backgroundColor: '#ffffff',
+        activeSlot: 'foreground',
+      },
+      tools: {
+        currentTool: 'brush',
+        ccGradientSource: 'manual',
+        brushSettings: {
+          size: 20,
+          opacity: 1,
+          color: '#000000',
+          spacing: 1,
+          colorCycleGradient: [
+            { position: 0, color: '#000000' },
+            { position: 1, color: '#ffffff' },
+          ],
+        },
+        eraserSettings: {
+          size: 20,
+          opacity: 1,
+          linkSizeToBrush: true,
+          brushShape: BrushShape.SQUARE,
+        },
+      },
+      ccGradientSampleCount: 7,
+      autosave: { dirtyRevision: 0 },
+      setPaletteColor: jest.fn((slot, color) => {
+        if (slot === 'foreground') state.palette.foregroundColor = color;
+        else state.palette.backgroundColor = color;
+      }),
+      swapPaletteColors: jest.fn(),
+      setActivePaletteSlot: jest.fn((slot) => {
+        state.palette.activeSlot = slot;
+      }),
+      setCcGradientSource: jest.fn((source) => {
+        state.tools.ccGradientSource = source;
+      }),
+      commitColorCycleGradientDraft: jest.fn((stops) => {
+        state.tools.brushSettings.colorCycleGradient = stops;
+      }),
+      setBrushSettings: jest.fn((settings) => {
+        Object.assign(state.tools.brushSettings, settings);
+      }),
+      resetCcGradientSample: jest.fn(() => {
+        state.ccGradientSampleCount = 0;
+      }),
+      setEraserSettings: jest.fn((settings) => {
+        Object.assign(state.tools.eraserSettings, settings);
+      }),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite: jest.fn(),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-paint-controls',
+      action: 'batch',
+      capture: 'none',
+      operations: [
+        {
+          action: 'set-palette',
+          foreground: '#123456',
+          background: '#abcdef',
+          activeSlot: 'background',
+        },
+        { action: 'set-gradient-source', source: 'fg' },
+        {
+          action: 'set-gradient',
+          stops: [
+            { position: 0, color: '#112233' },
+            { position: 1, color: '#ddeeff' },
+          ],
+          foreground: { lightness: 35, hueShift: 20, stopCount: 4 },
+          resetSample: true,
+        },
+        {
+          action: 'set-brush',
+          settings: {
+            ditherEnabled: true,
+            ditherAlgorithm: 'sierra-lite',
+            fillResolution: 6,
+            colorCycleStampDitherEnabled: true,
+            colorCycleStampDitherPixelSize: 5,
+            colorCycleSpeed: 0.5,
+          },
+        },
+        {
+          action: 'set-eraser',
+          settings: { size: 12, opacity: 0.6, linkSizeToBrush: false, tip: 'diamond5' },
+        },
+      ],
+    });
+
+    expect(state.setPaletteColor).toHaveBeenNthCalledWith(1, 'foreground', '#123456');
+    expect(state.setPaletteColor).toHaveBeenNthCalledWith(2, 'background', '#abcdef');
+    expect(state.setActivePaletteSlot).toHaveBeenCalledWith('background');
+    expect(state.setCcGradientSource).toHaveBeenCalledWith('fg');
+    expect(state.commitColorCycleGradientDraft).toHaveBeenCalledWith([
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ddeeff' },
+    ]);
+    expect(state.setBrushSettings).toHaveBeenNthCalledWith(1, {
+      colorCycleFgLightness: 35,
+      colorCycleFgHueShift: 20,
+      colorCycleFgStops: 4,
+    });
+    expect(state.setBrushSettings).toHaveBeenNthCalledWith(2, {
+      ditherEnabled: true,
+      ditherAlgorithm: 'sierra-lite',
+      fillResolution: 6,
+      colorCycleStampDitherEnabled: true,
+      colorCycleStampDitherPixelSize: 5,
+      colorCycleSpeed: 0.5,
+    });
+    expect(state.resetCcGradientSample).toHaveBeenCalledTimes(1);
+    expect(state.setEraserSettings).toHaveBeenCalledWith(expect.objectContaining({
+      size: 12,
+      opacity: 0.6,
+      linkSizeToBrush: false,
+      brushShape: BrushShape.PIXEL_DITHER,
+      ditherStrokeTipShape: 'diamond5',
+      antialiasing: false,
+    }));
+    expect(result).toMatchObject({
+      ok: true,
+      completedOperations: 5,
+      state: {
+        currentBrushCapabilities: { canDither: false, forceDither: true },
+        palette: {
+          foreground: '#123456',
+          background: '#abcdef',
+          activeSlot: 'background',
+        },
+        gradient: {
+          source: 'fg',
+          sampleCount: 0,
+          foreground: { lightness: 35, hueShift: 20, stopCount: 4 },
+        },
+        brush: {
+          ditherEnabled: true,
+          ditherAlgorithm: 'sierra-lite',
+          fillResolution: 6,
+          colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherPixelSize: 5,
+          colorCycleSpeed: 0.5,
+        },
+        eraser: {
+          size: 12,
+          opacity: 0.6,
+          linkSizeToBrush: false,
+          tip: 'diamond5',
+        },
+      },
+    });
+  });
+
+  it('restores the brush tool for a shape after an eraser command', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'dither-shape' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'normal',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1, shapeEnabled: true },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn((tool) => {
+        state.tools.currentTool = tool;
+      }),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const dispatchStroke = jest.fn(async () => undefined);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(),
+      requestRedraw: jest.fn(),
+    }));
+
+    await execute({
+      id: 'command-shape-after-erase',
+      action: 'batch',
+      capture: 'none',
+      operations: [
+        { action: 'set-tool', tool: 'eraser' },
+        {
+          action: 'shape',
+          points: [{ x: 1, y: 1 }, { x: 10, y: 1 }, { x: 5, y: 10 }],
+        },
+      ],
+    });
+
+    expect(state.setCurrentTool).toHaveBeenNthCalledWith(1, 'eraser');
+    expect(state.setCurrentTool).toHaveBeenNthCalledWith(2, 'brush');
+    expect(dispatchStroke).toHaveBeenCalledTimes(1);
+  });
+
   it('runs setup and gestures as one batch with a thumbnail per committed stroke', async () => {
     const state = {
       project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
@@ -432,6 +835,89 @@ describe('createVesselCollaborationExecutor', () => {
           { index: 1, action: 'stroke', revision: 1 },
           { index: 2, action: 'set-brush', revision: 1 },
           { index: 3, action: 'stroke', revision: 2 },
+        ],
+      },
+    });
+    expect(result.frame).toBeUndefined();
+  });
+
+  it('captures named checkpoints inside one batch without a redundant final frame', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      setShapeMode: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+
+    const dispatchStroke = jest.fn(async () => {
+      state.autosave.dirtyRevision += 1;
+    });
+    const rebuildStaticComposite = jest.fn(async () => true);
+    const canvas = {
+      width: 512,
+      height: 640,
+      toDataURL: jest.fn(() => 'data:image/png;base64,frame'),
+    } as unknown as HTMLCanvasElement;
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite,
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-checkpoints',
+      action: 'batch',
+      operations: [
+        { action: 'stroke', points: [{ x: 10, y: 20 }] },
+        { action: 'checkpoint', name: 'landscape' },
+        { action: 'stroke', points: [{ x: 30, y: 40 }] },
+        { action: 'checkpoint', name: 'final-hat' },
+      ],
+    });
+
+    expect(rebuildStaticComposite).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      ok: true,
+      revision: 2,
+      completedOperations: 4,
+      frames: [
+        {
+          operationIndex: 1,
+          revision: 1,
+          checkpointName: 'landscape',
+          frame: { kind: 'thumbnail' },
+        },
+        {
+          operationIndex: 3,
+          revision: 2,
+          checkpointName: 'final-hat',
+          frame: { kind: 'thumbnail' },
+        },
+      ],
+      profile: {
+        operations: [
+          { index: 0, action: 'stroke', revision: 1 },
+          { index: 1, action: 'checkpoint', revision: 1, mutationMs: 0 },
+          { index: 2, action: 'stroke', revision: 2 },
+          { index: 3, action: 'checkpoint', revision: 2, mutationMs: 0 },
         ],
       },
     });

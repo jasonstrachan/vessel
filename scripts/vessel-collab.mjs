@@ -11,6 +11,9 @@ import readline from 'node:readline';
 const DEFAULT_PORT = 4317;
 const MAX_BODY_BYTES = 32 * 1024 * 1024;
 const MAX_PROJECT_FILE_BYTES = 18 * 1024 * 1024;
+const MAX_RETAINED_COMMANDS = 32;
+const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const REQUEST_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 
 const parseArgs = (argv) => {
   const positional = [];
@@ -39,6 +42,14 @@ const requireSafeSession = (value) => {
     throw new Error('Session must use 1-64 letters, numbers, dashes, or underscores');
   }
   return session;
+};
+
+const requireSafeRequestId = (value) => {
+  const requestId = String(value ?? crypto.randomUUID());
+  if (!REQUEST_ID_PATTERN.test(requestId)) {
+    throw new Error('Request ID must use 1-128 letters, numbers, dots, colons, dashes, or underscores');
+  }
+  return requestId;
 };
 
 const getStatePath = (session) =>
@@ -99,8 +110,20 @@ const serve = async ({ flags }) => {
 
   const token = crypto.randomBytes(24).toString('hex');
   const queue = [];
-  const results = new Map();
+  const commandRecords = new Map();
+  const commandIdsByRequestId = new Map();
+  const completedCommandIds = [];
   const waiters = [];
+
+  const pruneCompletedCommands = () => {
+    while (completedCommandIds.length > MAX_RETAINED_COMMANDS) {
+      const id = completedCommandIds.shift();
+      const record = commandRecords.get(id);
+      if (!record || record.result === undefined) continue;
+      commandRecords.delete(id);
+      if (record.requestId) commandIdsByRequestId.delete(record.requestId);
+    }
+  };
 
   const deliver = () => {
     while (queue.length > 0 && waiters.length > 0) {
@@ -144,10 +167,23 @@ const serve = async ({ flags }) => {
         if (!body || typeof body !== 'object' || Array.isArray(body)) {
           throw new Error('Command must be a JSON object');
         }
+        const requestId = requireSafeRequestId(request.headers['idempotency-key']);
+        const commandSignature = JSON.stringify(body);
+        const existingId = commandIdsByRequestId.get(requestId);
+        if (existingId) {
+          const existingRecord = commandRecords.get(existingId);
+          if (existingRecord?.commandSignature !== commandSignature) {
+            throw new Error('Request ID was already used for a different command');
+          }
+          writeJson(response, 202, { id: existingId, requestId, reused: true }, origin);
+          return;
+        }
         const id = crypto.randomUUID();
+        commandRecords.set(id, { requestId, commandSignature, result: undefined });
+        commandIdsByRequestId.set(requestId, id);
         queue.push({ ...body, id });
         deliver();
-        writeJson(response, 202, { id }, origin);
+        writeJson(response, 202, { id, requestId, reused: false }, origin);
         return;
       }
 
@@ -179,22 +215,47 @@ const serve = async ({ flags }) => {
       const resultMatch = /^\/v1\/commands\/([^/]+)\/result$/.exec(url.pathname);
       if (request.method === 'POST' && resultMatch) {
         const id = decodeURIComponent(resultMatch[1]);
+        const record = commandRecords.get(id);
+        if (!record) {
+          writeJson(response, 404, { error: 'Command was not found' }, origin);
+          return;
+        }
         const body = await readJsonBody(request);
-        results.set(id, body);
-        writeJson(response, 202, { ok: true }, origin);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          throw new Error('Command result must be a JSON object');
+        }
+        if (body.commandId !== id) {
+          throw new Error('Command result ID does not match the accepted command');
+        }
+        const resultSignature = JSON.stringify(body);
+        if (record.result !== undefined) {
+          if (record.resultSignature !== resultSignature) {
+            throw new Error('Command result was already recorded with different data');
+          }
+          writeJson(response, 202, { ok: true, reused: true }, origin);
+          return;
+        }
+        completedCommandIds.push(id);
+        record.result = body;
+        record.resultSignature = resultSignature;
+        pruneCompletedCommands();
+        writeJson(response, 202, { ok: true, reused: false }, origin);
         return;
       }
 
       const readResultMatch = /^\/v1\/results\/([^/]+)$/.exec(url.pathname);
       if (request.method === 'GET' && readResultMatch) {
         const id = decodeURIComponent(readResultMatch[1]);
-        if (!results.has(id)) {
+        const record = commandRecords.get(id);
+        if (!record) {
+          writeJson(response, 404, { error: 'Command was not found' }, origin);
+          return;
+        }
+        if (record.result === undefined) {
           writeJson(response, 202, { pending: true }, origin);
           return;
         }
-        const result = results.get(id);
-        results.delete(id);
-        writeJson(response, 200, result, origin);
+        writeJson(response, 200, record.result, origin);
         return;
       }
 
@@ -266,28 +327,54 @@ const createBridgeClient = (state) => {
     'Content-Type': 'application/json',
   };
 
+  const getResult = async (commandId) => {
+    const pending = await fetchJson(`${state.url}/v1/results/${encodeURIComponent(commandId)}`, {
+      headers,
+    });
+    return pending.response.status === 200
+      ? { pending: false, result: pending.value }
+      : { pending: true };
+  };
+
+  const enqueue = async (input, requestId) => {
+    const command = { ...input };
+    delete command.id;
+    delete command.requestId;
+    const safeRequestId = requireSafeRequestId(requestId);
+    const queued = await fetchJson(`${state.url}/v1/commands`, {
+      method: 'POST',
+      headers: { ...headers, 'Idempotency-Key': safeRequestId },
+      body: JSON.stringify(command),
+    });
+    return {
+      commandId: queued.value.id,
+      requestId: safeRequestId,
+      reused: Boolean(queued.value.reused),
+    };
+  };
+
+  const waitForResult = async (commandId, timeoutMs = 120000) => {
+    const timeoutAt = Date.now() + timeoutMs;
+    while (Date.now() < timeoutAt) {
+      const pending = await getResult(commandId);
+      if (!pending.pending) return pending.result;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const error = new Error(`Timed out waiting for Vessel command ${commandId}; result status is unknown`);
+    error.commandId = commandId;
+    throw error;
+  };
+
   return {
     headers,
-    send: async (input, timeoutMs = 120000) => {
-      const command = { ...input };
-      delete command.id;
-      const queued = await fetchJson(`${state.url}/v1/commands`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(command),
-      });
-      const id = queued.value.id;
-      const timeoutAt = Date.now() + timeoutMs;
-      while (Date.now() < timeoutAt) {
-        const pending = await fetchJson(`${state.url}/v1/results/${encodeURIComponent(id)}`, {
-          headers,
-        });
-        if (pending.response.status === 200) {
-          return pending.value;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 25));
-      }
-      throw new Error(`Timed out waiting for Vessel command ${id}`);
+    enqueue,
+    getResult,
+    waitForResult,
+    send: async (input, { timeoutMs = 120000, requestId, onAccepted } = {}) => {
+      const accepted = await enqueue(input, requestId ?? input.requestId);
+      onAccepted?.(accepted);
+      const result = await waitForResult(accepted.commandId, timeoutMs);
+      return { accepted, result };
     },
   };
 };
@@ -329,6 +416,92 @@ const materializeFrames = async (result, { session, framePath, frameDir }) => {
     }
   }
   return result;
+};
+
+const compactResultState = (state) => state ? {
+  project: state.project,
+  activeLayerId: state.activeLayerId,
+  currentTool: state.currentTool,
+  currentBrushPresetId: state.currentBrushPresetId,
+  currentBrushCapabilities: state.currentBrushCapabilities,
+  availableBrushPresets: state.availableBrushPresets,
+  palette: state.palette,
+  gradient: state.gradient,
+  brush: state.brush,
+  eraser: state.eraser,
+  layers: state.layers,
+} : undefined;
+
+const compactCollaborationResult = (result, { resultPath } = {}) => ({
+  type: 'completed',
+  ok: result.ok,
+  commandId: result.commandId,
+  action: result.action,
+  revision: result.revision,
+  completedOperations: result.completedOperations,
+  timedOut: result.timedOut,
+  state: result.action === 'observe' ||
+    result.action === 'open-project' ||
+    result.action === 'create-layer' ||
+    result.action === 'batch'
+    ? compactResultState(result.state)
+    : undefined,
+  frame: result.frame ? {
+    kind: result.frame.kind,
+    width: result.frame.width,
+    height: result.frame.height,
+    path: result.frame.path,
+  } : undefined,
+  frames: Array.isArray(result.frames) ? result.frames.map((captured) => ({
+    operationIndex: captured.operationIndex,
+    revision: captured.revision,
+    checkpointName: captured.checkpointName,
+    kind: captured.frame.kind,
+    width: captured.frame.width,
+    height: captured.frame.height,
+    path: captured.frame.path,
+  })) : undefined,
+  profile: result.profile ? {
+    mutationMs: result.profile.mutationMs,
+    presentationMs: result.profile.presentationMs,
+    captureMs: result.profile.captureMs,
+    totalMs: result.profile.totalMs,
+  } : undefined,
+  error: result.error,
+  resultPath,
+});
+
+const writeResultArtifact = async (result, { session, resultDir }) => {
+  if (!COMMAND_ID_PATTERN.test(String(result.commandId ?? ''))) {
+    throw new Error('Vessel returned an invalid command ID');
+  }
+  const outputDirectory = path.resolve(String(
+    resultDir ?? path.join(os.tmpdir(), `vessel-collab-${session}-results`),
+  ));
+  await fs.mkdir(outputDirectory, { recursive: true });
+  const outputPath = path.join(outputDirectory, `${result.commandId}.json`);
+  await fs.writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`);
+  return outputPath;
+};
+
+const enableRawPersistentInput = (input) => {
+  if (!input.isTTY || typeof input.setRawMode !== 'function') return () => undefined;
+  const wasRaw = Boolean(input.isRaw);
+  input.setRawMode(true);
+  let restored = false;
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    input.off('data', handleInterrupt);
+    input.setRawMode(wasRaw);
+  };
+  const handleInterrupt = (chunk) => {
+    if (!Buffer.from(chunk).includes(3)) return;
+    restore();
+    process.kill(process.pid, 'SIGINT');
+  };
+  input.on('data', handleInterrupt);
+  return restore;
 };
 
 const applyCaptureFlags = (command, flags) => {
@@ -378,7 +551,10 @@ const call = async ({ positional, flags }) => {
   const state = JSON.parse(await fs.readFile(getStatePath(session), 'utf8'));
   const command = await buildCommand({ positional, flags });
   const client = createBridgeClient(state);
-  const result = await client.send(command, Number(flags.get('timeout') ?? 120000));
+  const { result } = await client.send(command, {
+    timeoutMs: Number(flags.get('timeout') ?? 120000),
+    requestId: flags.get('request-id'),
+  });
   await materializeFrames(result, {
     session,
     framePath: flags.get('frame'),
@@ -392,34 +568,119 @@ const persistentClient = async ({ flags }) => {
   const session = requireSafeSession(flags.get('session'));
   const state = JSON.parse(await fs.readFile(getStatePath(session), 'utf8'));
   const client = createBridgeClient(state);
+  const restoreInput = enableRawPersistentInput(process.stdin);
   const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  const exitForSignal = (exitCode) => {
+    restoreInput();
+    process.exit(exitCode);
+  };
+  const handleSigint = () => exitForSignal(130);
+  const handleSigterm = () => exitForSignal(143);
+  process.once('SIGINT', handleSigint);
+  process.once('SIGTERM', handleSigterm);
   let lastRevision = 0;
 
-  for await (const line of input) {
-    if (line.trim().length === 0) continue;
-    try {
-      const command = JSON.parse(line);
-      if (!command || typeof command !== 'object' || Array.isArray(command)) {
-        throw new Error('Client input must be one JSON command per line');
+  try {
+    for await (const line of input) {
+      if (line.trim().length === 0) continue;
+      let requestId;
+      try {
+        const command = JSON.parse(line);
+        if (!command || typeof command !== 'object' || Array.isArray(command)) {
+          throw new Error('Client input must be one JSON command per line');
+        }
+        if (command.action === 'get-result') {
+          const commandId = String(command.commandId ?? '');
+          if (!COMMAND_ID_PATTERN.test(commandId)) {
+            throw new Error('get-result requires a Vessel command UUID');
+          }
+          const recovered = await client.getResult(commandId);
+          if (recovered.pending) {
+            process.stdout.write(`${JSON.stringify({
+              type: 'pending',
+              commandId: command.commandId,
+            })}\n`);
+            continue;
+          }
+          const result = recovered.result;
+          if (typeof result.revision === 'number') lastRevision = result.revision;
+          await materializeFrames(result, {
+            session,
+            frameDir: flags.get('frame-dir'),
+          });
+          const resultPath = await writeResultArtifact(result, {
+            session,
+            resultDir: flags.get('result-dir'),
+          });
+          process.stdout.write(`${JSON.stringify(compactCollaborationResult(result, { resultPath }))}\n`);
+          continue;
+        }
+        if (command.action === 'wait-for-frame' && command.afterRevision === undefined) {
+          command.afterRevision = lastRevision;
+        }
+        requestId = requireSafeRequestId(command.requestId);
+        applyCaptureFlags(command, flags);
+        const { result } = await client.send(command, {
+          timeoutMs: Number(flags.get('timeout') ?? 120000),
+          requestId,
+          onAccepted: (accepted) => {
+            process.stdout.write(`${JSON.stringify({ type: 'accepted', ...accepted })}\n`);
+          },
+        });
+        if (typeof result.revision === 'number') lastRevision = result.revision;
+        await materializeFrames(result, {
+          session,
+          frameDir: flags.get('frame-dir'),
+        });
+        const resultPath = await writeResultArtifact(result, {
+          session,
+          resultDir: flags.get('result-dir'),
+        });
+        process.stdout.write(`${JSON.stringify(compactCollaborationResult(result, { resultPath }))}\n`);
+      } catch (error) {
+        process.stdout.write(`${JSON.stringify({
+          type: 'unknown',
+          ok: false,
+          requestId,
+          commandId: error?.commandId,
+          error: error instanceof Error ? error.message : String(error),
+          recovery: error?.commandId
+            ? { action: 'get-result', commandId: error.commandId }
+            : undefined,
+        })}\n`);
       }
-      if (command.action === 'wait-for-frame' && command.afterRevision === undefined) {
-        command.afterRevision = lastRevision;
-      }
-      applyCaptureFlags(command, flags);
-      const result = await client.send(command, Number(flags.get('timeout') ?? 120000));
-      if (typeof result.revision === 'number') lastRevision = result.revision;
-      await materializeFrames(result, {
-        session,
-        frameDir: flags.get('frame-dir'),
-      });
-      process.stdout.write(`${JSON.stringify(result)}\n`);
-    } catch (error) {
-      process.stdout.write(`${JSON.stringify({
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      })}\n`);
     }
+  } finally {
+    process.off('SIGINT', handleSigint);
+    process.off('SIGTERM', handleSigterm);
+    restoreInput();
   }
+};
+
+const readResult = async ({ flags }) => {
+  const session = requireSafeSession(flags.get('session'));
+  const commandId = String(flags.get('id') ?? '');
+  if (!COMMAND_ID_PATTERN.test(commandId)) {
+    throw new Error('Result requires --id with a Vessel command UUID');
+  }
+  const state = JSON.parse(await fs.readFile(getStatePath(session), 'utf8'));
+  const client = createBridgeClient(state);
+  const recovered = await client.getResult(commandId);
+  if (recovered.pending) {
+    process.stdout.write(`${JSON.stringify({ type: 'pending', commandId }, null, 2)}\n`);
+    return;
+  }
+  const result = recovered.result;
+  await materializeFrames(result, {
+    session,
+    framePath: flags.get('frame'),
+    frameDir: flags.get('frame-dir'),
+  });
+  const resultPath = await writeResultArtifact(result, {
+    session,
+    resultDir: flags.get('result-dir'),
+  });
+  process.stdout.write(`${JSON.stringify(compactCollaborationResult(result, { resultPath }), null, 2)}\n`);
 };
 
 const status = async ({ flags }) => {
@@ -455,9 +716,10 @@ const main = async () => {
   if (operation === 'serve') return serve(args);
   if (operation === 'call') return call(args);
   if (operation === 'client') return persistentClient(args);
+  if (operation === 'result') return readResult(args);
   if (operation === 'status') return status(args);
   if (operation === 'open') return openVessel(args);
-  throw new Error('Usage: vessel-collab.mjs <serve|call|client|status|open> [options]');
+  throw new Error('Usage: vessel-collab.mjs <serve|call|client|result|status|open> [options]');
 };
 
 main().catch((error) => {

@@ -1,7 +1,20 @@
 import type React from 'react';
 
-import { isCcGradientPreset } from '@/presets/brushPresets';
+import { getPresetCapabilities, isCcGradientPreset } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import {
+  createEraserTipSettingsPatch,
+  resolveEraserTipOption,
+} from '@/stores/helpers/eraserSettings';
+import {
+  isColorCycleBrushShape,
+  isColorCyclePresetId,
+} from '@/stores/helpers/toolsState';
+import type { Layer } from '@/types';
+import { BrushShape } from '@/types';
+import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { supportsDither } from '@/utils/brushCategories';
 import { deserializeProject } from '@/utils/projectIO';
 
 import type {
@@ -19,11 +32,19 @@ const MAX_COALESCED_STROKE_POINTS = 16;
 
 type StrokeOperation = Extract<VesselCollaborationBatchOperation, { action: 'stroke' }>;
 type ShapeOperation = Extract<VesselCollaborationBatchOperation, { action: 'shape' }>;
+type CheckpointOperation = Extract<VesselCollaborationBatchOperation, { action: 'checkpoint' }>;
+type CreateLayerOperation = Extract<
+  VesselCollaborationBatchOperation,
+  { action: 'create-layer' }
+>;
 type SimpleCommand = Exclude<
   VesselCollaborationCommand,
   { action: 'batch' | 'wait-for-frame' }
 >;
-type MutationOperation = SimpleCommand | VesselCollaborationBatchOperation;
+type MutationOperation = SimpleCommand | Exclude<
+  VesselCollaborationBatchOperation,
+  CheckpointOperation
+>;
 
 export interface VesselCollaborationRuntime {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -93,6 +114,19 @@ const captureFrame = (
 
 const readState = () => {
   const state = getAppStoreState();
+  const brush = state.tools.brushSettings;
+  const eraser = state.tools.eraserSettings ?? brush;
+  const palette = state.palette ?? {
+    foregroundColor: brush.color,
+    backgroundColor: '#ffffff',
+    activeSlot: 'foreground' as const,
+  };
+  const presetCapabilities = state.currentBrushPreset
+    ? getPresetCapabilities(state.currentBrushPreset.id, state.currentBrushPreset)
+    : {};
+  const canDither = presetCapabilities.canDither ?? supportsDither(
+    brush.brushShape ?? BrushShape.ROUND,
+  );
   return {
     project: state.project
       ? {
@@ -105,18 +139,72 @@ const readState = () => {
     activeLayerId: state.activeLayerId,
     currentTool: state.tools.currentTool,
     currentBrushPresetId: state.currentBrushPreset?.id ?? null,
+    currentBrushCapabilities: {
+      canDither,
+      forceDither: presetCapabilities.forceDither === true,
+    },
+    availableBrushPresets: (state.brushPresets ?? []).map((preset) => ({
+      id: preset.id,
+      name: preset.name,
+      category: preset.category,
+      isCustomBrush: preset.isCustomBrush === true,
+    })),
+    palette: {
+      foreground: palette.foregroundColor,
+      background: palette.backgroundColor,
+      activeSlot: palette.activeSlot,
+    },
+    gradient: {
+      source: state.tools.ccGradientSource,
+      stops: (brush.colorCycleGradient ?? DEFAULT_GRADIENT_STOPS).map((stop) => ({ ...stop })),
+      foreground: {
+        lightness: brush.colorCycleFgLightness ?? 50,
+        hueShift: brush.colorCycleFgHueShift ?? 0,
+        saturationShift: brush.colorCycleFgSaturationShift ?? 0,
+        opacity: brush.colorCycleFgOpacity ?? 100,
+        stopCount: brush.colorCycleFgStops ?? 2,
+      },
+      sampleCount: state.ccGradientSampleCount ?? 0,
+    },
     brush: {
-      size: state.tools.brushSettings.size,
-      opacity: state.tools.brushSettings.opacity,
-      color: state.tools.brushSettings.color,
-      spacing: state.tools.brushSettings.spacing,
-      shapeEnabled: Boolean(state.tools.brushSettings.shapeEnabled),
-      ditherEnabled: Boolean(state.tools.brushSettings.ditherEnabled),
-      ditherAlgorithm: state.tools.brushSettings.ditherAlgorithm ?? null,
-      fillResolution: state.tools.brushSettings.fillResolution ?? null,
-      pressureLinkedFillResolution: Boolean(state.tools.brushSettings.pressureLinkedFillResolution),
+      size: brush.size,
+      opacity: brush.opacity,
+      color: brush.color,
+      spacing: brush.spacing,
+      shapeEnabled: Boolean(brush.shapeEnabled),
+      ditherEnabled: Boolean(brush.ditherEnabled),
+      ditherAlgorithm: brush.ditherAlgorithm ?? null,
+      patternStyle: brush.patternStyle ?? null,
+      fillResolution: brush.fillResolution ?? null,
+      pressureLinkedFillResolution: Boolean(brush.pressureLinkedFillResolution),
       pressureLinkedFillMaxResolution:
-        state.tools.brushSettings.pressureLinkedFillMaxResolution ?? null,
+        brush.pressureLinkedFillMaxResolution ?? null,
+      ditherBackgroundFill: brush.ditherBackgroundFill !== false,
+      ditherGradBgFill: (brush.ditherGradBgFill ?? brush.ditherBackgroundFill) !== false,
+      ditherPaletteSpread: brush.ditherPaletteSpread ?? 0,
+      ditherPatternDiversity: brush.ditherPatternDiversity ?? 100,
+      ditherPhaseJitter: brush.ditherPhaseJitter ?? 0,
+      ccGradientRangeContrast: brush.ccGradientRangeContrast ?? 100,
+      ccSampledSoftSeamEnabled: brush.ccSampledSoftSeamEnabled !== false,
+      lostEdge: brush.lostEdge ?? 0,
+      pxlEdge: brush.pxlEdge === true,
+      colorCycleSpeed: brush.colorCycleSpeed ?? null,
+      gradientBands: brush.gradientBands ?? null,
+      colorCycleFillMode: brush.colorCycleFillMode ?? null,
+      ccGradientDrawingShape: brush.ccGradientDrawingShape ?? null,
+      colorCycleStampDitherEnabled: brush.colorCycleStampDitherEnabled === true,
+      colorCycleStampDitherPixelSize: brush.colorCycleStampDitherPixelSize ?? null,
+      colorCycleStampDitherPressureLinked: brush.colorCycleStampDitherPressureLinked === true,
+      colorCycleStampDitherBgFill: typeof brush.colorCycleStampDitherBgFill === 'boolean'
+        ? brush.colorCycleStampDitherBgFill
+        : brush.colorCycleStampDitherClears !== true,
+      colorCycleStampShape: brush.colorCycleStampShape ?? null,
+    },
+    eraser: {
+      size: eraser.linkSizeToBrush === false ? eraser.size : brush.size,
+      opacity: eraser.opacity,
+      linkSizeToBrush: eraser.linkSizeToBrush !== false,
+      tip: resolveEraserTipOption(eraser),
     },
     dirtyRevision: state.autosave.dirtyRevision,
     layers: state.layers.map((layer) => ({
@@ -148,6 +236,71 @@ const requireDrawableLayer = () => {
   return { state, layer };
 };
 
+const nextLayerName = (layers: Layer[], layerType: CreateLayerOperation['layerType']) => {
+  const prefix = layerType === 'color-cycle' ? 'CC Layer' : 'Layer';
+  const pattern = new RegExp(`^${prefix} (\\d+)$`);
+  const highestSuffix = layers.reduce((highest, layer) => {
+    if (layer.layerType !== layerType) return highest;
+    const suffix = Number(layer.name.match(pattern)?.[1]);
+    return Number.isFinite(suffix) ? Math.max(highest, suffix) : highest;
+  }, 0);
+  return `${prefix} ${highestSuffix + 1}`;
+};
+
+const executeCreateLayer = (operation: CreateLayerOperation) => {
+  const state = getAppStoreState();
+  if (!state.project) {
+    throw new Error('No Vessel project is loaded');
+  }
+
+  const framebuffer = document.createElement('canvas');
+  framebuffer.width = 1;
+  framebuffer.height = 1;
+  const commonLayer = {
+    name: operation.name ?? nextLayerName(state.layers, operation.layerType),
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over' as const,
+    locked: false,
+    transparencyLocked: false,
+    imageData: null,
+    framebuffer,
+    alignment: createDefaultLayerAlignment(),
+  };
+  const layer: Omit<Layer, 'id' | 'order'> = operation.layerType === 'color-cycle'
+    ? {
+        ...commonLayer,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          gradient: (
+            state.tools.brushSettings.colorCycleGradient ?? DEFAULT_GRADIENT_STOPS
+          ).map((stop) => ({ ...stop })),
+          isAnimating: true,
+          flowMode: state.tools.brushSettings.colorCycleFlowMode ?? 'forward',
+        },
+      }
+    : {
+        ...commonLayer,
+        layerType: 'normal',
+      };
+
+  const layerId = state.addLayer(layer);
+  if (!layerId) {
+    throw new Error(`Failed to create ${operation.layerType} layer`);
+  }
+};
+
+const isCurrentColorCycleBrush = (state: ReturnType<typeof getAppStoreState>) => {
+  const presetId = state.currentBrushPreset?.id;
+  if (presetId && isColorCyclePresetId(presetId)) return true;
+  const settings = state.tools.brushSettings;
+  return isColorCycleBrushShape(settings.brushShape) || (
+    settings.brushShape === BrushShape.CUSTOM &&
+    Boolean(settings.selectedCustomBrush) &&
+    settings.customBrushColorCycle === true
+  );
+};
+
 const decodeProjectBase64 = (dataBase64: string): ArrayBuffer => {
   const binary = atob(dataBase64);
   const bytes = new Uint8Array(binary.length);
@@ -165,6 +318,16 @@ const executeStroke = async (
   const tool = operation.tool ?? state.tools.currentTool;
   if (tool !== 'brush' && tool !== 'eraser') {
     throw new Error('A stroke requires the brush or eraser tool');
+  }
+
+  if (tool === 'brush') {
+    const usesColorCycle = isCurrentColorCycleBrush(state);
+    if (usesColorCycle && layer.layerType !== 'color-cycle') {
+      throw new Error(`Color Cycle brush requires a Color Cycle layer: ${layer.name}`);
+    }
+    if (!usesColorCycle && layer.layerType === 'color-cycle') {
+      throw new Error(`Normal brush requires a normal layer: ${layer.name}`);
+    }
   }
 
   state.setCurrentTool(tool);
@@ -204,13 +367,74 @@ const executeShape = async (
     throw new Error('This Color Cycle shape requires direction points');
   }
 
-  await executeStroke(operation, runtime);
+  await executeStroke({ ...operation, tool: 'brush' }, runtime);
   if (operation.direction) {
     await executeStroke({
       points: operation.direction,
       pointsPerFrame: operation.pointsPerFrame,
+      tool: 'brush',
     }, runtime);
   }
+};
+
+const executeSetPalette = (
+  operation: Extract<VesselCollaborationBatchOperation, { action: 'set-palette' }>,
+) => {
+  const state = getAppStoreState();
+  if (operation.swap) {
+    state.swapPaletteColors();
+  }
+  if (operation.foreground !== undefined) {
+    state.setPaletteColor('foreground', operation.foreground);
+  }
+  if (operation.background !== undefined) {
+    state.setPaletteColor('background', operation.background);
+  }
+  if (operation.activeSlot !== undefined) {
+    state.setActivePaletteSlot(operation.activeSlot);
+  }
+};
+
+const executeSetGradient = (
+  operation: Extract<VesselCollaborationBatchOperation, { action: 'set-gradient' }>,
+) => {
+  const state = getAppStoreState();
+  if (operation.stops) {
+    state.commitColorCycleGradientDraft(operation.stops);
+  }
+  if (operation.foreground) {
+    state.setBrushSettings({
+      ...(operation.foreground.lightness === undefined
+        ? {}
+        : { colorCycleFgLightness: operation.foreground.lightness }),
+      ...(operation.foreground.hueShift === undefined
+        ? {}
+        : { colorCycleFgHueShift: operation.foreground.hueShift }),
+      ...(operation.foreground.saturationShift === undefined
+        ? {}
+        : { colorCycleFgSaturationShift: operation.foreground.saturationShift }),
+      ...(operation.foreground.opacity === undefined
+        ? {}
+        : { colorCycleFgOpacity: operation.foreground.opacity }),
+      ...(operation.foreground.stopCount === undefined
+        ? {}
+        : { colorCycleFgStops: operation.foreground.stopCount }),
+    });
+  }
+  if (operation.resetSample) {
+    state.resetCcGradientSample();
+  }
+};
+
+const executeSetEraser = (
+  operation: Extract<VesselCollaborationBatchOperation, { action: 'set-eraser' }>,
+) => {
+  const state = getAppStoreState();
+  const { tip, ...settings } = operation.settings;
+  state.setEraserSettings({
+    ...settings,
+    ...(tip === undefined ? {} : createEraserTipSettingsPatch(tip)),
+  });
 };
 
 const executeMutation = async (
@@ -248,6 +472,18 @@ const executeMutation = async (
     case 'set-brush':
       state.setBrushSettings(operation.settings);
       return;
+    case 'set-palette':
+      executeSetPalette(operation);
+      return;
+    case 'set-gradient-source':
+      state.setCcGradientSource(operation.source);
+      return;
+    case 'set-gradient':
+      executeSetGradient(operation);
+      return;
+    case 'set-eraser':
+      executeSetEraser(operation);
+      return;
     case 'set-active-layer': {
       const layer = state.layers.find((candidate) => candidate.id === operation.layerId);
       if (!layer) {
@@ -256,6 +492,9 @@ const executeMutation = async (
       state.setActiveLayer(layer.id);
       return;
     }
+    case 'create-layer':
+      executeCreateLayer(operation);
+      return;
     case 'undo':
       await state.undo();
       return;
@@ -271,11 +510,22 @@ const defaultCapturePolicy = (
   command: VesselCollaborationCommand,
 ): VesselCollaborationCapturePolicy => {
   if (command.capture) return command.capture;
+  if (
+    command.action === 'batch' &&
+    command.operations.some((operation) => operation.action === 'checkpoint')
+  ) {
+    return 'none';
+  }
   switch (command.action) {
     case 'set-tool':
     case 'set-brush-preset':
     case 'set-brush':
+    case 'set-palette':
+    case 'set-gradient-source':
+    case 'set-gradient':
+    case 'set-eraser':
     case 'set-active-layer':
+    case 'create-layer':
     case 'save':
       return 'none';
     default:
@@ -406,10 +656,36 @@ export const createVesselCollaborationExecutor = (
 
       if (command.action === 'batch') {
         const runtime = getRuntime();
-        let hasPresentedGesture = false;
+        let hasPresentedFrame = false;
 
         for (let index = 0; index < command.operations.length; index += 1) {
           const operation = command.operations[index];
+          if (operation.action === 'checkpoint') {
+            const captured = await presentAndCapture(
+              runtime,
+              'final-thumbnail',
+              thumbnailMaxSize,
+            );
+            presentationMs += captured.presentationMs;
+            captureMs += captured.captureMs;
+            hasPresentedFrame = true;
+            completedOperations += 1;
+            operationProfiles.push({
+              index,
+              action: operation.action,
+              mutationMs: 0,
+              revision,
+            });
+            if (captured.frame) {
+              batchFrames.push({
+                operationIndex: index,
+                revision,
+                checkpointName: operation.name,
+                frame: captured.frame,
+              });
+            }
+            continue;
+          }
           const operationStartedAt = performance.now();
           const beforeRevision = revision;
           await executeMutation(operation, runtime);
@@ -435,7 +711,7 @@ export const createVesselCollaborationExecutor = (
             );
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
-            hasPresentedGesture = true;
+            hasPresentedFrame = true;
             if (captured.frame) {
               batchFrames.push({ operationIndex: index, revision, frame: captured.frame });
             }
@@ -444,15 +720,19 @@ export const createVesselCollaborationExecutor = (
 
         let frame: VesselCollaborationFrame | undefined;
         if (capturePolicy !== 'each-thumbnail') {
-          const shouldPresent = command.operations.some((operation) => needsPresentation(operation.action)) ||
-            capturePolicy !== 'none';
+          const lastOperationIsCheckpoint = command.operations.at(-1)?.action === 'checkpoint';
+          const shouldPresent = (
+            !lastOperationIsCheckpoint &&
+            command.operations.some((operation) =>
+              operation.action !== 'checkpoint' && needsPresentation(operation.action))
+          ) || capturePolicy !== 'none';
           if (shouldPresent) {
             const captured = await presentAndCapture(runtime, capturePolicy, thumbnailMaxSize);
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
             frame = captured.frame;
           }
-        } else if (!hasPresentedGesture) {
+        } else if (!hasPresentedFrame) {
           const captured = await presentAndCapture(runtime, 'none', thumbnailMaxSize);
           presentationMs += captured.presentationMs;
         }

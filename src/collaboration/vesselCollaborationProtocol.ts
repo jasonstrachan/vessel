@@ -15,7 +15,7 @@ interface VesselCollaborationCaptureOptions {
   thumbnailMaxSize?: number;
 }
 
-type VesselCollaborationDitherAlgorithm =
+export type VesselCollaborationDitherAlgorithm =
   | 'floyd-steinberg'
   | 'jarvis-judice-ninke'
   | 'stucki'
@@ -28,6 +28,25 @@ type VesselCollaborationDitherAlgorithm =
   | 'blue-noise'
   | 'void-and-cluster'
   | 'pattern';
+
+export type VesselCollaborationPatternStyle =
+  | 'dots'
+  | 'lines'
+  | 'vertical-lines'
+  | 'horizontal-lines'
+  | 'crosshatch'
+  | 'diagonal'
+  | 'ascii'
+  | 'tone-adaptive';
+
+export type VesselCollaborationGradientSource = 'manual' | 'fg' | 'sampled';
+export type VesselCollaborationEraserTip = 'square' | 'round' | 'diamond5';
+
+export interface VesselCollaborationGradientStop {
+  position: number;
+  color: string;
+  opacity?: number;
+}
 
 interface VesselCollaborationStrokeOperation {
   action: 'stroke';
@@ -52,18 +71,105 @@ interface VesselCollaborationSetBrushOperation {
     spacing?: number;
     ditherEnabled?: boolean;
     ditherAlgorithm?: VesselCollaborationDitherAlgorithm;
+    patternStyle?: VesselCollaborationPatternStyle;
     fillResolution?: number;
     pressureLinkedFillResolution?: boolean;
     pressureLinkedFillMaxResolution?: number;
+    ditherBackgroundFill?: boolean;
+    ditherGradBgFill?: boolean;
+    ditherPaletteSpread?: number;
+    ditherPatternDiversity?: number;
+    ditherPhaseJitter?: number;
+    ccGradientRangeContrast?: number;
+    ccSampledSoftSeamEnabled?: boolean;
+    lostEdge?: number;
+    pxlEdge?: boolean;
+    colorCycleSpeed?: number;
+    gradientBands?: number;
+    colorCycleFillMode?: 'concentric' | 'linear' | 'stroke';
+    ccGradientDrawingShape?:
+      | 'freehand'
+      | 'rectangle'
+      | 'ellipse'
+      | 'line'
+      | 'triangle'
+      | 'polygon'
+      | 'click-line';
+    colorCycleStampDitherEnabled?: boolean;
+    colorCycleStampDitherPixelSize?: number;
+    colorCycleStampDitherPressureLinked?: boolean;
+    colorCycleStampDitherBgFill?: boolean;
+    colorCycleStampShape?:
+      | 'square'
+      | 'round'
+      | 'triangle'
+      | 'diamond'
+      | 'diamond5'
+      | 'diamond7'
+      | 'diamond9'
+      | 'checkered';
   };
+}
+
+interface VesselCollaborationSetPaletteOperation {
+  action: 'set-palette';
+  foreground?: string;
+  background?: string;
+  activeSlot?: 'foreground' | 'background';
+  swap?: boolean;
+}
+
+interface VesselCollaborationSetGradientSourceOperation {
+  action: 'set-gradient-source';
+  source: VesselCollaborationGradientSource;
+}
+
+interface VesselCollaborationSetGradientOperation {
+  action: 'set-gradient';
+  stops?: VesselCollaborationGradientStop[];
+  foreground?: {
+    lightness?: number;
+    hueShift?: number;
+    saturationShift?: number;
+    opacity?: number;
+    stopCount?: number;
+  };
+  resetSample?: boolean;
+}
+
+interface VesselCollaborationSetEraserOperation {
+  action: 'set-eraser';
+  settings: {
+    size?: number;
+    opacity?: number;
+    linkSizeToBrush?: boolean;
+    tip?: VesselCollaborationEraserTip;
+  };
+}
+
+interface VesselCollaborationCheckpointOperation {
+  action: 'checkpoint';
+  name: string;
+}
+
+interface VesselCollaborationCreateLayerOperation {
+  action: 'create-layer';
+  layerType: 'normal' | 'color-cycle';
+  name?: string;
 }
 
 export type VesselCollaborationBatchOperation =
   | VesselCollaborationStrokeOperation
   | VesselCollaborationShapeOperation
+  | VesselCollaborationCheckpointOperation
+  | VesselCollaborationCreateLayerOperation
   | { action: 'set-tool'; tool: 'brush' | 'eraser' }
   | { action: 'set-brush-preset'; presetId: string }
   | VesselCollaborationSetBrushOperation
+  | VesselCollaborationSetPaletteOperation
+  | VesselCollaborationSetGradientSourceOperation
+  | VesselCollaborationSetGradientOperation
+  | VesselCollaborationSetEraserOperation
   | { action: 'set-active-layer'; layerId: string };
 
 type WithCaptureOptions<T> = T & VesselCollaborationCaptureOptions;
@@ -76,6 +182,11 @@ export type VesselCollaborationCommand =
   | WithCaptureOptions<{ id: string; action: 'set-tool'; tool: 'brush' | 'eraser' }>
   | WithCaptureOptions<{ id: string; action: 'set-brush-preset'; presetId: string }>
   | WithCaptureOptions<{ id: string } & VesselCollaborationSetBrushOperation>
+  | WithCaptureOptions<{ id: string } & VesselCollaborationSetPaletteOperation>
+  | WithCaptureOptions<{ id: string } & VesselCollaborationSetGradientSourceOperation>
+  | WithCaptureOptions<{ id: string } & VesselCollaborationSetGradientOperation>
+  | WithCaptureOptions<{ id: string } & VesselCollaborationSetEraserOperation>
+  | WithCaptureOptions<{ id: string } & VesselCollaborationCreateLayerOperation>
   | {
       id: string;
       action: 'batch';
@@ -126,6 +237,33 @@ export interface VesselCollaborationResult {
     activeLayerId: string | null;
     currentTool: string;
     currentBrushPresetId: string | null;
+    currentBrushCapabilities: {
+      canDither: boolean;
+      forceDither: boolean;
+    };
+    availableBrushPresets: Array<{
+      id: string;
+      name: string;
+      category: string;
+      isCustomBrush: boolean;
+    }>;
+    palette: {
+      foreground: string;
+      background: string;
+      activeSlot: 'foreground' | 'background';
+    };
+    gradient: {
+      source: VesselCollaborationGradientSource;
+      stops: VesselCollaborationGradientStop[];
+      foreground: {
+        lightness: number;
+        hueShift: number;
+        saturationShift: number;
+        opacity: number;
+        stopCount: number;
+      };
+      sampleCount: number;
+    };
     brush: {
       size: number;
       opacity: number;
@@ -134,9 +272,34 @@ export interface VesselCollaborationResult {
       shapeEnabled: boolean;
       ditherEnabled: boolean;
       ditherAlgorithm: string | null;
+      patternStyle: string | null;
       fillResolution: number | null;
       pressureLinkedFillResolution: boolean;
       pressureLinkedFillMaxResolution: number | null;
+      ditherBackgroundFill: boolean;
+      ditherGradBgFill: boolean;
+      ditherPaletteSpread: number;
+      ditherPatternDiversity: number;
+      ditherPhaseJitter: number;
+      ccGradientRangeContrast: number;
+      ccSampledSoftSeamEnabled: boolean;
+      lostEdge: number;
+      pxlEdge: boolean;
+      colorCycleSpeed: number | null;
+      gradientBands: number | null;
+      colorCycleFillMode: string | null;
+      ccGradientDrawingShape: string | null;
+      colorCycleStampDitherEnabled: boolean;
+      colorCycleStampDitherPixelSize: number | null;
+      colorCycleStampDitherPressureLinked: boolean;
+      colorCycleStampDitherBgFill: boolean;
+      colorCycleStampShape: string | null;
+    };
+    eraser: {
+      size: number;
+      opacity: number;
+      linkSizeToBrush: boolean;
+      tip: VesselCollaborationEraserTip;
     };
     dirtyRevision: number;
     layers: Array<{
@@ -152,6 +315,7 @@ export interface VesselCollaborationResult {
   frames?: Array<{
     operationIndex: number;
     revision: number;
+    checkpointName?: string;
     frame: VesselCollaborationFrame;
   }>;
   profile?: VesselCollaborationProfile;
@@ -192,6 +356,40 @@ const requireInteger = (value: unknown, field: string): number => {
   return number;
 };
 
+const requireHexColor = (value: unknown, field: string): string => {
+  const color = requireString(value, field);
+  if (!/^#[0-9a-f]{6}$/i.test(color)) {
+    throw new Error(`${field} must be a six-digit hex color`);
+  }
+  return color;
+};
+
+const requireNumberInRange = (
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): number => {
+  const number = requireFiniteNumber(value, field);
+  if (number < minimum || number > maximum) {
+    throw new Error(`${field} must be between ${minimum} and ${maximum}`);
+  }
+  return number;
+};
+
+const requireIntegerInRange = (
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): number => {
+  const number = requireInteger(value, field);
+  if (number < minimum || number > maximum) {
+    throw new Error(`${field} must be between ${minimum} and ${maximum}`);
+  }
+  return number;
+};
+
 const DITHER_ALGORITHMS = new Set<VesselCollaborationDitherAlgorithm>([
   'floyd-steinberg',
   'jarvis-judice-ninke',
@@ -207,11 +405,49 @@ const DITHER_ALGORITHMS = new Set<VesselCollaborationDitherAlgorithm>([
   'pattern',
 ]);
 
+const PATTERN_STYLES = new Set<VesselCollaborationPatternStyle>([
+  'dots',
+  'lines',
+  'vertical-lines',
+  'horizontal-lines',
+  'crosshatch',
+  'diagonal',
+  'ascii',
+  'tone-adaptive',
+]);
+
+const CC_GRADIENT_DRAWING_SHAPES = new Set([
+  'freehand',
+  'rectangle',
+  'ellipse',
+  'line',
+  'triangle',
+  'polygon',
+  'click-line',
+]);
+
+const CC_STAMP_SHAPES = new Set([
+  'square',
+  'round',
+  'triangle',
+  'diamond',
+  'diamond5',
+  'diamond7',
+  'diamond9',
+  'checkered',
+]);
+
+const ERASER_TIPS = new Set<VesselCollaborationEraserTip>([
+  'square',
+  'round',
+  'diamond5',
+]);
+
 const MAX_PROJECT_BASE64_CHARS = 24 * 1024 * 1024;
 const MAX_BATCH_OPERATIONS = 100;
 const MAX_BATCH_POINTS = 50000;
 const MAX_COALESCED_STROKE_POINTS = 16;
-const MAX_CAPTURED_BATCH_GESTURES = 8;
+const MAX_CAPTURED_BATCH_FRAMES = 8;
 
 const readProjectBase64 = (value: unknown): string => {
   const dataBase64 = requireString(value, 'dataBase64');
@@ -306,9 +542,28 @@ const readBrushSettings = (value: unknown) => {
     'spacing',
     'ditherEnabled',
     'ditherAlgorithm',
+    'patternStyle',
     'fillResolution',
     'pressureLinkedFillResolution',
     'pressureLinkedFillMaxResolution',
+    'ditherBackgroundFill',
+    'ditherGradBgFill',
+    'ditherPaletteSpread',
+    'ditherPatternDiversity',
+    'ditherPhaseJitter',
+    'ccGradientRangeContrast',
+    'ccSampledSoftSeamEnabled',
+    'lostEdge',
+    'pxlEdge',
+    'colorCycleSpeed',
+    'gradientBands',
+    'colorCycleFillMode',
+    'ccGradientDrawingShape',
+    'colorCycleStampDitherEnabled',
+    'colorCycleStampDitherPixelSize',
+    'colorCycleStampDitherPressureLinked',
+    'colorCycleStampDitherBgFill',
+    'colorCycleStampShape',
   ]);
   const unsupportedKey = Object.keys(value).find((key) => !supportedKeys.has(key));
   if (unsupportedKey) {
@@ -334,11 +589,7 @@ const readBrushSettings = (value: unknown) => {
     }
   }
   if (value.color !== undefined) {
-    const color = requireString(value.color, 'settings.color');
-    if (!/^#[0-9a-f]{6}$/i.test(color)) {
-      throw new Error('settings.color must be a six-digit hex color');
-    }
-    settings.color = color;
+    settings.color = requireHexColor(value.color, 'settings.color');
   }
   if (value.ditherEnabled !== undefined) {
     settings.ditherEnabled = requireBoolean(value.ditherEnabled, 'settings.ditherEnabled');
@@ -349,6 +600,13 @@ const readBrushSettings = (value: unknown) => {
       throw new Error(`unsupported dither algorithm: ${algorithm}`);
     }
     settings.ditherAlgorithm = algorithm as VesselCollaborationDitherAlgorithm;
+  }
+  if (value.patternStyle !== undefined) {
+    const patternStyle = requireString(value.patternStyle, 'settings.patternStyle');
+    if (!PATTERN_STYLES.has(patternStyle as VesselCollaborationPatternStyle)) {
+      throw new Error(`unsupported pattern style: ${patternStyle}`);
+    }
+    settings.patternStyle = patternStyle as VesselCollaborationPatternStyle;
   }
   if (value.fillResolution !== undefined) {
     const resolution = requireFiniteNumber(value.fillResolution, 'settings.fillResolution');
@@ -373,8 +631,286 @@ const readBrushSettings = (value: unknown) => {
     }
     settings.pressureLinkedFillMaxResolution = Math.round(maxResolution);
   }
+  if (value.ditherBackgroundFill !== undefined) {
+    settings.ditherBackgroundFill = requireBoolean(
+      value.ditherBackgroundFill,
+      'settings.ditherBackgroundFill',
+    );
+  }
+  if (value.ditherGradBgFill !== undefined) {
+    settings.ditherGradBgFill = requireBoolean(
+      value.ditherGradBgFill,
+      'settings.ditherGradBgFill',
+    );
+  }
+  if (value.ccSampledSoftSeamEnabled !== undefined) {
+    settings.ccSampledSoftSeamEnabled = requireBoolean(
+      value.ccSampledSoftSeamEnabled,
+      'settings.ccSampledSoftSeamEnabled',
+    );
+  }
+  if (value.pxlEdge !== undefined) {
+    settings.pxlEdge = requireBoolean(value.pxlEdge, 'settings.pxlEdge');
+  }
+  if (value.colorCycleStampDitherEnabled !== undefined) {
+    settings.colorCycleStampDitherEnabled = requireBoolean(
+      value.colorCycleStampDitherEnabled,
+      'settings.colorCycleStampDitherEnabled',
+    );
+  }
+  if (value.colorCycleStampDitherPressureLinked !== undefined) {
+    settings.colorCycleStampDitherPressureLinked = requireBoolean(
+      value.colorCycleStampDitherPressureLinked,
+      'settings.colorCycleStampDitherPressureLinked',
+    );
+  }
+  if (value.colorCycleStampDitherBgFill !== undefined) {
+    settings.colorCycleStampDitherBgFill = requireBoolean(
+      value.colorCycleStampDitherBgFill,
+      'settings.colorCycleStampDitherBgFill',
+    );
+  }
+  if (value.ditherPaletteSpread !== undefined) {
+    settings.ditherPaletteSpread = requireNumberInRange(
+      value.ditherPaletteSpread,
+      'settings.ditherPaletteSpread',
+      0,
+      100,
+    );
+  }
+  if (value.ditherPatternDiversity !== undefined) {
+    settings.ditherPatternDiversity = requireNumberInRange(
+      value.ditherPatternDiversity,
+      'settings.ditherPatternDiversity',
+      0,
+      100,
+    );
+  }
+  if (value.ditherPhaseJitter !== undefined) {
+    settings.ditherPhaseJitter = requireNumberInRange(
+      value.ditherPhaseJitter,
+      'settings.ditherPhaseJitter',
+      0,
+      100,
+    );
+  }
+  if (value.ccGradientRangeContrast !== undefined) {
+    settings.ccGradientRangeContrast = requireNumberInRange(
+      value.ccGradientRangeContrast,
+      'settings.ccGradientRangeContrast',
+      0,
+      100,
+    );
+  }
+  if (value.lostEdge !== undefined) {
+    settings.lostEdge = requireNumberInRange(value.lostEdge, 'settings.lostEdge', 0, 100);
+  }
+  if (value.colorCycleSpeed !== undefined) {
+    settings.colorCycleSpeed = requireNumberInRange(
+      value.colorCycleSpeed,
+      'settings.colorCycleSpeed',
+      0,
+      1.5,
+    );
+  }
+  if (value.gradientBands !== undefined) {
+    settings.gradientBands = requireIntegerInRange(
+      value.gradientBands,
+      'settings.gradientBands',
+      1,
+      128,
+    );
+  }
+  if (value.colorCycleStampDitherPixelSize !== undefined) {
+    settings.colorCycleStampDitherPixelSize = requireIntegerInRange(
+      value.colorCycleStampDitherPixelSize,
+      'settings.colorCycleStampDitherPixelSize',
+      1,
+      64,
+    );
+  }
+  if (value.colorCycleFillMode !== undefined) {
+    const mode = requireString(value.colorCycleFillMode, 'settings.colorCycleFillMode');
+    if (mode !== 'concentric' && mode !== 'linear' && mode !== 'stroke') {
+      throw new Error('settings.colorCycleFillMode must be concentric, linear, or stroke');
+    }
+    settings.colorCycleFillMode = mode;
+  }
+  if (value.ccGradientDrawingShape !== undefined) {
+    const shape = requireString(value.ccGradientDrawingShape, 'settings.ccGradientDrawingShape');
+    if (!CC_GRADIENT_DRAWING_SHAPES.has(shape)) {
+      throw new Error(`unsupported CC gradient drawing shape: ${shape}`);
+    }
+    settings.ccGradientDrawingShape = shape as NonNullable<
+      typeof settings.ccGradientDrawingShape
+    >;
+  }
+  if (value.colorCycleStampShape !== undefined) {
+    const shape = requireString(value.colorCycleStampShape, 'settings.colorCycleStampShape');
+    if (!CC_STAMP_SHAPES.has(shape)) {
+      throw new Error(`unsupported Color Cycle stamp shape: ${shape}`);
+    }
+    settings.colorCycleStampShape = shape as NonNullable<typeof settings.colorCycleStampShape>;
+  }
   if (Object.keys(settings).length === 0) {
     throw new Error('settings must include at least one supported brush value');
+  }
+  return settings;
+};
+
+const readGradientSource = (
+  value: unknown,
+  field: string,
+): VesselCollaborationGradientSource => {
+  if (value !== 'manual' && value !== 'fg' && value !== 'sampled') {
+    throw new Error(`${field} must be manual, fg, or sampled`);
+  }
+  return value;
+};
+
+const readPaletteOperation = (
+  value: Record<string, unknown>,
+): Omit<VesselCollaborationSetPaletteOperation, 'action'> => {
+  const foreground = value.foreground === undefined
+    ? undefined
+    : requireHexColor(value.foreground, 'foreground');
+  const background = value.background === undefined
+    ? undefined
+    : requireHexColor(value.background, 'background');
+  const activeSlot = value.activeSlot === undefined
+    ? undefined
+    : value.activeSlot;
+  if (activeSlot !== undefined && activeSlot !== 'foreground' && activeSlot !== 'background') {
+    throw new Error('activeSlot must be foreground or background');
+  }
+  const swap = value.swap === undefined ? undefined : requireBoolean(value.swap, 'swap');
+  if (swap && (foreground !== undefined || background !== undefined)) {
+    throw new Error('swap cannot be combined with foreground or background');
+  }
+  if (
+    foreground === undefined &&
+    background === undefined &&
+    activeSlot === undefined &&
+    swap !== true
+  ) {
+    throw new Error('set-palette must change a color, activeSlot, or swap');
+  }
+  return { foreground, background, activeSlot, swap };
+};
+
+const readGradientStops = (value: unknown): VesselCollaborationGradientStop[] => {
+  if (!Array.isArray(value) || value.length < 2 || value.length > 32) {
+    throw new Error('stops must contain between 2 and 32 gradient stops');
+  }
+  let previousPosition = -1;
+  return value.map((stop, index) => {
+    if (!isRecord(stop)) {
+      throw new Error(`stops[${index}] must be an object`);
+    }
+    const position = requireNumberInRange(stop.position, `stops[${index}].position`, 0, 1);
+    if (position < previousPosition) {
+      throw new Error('gradient stop positions must be in ascending order');
+    }
+    previousPosition = position;
+    const opacity = stop.opacity === undefined
+      ? undefined
+      : requireNumberInRange(stop.opacity, `stops[${index}].opacity`, 0, 1);
+    return {
+      position,
+      color: requireHexColor(stop.color, `stops[${index}].color`),
+      opacity,
+    };
+  });
+};
+
+const readGradientOperation = (
+  value: Record<string, unknown>,
+): Omit<VesselCollaborationSetGradientOperation, 'action'> => {
+  const stops = value.stops === undefined ? undefined : readGradientStops(value.stops);
+  let foreground: VesselCollaborationSetGradientOperation['foreground'];
+  if (value.foreground !== undefined) {
+    if (!isRecord(value.foreground)) {
+      throw new Error('foreground must be an object');
+    }
+    const supportedKeys = new Set([
+      'lightness',
+      'hueShift',
+      'saturationShift',
+      'opacity',
+      'stopCount',
+    ]);
+    const unsupportedKey = Object.keys(value.foreground).find((key) => !supportedKeys.has(key));
+    if (unsupportedKey) {
+      throw new Error(`unsupported foreground gradient setting: ${unsupportedKey}`);
+    }
+    foreground = {
+      lightness: value.foreground.lightness === undefined
+        ? undefined
+        : requireNumberInRange(value.foreground.lightness, 'foreground.lightness', 0, 100),
+      hueShift: value.foreground.hueShift === undefined
+        ? undefined
+        : requireNumberInRange(value.foreground.hueShift, 'foreground.hueShift', -320, 320),
+      saturationShift: value.foreground.saturationShift === undefined
+        ? undefined
+        : requireNumberInRange(
+            value.foreground.saturationShift,
+            'foreground.saturationShift',
+            -45,
+            45,
+          ),
+      opacity: value.foreground.opacity === undefined
+        ? undefined
+        : requireNumberInRange(value.foreground.opacity, 'foreground.opacity', 0, 100),
+      stopCount: value.foreground.stopCount === undefined
+        ? undefined
+        : requireIntegerInRange(value.foreground.stopCount, 'foreground.stopCount', 2, 6),
+    };
+    if (Object.values(foreground).every((entry) => entry === undefined)) {
+      throw new Error('foreground must include at least one gradient setting');
+    }
+  }
+  const resetSample = value.resetSample === undefined
+    ? undefined
+    : requireBoolean(value.resetSample, 'resetSample');
+  if (stops === undefined && foreground === undefined && resetSample !== true) {
+    throw new Error('set-gradient must include stops, foreground settings, or resetSample');
+  }
+  return { stops, foreground, resetSample };
+};
+
+const readEraserSettings = (
+  value: unknown,
+): VesselCollaborationSetEraserOperation['settings'] => {
+  if (!isRecord(value)) {
+    throw new Error('settings must be an object');
+  }
+  const supportedKeys = new Set(['size', 'opacity', 'linkSizeToBrush', 'tip']);
+  const unsupportedKey = Object.keys(value).find((key) => !supportedKeys.has(key));
+  if (unsupportedKey) {
+    throw new Error(`unsupported eraser setting: ${unsupportedKey}`);
+  }
+  const settings: VesselCollaborationSetEraserOperation['settings'] = {};
+  if (value.size !== undefined) {
+    settings.size = requireNumberInRange(value.size, 'settings.size', 1, 4096);
+  }
+  if (value.opacity !== undefined) {
+    settings.opacity = requireNumberInRange(value.opacity, 'settings.opacity', 0, 1);
+  }
+  if (value.linkSizeToBrush !== undefined) {
+    settings.linkSizeToBrush = requireBoolean(
+      value.linkSizeToBrush,
+      'settings.linkSizeToBrush',
+    );
+  }
+  if (value.tip !== undefined) {
+    const tip = requireString(value.tip, 'settings.tip');
+    if (!ERASER_TIPS.has(tip as VesselCollaborationEraserTip)) {
+      throw new Error(`unsupported eraser tip: ${tip}`);
+    }
+    settings.tip = tip as VesselCollaborationEraserTip;
+  }
+  if (Object.keys(settings).length === 0) {
+    throw new Error('settings must include at least one supported eraser value');
   }
   return settings;
 };
@@ -401,6 +937,30 @@ const readCaptureOptions = (value: Record<string, unknown>): VesselCollaboration
     options.thumbnailMaxSize = thumbnailMaxSize;
   }
   return options;
+};
+
+const readCheckpointName = (value: unknown, field: string) => {
+  const name = requireString(value, field).trim();
+  if (name.length > 64) {
+    throw new Error(`${field} cannot exceed 64 characters`);
+  }
+  return name;
+};
+
+const readLayerType = (value: unknown, field: string): 'normal' | 'color-cycle' => {
+  if (value !== 'normal' && value !== 'color-cycle') {
+    throw new Error(`${field} must be normal or color-cycle`);
+  }
+  return value;
+};
+
+const readLayerName = (value: unknown, field: string): string | undefined => {
+  if (value === undefined) return undefined;
+  const name = requireString(value, field).trim();
+  if (name.length > 100) {
+    throw new Error(`${field} cannot exceed 100 characters`);
+  }
+  return name;
 };
 
 const readBatchOperation = (value: unknown, index: number): VesselCollaborationBatchOperation => {
@@ -443,10 +1003,32 @@ const readBatchOperation = (value: unknown, index: number): VesselCollaborationB
       };
     case 'set-brush':
       return { action, settings: readBrushSettings(value.settings) };
+    case 'set-palette':
+      return { action, ...readPaletteOperation(value) };
+    case 'set-gradient-source':
+      return {
+        action,
+        source: readGradientSource(value.source, `operations[${index}].source`),
+      };
+    case 'set-gradient':
+      return { action, ...readGradientOperation(value) };
+    case 'set-eraser':
+      return { action, settings: readEraserSettings(value.settings) };
     case 'set-active-layer':
       return {
         action,
         layerId: requireString(value.layerId, `operations[${index}].layerId`),
+      };
+    case 'create-layer':
+      return {
+        action,
+        layerType: readLayerType(value.layerType, `operations[${index}].layerType`),
+        name: readLayerName(value.name, `operations[${index}].name`),
+      };
+    case 'checkpoint':
+      return {
+        action,
+        name: readCheckpointName(value.name, `operations[${index}].name`),
       };
     default:
       throw new Error(`unsupported batch operation: ${action}`);
@@ -511,6 +1093,32 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
       };
     case 'set-brush':
       return { id, action, settings: readBrushSettings(value.settings), ...captureOptions };
+    case 'set-palette':
+      return { id, action, ...readPaletteOperation(value), ...captureOptions };
+    case 'set-gradient-source':
+      return {
+        id,
+        action,
+        source: readGradientSource(value.source, 'source'),
+        ...captureOptions,
+      };
+    case 'set-gradient':
+      return { id, action, ...readGradientOperation(value), ...captureOptions };
+    case 'set-eraser':
+      return {
+        id,
+        action,
+        settings: readEraserSettings(value.settings),
+        ...captureOptions,
+      };
+    case 'create-layer':
+      return {
+        id,
+        action,
+        layerType: readLayerType(value.layerType, 'layerType'),
+        name: readLayerName(value.name, 'name'),
+        ...captureOptions,
+      };
     case 'batch': {
       if (!Array.isArray(value.operations) || value.operations.length === 0) {
         throw new Error('operations must contain at least one operation');
@@ -522,11 +1130,23 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
       const gestureCount = operations.filter(
         (operation) => operation.action === 'stroke' || operation.action === 'shape',
       ).length;
+      const checkpointNames = operations
+        .filter((operation) => operation.action === 'checkpoint')
+        .map((operation) => operation.name);
+      if (new Set(checkpointNames).size !== checkpointNames.length) {
+        throw new Error('checkpoint names must be unique within a batch');
+      }
+      const capturedFrameCount = checkpointNames.length + (
+        captureOptions.capture === 'each-thumbnail' ? gestureCount : 0
+      );
       if (
         captureOptions.capture === 'each-thumbnail' &&
-        gestureCount > MAX_CAPTURED_BATCH_GESTURES
+        gestureCount > MAX_CAPTURED_BATCH_FRAMES
       ) {
         throw new Error('each-thumbnail batches cannot contain more than 8 gestures');
+      }
+      if (capturedFrameCount > MAX_CAPTURED_BATCH_FRAMES) {
+        throw new Error('batches cannot return more than 8 checkpoint or gesture thumbnails');
       }
       if (
         captureOptions.capture === 'each-thumbnail' &&
