@@ -6,6 +6,7 @@ import { deserializeProject } from '@/utils/projectIO';
 
 import { dispatchVesselCollaborationStroke } from '../dispatchVesselCollaborationStroke';
 import { createVesselCollaborationExecutor } from '../vesselCollaborationExecutor';
+import type { VesselCollaborationExecutionEvent } from '../vesselCollaborationProtocol';
 
 jest.mock('@/stores/appStoreAccess', () => ({
   getAppStoreState: jest.fn(),
@@ -707,6 +708,218 @@ describe('createVesselCollaborationExecutor', () => {
         documentVersionDelta: 1,
       },
     });
+  });
+
+  it('reports cumulative authored-buffer coverage for a fenced priority mask', async () => {
+    const paint = new Uint8Array(16);
+    const gradientDefIds = new Uint16Array(16);
+    let documentVersion = 1;
+    const state = {
+      project: { id: 'project-1', name: 'Study', width: 4, height: 4 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Paint',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 8, opacity: 1, shapeEnabled: true },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockReturnValue(state);
+    mockedGetColorCycleBrushManager.mockReturnValue({
+      getDocument: jest.fn(() => ({
+        read: () => ({
+          version: documentVersion,
+          snapshot: {
+            layerId: 'layer-1',
+            width: 4,
+            height: 4,
+            paintBuffer: paint.buffer,
+            gradientDefIdBuffer: gradientDefIds.buffer,
+            gradientDefStore: [],
+            hasContent: true,
+            sources: { brushStateSnapshot: false, topLevelBuffers: true, legacyStateRefs: false },
+          },
+        }),
+      })),
+    } as unknown as ReturnType<typeof getColorCycleBrushManager>);
+    const dispatchStroke = jest.fn(async () => {
+      if (dispatchStroke.mock.calls.length === 2) {
+        paint[5] = 9;
+        gradientDefIds[5] = 2;
+        state.autosave.dirtyRevision = 1;
+        documentVersion = 2;
+      }
+    });
+    const canvas = {
+      width: 4,
+      height: 4,
+      toDataURL: jest.fn(() => 'data:image/png;base64,frame'),
+    } as unknown as HTMLCanvasElement;
+    const checkpointEvents: VesselCollaborationExecutionEvent[] = [];
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'coverage-job',
+      action: 'artwork-job',
+      runtimeFence: {
+        protocolVersion: 3,
+        runtimeBuildId: 'test',
+        runtimeInstanceId: 'runtime',
+        leaseEpoch: 1,
+        expectedProjectId: 'project-1',
+        expectedProjectRevision: 0,
+        expectedCheckpointId: null,
+      },
+      priorityCoverage: {
+        priorityMaskId: 'face-priority',
+        priorityMaskFingerprint: 'mask-fingerprint',
+        coverageBaselineRevision: 0,
+        width: 4,
+        height: 4,
+        spans: [{ y: 1, xStart: 1, xEndExclusive: 3 }],
+      },
+      operations: [
+        {
+          id: 'face-light-1',
+          action: 'shape',
+          phase: 'focal',
+          points: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
+          direction: [{ x: 1, y: 1 }, { x: 2, y: 2 }],
+        },
+        { action: 'checkpoint', name: 'focal-1', capture: 'full' },
+      ],
+    }, {
+      onEvent: async (event) => {
+        checkpointEvents.push(event);
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      revision: 1,
+      checkpointId: 'coverage-job:focal-1',
+      committedOperationIds: ['face-light-1'],
+      priorityCoverage: {
+        priorityMaskId: 'face-priority',
+        maskPixels: 2,
+        uniqueMeaningfullyChangedPixels: 1,
+        cumulativePercentage: 0.5,
+        baselineRevision: 0,
+        currentRevision: 1,
+      },
+    });
+    expect(checkpointEvents.at(-1)).toMatchObject({
+      type: 'checkpoint',
+      checkpointId: 'coverage-job:focal-1',
+      priorityCoverage: { cumulativePercentage: 0.5 },
+    });
+  });
+
+  it('returns committed operation IDs and the authoritative revision after partial failure', async () => {
+    const paint = new Uint8Array(16);
+    const gradientDefIds = new Uint16Array(16);
+    let documentVersion = 1;
+    const state = {
+      project: { id: 'project-1', name: 'Study', width: 4, height: 4 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Paint',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 1, opacity: 1, shapeEnabled: false },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockReturnValue(state);
+    mockedGetColorCycleBrushManager.mockReturnValue({
+      getDocument: jest.fn(() => ({
+        read: () => ({
+          version: documentVersion,
+          snapshot: {
+            layerId: 'layer-1',
+            width: 4,
+            height: 4,
+            paintBuffer: paint.buffer,
+            gradientDefIdBuffer: gradientDefIds.buffer,
+            gradientDefStore: [],
+            hasContent: true,
+            sources: { brushStateSnapshot: false, topLevelBuffers: true, legacyStateRefs: false },
+          },
+        }),
+      })),
+    } as unknown as ReturnType<typeof getColorCycleBrushManager>);
+    const dispatchStroke = jest.fn(async () => {
+      if (dispatchStroke.mock.calls.length === 1) {
+        paint[5] = 1;
+        gradientDefIds[5] = 1;
+        state.autosave.dirtyRevision = 1;
+        documentVersion = 2;
+        return;
+      }
+      throw new Error('synthetic second-operation failure');
+    });
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'partial-job',
+      action: 'artwork-job',
+      runtimeFence: {
+        protocolVersion: 3,
+        runtimeBuildId: 'test',
+        runtimeInstanceId: 'runtime',
+        leaseEpoch: 1,
+        expectedProjectId: 'project-1',
+        expectedProjectRevision: 0,
+        expectedCheckpointId: null,
+      },
+      operations: [
+        { id: 'committed-stroke', action: 'stroke', phase: 'revision', points: [{ x: 1, y: 1 }] },
+        { id: 'failed-stroke', action: 'stroke', phase: 'revision', points: [{ x: 2, y: 2 }] },
+        { action: 'checkpoint', name: 'must-not-exist' },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      revision: 1,
+      checkpointId: null,
+      completedOperations: 1,
+      committedOperationIds: ['committed-stroke'],
+      outcome: { execution: 'failed', checkpoint: 'missing' },
+      error: 'synthetic second-operation failure',
+    });
+    expect(dispatchStroke).toHaveBeenCalledTimes(2);
   });
 
   it('rejects a completed pointer lifecycle with no canonical Color Cycle delta', async () => {
@@ -1931,7 +2144,7 @@ describe('createVesselCollaborationExecutor', () => {
       state.autosave.dirtyRevision = 1;
     });
     const runtimeIdentity = {
-      protocolVersion: 2 as const,
+      protocolVersion: 3 as const,
       runtimeBuildId: 'build-current',
       runtimeInstanceId: 'runtime-current',
       leaseEpoch: 3,
@@ -2017,7 +2230,7 @@ describe('createVesselCollaborationExecutor', () => {
       }),
     } as unknown as HTMLCanvasElement;
     const runtimeIdentity = {
-      protocolVersion: 2 as const,
+      protocolVersion: 3 as const,
       runtimeBuildId: 'build-current',
       runtimeInstanceId: 'runtime-current',
       leaseEpoch: 3,
@@ -2419,7 +2632,7 @@ describe('createVesselCollaborationExecutor', () => {
     const execute = createVesselCollaborationExecutor(getRuntime, {
       requireRuntimeFence: true,
       getRuntimeIdentity: () => ({
-        protocolVersion: 2,
+        protocolVersion: 3,
         runtimeBuildId: 'build-current',
         runtimeInstanceId: 'runtime-current',
         leaseEpoch: 3,
@@ -2431,7 +2644,7 @@ describe('createVesselCollaborationExecutor', () => {
       action: 'shape',
       capture: 'none',
       runtimeFence: {
-        protocolVersion: 2,
+        protocolVersion: 3,
         runtimeBuildId: 'build-stale',
         runtimeInstanceId: 'runtime-stale',
         leaseEpoch: 2,

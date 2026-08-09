@@ -10,6 +10,8 @@ import readline from 'node:readline';
 import {
   appendVesselCollaborationJournal,
   readVesselCollaborationJournal,
+  readVesselCollaborationJournalResult,
+  writeVesselCollaborationJournalResult,
 } from './vessel-collab-journal.mjs';
 import {
   compactVesselCollaborationResult as compactCollaborationResult,
@@ -38,10 +40,42 @@ const MAX_RETAINED_COMMAND_EVENTS = 512;
 const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REQUEST_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const CLIENT_ID_HEADER = 'x-vessel-collab-client';
-const VESSEL_COLLABORATION_PROTOCOL_VERSION = 2;
+const VESSEL_COLLABORATION_PROTOCOL_VERSION = 3;
 const VESSEL_COLLABORATION_STATE_SCHEMA_VERSION = 1;
 const PAIRING_TTL_MS = 60_000;
 const stagedArtworkExpander = createStagedArtworkExpander();
+
+const canonicalize = (value) => {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]),
+  );
+};
+
+const signatureHash = (value) => crypto
+  .createHash('sha256')
+  .update(JSON.stringify(canonicalize(value)))
+  .digest('hex');
+
+const commandIntent = (body) => {
+  const fence = body.runtimeFence && typeof body.runtimeFence === 'object' &&
+    !Array.isArray(body.runtimeFence) ? body.runtimeFence : {};
+  return {
+    ...body,
+    runtimeFence: {
+      ...(Object.hasOwn(fence, 'expectedProjectId')
+        ? { expectedProjectId: fence.expectedProjectId }
+        : {}),
+      ...(Object.hasOwn(fence, 'expectedProjectRevision')
+        ? { expectedProjectRevision: fence.expectedProjectRevision }
+        : {}),
+      ...(Object.hasOwn(fence, 'expectedCheckpointId')
+        ? { expectedCheckpointId: fence.expectedCheckpointId }
+        : {}),
+    },
+  };
+};
 
 const runtimeMatchesFence = (runtime, fence) => Boolean(
   runtime && fence &&
@@ -192,6 +226,26 @@ const serve = async ({ flags }) => {
   const queue = [];
   const commandRecords = new Map();
   const commandIdsByRequestId = new Map();
+  for (const recovered of recoveredJournal.commands) {
+    if (!recovered.requestId) continue;
+    const result = recovered.status === 'completed'
+      ? await readVesselCollaborationJournalResult(session, recovered.commandId)
+      : undefined;
+    commandRecords.set(recovered.commandId, {
+      requestId: recovered.requestId,
+      commandSignatureHash: recovered.commandSignatureHash,
+      result,
+      resultSignatureHash: recovered.resultSignatureHash,
+      events: [],
+      eventSignaturesById: new Map(),
+      cancelRequested: recovered.status === 'cancel-requested',
+      runtimeFence: recovered.runtimeFence,
+      recoveredStatus: recovered.status,
+    });
+    if (result !== undefined) {
+      commandIdsByRequestId.set(recovered.requestId, recovered.commandId);
+    }
+  }
   const completedCommandIds = [];
   const waiters = [];
   const pairings = new Map();
@@ -402,6 +456,7 @@ const serve = async ({ flags }) => {
           throw new Error('Command must be a JSON object');
         }
         preflightArtworkJob(body, { requireCanvas: false });
+        const commandSignatureHash = signatureHash(commandIntent(body));
         if (!activeClient) {
           throw new Error('No compatible Vessel runtime has claimed this bridge');
         }
@@ -418,24 +473,64 @@ const serve = async ({ flags }) => {
           ...(Object.hasOwn(requestedFence, 'expectedProjectRevision')
             ? { expectedProjectRevision: requestedFence.expectedProjectRevision }
             : {}),
+          ...(Object.hasOwn(requestedFence, 'expectedCheckpointId')
+            ? { expectedCheckpointId: requestedFence.expectedCheckpointId }
+            : {}),
         };
         const requestId = requireSafeRequestId(request.headers['idempotency-key']);
-        const recoveredCommand = recoveredCommandsByRequestId.get(requestId);
-        if (recoveredCommand) {
-          writeJson(response, 409, {
-            error: 'Request ID already exists in the durable collaboration journal',
-            recovery: recoveredCommand,
-          }, origin);
-          return;
-        }
-        const commandSignature = JSON.stringify(body);
         const existingId = commandIdsByRequestId.get(requestId);
         if (existingId) {
           const existingRecord = commandRecords.get(existingId);
-          if (existingRecord?.commandSignature !== commandSignature) {
+          if (existingRecord?.commandSignatureHash !== commandSignatureHash) {
             throw new Error('Request ID was already used for a different command');
           }
           writeJson(response, 202, { id: existingId, requestId, reused: true }, origin);
+          return;
+        }
+        const recoveredCommand = recoveredCommandsByRequestId.get(requestId);
+        if (recoveredCommand) {
+          let recoveredRecord = commandRecords.get(recoveredCommand.commandId);
+          if (!recoveredCommand.commandSignatureHash ||
+              recoveredCommand.commandSignatureHash !== commandSignatureHash) {
+            throw new Error('Request ID was already used for a different command');
+          }
+          if (recoveredCommand.status !== 'completed') {
+            writeJson(response, 409, {
+              error: 'Request ID belongs to an unfinished command; recover it without retrying',
+              recovery: recoveredCommand,
+            }, origin);
+            return;
+          }
+          if (recoveredRecord?.result === undefined) {
+            const result = await readVesselCollaborationJournalResult(
+              session,
+              recoveredCommand.commandId,
+            );
+            if (result === undefined) {
+              writeJson(response, 409, {
+                error: 'Completed request result is unavailable; reconcile without retrying',
+                recovery: recoveredCommand,
+              }, origin);
+              return;
+            }
+            recoveredRecord = {
+              requestId,
+              commandSignatureHash,
+              result,
+              resultSignatureHash: recoveredCommand.resultSignatureHash,
+              events: [],
+              eventSignaturesById: new Map(),
+              cancelRequested: false,
+              runtimeFence: recoveredCommand.runtimeFence,
+            };
+            commandRecords.set(recoveredCommand.commandId, recoveredRecord);
+            commandIdsByRequestId.set(requestId, recoveredCommand.commandId);
+          }
+          writeJson(response, 202, {
+            id: recoveredCommand.commandId,
+            requestId,
+            reused: true,
+          }, origin);
           return;
         }
         const id = crypto.randomUUID();
@@ -445,10 +540,11 @@ const serve = async ({ flags }) => {
           requestId,
           action: body.action,
           runtimeFence: body.runtimeFence,
+          commandSignatureHash,
         });
         commandRecords.set(id, {
           requestId,
-          commandSignature,
+          commandSignatureHash,
           result: undefined,
           events: [],
           eventSignaturesById: new Map(),
@@ -456,6 +552,14 @@ const serve = async ({ flags }) => {
           runtimeFence: body.runtimeFence,
         });
         commandIdsByRequestId.set(requestId, id);
+        recoveredCommandsByRequestId.set(requestId, {
+          commandId: id,
+          requestId,
+          action: body.action,
+          runtimeFence: body.runtimeFence,
+          commandSignatureHash,
+          status: 'accepted',
+        });
         queue.push({ ...body, id });
         await deliver();
         writeJson(response, 202, { id, requestId, reused: false }, origin);
@@ -616,14 +720,15 @@ const serve = async ({ flags }) => {
           writeJson(response, 409, { error: 'Command result came from a stale collaboration runtime' }, origin);
           return;
         }
-        const resultSignature = JSON.stringify(body);
+        const resultSignatureHash = signatureHash(body);
         if (record.result !== undefined) {
-          if (record.resultSignature !== resultSignature) {
+          if (record.resultSignatureHash !== resultSignatureHash) {
             throw new Error('Command result was already recorded with different data');
           }
           writeJson(response, 202, { ok: true, reused: true }, origin);
           return;
         }
+        await writeVesselCollaborationJournalResult(session, id, body);
         await appendVesselCollaborationJournal(session, {
           type: 'completed',
           commandId: id,
@@ -631,10 +736,25 @@ const serve = async ({ flags }) => {
           revision: body.revision,
           projectId: body.state?.project?.id ?? null,
           outcome: body.outcome,
+          resultSignatureHash,
         });
         completedCommandIds.push(id);
         record.result = body;
-        record.resultSignature = resultSignature;
+        record.resultSignatureHash = resultSignatureHash;
+        if (record.requestId) {
+          const durable = recoveredCommandsByRequestId.get(record.requestId) ?? {};
+          recoveredCommandsByRequestId.set(record.requestId, {
+            ...durable,
+            commandId: id,
+            requestId: record.requestId,
+            status: 'completed',
+            ok: body.ok,
+            revision: body.revision,
+            projectId: body.state?.project?.id ?? null,
+            outcome: body.outcome,
+            resultSignatureHash,
+          });
+        }
         pruneCompletedCommands();
         writeJson(response, 202, { ok: true, reused: false }, origin);
         return;
@@ -894,12 +1014,15 @@ const persistentClient = async ({ flags }) => {
   process.once('SIGTERM', handleSigterm);
   let lastRevision = 0;
   let lastProject = null;
+  let lastCheckpointId = null;
   const preparedCommandsByRequestId = new Map();
 
   try {
     for await (const line of input) {
       if (line.trim().length === 0) continue;
       let requestId;
+      let stageEvidence;
+      let stageCheckpointCommitted = false;
       try {
         let command = JSON.parse(line);
         if (!command || typeof command !== 'object' || Array.isArray(command)) {
@@ -923,12 +1046,14 @@ const persistentClient = async ({ flags }) => {
             command.runtimeFence = {
               expectedProjectId: lastProject.id,
               expectedProjectRevision: lastRevision,
+              expectedCheckpointId: lastCheckpointId,
             };
           }
           const expanded = await expandLocalCollaborationCommand(command, {
             project: lastProject ?? undefined,
           });
           command = expanded.command;
+          stageEvidence = expanded.stageEvidence;
           if (expanded.stageEvidence) {
             process.stdout.write(`${JSON.stringify(expanded.stageEvidence)}\n`);
           }
@@ -948,6 +1073,7 @@ const persistentClient = async ({ flags }) => {
           }
           const result = recovered.result;
           if (typeof result.revision === 'number') lastRevision = result.revision;
+          if (Object.hasOwn(result, 'checkpointId')) lastCheckpointId = result.checkpointId;
           lastProject = result.state?.project ?? lastProject;
           await materializeFrames(result, {
             session,
@@ -974,6 +1100,7 @@ const persistentClient = async ({ flags }) => {
           command.runtimeFence = {
             expectedProjectId: lastProject.id,
             expectedProjectRevision: lastRevision,
+            expectedCheckpointId: lastCheckpointId,
           };
         }
         requestId = inputRequestId;
@@ -991,6 +1118,7 @@ const persistentClient = async ({ flags }) => {
             process.stdout.write(`${JSON.stringify({ type: 'accepted', ...accepted })}\n`);
           },
           onEvent: async (event) => {
+            if (event.type === 'checkpoint') stageCheckpointCommitted = true;
             await materializeEventFrame(event, {
               session,
               frameDir: flags.get('frame-dir'),
@@ -999,7 +1127,11 @@ const persistentClient = async ({ flags }) => {
           },
         });
         if (typeof result.revision === 'number') lastRevision = result.revision;
+        if (Object.hasOwn(result, 'checkpointId')) lastCheckpointId = result.checkpointId;
         lastProject = result.state?.project ?? lastProject;
+        if (result.ok && stageEvidence && stageCheckpointCommitted) {
+          stagedArtworkExpander.commit(stageEvidence);
+        }
         await materializeFrames(result, {
           session,
           frameDir: flags.get('frame-dir'),

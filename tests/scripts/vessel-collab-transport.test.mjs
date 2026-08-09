@@ -12,7 +12,9 @@ import sharp from 'sharp';
 import {
   appendVesselCollaborationJournal,
   getVesselCollaborationJournalPath,
+  getVesselCollaborationResultPath,
   readVesselCollaborationJournal,
+  writeVesselCollaborationJournalResult,
 } from '../../scripts/vessel-collab-journal.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
@@ -59,7 +61,7 @@ const claimRuntime = (url, headers, runtimeInstanceId) => fetchJson(
     method: 'POST',
     headers,
     body: JSON.stringify({
-      protocolVersion: 2,
+      protocolVersion: 3,
       runtimeBuildId: 'transport-test-build',
       runtimeInstanceId,
     }),
@@ -184,18 +186,36 @@ test('durable journal reconciles accepted, delivered, cancelled, and completed c
   const statePath = path.join(os.tmpdir(), `vessel-collab-${session}.json`);
   t.after(async () => {
     await fs.rm(journalPath, { force: true });
+    await fs.rm(getVesselCollaborationResultPath(session, commandId), { force: true });
     await fs.rm(statePath, { force: true });
   });
   const commandId = crypto.randomUUID();
+  const commandSignatureHash = crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ action: 'observe', runtimeFence: {} }))
+    .digest('hex');
   await appendVesselCollaborationJournal(session, {
     type: 'accepted',
     commandId,
     requestId: 'portrait-primary',
-    action: 'artwork-job',
-    runtimeFence: { expectedProjectId: 'project-1', expectedProjectRevision: 4 },
+    action: 'observe',
+    runtimeFence: {
+      expectedProjectId: 'project-1',
+      expectedProjectRevision: 4,
+      expectedCheckpointId: null,
+    },
+    commandSignatureHash,
   });
   await appendVesselCollaborationJournal(session, { type: 'delivered', commandId });
   await appendVesselCollaborationJournal(session, { type: 'cancel-requested', commandId });
+  const storedResult = {
+    ok: true,
+    commandId,
+    action: 'observe',
+    revision: 5,
+    state: { project: { id: 'project-1', width: 100, height: 120 } },
+  };
+  await writeVesselCollaborationJournalResult(session, commandId, storedResult);
   await appendVesselCollaborationJournal(session, {
     type: 'completed',
     commandId,
@@ -209,8 +229,13 @@ test('durable journal reconciles accepted, delivered, cancelled, and completed c
   assert.deepEqual(recovered.commands, [{
     commandId,
     requestId: 'portrait-primary',
-    action: 'artwork-job',
-    runtimeFence: { expectedProjectId: 'project-1', expectedProjectRevision: 4 },
+    action: 'observe',
+    runtimeFence: {
+      expectedProjectId: 'project-1',
+      expectedProjectRevision: 4,
+      expectedCheckpointId: null,
+    },
+    commandSignatureHash,
     status: 'completed',
     ok: true,
     revision: 5,
@@ -249,9 +274,22 @@ test('durable journal reconciles accepted, delivered, cancelled, and completed c
     headers: { ...headers, 'Idempotency-Key': 'portrait-primary' },
     body: JSON.stringify({ action: 'observe' }),
   });
-  assert.equal(duplicate.response.status, 409);
-  assert.equal(duplicate.value.recovery.commandId, commandId);
-  assert.match(duplicate.value.error, /durable collaboration journal/);
+  assert.equal(duplicate.response.status, 202);
+  assert.equal(duplicate.value.id, commandId);
+  assert.equal(duplicate.value.reused, true);
+  const recoveredResult = await fetchJson(
+    `${restartedState.url}/v1/results/${commandId}`,
+    { headers },
+  );
+  assert.equal(recoveredResult.response.status, 200);
+  assert.deepEqual(recoveredResult.value, storedResult);
+  const conflicting = await fetchJson(`${restartedState.url}/v1/commands`, {
+    method: 'POST',
+    headers: { ...headers, 'Idempotency-Key': 'portrait-primary' },
+    body: JSON.stringify({ action: 'observe', capture: 'full' }),
+  });
+  assert.equal(conflicting.response.status, 400);
+  assert.match(conflicting.value.error, /different command/);
 });
 
 test('persistent client accepts large batches, emits compact results, and recovers idempotently', async (t) => {
@@ -576,6 +614,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     runtimeFence: {
       expectedProjectId: 'project-1',
       expectedProjectRevision: 0,
+      expectedCheckpointId: null,
     },
     operations,
   }));
@@ -591,6 +630,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     operations: [
       {
         action: 'shape',
+        id: 'self-intersecting-shape',
         phase: 'primary',
         points: [
           { x: 1, y: 1 },
@@ -603,13 +643,21 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     ],
   }));
   await fs.writeFile(stagedCachePath, JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     workflowId: 'general-artwork-v1',
+    cacheIdentity: {
+      referenceContentFingerprint: 'sha256:reference-1',
+      referenceTransformFingerprint: 'sha256:contain-transform-1',
+      plannerSchemaVersion: 'mass-planner-v2',
+      coordinateConvention: 'vessel-canvas-pixels-v1',
+    },
     project: { id: 'project-1', width: 512, height: 640 },
     stages: [{
       id: 'close-review',
       capture: 'full',
       gestureBudget: 0,
+      pointBudget: 0,
+      payloadByteBudget: 500000,
       candidates: [],
     }],
   }));
@@ -665,6 +713,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     runtimeFence: {
       expectedProjectId: 'project-1',
       expectedProjectRevision: 0,
+      expectedCheckpointId: null,
     },
   })}\n`);
   const rejected = await output.next();
@@ -682,6 +731,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     runtimeFence: {
       expectedProjectId: 'project-1',
       expectedProjectRevision: 0,
+      expectedCheckpointId: null,
     },
   })}\n`);
   const phaseRejection = await output.next();
@@ -695,6 +745,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     runtimeFence: {
       expectedProjectId: 'project-1',
       expectedProjectRevision: 0,
+      expectedCheckpointId: null,
     },
   })}\n`);
   const geometryRejection = await output.next();
@@ -748,9 +799,11 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     type: 'checkpoint',
     operationIndex: 120,
     checkpointName: 'primary-masses',
+    checkpointId: `${commandId}:primary-masses`,
     completedOperations: 121,
     totalOperations: 121,
     revision: 5,
+    checkpointId: `${commandId}:primary-masses`,
     frame: {
       mimeType: 'image/png',
       kind: 'thumbnail',
@@ -816,6 +869,12 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     runtimeFence: {
       expectedProjectId: 'project-1',
       expectedProjectRevision: 5,
+      expectedCheckpointId: `${commandId}:primary-masses`,
+    },
+    decision: {
+      status: 'advance',
+      basedOnRevision: 5,
+      basedOnCheckpointId: `${commandId}:primary-masses`,
     },
   })}\n`);
   const preparedStage = await output.next();

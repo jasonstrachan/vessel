@@ -10,13 +10,21 @@ test('tool adapter emits the committed checkpoint image and compact evidence tog
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vessel-tool-stage-'));
   const cachePath = path.join(directory, 'cache.json');
   await fs.writeFile(cachePath, JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     workflowId: 'general-artwork-v1',
+    cacheIdentity: {
+      referenceContentFingerprint: 'sha256:reference-1',
+      referenceTransformFingerprint: 'sha256:contain-transform-1',
+      plannerSchemaVersion: 'mass-planner-v2',
+      coordinateConvention: 'vessel-canvas-pixels-v1',
+    },
     project: { id: 'project-1', width: 64, height: 80 },
     stages: [{
       id: 'close-review',
       capture: 'full',
       gestureBudget: 0,
+      pointBudget: 0,
+      payloadByteBudget: 500000,
       candidates: [],
     }],
   }));
@@ -45,6 +53,7 @@ test('tool adapter emits the committed checkpoint image and compact evidence tog
         eventId: 'checkpoint-1',
         operationIndex: 0,
         checkpointName: 'close-review',
+        checkpointId: 'command-2:close-review',
         completedOperations: 1,
         totalOperations: 1,
         revision: 2,
@@ -63,6 +72,7 @@ test('tool adapter emits the committed checkpoint image and compact evidence tog
           commandId: '00000000-0000-4000-8000-000000000002',
           action: 'artwork-job',
           revision: 2,
+          checkpointId: 'command-2:close-review',
           completedOperations: 1,
           state: { project: { id: 'project-1', width: 64, height: 80 } },
         },
@@ -82,6 +92,11 @@ test('tool adapter emits the committed checkpoint image and compact evidence tog
     requestId: 'review-1',
     cacheFile: cachePath,
     stageId: 'close-review',
+    decision: {
+      status: 'advance',
+      basedOnRevision: 2,
+      basedOnCheckpointId: null,
+    },
   });
 
   assert.deepEqual(emittedImages, ['data:image/png;base64,aW1hZ2U=']);
@@ -89,6 +104,7 @@ test('tool adapter emits the committed checkpoint image and compact evidence tog
   assert.deepEqual(deliveredCommands[1].runtimeFence, {
     expectedProjectId: 'project-1',
     expectedProjectRevision: 2,
+    expectedCheckpointId: null,
   });
   assert.equal(deliveredCommands[1].operations[0].capture, 'full');
   assert.equal(deliveredOptions[0].timeoutMs, 120000);

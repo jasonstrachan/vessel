@@ -28,6 +28,8 @@ import type {
   VesselCollaborationExecutionEvent,
   VesselCollaborationFrame,
   VesselCollaborationMarkEvidence,
+  VesselCollaborationPriorityCoverageEvidence,
+  VesselCollaborationPriorityCoverageRequest,
   VesselCollaborationProfile,
   VesselCollaborationPoint,
   VesselCollaborationResult,
@@ -432,6 +434,106 @@ const resolveMarkEvidence = (
     canvasWidth: state.project.width,
     canvasHeight: state.project.height,
   });
+};
+
+type PriorityCoverageSnapshot = {
+  layerId: string;
+  indices: number[];
+  paint: Uint8Array;
+  gradientIds: Uint8Array;
+  gradientDefIds: Uint16Array;
+  speed: Uint8Array;
+  flow: Uint8Array;
+  phase: Uint8Array;
+};
+
+type PriorityCoverageTracker = {
+  request: VesselCollaborationPriorityCoverageRequest;
+  projectId: string;
+  baseline: PriorityCoverageSnapshot;
+};
+
+const capturePriorityCoverageSnapshot = (
+  request: VesselCollaborationPriorityCoverageRequest,
+): PriorityCoverageSnapshot => {
+  const state = getAppStoreState();
+  const project = state.project;
+  const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
+  if (!project || project.width !== request.width || project.height !== request.height) {
+    throw new Error('Priority coverage mask does not match the active Vessel canvas');
+  }
+  if (!layer || layer.layerType !== 'color-cycle') {
+    throw new Error('Priority coverage requires an active Color Cycle layer');
+  }
+  const documentState = getColorCycleBrushManager().getDocument(layer.id)?.read().snapshot;
+  if (!documentState?.paintBuffer || !documentState.gradientDefIdBuffer ||
+      documentState.width !== project.width || documentState.height !== project.height) {
+    throw new Error('Priority coverage authored buffers are unavailable');
+  }
+  const pixelCount = project.width * project.height;
+  const sourcePaint = new Uint8Array(documentState.paintBuffer);
+  const sourceGradientIds = documentState.gradientIdBuffer
+    ? new Uint8Array(documentState.gradientIdBuffer)
+    : new Uint8Array(pixelCount);
+  const sourceGradientDefIds = new Uint16Array(documentState.gradientDefIdBuffer);
+  const sourceSpeed = documentState.speedBuffer
+    ? new Uint8Array(documentState.speedBuffer)
+    : new Uint8Array(pixelCount);
+  const sourceFlow = documentState.flowBuffer
+    ? new Uint8Array(documentState.flowBuffer)
+    : new Uint8Array(pixelCount);
+  const sourcePhase = documentState.phaseBuffer
+    ? new Uint8Array(documentState.phaseBuffer)
+    : new Uint8Array(pixelCount);
+  const indices = request.spans.flatMap((span) => (
+    Array.from({ length: span.xEndExclusive - span.xStart }, (_, offset) => (
+      span.y * request.width + span.xStart + offset
+    ))
+  ));
+  return {
+    layerId: layer.id,
+    indices,
+    paint: Uint8Array.from(indices, (index) => sourcePaint[index]),
+    gradientIds: Uint8Array.from(indices, (index) => sourceGradientIds[index]),
+    gradientDefIds: Uint16Array.from(indices, (index) => sourceGradientDefIds[index]),
+    speed: Uint8Array.from(indices, (index) => sourceSpeed[index]),
+    flow: Uint8Array.from(indices, (index) => sourceFlow[index]),
+    phase: Uint8Array.from(indices, (index) => sourcePhase[index]),
+  };
+};
+
+const resolvePriorityCoverageEvidence = (
+  tracker: PriorityCoverageTracker,
+  currentRevision: number,
+): VesselCollaborationPriorityCoverageEvidence => {
+  const current = capturePriorityCoverageSnapshot(tracker.request);
+  if (current.layerId !== tracker.baseline.layerId ||
+      current.indices.length !== tracker.baseline.indices.length) {
+    throw new Error('Priority coverage baseline no longer matches the active authored layer');
+  }
+  let uniqueMeaningfullyChangedPixels = 0;
+  for (let index = 0; index < current.indices.length; index += 1) {
+    if (current.paint[index] !== tracker.baseline.paint[index] ||
+        current.gradientIds[index] !== tracker.baseline.gradientIds[index] ||
+        current.gradientDefIds[index] !== tracker.baseline.gradientDefIds[index] ||
+        current.speed[index] !== tracker.baseline.speed[index] ||
+        current.flow[index] !== tracker.baseline.flow[index] ||
+        current.phase[index] !== tracker.baseline.phase[index]) {
+      uniqueMeaningfullyChangedPixels += 1;
+    }
+  }
+  const maskPixels = current.indices.length;
+  return {
+    priorityMaskId: tracker.request.priorityMaskId,
+    priorityMaskFingerprint: tracker.request.priorityMaskFingerprint,
+    maskPixels,
+    uniqueMeaningfullyChangedPixels,
+    cumulativePercentage: maskPixels > 0
+      ? uniqueMeaningfullyChangedPixels / maskPixels
+      : 0,
+    baselineRevision: tracker.request.coverageBaselineRevision,
+    currentRevision,
+  };
 };
 
 const readState = () => {
@@ -1102,11 +1204,14 @@ export const createVesselCollaborationExecutor = (
   let revision = 0;
   let observedProjectId = initialState.project?.id ?? null;
   let observedDirtyRevision = initialState.autosave.dirtyRevision;
+  let checkpointId: string | null = null;
+  const priorityCoverageTrackers = new Map<string, PriorityCoverageTracker>();
 
   const syncExternalRevision = () => {
     const state = getAppStoreState();
     const projectId = state.project?.id ?? null;
     const dirtyRevision = state.autosave.dirtyRevision;
+    const previousRevision = revision;
     if (projectId !== observedProjectId || dirtyRevision < observedDirtyRevision) {
       revision += 1;
     } else if (dirtyRevision > observedDirtyRevision) {
@@ -1114,7 +1219,41 @@ export const createVesselCollaborationExecutor = (
     }
     observedProjectId = projectId;
     observedDirtyRevision = dirtyRevision;
+    if (revision !== previousRevision) checkpointId = null;
     return revision;
+  };
+
+  const getPriorityCoverageTracker = (
+    request: VesselCollaborationPriorityCoverageRequest | undefined,
+  ): PriorityCoverageTracker | undefined => {
+    if (!request) return undefined;
+    const projectId = getAppStoreState().project?.id;
+    if (!projectId) throw new Error('Priority coverage requires an active Vessel project');
+    const key = [
+      projectId,
+      request.priorityMaskId,
+      request.priorityMaskFingerprint,
+      request.coverageBaselineRevision,
+    ].join(':');
+    const existing = priorityCoverageTrackers.get(key);
+    if (existing) {
+      if (getAppStoreState().activeLayerId !== existing.baseline.layerId) {
+        throw new Error('Priority coverage baseline belongs to a different active layer');
+      }
+      return existing;
+    }
+    if (revision !== request.coverageBaselineRevision) {
+      throw new Error(
+        'Priority coverage baseline is unavailable at the requested authoritative revision',
+      );
+    }
+    const tracker = {
+      request,
+      projectId,
+      baseline: capturePriorityCoverageSnapshot(request),
+    };
+    priorityCoverageTrackers.set(key, tracker);
+    return tracker;
   };
 
   const settleExternalRevision = async () => {
@@ -1176,6 +1315,7 @@ export const createVesselCollaborationExecutor = (
     let completedOperations = 0;
     const operationProfiles: NonNullable<VesselCollaborationProfile['operations']> = [];
     const batchFrames: NonNullable<VesselCollaborationResult['frames']> = [];
+    let coverageTracker: PriorityCoverageTracker | undefined;
     const emitEvent = async (event: VesselCollaborationExecutionEvent) => {
       try {
         await options.onEvent?.(event);
@@ -1197,8 +1337,12 @@ export const createVesselCollaborationExecutor = (
           identity: runtimeIdentity,
           projectId: getAppStoreState().project?.id ?? null,
           projectRevision: revision,
+          checkpointId,
         });
       }
+      coverageTracker = command.action === 'artwork-job'
+        ? getPriorityCoverageTracker(command.priorityCoverage)
+        : undefined;
       if (command.action === 'wait-for-frame') {
         const changed = await waitForFrameRevision(command.afterRevision, command.timeoutMs ?? 25000);
         let frame: VesselCollaborationFrame | undefined;
@@ -1258,6 +1402,11 @@ export const createVesselCollaborationExecutor = (
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
             hasPresentedFrame = true;
+            const nextCheckpointId = `${command.id}:${operation.name}`;
+            const priorityCoverage = coverageTracker
+              ? resolvePriorityCoverageEvidence(coverageTracker, revision)
+              : undefined;
+            checkpointId = nextCheckpointId;
             completedOperations += 1;
             operationProfiles.push({
               index,
@@ -1270,17 +1419,21 @@ export const createVesselCollaborationExecutor = (
                 operationIndex: index,
                 revision,
                 checkpointName: operation.name,
+                checkpointId,
                 frame: captured.frame,
+                ...(priorityCoverage ? { priorityCoverage } : {}),
               };
               if (isArtworkJob) {
                 await emitEvent({
                   type: 'checkpoint',
                   operationIndex: index,
                   checkpointName: operation.name,
+                  checkpointId,
                   completedOperations,
                   totalOperations,
                   revision,
                   frame: captured.frame,
+                  ...(priorityCoverage ? { priorityCoverage } : {}),
                 });
               } else {
                 batchFrames.push(checkpointFrame);
@@ -1307,6 +1460,7 @@ export const createVesselCollaborationExecutor = (
           mutationMs += operationMutationMs;
           operationProfiles.push({
             index,
+            ...('id' in operation && operation.id ? { operationId: operation.id } : {}),
             action: operation.action,
             mutationMs: operationMutationMs,
             revision,
@@ -1375,12 +1529,21 @@ export const createVesselCollaborationExecutor = (
         }
 
         await settleCanonicalRevision();
+        const priorityCoverage = coverageTracker
+          ? resolvePriorityCoverageEvidence(coverageTracker, revision)
+          : undefined;
+        const committedOperationIds = operationProfiles
+          .filter((profile) => profile.operationId && profile.markEvidence?.status === 'committed')
+          .map((profile) => profile.operationId as string);
 
         return {
           ok: true,
           commandId: command.id,
           action: command.action,
           revision,
+          checkpointId,
+          ...(committedOperationIds.length > 0 ? { committedOperationIds } : {}),
+          ...(priorityCoverage ? { priorityCoverage } : {}),
           ...(runtimeIdentity ? { runtime: runtimeIdentity } : {}),
           state: readState(),
           frame,
@@ -1434,6 +1597,7 @@ export const createVesselCollaborationExecutor = (
         commandId: command.id,
         action: command.action,
         revision,
+        checkpointId,
         ...(runtimeIdentity ? { runtime: runtimeIdentity } : {}),
         state: readState(),
         frame,
@@ -1447,14 +1611,36 @@ export const createVesselCollaborationExecutor = (
       };
     } catch (error) {
       syncExternalRevision();
+      let priorityCoverage: VesselCollaborationPriorityCoverageEvidence | undefined;
+      try {
+        priorityCoverage = coverageTracker
+          ? resolvePriorityCoverageEvidence(coverageTracker, revision)
+          : undefined;
+      } catch {
+        priorityCoverage = undefined;
+      }
+      const committedOperationIds = operationProfiles
+        .filter((profile) => profile.operationId && profile.markEvidence?.status === 'committed')
+        .map((profile) => profile.operationId as string);
       return {
         ok: false,
         commandId: command.id,
         action: command.action,
         revision,
+        checkpointId,
+        ...(committedOperationIds.length > 0 ? { committedOperationIds } : {}),
+        ...(priorityCoverage ? { priorityCoverage } : {}),
         ...(executorOptions.getRuntimeIdentity
           ? { runtime: executorOptions.getRuntimeIdentity() }
           : {}),
+        ...(command.action === 'artwork-job' ? {
+          outcome: summarizeVesselCollaborationOutcome({
+            profiles: operationProfiles,
+            cancelled: false,
+            failed: true,
+            hasCheckpoint: operationProfiles.some((profile) => profile.action === 'checkpoint'),
+          }),
+        } : {}),
         state: readState(),
         frames: batchFrames.length > 0 ? batchFrames : undefined,
         completedOperations: completedOperations > 0 ? completedOperations : undefined,

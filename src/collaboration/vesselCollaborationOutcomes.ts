@@ -8,10 +8,12 @@ const MAX_REJECTED_MARK_RATIO = 0.1;
 export const summarizeVesselCollaborationOutcome = ({
   profiles,
   cancelled,
+  failed = false,
   hasCheckpoint,
 }: {
   profiles: NonNullable<VesselCollaborationProfile['operations']>;
   cancelled: boolean;
+  failed?: boolean;
   hasCheckpoint: boolean;
 }): VesselCollaborationOutcomeSummary => {
   let attemptedShapes = 0;
@@ -44,7 +46,7 @@ export const summarizeVesselCollaborationOutcome = ({
 
   return {
     transport: 'accepted',
-    execution: cancelled ? 'cancelled' : 'completed',
+    execution: failed ? 'failed' : cancelled ? 'cancelled' : 'completed',
     evidence: missingEvidence > 0
       ? 'unverifiable'
       : (rejectedShapes + rejectedStrokes) /

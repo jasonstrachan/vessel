@@ -2,7 +2,7 @@ import { assertVesselCollaborationRuntimeFence } from '../vesselCollaborationRun
 
 describe('assertVesselCollaborationRuntimeFence', () => {
   const identity = {
-    protocolVersion: 2,
+    protocolVersion: 3,
     runtimeBuildId: 'build-current',
     runtimeInstanceId: 'runtime-current',
     leaseEpoch: 7,
@@ -11,6 +11,7 @@ describe('assertVesselCollaborationRuntimeFence', () => {
     ...identity,
     expectedProjectId: 'project-current',
     expectedProjectRevision: 14,
+    expectedCheckpointId: 'checkpoint-current',
   };
 
   it('accepts only the claimed runtime and exact project revision', () => {
@@ -19,19 +20,29 @@ describe('assertVesselCollaborationRuntimeFence', () => {
       identity,
       projectId: 'project-current',
       projectRevision: 14,
+      checkpointId: 'checkpoint-current',
     })).not.toThrow();
     expect(() => assertVesselCollaborationRuntimeFence({
       fence: { ...fence, leaseEpoch: 6 },
       identity,
       projectId: 'project-current',
       projectRevision: 14,
+      checkpointId: 'checkpoint-current',
     })).toThrow('stale or incompatible Vessel runtime');
     expect(() => assertVesselCollaborationRuntimeFence({
       fence,
       identity,
       projectId: 'project-current',
       projectRevision: 15,
+      checkpointId: 'checkpoint-current',
     })).toThrow('stale Vessel project revision');
+    expect(() => assertVesselCollaborationRuntimeFence({
+      fence,
+      identity,
+      projectId: 'project-current',
+      projectRevision: 14,
+      checkpointId: 'checkpoint-stale',
+    })).toThrow('stale Vessel checkpoint');
   });
 
   it('fails closed when the fence is absent', () => {

@@ -53,6 +53,8 @@ export type VesselCollaborationConstructionPhase =
   | 'focal'
   | 'revision';
 
+const MAX_PRIORITY_MASK_PIXELS = 4_000_000;
+
 export interface VesselCollaborationGradientStop {
   position: number;
   color: string;
@@ -61,6 +63,10 @@ export interface VesselCollaborationGradientStop {
 
 interface VesselCollaborationStrokeOperation {
   action: 'stroke';
+  id?: string;
+  basedOnRevision?: number;
+  parentMassId?: string;
+  sourceRegionId?: string;
   points: VesselCollaborationPoint[];
   tool?: 'brush' | 'eraser';
   pointsPerFrame?: number;
@@ -69,6 +75,10 @@ interface VesselCollaborationStrokeOperation {
 
 interface VesselCollaborationShapeOperation {
   action: 'shape';
+  id?: string;
+  basedOnRevision?: number;
+  parentMassId?: string;
+  sourceRegionId?: string;
   points: VesselCollaborationPoint[];
   direction?: VesselCollaborationPoint[];
   pointsPerFrame?: number;
@@ -244,6 +254,7 @@ export type VesselCollaborationCommand =
       id: string;
       action: 'artwork-job';
       operations: VesselCollaborationArtworkOperation[];
+      priorityCoverage?: VesselCollaborationPriorityCoverageRequest;
       capture?: Exclude<VesselCollaborationCapturePolicy, 'each-thumbnail'>;
       thumbnailMaxSize?: number;
       runtimeFence?: VesselCollaborationRuntimeFence;
@@ -266,6 +277,25 @@ export interface VesselCollaborationFrame {
   sourceWidth: number;
   sourceHeight: number;
   dataUrl: string;
+}
+
+export interface VesselCollaborationPriorityCoverageRequest {
+  priorityMaskId: string;
+  priorityMaskFingerprint: string;
+  coverageBaselineRevision: number;
+  width: number;
+  height: number;
+  spans: Array<{ y: number; xStart: number; xEndExclusive: number }>;
+}
+
+export interface VesselCollaborationPriorityCoverageEvidence {
+  priorityMaskId: string;
+  priorityMaskFingerprint: string;
+  maskPixels: number;
+  uniqueMeaningfullyChangedPixels: number;
+  cumulativePercentage: number;
+  baselineRevision: number;
+  currentRevision: number;
 }
 
 export interface VesselCollaborationMarkEvidence {
@@ -294,6 +324,7 @@ export interface VesselCollaborationProfile {
   totalMs: number;
   operations?: Array<{
     index: number;
+    operationId?: string;
     action: VesselCollaborationBatchOperation['action'];
     mutationMs: number;
     revision: number;
@@ -317,10 +348,12 @@ export type VesselCollaborationExecutionEvent =
       type: 'checkpoint';
       operationIndex: number;
       checkpointName: string;
+      checkpointId: string;
       completedOperations: number;
       totalOperations: number;
       revision: number;
       frame: VesselCollaborationFrame;
+      priorityCoverage?: VesselCollaborationPriorityCoverageEvidence;
     };
 
 export interface VesselCollaborationOutcomeSummary {
@@ -342,6 +375,9 @@ export interface VesselCollaborationResult {
   commandId: string;
   action: VesselCollaborationCommand['action'];
   revision: number;
+  checkpointId?: string | null;
+  committedOperationIds?: string[];
+  priorityCoverage?: VesselCollaborationPriorityCoverageEvidence;
   runtime?: VesselCollaborationRuntimeIdentity;
   outcome?: VesselCollaborationOutcomeSummary;
   state?: {
@@ -442,7 +478,9 @@ export interface VesselCollaborationResult {
     operationIndex: number;
     revision: number;
     checkpointName?: string;
+    checkpointId?: string;
     frame: VesselCollaborationFrame;
+    priorityCoverage?: VesselCollaborationPriorityCoverageEvidence;
   }>;
   profile?: VesselCollaborationProfile;
   completedOperations?: number;
@@ -1089,6 +1127,14 @@ const readCaptureOptions = (value: Record<string, unknown>): VesselCollaboration
           value.runtimeFence.expectedProjectRevision,
           'runtimeFence.expectedProjectRevision',
         );
+    const expectedCheckpointId = value.runtimeFence.expectedCheckpointId === undefined
+      ? undefined
+      : value.runtimeFence.expectedCheckpointId === null
+        ? null
+        : readOperationIdentifier(
+            value.runtimeFence.expectedCheckpointId,
+            'runtimeFence.expectedCheckpointId',
+          );
     options.runtimeFence = {
       protocolVersion,
       runtimeBuildId: requireString(
@@ -1111,6 +1157,7 @@ const readCaptureOptions = (value: Record<string, unknown>): VesselCollaboration
                 ),
           }),
       ...(expectedProjectRevision === undefined ? {} : { expectedProjectRevision }),
+      ...(expectedCheckpointId === undefined ? {} : { expectedCheckpointId }),
     };
   }
   if (value.capture !== undefined) {
@@ -1193,6 +1240,99 @@ const readConstructionPhase = (
   return value;
 };
 
+const readOperationIdentifier = (value: unknown, field: string): string | undefined => {
+  if (value === undefined) return undefined;
+  const identifier = requireString(value, field);
+  if (!/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(identifier)) {
+    throw new Error(`${field} must use 1-128 letters, numbers, dots, colons, dashes, or underscores`);
+  }
+  return identifier;
+};
+
+const readGestureMetadata = (value: Record<string, unknown>, index: number) => {
+  const id = readOperationIdentifier(value.id, `operations[${index}].id`);
+  const parentMassId = readOperationIdentifier(
+    value.parentMassId,
+    `operations[${index}].parentMassId`,
+  );
+  const sourceRegionId = readOperationIdentifier(
+    value.sourceRegionId,
+    `operations[${index}].sourceRegionId`,
+  );
+  const basedOnRevision = value.basedOnRevision === undefined
+    ? undefined
+    : requireInteger(value.basedOnRevision, `operations[${index}].basedOnRevision`);
+  if (basedOnRevision !== undefined && basedOnRevision < 0) {
+    throw new Error(`operations[${index}].basedOnRevision must be at least 0`);
+  }
+  return {
+    ...(id === undefined ? {} : { id }),
+    ...(basedOnRevision === undefined ? {} : { basedOnRevision }),
+    ...(parentMassId === undefined ? {} : { parentMassId }),
+    ...(sourceRegionId === undefined ? {} : { sourceRegionId }),
+  };
+};
+
+const readPriorityCoverage = (
+  value: unknown,
+): VesselCollaborationPriorityCoverageRequest | undefined => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error('priorityCoverage must be an object');
+  const priorityMaskId = readOperationIdentifier(
+    value.priorityMaskId,
+    'priorityCoverage.priorityMaskId',
+  );
+  const priorityMaskFingerprint = readOperationIdentifier(
+    value.priorityMaskFingerprint,
+    'priorityCoverage.priorityMaskFingerprint',
+  );
+  if (!priorityMaskId || !priorityMaskFingerprint) {
+    throw new Error('priorityCoverage requires mask ID and fingerprint');
+  }
+  const width = requireInteger(value.width, 'priorityCoverage.width');
+  const height = requireInteger(value.height, 'priorityCoverage.height');
+  const coverageBaselineRevision = requireInteger(
+    value.coverageBaselineRevision,
+    'priorityCoverage.coverageBaselineRevision',
+  );
+  if (width < 1 || height < 1 || coverageBaselineRevision < 0) {
+    throw new Error('priorityCoverage dimensions must be positive and its baseline non-negative');
+  }
+  if (!Array.isArray(value.spans) || value.spans.length === 0) {
+    throw new Error('priorityCoverage.spans must contain at least one span');
+  }
+  const occupied = new Set<number>();
+  const spans = value.spans.map((spanValue, index) => {
+    if (!isRecord(spanValue)) throw new Error(`priorityCoverage.spans[${index}] must be an object`);
+    const y = requireInteger(spanValue.y, `priorityCoverage.spans[${index}].y`);
+    const xStart = requireInteger(spanValue.xStart, `priorityCoverage.spans[${index}].xStart`);
+    const xEndExclusive = requireInteger(
+      spanValue.xEndExclusive,
+      `priorityCoverage.spans[${index}].xEndExclusive`,
+    );
+    if (y < 0 || y >= height || xStart < 0 || xStart >= xEndExclusive || xEndExclusive > width) {
+      throw new Error(`priorityCoverage.spans[${index}] is outside the canvas`);
+    }
+    for (let x = xStart; x < xEndExclusive; x += 1) {
+      const pixel = y * width + x;
+      if (occupied.has(pixel)) throw new Error('priorityCoverage spans cannot overlap');
+      occupied.add(pixel);
+      if (occupied.size > MAX_PRIORITY_MASK_PIXELS) {
+        throw new Error('priorityCoverage cannot exceed 4000000 pixels');
+      }
+    }
+    return { y, xStart, xEndExclusive };
+  });
+  return {
+    priorityMaskId,
+    priorityMaskFingerprint,
+    coverageBaselineRevision,
+    width,
+    height,
+    spans,
+  };
+};
+
 const readBatchOperation = (value: unknown, index: number): VesselCollaborationBatchOperation => {
   if (!isRecord(value)) {
     throw new Error(`operations[${index}] must be an object`);
@@ -1213,6 +1353,7 @@ const readBatchOperation = (value: unknown, index: number): VesselCollaborationB
       }
       return {
         action,
+        ...readGestureMetadata(value, index),
         points,
         phase: readConstructionPhase(value.phase, `operations[${index}].phase`),
         ...(action === 'stroke'
@@ -1462,10 +1603,12 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         throw new Error('artwork jobs use named checkpoints instead of each-thumbnail capture');
       }
       if (
-        captureOptions.runtimeFence?.expectedProjectId === undefined ||
-        captureOptions.runtimeFence.expectedProjectRevision === undefined
+        typeof captureOptions.runtimeFence?.expectedProjectId !== 'string' ||
+        captureOptions.runtimeFence.expectedProjectId.length === 0 ||
+        captureOptions.runtimeFence.expectedProjectRevision === undefined ||
+        captureOptions.runtimeFence.expectedCheckpointId === undefined
       ) {
-        throw new Error('artwork jobs require an expected project ID and revision fence');
+        throw new Error('artwork jobs require project, revision, and checkpoint fences');
       }
       const operations = value.operations.map(readBatchOperation);
       const unsupportedOperation = operations.find(
@@ -1491,16 +1634,8 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
       const checkpointNames = operations
         .filter((operation) => operation.action === 'checkpoint')
         .map((operation) => operation.name);
-      if (checkpointNames.length === 0) {
-        throw new Error('artwork jobs must contain at least one named checkpoint');
-      }
-      if (new Set(checkpointNames).size !== checkpointNames.length) {
-        throw new Error('checkpoint names must be unique within an artwork job');
-      }
-      if (checkpointNames.length > MAX_CAPTURED_BATCH_FRAMES) {
-        throw new Error(
-          `artwork jobs cannot contain more than ${MAX_CAPTURED_BATCH_FRAMES} checkpoints`,
-        );
+      if (checkpointNames.length !== 1 || operations.at(-1)?.action !== 'checkpoint') {
+        throw new Error('artwork jobs require exactly one final named checkpoint');
       }
       const pointCount = operations.reduce((total, operation) => {
         if (operation.action === 'stroke') return total + operation.points.length;
@@ -1514,7 +1649,14 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
           `artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_POINTS} points`,
         );
       }
-      return { id, action, operations, ...captureOptions } as Extract<
+      const priorityCoverage = readPriorityCoverage(value.priorityCoverage);
+      return {
+        id,
+        action,
+        operations,
+        ...captureOptions,
+        ...(priorityCoverage ? { priorityCoverage } : {}),
+      } as Extract<
         VesselCollaborationCommand,
         { action: 'artwork-job' }
       >;

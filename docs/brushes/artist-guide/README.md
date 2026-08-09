@@ -100,12 +100,26 @@ cannot be reused.
   and the job continues to its checkpoint. Independent polygons may overlap.
 - Keep one persistent bridge client. Reconcile uncertain work by command ID and
   the bridge journal; never recover by reloading the artwork tab.
+- Precompute immutable source-derived candidates, but derive every repair from
+  the latest authoritative checkpoint. Fence every dispatch to the exact
+  project revision and planning checkpoint; stale geometry must fail before the
+  first mark.
+- Reusing a request ID with identical content returns its original result;
+  different content fails. Never automatically retry an unfinished or partially
+  committed job. Recover its authoritative revision and committed operation IDs,
+  then plan a new fenced repair.
 - The 100-operation batch ceiling is a synchronous transport guardrail, not the
   artwork's shape budget. Set creative budgets for the whole intervention and
   continue to its checkpoint without an agent or browser round trip per mark.
-- Set the shape budget from observed connected regions plus explicit repair
-  capacity. Set the stroke budget from observed linear structures; zero is
-  valid. Both are ceilings, never quotas or signoff gates.
+- Treat the planned shape and stroke budgets for an artistic stage as initial
+  plans, not ceilings. Set them from observed connected regions and linear
+  structures plus explicit repair capacity, then extend the stage through
+  additional validated batches whenever its committed checkpoint remains
+  underdeveloped. The 100-operation batch ceiling remains a transport safety
+  limit for each dispatch, not a completion rule for the artwork.
+- Apply gesture, point, and serialized-payload limits after cached candidates,
+  transforms, and residual operations have been expanded. Residual geometry
+  records its source revision, parent mass, and reference region.
 
 ### Two types of marks: strokes and shapes
 

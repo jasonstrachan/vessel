@@ -35,9 +35,11 @@ const compactCheckpointEvent = (event) => ({
   eventId: event.eventId,
   operationIndex: event.operationIndex,
   checkpointName: event.checkpointName,
+  checkpointId: event.checkpointId,
   completedOperations: event.completedOperations,
   totalOperations: event.totalOperations,
   revision: event.revision,
+  priorityCoverage: event.priorityCoverage,
   frame: event.frame ? {
     kind: event.frame.kind,
     width: event.frame.width,
@@ -67,17 +69,21 @@ export const createVesselCollaborationToolSession = async ({
   const stagedArtworkExpander = createStagedArtworkExpander();
   let lastProject = null;
   let lastRevision = 0;
+  let lastCheckpointId = null;
 
   const send = async (input, { requestId, timeoutMs } = {}) => {
     let command = structuredClone(input);
     if (!command || typeof command !== 'object' || Array.isArray(command)) {
       throw new Error('Vessel tool input must be one command object');
     }
+    const resolvedRequestId = requestId ?? command.requestId ?? crypto.randomUUID();
+    command.requestId = resolvedRequestId;
     if ((command.action === 'artwork-job' || command.action === 'artwork-stage') &&
         lastProject && command.runtimeFence === undefined) {
       command.runtimeFence = {
         expectedProjectId: lastProject.id,
         expectedProjectRevision: lastRevision,
+        expectedCheckpointId: lastCheckpointId,
       };
     }
     const staged = await stagedArtworkExpander.expand(command, {
@@ -87,7 +93,6 @@ export const createVesselCollaborationToolSession = async ({
       project: lastProject ?? undefined,
     });
     const checkpointEvents = [];
-    const resolvedRequestId = requestId ?? command.requestId ?? crypto.randomUUID();
     const resolvedTimeoutMs = timeoutMs === undefined
       ? (command.action === 'artwork-job' ? null : 120000)
       : timeoutMs;
@@ -105,11 +110,15 @@ export const createVesselCollaborationToolSession = async ({
       for (const captured of result.frames) await emitFrame(captured.frame, emitImage);
     }
     if (typeof result.revision === 'number') lastRevision = result.revision;
+    if (Object.hasOwn(result, 'checkpointId')) lastCheckpointId = result.checkpointId;
     lastProject = result.state?.project ?? lastProject;
+    const committedStage = result.ok && checkpointEvents.length > 0
+      ? stagedArtworkExpander.commit(staged.stageEvidence)
+      : staged.stageEvidence;
     return {
       type: 'vessel-tool-result',
       session,
-      stage: staged.stageEvidence,
+      stage: committedStage,
       checkpoints: checkpointEvents,
       completed: compactVesselCollaborationResult(result),
     };

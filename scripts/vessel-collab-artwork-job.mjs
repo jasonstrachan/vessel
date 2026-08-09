@@ -5,7 +5,7 @@ import geometryCore from '../src/collaboration/vesselCollaborationGeometryCore.c
 
 const MAX_ARTWORK_JOB_OPERATIONS = 2000;
 const MAX_ARTWORK_JOB_POINTS = 250000;
-const MAX_ARTWORK_JOB_CHECKPOINTS = 8;
+const MAX_PRIORITY_MASK_PIXELS = 4_000_000;
 const ARTWORK_JOB_ACTIONS = new Set([
   'stroke',
   'shape',
@@ -57,6 +57,52 @@ const assertCheckpoint = (operation, index, checkpointNames) => {
   checkpointNames.add(operation.name);
 };
 
+const assertIdentifier = (value, label) => {
+  if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(value)) {
+    throw new Error(`${label} must use 1-128 safe identifier characters`);
+  }
+};
+
+const assertPriorityCoverage = (coverage, canvas, expectedRevision) => {
+  if (coverage === undefined) return;
+  if (!coverage || typeof coverage !== 'object' || Array.isArray(coverage)) {
+    throw new Error('Artwork job priorityCoverage must be an object');
+  }
+  assertIdentifier(coverage.priorityMaskId, 'Artwork job priorityMaskId');
+  assertIdentifier(coverage.priorityMaskFingerprint, 'Artwork job priorityMaskFingerprint');
+  if (!Number.isInteger(coverage.coverageBaselineRevision) ||
+      coverage.coverageBaselineRevision < 0 ||
+      coverage.coverageBaselineRevision > expectedRevision) {
+    throw new Error('Artwork job coverage baseline must be a non-negative fenced revision');
+  }
+  if (!Number.isInteger(coverage.width) || !Number.isInteger(coverage.height) ||
+      coverage.width < 1 || coverage.height < 1 ||
+      (canvas && (coverage.width !== canvas.width || coverage.height !== canvas.height))) {
+    throw new Error('Artwork job priority coverage dimensions must match the canvas');
+  }
+  if (!Array.isArray(coverage.spans) || coverage.spans.length === 0) {
+    throw new Error('Artwork job priority coverage must contain spans');
+  }
+  const occupied = new Set();
+  coverage.spans.forEach((span, index) => {
+    if (!span || typeof span !== 'object' || Array.isArray(span) ||
+        !Number.isInteger(span.y) || !Number.isInteger(span.xStart) ||
+        !Number.isInteger(span.xEndExclusive) || span.y < 0 ||
+        span.y >= coverage.height || span.xStart < 0 ||
+        span.xStart >= span.xEndExclusive || span.xEndExclusive > coverage.width) {
+      throw new Error(`Artwork job priority coverage span ${index} is invalid`);
+    }
+    for (let x = span.xStart; x < span.xEndExclusive; x += 1) {
+      const pixel = span.y * coverage.width + x;
+      if (occupied.has(pixel)) throw new Error('Artwork job priority coverage spans overlap');
+      occupied.add(pixel);
+      if (occupied.size > MAX_PRIORITY_MASK_PIXELS) {
+        throw new Error('Artwork job priority coverage exceeds 4000000 pixels');
+      }
+    }
+  });
+};
+
 export const preflightArtworkJob = (command, { project, requireCanvas = true } = {}) => {
   if (command.action !== 'artwork-job') return command;
   if (!Array.isArray(command.operations) || command.operations.length === 0) {
@@ -71,16 +117,30 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
     throw new Error('Artwork jobs use named checkpoints instead of each-thumbnail capture');
   }
   if (!command.runtimeFence ||
-      !Object.hasOwn(command.runtimeFence, 'expectedProjectId') ||
-      !Number.isInteger(command.runtimeFence.expectedProjectRevision)) {
-    throw new Error('Artwork jobs require runtimeFence.expectedProjectId and expectedProjectRevision');
+      typeof command.runtimeFence.expectedProjectId !== 'string' ||
+      command.runtimeFence.expectedProjectId.length === 0 ||
+      !Number.isInteger(command.runtimeFence.expectedProjectRevision) ||
+      command.runtimeFence.expectedProjectRevision < 0 ||
+      !Object.hasOwn(command.runtimeFence, 'expectedCheckpointId') ||
+      (command.runtimeFence.expectedCheckpointId !== null &&
+        (typeof command.runtimeFence.expectedCheckpointId !== 'string' ||
+          command.runtimeFence.expectedCheckpointId.length === 0))) {
+    throw new Error(
+      'Artwork jobs require runtimeFence project, revision, and checkpoint expectations',
+    );
   }
   if (project && command.runtimeFence.expectedProjectId !== project.id) {
     throw new Error('Artwork job runtime fence does not match the current Vessel project');
   }
 
   const canvas = readCanvas(command, project);
+  assertPriorityCoverage(
+    command.priorityCoverage,
+    canvas,
+    command.runtimeFence.expectedProjectRevision,
+  );
   const checkpointNames = new Set();
+  const gestureIds = new Set();
   let pointCount = 0;
   for (let index = 0; index < command.operations.length; index += 1) {
     const operation = command.operations[index];
@@ -95,6 +155,15 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
     if (operation.action !== 'stroke' && operation.action !== 'shape') continue;
     if (!ARTWORK_JOB_PHASES.has(operation.phase)) {
       throw new Error(`Artwork job gesture ${index} requires a construction phase`);
+    }
+    assertIdentifier(operation.id, `Artwork job gesture ${index} id`);
+    if (gestureIds.has(operation.id)) {
+      throw new Error(`Artwork job gesture ID is duplicated: ${operation.id}`);
+    }
+    gestureIds.add(operation.id);
+    if (operation.basedOnRevision !== undefined &&
+        operation.basedOnRevision !== command.runtimeFence.expectedProjectRevision) {
+      throw new Error(`Artwork job gesture ${index} was derived from a stale revision`);
     }
     if (operation.points?.length > 10000 || operation.direction?.length > 10000) {
       throw new Error(`Artwork job gesture ${index} cannot contain more than 10000 points per path`);
@@ -122,13 +191,8 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
     pointCount += operation.points.length;
     if (operation.action === 'shape') pointCount += operation.direction?.length ?? 0;
   }
-  if (checkpointNames.size === 0) {
-    throw new Error('Artwork jobs must contain at least one named checkpoint');
-  }
-  if (checkpointNames.size > MAX_ARTWORK_JOB_CHECKPOINTS) {
-    throw new Error(
-      `Artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_CHECKPOINTS} checkpoints`,
-    );
+  if (checkpointNames.size !== 1 || command.operations.at(-1)?.action !== 'checkpoint') {
+    throw new Error('Artwork jobs require exactly one final named checkpoint');
   }
   if (pointCount > MAX_ARTWORK_JOB_POINTS) {
     throw new Error(`Artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_POINTS} points`);

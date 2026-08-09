@@ -1,4 +1,4 @@
-export const VESSEL_COLLABORATION_PROTOCOL_VERSION = 2;
+export const VESSEL_COLLABORATION_PROTOCOL_VERSION = 3;
 
 export interface VesselCollaborationRuntimeIdentity {
   protocolVersion: number;
@@ -10,6 +10,7 @@ export interface VesselCollaborationRuntimeIdentity {
 export interface VesselCollaborationRuntimeFence extends VesselCollaborationRuntimeIdentity {
   expectedProjectId?: string | null;
   expectedProjectRevision?: number;
+  expectedCheckpointId?: string | null;
 }
 
 const runtimeInstanceId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -30,11 +31,13 @@ export const assertVesselCollaborationRuntimeFence = ({
   identity,
   projectId,
   projectRevision,
+  checkpointId,
 }: {
   fence: VesselCollaborationRuntimeFence | undefined;
   identity: VesselCollaborationRuntimeIdentity;
   projectId: string | null;
   projectRevision: number;
+  checkpointId?: string | null;
 }) => {
   if (!fence) {
     throw new Error('Collaboration command is missing its runtime fence');
@@ -58,5 +61,11 @@ export const assertVesselCollaborationRuntimeFence = ({
     fence.expectedProjectRevision !== projectRevision
   ) {
     throw new Error('Collaboration command targets a stale Vessel project revision');
+  }
+  if (
+    fence.expectedCheckpointId !== undefined &&
+    fence.expectedCheckpointId !== (checkpointId ?? null)
+  ) {
+    throw new Error('Collaboration command targets a stale Vessel checkpoint');
   }
 };

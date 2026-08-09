@@ -5,6 +5,34 @@ import path from 'node:path';
 export const getVesselCollaborationJournalPath = (session) =>
   path.join(os.tmpdir(), `vessel-collab-${session}-journal.jsonl`);
 
+export const getVesselCollaborationResultPath = (session, commandId) =>
+  path.join(os.tmpdir(), `vessel-collab-${session}-result-${commandId}.json`);
+
+export const writeVesselCollaborationJournalResult = async (session, commandId, result) => {
+  const resultPath = getVesselCollaborationResultPath(session, commandId);
+  const temporaryPath = `${resultPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(temporaryPath, `${JSON.stringify(result)}\n`, { mode: 0o600 });
+    await fs.rename(temporaryPath, resultPath);
+  } catch (error) {
+    await fs.unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
+  return resultPath;
+};
+
+export const readVesselCollaborationJournalResult = async (session, commandId) => {
+  try {
+    return JSON.parse(await fs.readFile(
+      getVesselCollaborationResultPath(session, commandId),
+      'utf8',
+    ));
+  } catch (error) {
+    if (error?.code === 'ENOENT') return undefined;
+    throw error;
+  }
+};
+
 export const appendVesselCollaborationJournal = async (session, event) => {
   const journalPath = getVesselCollaborationJournalPath(session);
   await fs.appendFile(
@@ -43,6 +71,7 @@ export const readVesselCollaborationJournal = async (session) => {
         requestId: event.requestId,
         action: event.action,
         runtimeFence: event.runtimeFence,
+        ...(event.commandSignatureHash ? { commandSignatureHash: event.commandSignatureHash } : {}),
         status: 'accepted',
       });
     } else if (event.type === 'delivered') {
@@ -57,6 +86,7 @@ export const readVesselCollaborationJournal = async (session) => {
         revision: event.revision,
         projectId: event.projectId,
         outcome: event.outcome,
+        ...(event.resultSignatureHash ? { resultSignatureHash: event.resultSignatureHash } : {}),
       });
     }
   }

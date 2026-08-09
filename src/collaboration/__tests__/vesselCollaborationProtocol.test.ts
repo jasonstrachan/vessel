@@ -562,12 +562,13 @@ describe('parseVesselCollaborationCommand', () => {
 
   it('keeps atomic batches bounded and accepts a larger streamed artwork job', () => {
     const runtimeFence = {
-      protocolVersion: 2,
+      protocolVersion: 3,
       runtimeBuildId: 'test-build',
       runtimeInstanceId: 'test-runtime',
       leaseEpoch: 1,
       expectedProjectId: 'test-project',
       expectedProjectRevision: 0,
+      expectedCheckpointId: null,
     };
     expect(() => parseVesselCollaborationCommand({
       id: 'command-batch-over-limit',
@@ -618,7 +619,17 @@ describe('parseVesselCollaborationCommand', () => {
       action: 'artwork-job',
       runtimeFence,
       operations: [{ action: 'set-tool', tool: 'brush' }],
-    })).toThrow('artwork jobs must contain at least one named checkpoint');
+    })).toThrow('artwork jobs require exactly one final named checkpoint');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-early-checkpoint',
+      action: 'artwork-job',
+      runtimeFence,
+      operations: [
+        { action: 'checkpoint', name: 'too-early' },
+        { action: 'set-tool', tool: 'brush' },
+      ],
+    })).toThrow('artwork jobs require exactly one final named checkpoint');
 
     expect(() => parseVesselCollaborationCommand({
       id: 'command-artwork-job-layer-switch',
@@ -635,7 +646,11 @@ describe('parseVesselCollaborationCommand', () => {
       action: 'artwork-job',
       runtimeFence,
       operations: [
-        { action: 'shape', points: [{ x: 1, y: 1 }, { x: 5, y: 1 }, { x: 3, y: 5 }] },
+        {
+          action: 'shape',
+          id: 'unphased-shape',
+          points: [{ x: 1, y: 1 }, { x: 5, y: 1 }, { x: 3, y: 5 }],
+        },
         { action: 'checkpoint', name: 'primary-masses' },
       ],
     })).toThrow('operations[0].phase is required for artwork job gestures');
@@ -644,17 +659,39 @@ describe('parseVesselCollaborationCommand', () => {
       id: 'command-artwork-job-phased-mark',
       action: 'artwork-job',
       runtimeFence,
+      priorityCoverage: {
+        priorityMaskId: 'face-priority',
+        priorityMaskFingerprint: 'mask-fingerprint',
+        coverageBaselineRevision: 0,
+        width: 10,
+        height: 10,
+        spans: [{ y: 1, xStart: 1, xEndExclusive: 4 }],
+      },
       operations: [
         {
           action: 'shape',
+          id: 'primary-shape',
           phase: 'primary',
+          basedOnRevision: 0,
+          parentMassId: 'head-shadow',
+          sourceRegionId: 'reference-region-17',
           points: [{ x: 1, y: 1 }, { x: 5, y: 1 }, { x: 3, y: 5 }],
         },
         { action: 'checkpoint', name: 'primary-masses' },
       ],
     });
     if (phasedJob.action !== 'artwork-job') throw new Error('Expected artwork job');
-    expect(phasedJob.operations[0]).toMatchObject({ phase: 'primary' });
+    expect(phasedJob.operations[0]).toMatchObject({
+      id: 'primary-shape',
+      phase: 'primary',
+      basedOnRevision: 0,
+      parentMassId: 'head-shadow',
+      sourceRegionId: 'reference-region-17',
+    });
+    expect(phasedJob.priorityCoverage).toMatchObject({
+      priorityMaskId: 'face-priority',
+      coverageBaselineRevision: 0,
+    });
     expect(phasedJob.operations[1]).toMatchObject({
       action: 'checkpoint',
       name: 'primary-masses',
