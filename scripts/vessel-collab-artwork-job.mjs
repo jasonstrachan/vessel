@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import geometryCore from '../src/collaboration/vesselCollaborationGeometryCore.mjs';
+import geometryCore from '../src/collaboration/vesselCollaborationGeometryCore.cjs';
 
 const MAX_ARTWORK_JOB_OPERATIONS = 2000;
 const MAX_ARTWORK_JOB_POINTS = 250000;

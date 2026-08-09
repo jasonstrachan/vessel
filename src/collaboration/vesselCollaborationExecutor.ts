@@ -1141,7 +1141,10 @@ export const createVesselCollaborationExecutor = (
   ) => {
     await executorOptions.waitForCanonicalIdle?.();
     const captured = await presentAndCapture(runtime, capturePolicy, thumbnailMaxSize);
-    await settleExternalRevision();
+    // Presentation can overlap work that was registered after the first idle
+    // boundary. Do not publish a captured checkpoint until that owned work has
+    // reached idle and its canonical dirty revision is observable.
+    await settleCanonicalRevision();
     return captured;
   };
 

@@ -1978,6 +1978,85 @@ describe('createVesselCollaborationExecutor', () => {
     expect(second).toMatchObject({ ok: true, revision: 3 });
   });
 
+  it('settles canonical work registered during capture before publishing a checkpoint event', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    let captureCompleted = false;
+    let deferredRevisionPublished = false;
+    const waitForCanonicalIdle = jest.fn(async () => {
+      if (captureCompleted && !deferredRevisionPublished) {
+        state.autosave.dirtyRevision = 2;
+        deferredRevisionPublished = true;
+      }
+    });
+    const canvas = {
+      width: 512,
+      height: 640,
+      toDataURL: jest.fn(() => {
+        captureCompleted = true;
+        return 'data:image/png;base64,frame';
+      }),
+    } as unknown as HTMLCanvasElement;
+    const runtimeIdentity = {
+      protocolVersion: 2 as const,
+      runtimeBuildId: 'build-current',
+      runtimeInstanceId: 'runtime-current',
+      leaseEpoch: 3,
+    };
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(async () => {
+        state.autosave.dirtyRevision = 1;
+      }),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }), {
+      getRuntimeIdentity: () => runtimeIdentity,
+      requireRuntimeFence: true,
+      waitForCanonicalIdle,
+    });
+    const checkpointRevisions: number[] = [];
+
+    const result = await execute({
+      id: 'command-late-canonical-checkpoint',
+      action: 'artwork-job',
+      capture: 'none',
+      runtimeFence: runtimeIdentity,
+      operations: [
+        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
+        { action: 'checkpoint', name: 'settled' },
+      ],
+    }, {
+      onEvent: (event) => {
+        if (event.type === 'checkpoint') checkpointRevisions.push(event.revision);
+      },
+    });
+
+    expect(checkpointRevisions).toEqual([2]);
+    expect(result).toMatchObject({ ok: true, revision: 2 });
+    expect(waitForCanonicalIdle).toHaveBeenCalledTimes(4);
+  });
+
   it('streams artwork-job checkpoint frames without duplicating them in the final result', async () => {
     const state = {
       project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },

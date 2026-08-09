@@ -27,4 +27,4 @@ declare const geometryCore: Readonly<{
   resolvePolygonArea: (points: VesselCollaborationGeometryPoint[]) => number;
 }>;
 
-export default geometryCore;
+export = geometryCore;

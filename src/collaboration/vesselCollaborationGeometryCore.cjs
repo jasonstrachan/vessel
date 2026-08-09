@@ -141,17 +141,11 @@ const resolveGestureGeometryError = ({
   return null;
 };
 
-const geometryCore = {
+const geometryCore = Object.freeze({
   pointInPolygon,
   polygonSelfIntersects,
   resolveGestureGeometryError,
   resolvePolygonArea,
-};
+});
 
-export {
-  pointInPolygon,
-  polygonSelfIntersects,
-  resolveGestureGeometryError,
-  resolvePolygonArea,
-};
-export default geometryCore;
+module.exports = geometryCore;

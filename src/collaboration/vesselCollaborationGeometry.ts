@@ -2,7 +2,7 @@ import type {
   VesselCollaborationBatchOperation,
   VesselCollaborationPoint,
 } from './vesselCollaborationProtocol';
-import geometryCore from './vesselCollaborationGeometryCore.mjs';
+import geometryCore from './vesselCollaborationGeometryCore.cjs';
 
 export const resolveVesselCollaborationPolygonArea = (
   points: VesselCollaborationPoint[],
