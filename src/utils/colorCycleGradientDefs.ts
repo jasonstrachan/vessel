@@ -18,6 +18,7 @@ import {
   rebuildOnDemandAndRetryAllocate,
   buildDefaultReservedSlots,
 } from '@/utils/colorCycleSlotGC';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 export type StoredStop = { position: number; color: string; opacity?: number };
 
 export type GradientDefSource = 'manual' | 'fg' | 'sampled';
@@ -34,12 +35,96 @@ export type ColorCycleGradientDefStore = {
   speedCps?: number;
 };
 
+export type EnsuredColorCycleGradientDefinition = {
+  def: ColorCycleGradientDefStore;
+  slot: number;
+  hash: string;
+  reusedForCapacity?: boolean;
+};
+
 const EDITOR_SLOT = 255;
 
 const clampSlot = (slot: number): number => Math.max(0, Math.min(FLOW_SLOT_MASK, Math.round(slot)));
 
 const haveMatchingStops = (left: StoredStop[], right: StoredStop[]): boolean =>
   signatureForStops(left) === signatureForStops(right);
+
+const parseStoredStopColor = (stop: StoredStop) => {
+  const color = parseCssColor(stop.color);
+  return {
+    ...color,
+    a: color.a * Math.max(0, Math.min(1, stop.opacity ?? 1)),
+  };
+};
+
+const sampleStops = (stops: StoredStop[], position: number) => {
+  const sorted = [...stops].sort((left, right) => left.position - right.position);
+  const first = sorted[0];
+  const last = sorted.at(-1);
+  if (!first || !last) return parseCssColor('#ffffff');
+  if (position <= first.position) return parseStoredStopColor(first);
+  if (position >= last.position) return parseStoredStopColor(last);
+  for (let index = 1; index < sorted.length; index += 1) {
+    const right = sorted[index];
+    const left = sorted[index - 1];
+    if (!left || !right || position > right.position) continue;
+    const span = Math.max(1e-6, right.position - left.position);
+    const amount = Math.max(0, Math.min(1, (position - left.position) / span));
+    const leftColor = parseStoredStopColor(left);
+    const rightColor = parseStoredStopColor(right);
+    return {
+      r: leftColor.r + (rightColor.r - leftColor.r) * amount,
+      g: leftColor.g + (rightColor.g - leftColor.g) * amount,
+      b: leftColor.b + (rightColor.b - leftColor.b) * amount,
+      a: leftColor.a + (rightColor.a - leftColor.a) * amount,
+    };
+  }
+  return parseStoredStopColor(last);
+};
+
+const gradientDistance = (left: StoredStop[], right: StoredStop[]): number =>
+  [0, 0.25, 0.5, 0.75, 1].reduce((total, position) => {
+    const leftColor = sampleStops(left, position);
+    const rightColor = sampleStops(right, position);
+    const red = leftColor.r - rightColor.r;
+    const green = leftColor.g - rightColor.g;
+    const blue = leftColor.b - rightColor.b;
+    const alpha = leftColor.a - rightColor.a;
+    return total + red * red + green * green + blue * blue + alpha * alpha;
+  }, 0);
+
+const reuseNearestSampledDefinition = (params: {
+  layerId: string;
+  kind: 'linear' | 'concentric';
+  stops: StoredStop[];
+  speedCps?: number;
+  seamProfile?: GradientSeamProfile;
+}): EnsuredColorCycleGradientDefinition | null => {
+  const layer = useAppStore.getState().layers.find((entry) => entry.id === params.layerId);
+  const incomingSpeed = quantizeColorCycleSpeed(params.speedCps);
+  const incomingSeam = normalizeGradientSeamProfile(params.seamProfile);
+  const candidates = (layer?.colorCycleData?.gradientDefStore ?? []).filter((entry) => (
+    entry.source === 'sampled' &&
+    entry.kind === params.kind &&
+    typeof entry.slot === 'number' &&
+    quantizeColorCycleSpeed(entry.speedCps) === incomingSpeed &&
+    normalizeGradientSeamProfile(entry.seamProfile) === incomingSeam
+  ));
+  const nearest = candidates.reduce<{ def: ColorCycleGradientDefStore; distance: number } | null>(
+    (best, def) => {
+      const distance = gradientDistance(params.stops, def.stops);
+      return !best || distance < best.distance ? { def, distance } : best;
+    },
+    null,
+  );
+  if (!nearest || typeof nearest.def.slot !== 'number') return null;
+  return {
+    def: nearest.def,
+    slot: nearest.def.slot,
+    hash: nearest.def.hash,
+    reusedForCapacity: true,
+  };
+};
 
 export const hashStops = (stops: StoredStop[], kind: 'linear' | 'concentric'): string =>
   `${kind}:${signatureForStops(stops)}`;
@@ -135,17 +220,18 @@ export const ensureGradientDefForStops = (params: {
   preferredSlot?: number;
   speedCps?: number;
   seamProfile?: GradientSeamProfile;
+  sampledCapacityFallback?: 'reuse-nearest-compatible';
   updateOptions?: {
     skipColorCycleSync?: boolean;
   };
-}): { def: ColorCycleGradientDefStore; slot: number; hash: string } | null => {
+}): EnsuredColorCycleGradientDefinition | null => {
   type SlotFailure = {
     reason: 'no-slot';
     usedSlots: Set<number>;
     context: string;
   };
   const attemptEnsure = (): {
-    result: { def: ColorCycleGradientDefStore; slot: number; hash: string } | null;
+    result: EnsuredColorCycleGradientDefinition | null;
     failure?: SlotFailure;
   } => {
     const state = useAppStore.getState();
@@ -304,7 +390,7 @@ export const ensureGradientDefForStops = (params: {
     return null;
   }
 
-  let retryResult: { def: ColorCycleGradientDefStore; slot: number; hash: string } | null = null;
+  let retryResult: EnsuredColorCycleGradientDefinition | null = null;
   let lastFailure = initial.failure;
   const rebuild = rebuildOnDemandAndRetryAllocate({
     attemptAllocate: () => {
@@ -324,6 +410,13 @@ export const ensureGradientDefForStops = (params: {
   });
 
   if (!retryResult) {
+    if (
+      params.source === 'sampled' &&
+      params.sampledCapacityFallback === 'reuse-nearest-compatible'
+    ) {
+      const reused = reuseNearestSampledDefinition(params);
+      if (reused) return reused;
+    }
     reportSlotAllocationFailure({
       layerId: params.layerId,
       usedSlots: lastFailure.usedSlots,

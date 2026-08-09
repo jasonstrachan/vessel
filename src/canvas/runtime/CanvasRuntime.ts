@@ -4,7 +4,7 @@ import { useDrawingCanvasRuntimeEffectsFromOrchestration } from '@/components/ca
 import { useDrawingCanvasRuntimeOrchestration } from '@/components/canvas/useDrawingCanvasRuntimeOrchestration';
 import { useDrawingCanvasRuntimeViewportPropsFromOrchestration } from '@/components/canvas/useDrawingCanvasRuntimeViewportPropsFromOrchestration';
 import { useDrawingCanvasRuntimeStateBundle } from '@/components/canvas/useDrawingCanvasRuntimeStateBundle';
-import { dispatchVesselCollaborationStroke } from '@/collaboration/dispatchVesselCollaborationStroke';
+import { commitVesselCollaborationGesture } from '@/collaboration/commitVesselCollaborationGesture';
 import { useVesselCollaborationBridge } from '@/collaboration/useVesselCollaborationBridge';
 
 interface UseCanvasRuntimeOptions {
@@ -18,27 +18,6 @@ export const useCanvasRuntime = ({ showFeedback }: UseCanvasRuntimeOptions) => {
   const orchestration = useDrawingCanvasRuntimeOrchestration({
     state: stateBundle,
     showFeedback,
-  });
-
-  useVesselCollaborationBridge({
-    canvasRef,
-    compositeCanvasDirtyRef: stateBundle.compositeCanvasDirtyRef,
-    dispatchStroke: async (points, { pointsPerFrame }) => {
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        throw new Error('Rendered Vessel canvas is unavailable');
-      }
-      await dispatchVesselCollaborationStroke({
-        canvas,
-        points,
-        pointsPerFrame,
-        zoom: stateBundle.canvasZoom || 1,
-        worldToScreen: orchestration.interactionRuntime.pan.worldToScreen,
-        isBusy: () => stateBundle.isBusyRef.current,
-      });
-    },
-    rebuildStaticComposite: orchestration.renderRuntime.rebuildStaticComposite,
-    requestRedraw: () => stateBundle.setNeedsRedraw((value) => value + 1),
   });
 
   const {
@@ -57,6 +36,17 @@ export const useCanvasRuntime = ({ showFeedback }: UseCanvasRuntimeOptions) => {
       showFeedback,
     })
   );
+
+  useVesselCollaborationBridge({
+    canvasRef,
+    compositeCanvasDirtyRef: stateBundle.compositeCanvasDirtyRef,
+    commitGesture: (gesture) => commitVesselCollaborationGesture({
+      gesture,
+      handlers: orchestration.handlersRuntime.drawingHandlers,
+    }),
+    rebuildStaticComposite: orchestration.renderRuntime.rebuildStaticComposite,
+    requestRedraw: () => stateBundle.setNeedsRedraw((value) => value + 1),
+  });
 
   const viewportProps = useDrawingCanvasRuntimeViewportPropsFromOrchestration(
     buildDrawingCanvasRuntimeViewportPropsFromOrchestrationArgs({

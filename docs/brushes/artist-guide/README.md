@@ -40,12 +40,22 @@ preset and capabilities, FG/BG palette, gradient source and stops, dither
 configuration, CC settings, and eraser settings. Do not infer them from the
 previous turn.
 
+Every shape or stroke must start inside the canvas—never outside it.
+
+For reference preparation, preserve the source aspect by default. Supply the
+requested width and let `prepare-reference` derive the height; an explicit
+mismatch is rejected unless `--allow-aspect-mismatch` is present. Treat the returned
+`reference.transform` as the sole mapping from source-image coordinates to
+project coordinates. Analysis and authored shapes must use that same mapping.
+
 - `set-palette` changes FG, BG, the active swatch, or swaps FG/BG. Setting
   `foreground` is the canonical way to choose the painting colour.
 - `set-gradient-source` selects `fg`, `manual`, or `sampled`. In sampled mode,
   the next canonical stroke or shape supplies the sample path.
 - `set-gradient` supplies manual stops, adjusts FG-gradient Light/Hue/Sat/
-  Opacity/Stops, or resets the sampled gradient.
+  Opacity/Stops, or resets the sampled gradient. Manual stops are a completed
+  authoring decision: the bridge forks the active layer palette for future
+  marks so earlier pixels retain their original gradient.
 - `set-brush` owns shared settings plus brush-specific dither controls. Use
   `fillResolution` for dither shapes and Flat Dither; use
   `colorCycleStampDitherPixelSize` for CC Stroke stamp dithering. They are not
@@ -56,6 +66,46 @@ previous turn.
 Send compatible setup operations and gestures together in one batch. Observe
 again only when either collaborator changed settings outside that batch or when
 the returned state does not match the requested controls.
+
+### Collaboration runtime and checkpoint contract
+
+Connect one already-open Vessel tab once and keep that runtime for the artwork.
+`prepare-reference` waits for the compatible claimed runtime; it does not open,
+navigate, reload, or attach a browser tab. AppleScript and Playwright are not
+painting transports. Create the connection through Vessel's one-use pairing
+URL; it resolves the bridge's authoritative URL and arbitrary port, and it
+cannot be reused.
+
+- Every authoring command carries the claimed protocol/build/instance/lease
+  identity. Once the project exists, it also carries the expected project ID
+  and revision. A stale fence fails before a mark starts.
+- Collaboration shapes call Vessel's internal shape handlers directly. The
+  ordered boundary and optional direction are one canonical gesture; direction
+  is not replayed as a second painted line.
+- Each stage is a bounded job with a named checkpoint. Inspect that rendered
+  checkpoint before planning the next stage; do not plan the whole portrait as
+  one static operation list.
+- A checkpoint decides `advance` or `repair-current`. An underdeveloped stage
+  repeats with newly observed masses; completing an operation list never forces
+  progression.
+- Artwork stages have no default time deadline. Their bounds are the declared
+  mark budget, canonical completion, and named checkpoint—not elapsed minutes.
+- Count only marks whose canonical document evidence says `committed`. A
+  completed transport request with rejected or unverifiable marks is not a
+  successful artwork stage.
+- Hard failures are limited to unsafe or invalid execution contracts such as
+  non-finite data, an off-canvas start point, an incompatible layer/runtime, or
+  a stale fence. Coverage, span, and direction placement are diagnostics, not
+  universal size rules. A self-intersecting candidate is rejected individually
+  and the job continues to its checkpoint. Independent polygons may overlap.
+- Keep one persistent bridge client. Reconcile uncertain work by command ID and
+  the bridge journal; never recover by reloading the artwork tab.
+- The 100-operation batch ceiling is a synchronous transport guardrail, not the
+  artwork's shape budget. Set creative budgets for the whole intervention and
+  continue to its checkpoint without an agent or browser round trip per mark.
+- Set the shape budget from observed connected regions plus explicit repair
+  capacity. Set the stroke budget from observed linear structures; zero is
+  valid. Both are ceilings, never quotas or signoff gates.
 
 ### Two types of marks: strokes and shapes
 
@@ -141,15 +191,20 @@ continuing a detail tier.
 
 ### Build from large to small
 
-1. Use large **shapes** to place the main silhouettes and make the composition
-   read at a distance.
-2. Use smaller **shapes** to divide those silhouettes into colour and value
-   masses.
+1. Use observed **shapes** to place the main support and silhouettes and make
+   the composition read at a distance.
+2. Divide those silhouettes into connected colour and value masses, recording
+   which earlier mass each new region subdivides.
 3. Use **strokes** for selected contours, seams, connections, and internal
    structure.
-4. Add small shapes or strokes as detail only after the large and middle masses
-   work.
+4. Continue the mass hierarchy at focal construction only after the large and
+   middle relationships work.
 5. Use detail selectively to explain form or direct attention.
+
+Large-to-small describes hierarchy, not a forced monotonic size sequence. Each
+shape takes its physical extent from the observed region. Medium and focal
+stages need varied scales, and a later correction may be physically large.
+`Res` controls the dither detail tier independently of that geometry.
 
 Do not use detail to repair an unclear silhouette. Return to the larger mass,
 correct it, and then resume with the same brush and Res language.

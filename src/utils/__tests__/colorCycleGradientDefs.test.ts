@@ -318,6 +318,52 @@ describe('colorCycleGradientDefs', () => {
     errorSpy.mockRestore();
   });
 
+  it('reuses the nearest compatible sampled definition when committed slots are exhausted', () => {
+    const slotPalettes = Array.from({ length: 254 }, (_, slot) => ({
+      slot,
+      stops: slot === 1 ? altStops : baseStops,
+    }));
+    const gradientDefStore = Array.from({ length: 254 }, (_, index) => ({
+      id: index + 1,
+      kind: 'linear' as const,
+      stops: index === 1 ? altStops : baseStops,
+      hash: `${hashStops(baseStops, 'linear')}:${index}`,
+      source: 'sampled' as const,
+      createdAtMs: 0,
+      slot: index,
+    }));
+    const layer = createLayer({
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
+        slotPalettes,
+        gradientDefs: [],
+        gradientDefStore,
+        nextGradientDefId: 255,
+      }, {
+        gradientDefIdBuffer: new Uint16Array(
+          Array.from({ length: 254 }, (_, index) => index + 1)
+        ).buffer,
+      }),
+    });
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: altStops,
+      source: 'sampled',
+      sampledCapacityFallback: 'reuse-nearest-compatible',
+    });
+
+    expect(result).toMatchObject({
+      def: { id: 2, stops: altStops },
+      slot: 1,
+      reusedForCapacity: true,
+    });
+    expect(
+      useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore,
+    ).toHaveLength(254);
+  });
+
   it('stores seam profile per def and treats soft/hard variants as distinct defs', () => {
     const layer = createLayer();
     useAppStore.setState({ layers: [layer], activeLayerId: layer.id });

@@ -1,7 +1,10 @@
 import type React from 'react';
 
-import { getPresetCapabilities, isCcGradientPreset } from '@/presets/brushPresets';
+import { getPresetCapabilities } from '@/presets/brushPresets';
+import { normalizeColorCycleLayerDocumentState } from '@/lib/colorCycle/document';
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
 import {
   createEraserTipSettingsPatch,
   resolveEraserTipOption,
@@ -16,15 +19,29 @@ import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { supportsDither } from '@/utils/brushCategories';
 import { deserializeProject } from '@/utils/projectIO';
+import { shouldEnterCcGradientDirectionStage } from '@/hooks/canvas/handlers/colorCycle/ccGradientDirectionContract';
 
 import type {
   VesselCollaborationBatchOperation,
   VesselCollaborationCapturePolicy,
   VesselCollaborationCommand,
+  VesselCollaborationExecutionEvent,
   VesselCollaborationFrame,
+  VesselCollaborationMarkEvidence,
   VesselCollaborationProfile,
+  VesselCollaborationPoint,
   VesselCollaborationResult,
 } from './vesselCollaborationProtocol';
+import type { VesselCanonicalGesture } from './commitVesselCollaborationGesture';
+import { evaluateVesselCollaborationMarkImpact } from './vesselCollaborationMarkImpact';
+import {
+  resolveVesselCollaborationCandidateGeometryRejection,
+} from './vesselCollaborationGeometry';
+import { summarizeVesselCollaborationOutcome } from './vesselCollaborationOutcomes';
+import {
+  assertVesselCollaborationRuntimeFence,
+  type VesselCollaborationRuntimeIdentity,
+} from './vesselCollaborationRuntimeIdentity';
 
 const DEFAULT_THUMBNAIL_MAX_SIZE = 768;
 const DEFAULT_POINTS_PER_FRAME = 2;
@@ -43,7 +60,7 @@ type ImportReferenceImageCommand = Extract<
 >;
 type SimpleCommand = Exclude<
   VesselCollaborationCommand,
-  { action: 'batch' | 'wait-for-frame' }
+  { action: 'artwork-job' | 'batch' | 'wait-for-frame' }
 >;
 type MutationOperation = SimpleCommand | Exclude<
   VesselCollaborationBatchOperation,
@@ -53,13 +70,50 @@ type MutationOperation = SimpleCommand | Exclude<
 export interface VesselCollaborationRuntime {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   compositeCanvasDirtyRef: React.MutableRefObject<boolean>;
-  dispatchStroke: (
+  commitGesture?: (gesture: VesselCanonicalGesture) => Promise<void>;
+  /** Test/backward-compatibility seam. The mounted Vessel runtime never uses it. */
+  dispatchStroke?: (
     points: StrokeOperation['points'],
-    options: { pointsPerFrame: number },
+    options: { pointsPerFrame: number; framePacing?: 'per-move' | 'finalize-only' },
   ) => Promise<void>;
   rebuildStaticComposite: () => boolean | Promise<boolean>;
   requestRedraw: () => void;
 }
+
+export interface VesselCollaborationExecutionOptions {
+  signal?: AbortSignal;
+  onEvent?: (event: VesselCollaborationExecutionEvent) => void | Promise<void>;
+}
+
+interface VesselCollaborationExecutorOptions {
+  getRuntimeIdentity?: () => VesselCollaborationRuntimeIdentity;
+  requireRuntimeFence?: boolean;
+  enforceGeometryPreflight?: boolean;
+}
+
+const commitRuntimeGesture = async (
+  runtime: VesselCollaborationRuntime,
+  gesture: VesselCanonicalGesture,
+  legacyPointsPerFrame = DEFAULT_POINTS_PER_FRAME,
+) => {
+  if (runtime.commitGesture) {
+    await runtime.commitGesture(gesture);
+    return;
+  }
+  if (!runtime.dispatchStroke) {
+    throw new Error('Canonical Vessel gesture runtime is unavailable');
+  }
+  await runtime.dispatchStroke(gesture.points, {
+    pointsPerFrame: gesture.kind === 'shape' ? 1 : legacyPointsPerFrame,
+    ...(gesture.kind === 'shape' ? { framePacing: 'finalize-only' as const } : {}),
+  });
+  if (gesture.kind === 'shape' && gesture.direction) {
+    await runtime.dispatchStroke(gesture.direction, {
+      pointsPerFrame: 1,
+      framePacing: 'finalize-only',
+    });
+  }
+};
 
 const nextPaint = () =>
   new Promise<void>((resolve) => {
@@ -136,6 +190,249 @@ const resolveDocumentCaptureCanvas = (
     : fallbackCanvas;
 };
 
+const readActiveColorCycleEvidence = (
+  state: ReturnType<typeof getAppStoreState>,
+) => {
+  const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
+  if (!layer || layer.layerType !== 'color-cycle' || !state.project) {
+    return null;
+  }
+
+  const liveDocumentState = getColorCycleBrushManager().getDocument(layer.id)?.read().snapshot;
+  const documentResult = normalizeColorCycleLayerDocumentState(layer, {
+    fallbackWidth: state.project.width,
+    fallbackHeight: state.project.height,
+    completeMotionBuffers: false,
+  });
+  if (!liveDocumentState && !documentResult.ok) {
+    return {
+      hasContent: Boolean(layer.colorCycleData?.hasContent),
+      gradientDefinitionCount: layer.colorCycleData?.gradientDefStore?.length ?? 0,
+      sampledGradientDefinitionCount:
+        layer.colorCycleData?.gradientDefStore?.filter((entry) => entry.source === 'sampled').length ?? 0,
+      sampledPaintedPixelCount: 0,
+      latestSampledGradient: null,
+    };
+  }
+
+  const documentState = liveDocumentState ?? (documentResult.ok ? documentResult.state : null);
+  if (!documentState) return null;
+  const gradientDefinitions = documentState.gradientDefStore ?? [];
+  const sampledDefinitions = gradientDefinitions.filter((entry) => entry.source === 'sampled');
+  const sampledIds = new Set(sampledDefinitions.map((entry) => entry.id));
+  const gradientDefIds = documentState.gradientDefIdBuffer
+    ? new Uint16Array(documentState.gradientDefIdBuffer)
+    : null;
+  let sampledPaintedPixelCount = 0;
+  if (gradientDefIds && sampledIds.size > 0) {
+    for (const gradientDefId of gradientDefIds) {
+      if (sampledIds.has(gradientDefId)) sampledPaintedPixelCount += 1;
+    }
+  }
+  const latestSampledGradient = sampledDefinitions.reduce<(typeof sampledDefinitions)[number] | null>(
+    (latest, entry) => (
+      !latest || entry.createdAtMs > latest.createdAtMs ||
+      (entry.createdAtMs === latest.createdAtMs && entry.id > latest.id)
+        ? entry
+        : latest
+    ),
+    null,
+  );
+
+  return {
+    hasContent: documentState.hasContent,
+    gradientDefinitionCount: gradientDefinitions.length,
+    sampledGradientDefinitionCount: sampledDefinitions.length,
+    sampledPaintedPixelCount,
+    latestSampledGradient: latestSampledGradient
+      ? {
+          id: latestSampledGradient.id,
+          stopCount: latestSampledGradient.stops.length,
+          uniqueColorCount: new Set(
+            latestSampledGradient.stops.map((stop) => stop.color.toLowerCase()),
+          ).size,
+          stops: latestSampledGradient.stops.map((stop) => ({ ...stop })),
+        }
+      : null,
+  };
+};
+
+type CanonicalGestureRegionSnapshot = {
+  layerId: string;
+  documentVersion: number;
+  dirtyRevision: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  paint: Uint8Array;
+  gradientIds: Uint8Array;
+  gradientDefIds: Uint16Array;
+  speed: Uint8Array;
+  flow: Uint8Array;
+  phase: Uint8Array;
+};
+
+const resolveGestureRegion = (
+  operation: StrokeOperation | ShapeOperation,
+  state: ReturnType<typeof getAppStoreState>,
+) => {
+  const project = state.project;
+  if (!project || operation.points.length === 0) return null;
+  const radius = operation.action === 'shape'
+    ? 2
+    : Math.max(2, Math.ceil((state.tools.brushSettings.size ?? 1) / 2) + 2);
+  const xs = operation.points.map((point) => point.x);
+  const ys = operation.points.map((point) => point.y);
+  const x = Math.max(0, Math.floor(Math.min(...xs) - radius));
+  const y = Math.max(0, Math.floor(Math.min(...ys) - radius));
+  const maxX = Math.min(project.width - 1, Math.ceil(Math.max(...xs) + radius));
+  const maxY = Math.min(project.height - 1, Math.ceil(Math.max(...ys) + radius));
+  return {
+    x,
+    y,
+    width: Math.max(1, maxX - x + 1),
+    height: Math.max(1, maxY - y + 1),
+  };
+};
+
+const captureCanonicalGestureRegion = (
+  operation: StrokeOperation | ShapeOperation,
+  existingRegion?: Pick<CanonicalGestureRegionSnapshot, 'x' | 'y' | 'width' | 'height'>,
+): CanonicalGestureRegionSnapshot | null => {
+  const state = getAppStoreState();
+  const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
+  if (!layer || layer.layerType !== 'color-cycle' || !state.project) return null;
+  const region = existingRegion ?? resolveGestureRegion(operation, state);
+  if (!region) return null;
+
+  const documentRead = getColorCycleBrushManager().getDocument(layer.id)?.read();
+  const documentState = documentRead?.snapshot;
+  if (
+    !documentState?.paintBuffer ||
+    !documentState.gradientDefIdBuffer ||
+    documentState.width !== state.project.width ||
+    documentState.height !== state.project.height
+  ) {
+    return null;
+  }
+
+  const pixelCount = documentState.width * documentState.height;
+  const sourcePaint = new Uint8Array(documentState.paintBuffer);
+  const sourceGradientIds = documentState.gradientIdBuffer
+    ? new Uint8Array(documentState.gradientIdBuffer)
+    : new Uint8Array(pixelCount);
+  const sourceGradientDefIds = new Uint16Array(documentState.gradientDefIdBuffer);
+  const sourceSpeed = documentState.speedBuffer
+    ? new Uint8Array(documentState.speedBuffer)
+    : new Uint8Array(pixelCount);
+  const sourceFlow = documentState.flowBuffer
+    ? new Uint8Array(documentState.flowBuffer)
+    : new Uint8Array(pixelCount);
+  const sourcePhase = documentState.phaseBuffer
+    ? new Uint8Array(documentState.phaseBuffer)
+    : new Uint8Array(pixelCount);
+  const paint = new Uint8Array(region.width * region.height);
+  const gradientIds = new Uint8Array(region.width * region.height);
+  const gradientDefIds = new Uint16Array(region.width * region.height);
+  const speed = new Uint8Array(region.width * region.height);
+  const flow = new Uint8Array(region.width * region.height);
+  const phase = new Uint8Array(region.width * region.height);
+  for (let row = 0; row < region.height; row += 1) {
+    const sourceStart = (region.y + row) * documentState.width + region.x;
+    const targetStart = row * region.width;
+    paint.set(sourcePaint.subarray(sourceStart, sourceStart + region.width), targetStart);
+    gradientIds.set(
+      sourceGradientIds.subarray(sourceStart, sourceStart + region.width),
+      targetStart,
+    );
+    gradientDefIds.set(
+      sourceGradientDefIds.subarray(sourceStart, sourceStart + region.width),
+      targetStart,
+    );
+    speed.set(sourceSpeed.subarray(sourceStart, sourceStart + region.width), targetStart);
+    flow.set(sourceFlow.subarray(sourceStart, sourceStart + region.width), targetStart);
+    phase.set(sourcePhase.subarray(sourceStart, sourceStart + region.width), targetStart);
+  }
+
+  return {
+    ...region,
+    layerId: layer.id,
+    documentVersion: documentRead?.version ?? 0,
+    dirtyRevision: state.autosave.dirtyRevision,
+    paint,
+    gradientIds,
+    gradientDefIds,
+    speed,
+    flow,
+    phase,
+  };
+};
+
+const resolveMarkEvidence = (
+  operation: MutationOperation,
+  before: CanonicalGestureRegionSnapshot | null,
+): VesselCollaborationMarkEvidence | undefined => {
+  if ((operation.action !== 'stroke' && operation.action !== 'shape') || !before) {
+    return undefined;
+  }
+  const after = captureCanonicalGestureRegion(operation, before);
+  if (!after || after.layerId !== before.layerId) {
+    throw new Error('Canonical Color Cycle evidence became unavailable during the gesture');
+  }
+  let changedPixels = 0;
+  let minChangedX = before.width;
+  let minChangedY = before.height;
+  let maxChangedX = -1;
+  let maxChangedY = -1;
+  const changedChannels = new Set<VesselCollaborationMarkEvidence['changedChannels'][number]>();
+  for (let index = 0; index < before.paint.length; index += 1) {
+    const paintChanged = before.paint[index] !== after.paint[index];
+    const gradientChanged = before.gradientIds[index] !== after.gradientIds[index] ||
+      before.gradientDefIds[index] !== after.gradientDefIds[index];
+    const speedChanged = before.speed[index] !== after.speed[index];
+    const flowChanged = before.flow[index] !== after.flow[index];
+    const phaseChanged = before.phase[index] !== after.phase[index];
+    if (paintChanged || gradientChanged || speedChanged || flowChanged || phaseChanged) {
+      changedPixels += 1;
+      const localX = index % before.width;
+      const localY = Math.floor(index / before.width);
+      minChangedX = Math.min(minChangedX, localX);
+      minChangedY = Math.min(minChangedY, localY);
+      maxChangedX = Math.max(maxChangedX, localX);
+      maxChangedY = Math.max(maxChangedY, localY);
+      if (paintChanged) changedChannels.add('paint');
+      if (gradientChanged) changedChannels.add('gradient');
+      if (speedChanged) changedChannels.add('speed');
+      if (flowChanged) changedChannels.add('flow');
+      if (phaseChanged) changedChannels.add('phase');
+    }
+  }
+  const state = getAppStoreState();
+  if (!state.project) {
+    throw new Error('Vessel project became unavailable during the gesture');
+  }
+  return evaluateVesselCollaborationMarkImpact({
+    layerId: before.layerId,
+    markType: operation.action,
+    phase: operation.phase,
+    changedPixels,
+    dirtyRevisionDelta: Math.max(0, after.dirtyRevision - before.dirtyRevision),
+    documentVersion: after.documentVersion,
+    documentVersionDelta: Math.max(0, after.documentVersion - before.documentVersion),
+    affectedBounds: changedPixels > 0 ? {
+      x: before.x + minChangedX,
+      y: before.y + minChangedY,
+      width: maxChangedX - minChangedX + 1,
+      height: maxChangedY - minChangedY + 1,
+    } : undefined,
+    changedChannels: [...changedChannels],
+    points: operation.points,
+    canvasWidth: state.project.width,
+    canvasHeight: state.project.height,
+  });
+};
+
 const readState = () => {
   const state = getAppStoreState();
   const brush = state.tools.brushSettings;
@@ -192,6 +489,7 @@ const readState = () => {
       },
       sampleCount: state.ccGradientSampleCount ?? 0,
     },
+    colorCycle: readActiveColorCycleEvidence(state),
     brush: {
       size: brush.size,
       opacity: brush.opacity,
@@ -315,6 +613,11 @@ const executeCreateLayer = async (operation: CreateLayerOperation) => {
     throw new Error(`Failed to create ${operation.layerType} layer`);
   }
   if (operation.layerType === 'color-cycle') {
+    getAppStoreState().initColorCycleForLayer(
+      layerId,
+      state.project.width,
+      state.project.height,
+    );
     const ready = await getAppStoreState().ensureColorCycleLayerRuntime(layerId, {
       target: 'active',
     });
@@ -416,10 +719,102 @@ const executeImportReferenceImage = async (operation: ImportReferenceImageComman
   }
 };
 
+const assertGestureStartsInsideProject = (
+  points: VesselCollaborationPoint[],
+  label: string,
+) => {
+  const project = getAppStoreState().project;
+  if (!project) {
+    throw new Error('No Vessel project is loaded');
+  }
+  const start = points[0];
+  if (
+    !start ||
+    start.x < 0 ||
+    start.x >= project.width ||
+    start.y < 0 ||
+    start.y >= project.height
+  ) {
+    throw new Error(`${label} must start inside the project canvas`);
+  }
+};
+
+const assertArtworkJobStartsInsideProject = (
+  operations: VesselCollaborationBatchOperation[],
+) => {
+  operations.forEach((operation, index) => {
+    if (operation.action !== 'stroke' && operation.action !== 'shape') return;
+    if (!operation.phase) {
+      throw new Error(`operations[${index}].phase is required for artwork job gestures`);
+    }
+    assertGestureStartsInsideProject(operation.points, `operations[${index}].points`);
+    if (operation.action === 'shape' && operation.direction) {
+      assertGestureStartsInsideProject(
+        operation.direction,
+        `operations[${index}].direction`,
+      );
+    }
+  });
+};
+
+const assertGestureExecutionContract = (operation: StrokeOperation | ShapeOperation) => {
+  const { state, layer } = requireDrawableLayer();
+  if (operation.action === 'shape') {
+    if (!state.tools.brushSettings.shapeEnabled) {
+      throw new Error('A shape operation requires a shape brush');
+    }
+    if (
+      shouldEnterCcGradientDirectionStage(
+        state.tools,
+        state.currentBrushPreset?.id ?? null,
+      ) &&
+      !operation.direction
+    ) {
+      throw new Error('This Color Cycle shape requires direction points');
+    }
+  } else {
+    const tool = operation.tool ?? state.tools.currentTool;
+    if (tool !== 'brush' && tool !== 'eraser') {
+      throw new Error('A stroke requires the brush or eraser tool');
+    }
+    if (tool === 'eraser') return;
+  }
+
+  const usesColorCycle = isCurrentColorCycleBrush(state);
+  if (usesColorCycle && layer.layerType !== 'color-cycle') {
+    throw new Error(`Color Cycle brush requires a Color Cycle layer: ${layer.name}`);
+  }
+  if (!usesColorCycle && layer.layerType === 'color-cycle') {
+    throw new Error(`Normal brush requires a normal layer: ${layer.name}`);
+  }
+};
+
+const createGeometryRejectionEvidence = (
+  operation: StrokeOperation | ShapeOperation,
+  before: CanonicalGestureRegionSnapshot | null,
+): VesselCollaborationMarkEvidence => {
+  const state = getAppStoreState();
+  const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
+  return {
+    layerId: before?.layerId ?? layer?.id ?? state.activeLayerId ?? 'unknown',
+    documentVersion: before?.documentVersion ?? 0,
+    documentVersionDelta: 0,
+    markType: operation.action,
+    phase: operation.phase ?? null,
+    status: 'rejected',
+    changedPixels: 0,
+    normalizedCoverage: 0,
+    dirtyRevisionDelta: 0,
+    changedChannels: [],
+    rejectionReason: 'invalid-geometry',
+  };
+};
+
 const executeStroke = async (
   operation: Pick<StrokeOperation, 'points' | 'pointsPerFrame' | 'tool'>,
-  runtime: VesselCollaborationRuntime,
+  getRuntime: () => VesselCollaborationRuntime,
 ) => {
+  assertGestureStartsInsideProject(operation.points, 'stroke');
   const { state, layer } = requireDrawableLayer();
   const tool = operation.tool ?? state.tools.currentTool;
   if (tool !== 'brush' && tool !== 'eraser') {
@@ -450,37 +845,59 @@ const executeStroke = async (
     }
   }
   await nextPaint();
+  const runtime = getRuntime();
   runtime.compositeCanvasDirtyRef.current = true;
-  const canCoalescePoints =
-    !state.tools.brushSettings.shapeEnabled &&
-    operation.points.length <= MAX_COALESCED_STROKE_POINTS;
-  await runtime.dispatchStroke(operation.points, {
-    pointsPerFrame: canCoalescePoints
+  const canCoalesceStrokePoints = operation.points.length <= MAX_COALESCED_STROKE_POINTS;
+  await commitRuntimeGesture(
+    runtime,
+    { kind: 'stroke', points: operation.points },
+    canCoalesceStrokePoints
       ? operation.pointsPerFrame ?? DEFAULT_POINTS_PER_FRAME
       : 1,
-  });
+  );
 };
 
 const executeShape = async (
   operation: ShapeOperation,
-  runtime: VesselCollaborationRuntime,
+  getRuntime: () => VesselCollaborationRuntime,
 ) => {
-  const state = getAppStoreState();
-  if (!state.tools.brushSettings.shapeEnabled) {
+  const currentState = getAppStoreState();
+  if (!currentState.tools.brushSettings.shapeEnabled) {
     throw new Error('A shape operation requires a shape brush');
   }
-  if (isCcGradientPreset(state.currentBrushPreset?.id) && !operation.direction) {
+  if (
+    shouldEnterCcGradientDirectionStage(
+      currentState.tools,
+      currentState.currentBrushPreset?.id ?? null,
+    ) &&
+    !operation.direction
+  ) {
     throw new Error('This Color Cycle shape requires direction points');
   }
 
-  await executeStroke({ ...operation, tool: 'brush' }, runtime);
-  if (operation.direction) {
-    await executeStroke({
-      points: operation.direction,
-      pointsPerFrame: operation.pointsPerFrame,
-      tool: 'brush',
-    }, runtime);
+  assertGestureStartsInsideProject(operation.points, 'shape');
+  if (operation.direction) assertGestureStartsInsideProject(operation.direction, 'shape direction');
+  const { state, layer } = requireDrawableLayer();
+  const usesColorCycle = isCurrentColorCycleBrush(state);
+  if (usesColorCycle && layer.layerType !== 'color-cycle') {
+    throw new Error(`Color Cycle brush requires a Color Cycle layer: ${layer.name}`);
   }
+  if (!usesColorCycle && layer.layerType === 'color-cycle') {
+    throw new Error(`Normal brush requires a normal layer: ${layer.name}`);
+  }
+  state.setCurrentTool('brush');
+  if (layer.layerType === 'color-cycle') {
+    const ready = await state.ensureColorCycleLayerRuntime(layer.id, { target: 'active' });
+    if (!ready) throw new Error(`Color-cycle layer is not editable: ${layer.name}`);
+  }
+  await nextPaint();
+  const runtime = getRuntime();
+  runtime.compositeCanvasDirtyRef.current = true;
+  await commitRuntimeGesture(runtime, {
+    kind: 'shape',
+    points: operation.points,
+    ...(operation.direction ? { direction: operation.direction } : {}),
+  });
 };
 
 const executeSetPalette = (
@@ -506,7 +923,10 @@ const executeSetGradient = (
 ) => {
   const state = getAppStoreState();
   if (operation.stops) {
-    state.commitColorCycleGradientDraft(operation.stops);
+    // A collaboration gradient command is a completed authoring decision, not
+    // an in-progress toolbar edit. Fork the active layer palette so the next
+    // mark owns these stops without recolouring earlier marks.
+    setSharedColorCycleGradient(operation.stops, { fork: true });
   }
   if (operation.foreground) {
     state.setBrushSettings({
@@ -545,7 +965,7 @@ const executeSetEraser = (
 
 const executeMutation = async (
   operation: MutationOperation,
-  runtime: VesselCollaborationRuntime,
+  getRuntime: () => VesselCollaborationRuntime,
 ) => {
   const state = getAppStoreState();
   switch (operation.action) {
@@ -565,10 +985,10 @@ const executeMutation = async (
       await executeImportReferenceImage(operation);
       return;
     case 'stroke':
-      await executeStroke(operation, runtime);
+      await executeStroke(operation, getRuntime);
       return;
     case 'shape':
-      await executeShape(operation, runtime);
+      await executeShape(operation, getRuntime);
       return;
     case 'set-tool':
       state.setCurrentTool(operation.tool);
@@ -631,7 +1051,7 @@ const defaultCapturePolicy = (
 ): VesselCollaborationCapturePolicy => {
   if (command.capture) return command.capture;
   if (
-    command.action === 'batch' &&
+    (command.action === 'batch' || command.action === 'artwork-job') &&
     command.operations.some((operation) => operation.action === 'checkpoint')
   ) {
     return 'none';
@@ -693,16 +1113,9 @@ const presentAndCapture = async (
   };
 };
 
-const isGestureAction = (action: MutationOperation['action']) =>
-  action === 'new-project' ||
-  action === 'stroke' ||
-  action === 'shape' ||
-  action === 'open-project' ||
-  action === 'undo' ||
-  action === 'redo';
-
 export const createVesselCollaborationExecutor = (
   getRuntime: () => VesselCollaborationRuntime,
+  executorOptions: VesselCollaborationExecutorOptions = {},
 ) => {
   const initialState = getAppStoreState();
   let revision = 0;
@@ -723,11 +1136,20 @@ export const createVesselCollaborationExecutor = (
     return revision;
   };
 
-  const updateRevisionAfterMutation = (action: MutationOperation['action'], beforeRevision: number) => {
-    syncExternalRevision();
-    if (isGestureAction(action) && revision === beforeRevision) {
-      revision += 1;
+  const settleExternalRevision = async () => {
+    let stableFrames = 0;
+    let previous = syncExternalRevision();
+    for (let frame = 0; frame < 4 && stableFrames < 2; frame += 1) {
+      await nextPaint();
+      const current = syncExternalRevision();
+      stableFrames = current === previous ? stableFrames + 1 : 0;
+      previous = current;
     }
+    return revision;
+  };
+
+  const updateRevisionAfterMutation = () => {
+    syncExternalRevision();
     return revision;
   };
 
@@ -741,7 +1163,10 @@ export const createVesselCollaborationExecutor = (
     return revision > afterRevision;
   };
 
-  return async (command: VesselCollaborationCommand): Promise<VesselCollaborationResult> => {
+  return async (
+    command: VesselCollaborationCommand,
+    options: VesselCollaborationExecutionOptions = {},
+  ): Promise<VesselCollaborationResult> => {
     const startedAt = performance.now();
     const capturePolicy = defaultCapturePolicy(command);
     const thumbnailMaxSize = command.thumbnailMaxSize ?? DEFAULT_THUMBNAIL_MAX_SIZE;
@@ -751,8 +1176,28 @@ export const createVesselCollaborationExecutor = (
     let completedOperations = 0;
     const operationProfiles: NonNullable<VesselCollaborationProfile['operations']> = [];
     const batchFrames: NonNullable<VesselCollaborationResult['frames']> = [];
+    const emitEvent = async (event: VesselCollaborationExecutionEvent) => {
+      try {
+        await options.onEvent?.(event);
+      } catch {
+        // Progress transport is best-effort and must never stop authoring.
+      }
+    };
 
     try {
+      syncExternalRevision();
+      const runtimeIdentity = executorOptions.getRuntimeIdentity?.();
+      if (executorOptions.requireRuntimeFence) {
+        if (!runtimeIdentity) {
+          throw new Error('Vessel collaboration runtime identity is unavailable');
+        }
+        assertVesselCollaborationRuntimeFence({
+          fence: command.runtimeFence,
+          identity: runtimeIdentity,
+          projectId: getAppStoreState().project?.id ?? null,
+          projectRevision: revision,
+        });
+      }
       if (command.action === 'wait-for-frame') {
         const changed = await waitForFrameRevision(command.afterRevision, command.timeoutMs ?? 25000);
         let frame: VesselCollaborationFrame | undefined;
@@ -760,13 +1205,16 @@ export const createVesselCollaborationExecutor = (
           const captured = await presentAndCapture(getRuntime(), capturePolicy, thumbnailMaxSize);
           presentationMs += captured.presentationMs;
           captureMs += captured.captureMs;
+          await settleExternalRevision();
           frame = captured.frame;
         }
+        syncExternalRevision();
         return {
           ok: true,
           commandId: command.id,
           action: command.action,
           revision,
+          ...(runtimeIdentity ? { runtime: runtimeIdentity } : {}),
           state: readState(),
           frame,
           timedOut: !changed,
@@ -779,20 +1227,33 @@ export const createVesselCollaborationExecutor = (
         };
       }
 
-      if (command.action === 'batch') {
-        const runtime = getRuntime();
+      if (command.action === 'batch' || command.action === 'artwork-job') {
+        const isArtworkJob = command.action === 'artwork-job';
+        const totalOperations = command.operations.length;
+        const progressStride = Math.max(1, Math.ceil(totalOperations / 240));
         let hasPresentedFrame = false;
+        let cancelled = false;
+
+        if (isArtworkJob) {
+          assertArtworkJobStartsInsideProject(command.operations);
+          await emitEvent({ type: 'validated', totalOperations });
+        }
 
         for (let index = 0; index < command.operations.length; index += 1) {
+          if (isArtworkJob && options.signal?.aborted) {
+            cancelled = true;
+            break;
+          }
           const operation = command.operations[index];
           if (operation.action === 'checkpoint') {
             const captured = await presentAndCapture(
-              runtime,
+              getRuntime(),
               'final-thumbnail',
               thumbnailMaxSize,
             );
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
+            await settleExternalRevision();
             hasPresentedFrame = true;
             completedOperations += 1;
             operationProfiles.push({
@@ -802,19 +1263,75 @@ export const createVesselCollaborationExecutor = (
               revision,
             });
             if (captured.frame) {
-              batchFrames.push({
+              const checkpointFrame = {
                 operationIndex: index,
                 revision,
                 checkpointName: operation.name,
                 frame: captured.frame,
-              });
+              };
+              if (isArtworkJob) {
+                await emitEvent({
+                  type: 'checkpoint',
+                  operationIndex: index,
+                  checkpointName: operation.name,
+                  completedOperations,
+                  totalOperations,
+                  revision,
+                  frame: captured.frame,
+                });
+              } else {
+                batchFrames.push(checkpointFrame);
+              }
             }
             continue;
           }
           const operationStartedAt = performance.now();
-          const beforeRevision = revision;
-          await executeMutation(operation, runtime);
-          updateRevisionAfterMutation(operation.action, beforeRevision);
+          const beforeGesture = operation.action === 'stroke' || operation.action === 'shape'
+            ? captureCanonicalGestureRegion(operation)
+            : null;
+          if (
+            isArtworkJob &&
+            executorOptions.enforceGeometryPreflight === true &&
+            (operation.action === 'stroke' || operation.action === 'shape')
+          ) {
+            assertGestureExecutionContract(operation);
+          }
+          const geometryRejection = isArtworkJob &&
+            executorOptions.enforceGeometryPreflight === true &&
+            (operation.action === 'stroke' || operation.action === 'shape')
+            ? resolveVesselCollaborationCandidateGeometryRejection(operation)
+            : null;
+          if (geometryRejection) {
+            const markEvidence = createGeometryRejectionEvidence(
+              operation as StrokeOperation | ShapeOperation,
+              beforeGesture,
+            );
+            completedOperations += 1;
+            operationProfiles.push({
+              index,
+              action: operation.action,
+              mutationMs: 0,
+              revision,
+              markEvidence,
+            });
+            if (
+              completedOperations === totalOperations ||
+              completedOperations === 1 ||
+              completedOperations % progressStride === 0
+            ) {
+              await emitEvent({
+                type: 'progress',
+                completedOperations,
+                totalOperations,
+                revision,
+                markEvidence,
+              });
+            }
+            continue;
+          }
+          await executeMutation(operation, getRuntime);
+          updateRevisionAfterMutation();
+          const markEvidence = resolveMarkEvidence(operation, beforeGesture);
           completedOperations += 1;
           const operationMutationMs = roundMs(performance.now() - operationStartedAt);
           mutationMs += operationMutationMs;
@@ -823,7 +1340,24 @@ export const createVesselCollaborationExecutor = (
             action: operation.action,
             mutationMs: operationMutationMs,
             revision,
+            ...(markEvidence ? { markEvidence } : {}),
           });
+
+          if (isArtworkJob) {
+            if (
+              completedOperations === totalOperations ||
+              completedOperations === 1 ||
+              completedOperations % progressStride === 0
+            ) {
+              await emitEvent({
+                type: 'progress',
+                completedOperations,
+                totalOperations,
+                revision,
+                ...(markEvidence ? { markEvidence } : {}),
+              });
+            }
+          }
 
           if (
             capturePolicy === 'each-thumbnail' &&
@@ -836,6 +1370,7 @@ export const createVesselCollaborationExecutor = (
             );
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
+            await settleExternalRevision();
             hasPresentedFrame = true;
             if (captured.frame) {
               batchFrames.push({ operationIndex: index, revision, frame: captured.frame });
@@ -852,25 +1387,44 @@ export const createVesselCollaborationExecutor = (
               operation.action !== 'checkpoint' && needsPresentation(operation.action))
           ) || capturePolicy !== 'none';
           if (shouldPresent) {
-            const captured = await presentAndCapture(runtime, capturePolicy, thumbnailMaxSize);
+            const captured = await presentAndCapture(
+              getRuntime(),
+              capturePolicy,
+              thumbnailMaxSize,
+            );
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
+            await settleExternalRevision();
             frame = captured.frame;
           }
         } else if (!hasPresentedFrame) {
-          const captured = await presentAndCapture(runtime, 'none', thumbnailMaxSize);
+          const captured = await presentAndCapture(getRuntime(), 'none', thumbnailMaxSize);
           presentationMs += captured.presentationMs;
+          await settleExternalRevision();
         }
+
+        await settleExternalRevision();
 
         return {
           ok: true,
           commandId: command.id,
           action: command.action,
           revision,
+          ...(runtimeIdentity ? { runtime: runtimeIdentity } : {}),
           state: readState(),
           frame,
           frames: batchFrames.length > 0 ? batchFrames : undefined,
           completedOperations,
+          cancelled: isArtworkJob ? cancelled : undefined,
+          outcome: isArtworkJob
+            ? summarizeVesselCollaborationOutcome({
+                profiles: operationProfiles,
+                cancelled,
+                hasCheckpoint: operationProfiles.some(
+                  (profile) => profile.action === 'checkpoint',
+                ),
+              })
+            : undefined,
           profile: {
             mutationMs: roundMs(mutationMs),
             presentationMs: roundMs(presentationMs),
@@ -881,28 +1435,35 @@ export const createVesselCollaborationExecutor = (
         };
       }
 
-      const runtime = getRuntime();
       const mutationStartedAt = performance.now();
-      const beforeRevision = revision;
-      await executeMutation(command, runtime);
-      updateRevisionAfterMutation(command.action, beforeRevision);
+      const beforeGesture = command.action === 'stroke' || command.action === 'shape'
+        ? captureCanonicalGestureRegion(command)
+        : null;
+      await executeMutation(command, getRuntime);
+      updateRevisionAfterMutation();
+      const markEvidence = resolveMarkEvidence(command, beforeGesture);
       mutationMs = roundMs(performance.now() - mutationStartedAt);
 
       let frame: VesselCollaborationFrame | undefined;
       if (needsPresentation(command.action) || capturePolicy !== 'none') {
-        const captured = await presentAndCapture(runtime, capturePolicy, thumbnailMaxSize);
+        const captured = await presentAndCapture(getRuntime(), capturePolicy, thumbnailMaxSize);
         presentationMs += captured.presentationMs;
         captureMs += captured.captureMs;
+        await settleExternalRevision();
         frame = captured.frame;
       }
+
+      syncExternalRevision();
 
       return {
         ok: true,
         commandId: command.id,
         action: command.action,
         revision,
+        ...(runtimeIdentity ? { runtime: runtimeIdentity } : {}),
         state: readState(),
         frame,
+        ...(markEvidence ? { markEvidence } : {}),
         profile: {
           mutationMs,
           presentationMs,
@@ -917,6 +1478,9 @@ export const createVesselCollaborationExecutor = (
         commandId: command.id,
         action: command.action,
         revision,
+        ...(executorOptions.getRuntimeIdentity
+          ? { runtime: executorOptions.getRuntimeIdentity() }
+          : {}),
         state: readState(),
         frames: batchFrames.length > 0 ? batchFrames : undefined,
         completedOperations: completedOperations > 0 ? completedOperations : undefined,

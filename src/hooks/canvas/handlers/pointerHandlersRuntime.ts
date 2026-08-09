@@ -3611,9 +3611,12 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
 
     // Process coalesced events for smoother drawing (if available)
     // This gives us all the intermediate pointer positions between events
-    // Skip for gradient/contour tools as they don't need continuous drawing
+    // Keep constructed gradient/contour tools single-point, but preserve
+    // coalesced freehand Color Cycle shape boundaries from native pen input.
     if (interaction.state.isDrawing && event.nativeEvent.getCoalescedEvents &&
-        !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient && !toolStateMachine.isColorCycleShape && !toolStateMachine.isContourPolygon) {
+        !toolStateMachine.isRectangleGradient && !toolStateMachine.isPolygonGradient &&
+        (!toolStateMachine.isColorCycleShape || drawingHandlers.isDrawingShapeRef.current) &&
+        !toolStateMachine.isContourPolygon) {
       const coalescedEvents = event.nativeEvent.getCoalescedEvents();
       if (coalescedEvents.length > 1) {
         // Process intermediate events (skip the last one as it's the current event)
@@ -4789,14 +4792,26 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       return;
     }
 
-    // Keep handler minimal; batch work to next animation frame
-    // Never drop updates while drawing shapes; RAF will still run at display rate
-    // Persist the synthetic event just in case (React 17+ no-ops)
-    if (isSpaceInteractionActive() && isMouseDownRef.current && !pan.panState.isPanning) {
+    const { tools } = getDynamicDeps();
+    const shouldProcessShapeMoveImmediately =
+      tools.currentTool === 'brush' &&
+      tools.shapeMode &&
+      (drawingHandlers.isDrawingShapeRef.current ||
+        Boolean(drawingHandlers.isSelectingDirectionRef?.current));
+
+    // A shape boundary is authored geometry: dropping any pointer move changes
+    // the filled region. Process shape and direction samples synchronously so a
+    // rapid canonical pointer sequence cannot collapse to lastMoveEvent.
+    if (
+      shouldProcessShapeMoveImmediately ||
+      (isSpaceInteractionActive() && isMouseDownRef.current && !pan.panState.isPanning)
+    ) {
       processPointerMove(event);
       return;
     }
 
+    // Freehand strokes may coalesce to one heavy processing pass per frame.
+    // Persist the synthetic event just in case (React 17+ no-ops).
     event.persist();
     lastMoveEvent = event;
     if (scheduledMoveRAF == null) {

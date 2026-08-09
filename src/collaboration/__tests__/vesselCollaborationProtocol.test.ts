@@ -560,6 +560,102 @@ describe('parseVesselCollaborationCommand', () => {
     })).toThrow('batches cannot return more than 8 checkpoint or gesture thumbnails');
   });
 
+  it('keeps atomic batches bounded and accepts a larger streamed artwork job', () => {
+    const runtimeFence = {
+      protocolVersion: 2,
+      runtimeBuildId: 'test-build',
+      runtimeInstanceId: 'test-runtime',
+      leaseEpoch: 1,
+      expectedProjectId: 'test-project',
+      expectedProjectRevision: 0,
+    };
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-batch-over-limit',
+      action: 'batch',
+      operations: Array.from({ length: 101 }, () => ({
+        action: 'set-tool',
+        tool: 'brush',
+      })),
+    })).toThrow('operations cannot contain more than 100 operations');
+
+    const job = parseVesselCollaborationCommand({
+      id: 'command-artwork-job',
+      action: 'artwork-job',
+      capture: 'final-thumbnail',
+      runtimeFence,
+      operations: [
+        ...Array.from({ length: 120 }, () => ({
+          action: 'set-tool' as const,
+          tool: 'brush' as const,
+        })),
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    });
+    expect(job.action).toBe('artwork-job');
+    if (job.action !== 'artwork-job') throw new Error('Expected artwork job');
+    expect(job.operations).toHaveLength(121);
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-each-frame',
+      action: 'artwork-job',
+      capture: 'each-thumbnail',
+      operations: [{ action: 'set-tool', tool: 'brush' }],
+    })).toThrow('artwork jobs use named checkpoints instead of each-thumbnail capture');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-no-checkpoint',
+      action: 'artwork-job',
+      runtimeFence,
+      operations: [{ action: 'set-tool', tool: 'brush' }],
+    })).toThrow('artwork jobs must contain at least one named checkpoint');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-layer-switch',
+      action: 'artwork-job',
+      runtimeFence,
+      operations: [
+        { action: 'create-layer', layerType: 'color-cycle' },
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    })).toThrow('unsupported artwork job operation: create-layer');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-unphased-mark',
+      action: 'artwork-job',
+      runtimeFence,
+      operations: [
+        { action: 'shape', points: [{ x: 1, y: 1 }, { x: 5, y: 1 }, { x: 3, y: 5 }] },
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    })).toThrow('operations[0].phase is required for artwork job gestures');
+
+    const phasedJob = parseVesselCollaborationCommand({
+      id: 'command-artwork-job-phased-mark',
+      action: 'artwork-job',
+      runtimeFence,
+      operations: [
+        {
+          action: 'shape',
+          phase: 'primary',
+          points: [{ x: 1, y: 1 }, { x: 5, y: 1 }, { x: 3, y: 5 }],
+        },
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    });
+    if (phasedJob.action !== 'artwork-job') throw new Error('Expected artwork job');
+    expect(phasedJob.operations[0]).toMatchObject({ phase: 'primary' });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-over-limit',
+      action: 'artwork-job',
+      runtimeFence,
+      operations: Array.from({ length: 2001 }, () => ({
+        action: 'set-tool',
+        tool: 'brush',
+      })),
+    })).toThrow('artwork jobs cannot contain more than 2000 operations');
+  });
+
   it('accepts revision waits and rejects invalid capture bounds', () => {
     expect(parseVesselCollaborationCommand({
       id: 'command-wait',

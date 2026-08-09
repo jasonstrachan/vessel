@@ -1670,6 +1670,100 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.continueDrawing).toHaveBeenCalled();
   });
 
+  it('preserves coalesced freehand Color Cycle shape boundary points', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        } as any,
+      },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    deps.toolStateMachine.isColorCycleShape = true;
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerMove(makePointerEvent({
+      clientX: 40,
+      clientY: 45,
+      nativeEvent: {
+        getCoalescedEvents: () => [
+          { clientX: 20, clientY: 25, shiftKey: false, pressure: 0.8 },
+          { clientX: 30, clientY: 35, shiftKey: false, pressure: 0.8 },
+          { clientX: 40, clientY: 45, shiftKey: false, pressure: 0.8 },
+        ] as unknown as PointerEvent[],
+      } as any,
+    }));
+
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenNthCalledWith(1, { x: 20, y: 25 });
+    expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenNthCalledWith(2, { x: 30, y: 35 });
+  });
+
+  it('processes rapid Color Cycle shape moves without dropping them to the RAF aggregator', () => {
+    const queuedFrames: FrameRequestCallback[] = [];
+    const previousRaf = global.requestAnimationFrame;
+    global.requestAnimationFrame = (callback: FrameRequestCallback): number => {
+      queuedFrames.push(callback);
+      return queuedFrames.length;
+    };
+    try {
+      const { deps, dynamicDepsRef } = createDeps({
+        tools: {
+          ...baseDynamic.tools,
+          shapeMode: true,
+          brushSettings: {
+            ...baseDynamic.tools.brushSettings,
+            brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          } as any,
+        },
+      });
+      dynamicDepsRef.current.tools = deps.tools;
+      deps.toolStateMachine.isColorCycleShape = true;
+      deps.drawingHandlers.isDrawingShapeRef.current = true;
+      deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+      deps.isMouseDownRef.current = true;
+
+      const handlers = createPointerHandlers(deps);
+      handlers.handlePointerMove(makePointerEvent({
+        buttons: 1,
+        clientX: 20,
+        clientY: 25,
+        pointerType: 'pen',
+        pressure: 1,
+      }));
+      handlers.handlePointerMove(makePointerEvent({
+        buttons: 1,
+        clientX: 30,
+        clientY: 35,
+        pointerType: 'pen',
+        pressure: 1,
+      }));
+
+      expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenNthCalledWith(
+        1,
+        { x: 20, y: 25 },
+        1,
+        0,
+        1,
+      );
+      expect(deps.drawingHandlers.continueShapeDrawing).toHaveBeenNthCalledWith(
+        2,
+        { x: 30, y: 35 },
+        1,
+        0,
+        1,
+      );
+      expect(queuedFrames).toHaveLength(0);
+    } finally {
+      global.requestAnimationFrame = previousRaf;
+    }
+  });
+
   it('falls back to current pressure when coalesced events omit pressure', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {

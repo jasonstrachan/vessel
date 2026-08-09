@@ -116,9 +116,15 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       source: session.source,
       speedCps: session.speedCps ?? undefined,
       seamProfile: session.seamProfile,
+      sampledCapacityFallback: 'reuse-nearest-compatible',
       updateOptions: { skipColorCycleSync: true },
     });
     if (defResult) {
+      if (defResult.reusedForCapacity) {
+        session.rawStopsStored = cloneStops(defResult.def.stops);
+        session.frozenStopsStored = cloneStops(defResult.def.stops);
+        session.frozenHash = defResult.def.hash;
+      }
       session.binding = { kind: 'def', defId: defResult.def.id, slot: defResult.slot };
     }
   }

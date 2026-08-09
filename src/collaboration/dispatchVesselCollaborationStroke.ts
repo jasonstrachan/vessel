@@ -4,6 +4,7 @@ interface DispatchVesselCollaborationStrokeOptions {
   canvas: HTMLCanvasElement;
   points: VesselCollaborationPoint[];
   pointsPerFrame: number;
+  framePacing?: 'per-move' | 'finalize-only';
   zoom: number;
   worldToScreen: (x: number, y: number, zoom: number) => { x: number; y: number };
   isBusy: () => boolean;
@@ -19,6 +20,7 @@ export const dispatchVesselCollaborationStroke = async ({
   canvas,
   points,
   pointsPerFrame,
+  framePacing = 'per-move',
   zoom,
   worldToScreen,
   isBusy,
@@ -65,12 +67,16 @@ export const dispatchVesselCollaborationStroke = async ({
 
   const [first, ...rest] = points;
   dispatchPointer('pointerdown', first);
-  await waitForFrame();
+  if (framePacing === 'per-move') await waitForFrame();
   for (let index = 0; index < rest.length; index += pointsPerFrame) {
     const framePoints = rest.slice(index, index + pointsPerFrame);
     dispatchPointer('pointermove', framePoints.at(-1)!, framePoints);
-    await waitForFrame();
+    if (framePacing === 'per-move') await waitForFrame();
   }
+  // Vessel consumes pointer moves through its own RAF aggregator. In the fast
+  // path, give the entire coalesced gesture one frame to land before pointerup;
+  // waiting per point is unnecessary and was the original performance cost.
+  if (framePacing === 'finalize-only' && rest.length > 0) await waitForFrame();
   dispatchPointer('pointerup', rest.at(-1) ?? first);
   await waitForFrame();
 

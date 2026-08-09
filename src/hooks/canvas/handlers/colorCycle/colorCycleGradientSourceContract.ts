@@ -139,13 +139,17 @@ export const resolveColorCycleGradientRenderSession = ({
         source: session.source,
         speedCps: session.speedCps ?? undefined,
         seamProfile: session.seamProfile,
+        sampledCapacityFallback: 'reuse-nearest-compatible',
         updateOptions: { skipColorCycleSync: true },
       });
       if (renderDef) {
+        const committedStops = renderDef.reusedForCapacity
+          ? renderDef.def.stops.map((stop) => ({ ...stop }))
+          : runtimeStops;
         return {
           binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
-          frozenStopsStored: runtimeStops,
-          sourceStopsStored: sampledSourceStops,
+          frozenStopsStored: committedStops,
+          sourceStopsStored: renderDef.reusedForCapacity ? committedStops : sampledSourceStops,
           frozenHash: renderDef.hash,
           source: session.source,
           gradientKind: session.gradientKind,
@@ -198,6 +202,9 @@ export const resolveColorCycleGradientRenderSession = ({
     source: session.source,
     speedCps: session.speedCps ?? undefined,
     seamProfile: session.seamProfile,
+    sampledCapacityFallback: session.source === 'sampled'
+      ? 'reuse-nearest-compatible'
+      : undefined,
     updateOptions: { skipColorCycleSync: true },
   });
   if (!renderDef) {
@@ -213,10 +220,13 @@ export const resolveColorCycleGradientRenderSession = ({
     };
   }
 
+  const committedStops = renderDef.reusedForCapacity
+    ? renderDef.def.stops.map((stop) => ({ ...stop }))
+    : runtimeStops;
   return {
     binding: { kind: 'def', defId: renderDef.def.id, slot: renderDef.slot },
-    frozenStopsStored: runtimeStops,
-    sourceStopsStored: sampledSourceStops,
+    frozenStopsStored: committedStops,
+    sourceStopsStored: renderDef.reusedForCapacity ? committedStops : sampledSourceStops,
     frozenHash: renderDef.hash,
     source: session.source,
     gradientKind: session.gradientKind,

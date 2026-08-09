@@ -1,3 +1,8 @@
+import type {
+  VesselCollaborationRuntimeFence,
+  VesselCollaborationRuntimeIdentity,
+} from './vesselCollaborationRuntimeIdentity';
+
 export interface VesselCollaborationPoint {
   x: number;
   y: number;
@@ -13,6 +18,7 @@ export type VesselCollaborationCapturePolicy =
 interface VesselCollaborationCaptureOptions {
   capture?: VesselCollaborationCapturePolicy;
   thumbnailMaxSize?: number;
+  runtimeFence?: VesselCollaborationRuntimeFence;
 }
 
 export type VesselCollaborationDitherAlgorithm =
@@ -41,6 +47,11 @@ export type VesselCollaborationPatternStyle =
 
 export type VesselCollaborationGradientSource = 'manual' | 'fg' | 'sampled';
 export type VesselCollaborationEraserTip = 'square' | 'round' | 'diamond5';
+export type VesselCollaborationConstructionPhase =
+  | 'primary'
+  | 'medium'
+  | 'focal'
+  | 'revision';
 
 export interface VesselCollaborationGradientStop {
   position: number;
@@ -53,6 +64,7 @@ interface VesselCollaborationStrokeOperation {
   points: VesselCollaborationPoint[];
   tool?: 'brush' | 'eraser';
   pointsPerFrame?: number;
+  phase?: VesselCollaborationConstructionPhase;
 }
 
 interface VesselCollaborationShapeOperation {
@@ -60,6 +72,7 @@ interface VesselCollaborationShapeOperation {
   points: VesselCollaborationPoint[];
   direction?: VesselCollaborationPoint[];
   pointsPerFrame?: number;
+  phase?: VesselCollaborationConstructionPhase;
 }
 
 interface VesselCollaborationSetBrushOperation {
@@ -179,6 +192,13 @@ export type VesselCollaborationBatchOperation =
   | VesselCollaborationSetLayerVisibilityOperation
   | { action: 'set-active-layer'; layerId: string };
 
+export type VesselCollaborationArtworkOperation = Exclude<
+  VesselCollaborationBatchOperation,
+  | VesselCollaborationCreateLayerOperation
+  | VesselCollaborationSetLayerVisibilityOperation
+  | { action: 'set-active-layer'; layerId: string }
+>;
+
 type WithCaptureOptions<T> = T & VesselCollaborationCaptureOptions;
 
 export type VesselCollaborationCommand =
@@ -216,6 +236,15 @@ export type VesselCollaborationCommand =
       operations: VesselCollaborationBatchOperation[];
       capture?: VesselCollaborationCapturePolicy;
       thumbnailMaxSize?: number;
+      runtimeFence?: VesselCollaborationRuntimeFence;
+    }
+  | {
+      id: string;
+      action: 'artwork-job';
+      operations: VesselCollaborationArtworkOperation[];
+      capture?: Exclude<VesselCollaborationCapturePolicy, 'each-thumbnail'>;
+      thumbnailMaxSize?: number;
+      runtimeFence?: VesselCollaborationRuntimeFence;
     }
   | WithCaptureOptions<{
       id: string;
@@ -237,6 +266,25 @@ export interface VesselCollaborationFrame {
   dataUrl: string;
 }
 
+export interface VesselCollaborationMarkEvidence {
+  layerId: string;
+  documentVersion: number;
+  documentVersionDelta: number;
+  markType: 'stroke' | 'shape';
+  phase: VesselCollaborationConstructionPhase | null;
+  status: 'committed' | 'rejected';
+  changedPixels: number;
+  normalizedCoverage: number;
+  dirtyRevisionDelta: number;
+  affectedBounds?: { x: number; y: number; width: number; height: number };
+  changedChannels: Array<'paint' | 'gradient' | 'speed' | 'flow' | 'phase'>;
+  strokeSpan?: number;
+  rejectionReason?:
+    | 'no-authored-delta'
+    | 'unpublished-canonical-delta'
+    | 'invalid-geometry';
+}
+
 export interface VesselCollaborationProfile {
   mutationMs: number;
   presentationMs: number;
@@ -247,7 +295,44 @@ export interface VesselCollaborationProfile {
     action: VesselCollaborationBatchOperation['action'];
     mutationMs: number;
     revision: number;
+    markEvidence?: VesselCollaborationMarkEvidence;
   }>;
+}
+
+export type VesselCollaborationExecutionEvent =
+  | {
+      type: 'validated';
+      totalOperations: number;
+    }
+  | {
+      type: 'progress';
+      completedOperations: number;
+      totalOperations: number;
+      revision: number;
+      markEvidence?: VesselCollaborationMarkEvidence;
+    }
+  | {
+      type: 'checkpoint';
+      operationIndex: number;
+      checkpointName: string;
+      completedOperations: number;
+      totalOperations: number;
+      revision: number;
+      frame: VesselCollaborationFrame;
+    };
+
+export interface VesselCollaborationOutcomeSummary {
+  transport: 'accepted';
+  execution: 'completed' | 'cancelled' | 'failed';
+  evidence: 'valid' | 'deficient' | 'unverifiable';
+  checkpoint: 'valid' | 'missing' | 'invalid';
+  attemptedShapes: number;
+  committedShapes: number;
+  rejectedShapes: number;
+  attemptedStrokes: number;
+  committedStrokes: number;
+  rejectedStrokes: number;
+  changedPixels: number;
 }
 
 export interface VesselCollaborationResult {
@@ -255,6 +340,8 @@ export interface VesselCollaborationResult {
   commandId: string;
   action: VesselCollaborationCommand['action'];
   revision: number;
+  runtime?: VesselCollaborationRuntimeIdentity;
+  outcome?: VesselCollaborationOutcomeSummary;
   state?: {
     project: { id: string; name: string; width: number; height: number } | null;
     activeLayerId: string | null;
@@ -289,6 +376,18 @@ export interface VesselCollaborationResult {
       };
       sampleCount: number;
     };
+    colorCycle: {
+      hasContent: boolean;
+      gradientDefinitionCount: number;
+      sampledGradientDefinitionCount: number;
+      sampledPaintedPixelCount: number;
+      latestSampledGradient: {
+        id: number;
+        stopCount: number;
+        uniqueColorCount: number;
+        stops: VesselCollaborationGradientStop[];
+      } | null;
+    } | null;
     brush: {
       size: number;
       opacity: number;
@@ -345,6 +444,8 @@ export interface VesselCollaborationResult {
   }>;
   profile?: VesselCollaborationProfile;
   completedOperations?: number;
+  cancelled?: boolean;
+  markEvidence?: VesselCollaborationMarkEvidence;
   timedOut?: boolean;
   error?: string;
 }
@@ -472,6 +573,8 @@ const MAX_PROJECT_BASE64_CHARS = 24 * 1024 * 1024;
 const MAX_IMAGE_BASE64_CHARS = 16 * 1024 * 1024;
 const MAX_BATCH_OPERATIONS = 100;
 const MAX_BATCH_POINTS = 50000;
+const MAX_ARTWORK_JOB_OPERATIONS = 2000;
+const MAX_ARTWORK_JOB_POINTS = 250000;
 const MAX_COALESCED_STROKE_POINTS = 16;
 const MAX_CAPTURED_BATCH_FRAMES = 8;
 
@@ -969,6 +1072,45 @@ const readEraserSettings = (
 
 const readCaptureOptions = (value: Record<string, unknown>): VesselCollaborationCaptureOptions => {
   const options: VesselCollaborationCaptureOptions = {};
+  if (value.runtimeFence !== undefined) {
+    if (!isRecord(value.runtimeFence)) {
+      throw new Error('runtimeFence must be an object');
+    }
+    const protocolVersion = requireInteger(
+      value.runtimeFence.protocolVersion,
+      'runtimeFence.protocolVersion',
+    );
+    const leaseEpoch = requireInteger(value.runtimeFence.leaseEpoch, 'runtimeFence.leaseEpoch');
+    const expectedProjectRevision = value.runtimeFence.expectedProjectRevision === undefined
+      ? undefined
+      : requireInteger(
+          value.runtimeFence.expectedProjectRevision,
+          'runtimeFence.expectedProjectRevision',
+        );
+    options.runtimeFence = {
+      protocolVersion,
+      runtimeBuildId: requireString(
+        value.runtimeFence.runtimeBuildId,
+        'runtimeFence.runtimeBuildId',
+      ),
+      runtimeInstanceId: requireString(
+        value.runtimeFence.runtimeInstanceId,
+        'runtimeFence.runtimeInstanceId',
+      ),
+      leaseEpoch,
+      ...(value.runtimeFence.expectedProjectId === undefined
+        ? {}
+        : {
+            expectedProjectId: value.runtimeFence.expectedProjectId === null
+              ? null
+              : requireString(
+                  value.runtimeFence.expectedProjectId,
+                  'runtimeFence.expectedProjectId',
+                ),
+          }),
+      ...(expectedProjectRevision === undefined ? {} : { expectedProjectRevision }),
+    };
+  }
   if (value.capture !== undefined) {
     const capture = requireString(value.capture, 'capture');
     if (
@@ -1015,6 +1157,17 @@ const readLayerName = (value: unknown, field: string): string | undefined => {
   return name;
 };
 
+const readConstructionPhase = (
+  value: unknown,
+  field: string,
+): VesselCollaborationConstructionPhase | undefined => {
+  if (value === undefined) return undefined;
+  if (value !== 'primary' && value !== 'medium' && value !== 'focal' && value !== 'revision') {
+    throw new Error(`${field} must be primary, medium, focal, or revision`);
+  }
+  return value;
+};
+
 const readBatchOperation = (value: unknown, index: number): VesselCollaborationBatchOperation => {
   if (!isRecord(value)) {
     throw new Error(`operations[${index}] must be an object`);
@@ -1036,6 +1189,7 @@ const readBatchOperation = (value: unknown, index: number): VesselCollaborationB
       return {
         action,
         points,
+        phase: readConstructionPhase(value.phase, `operations[${index}].phase`),
         ...(action === 'stroke'
           ? { tool: value.tool === undefined ? undefined : readTool(value.tool) }
           : {
@@ -1147,6 +1301,7 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         id,
         action,
         points,
+        phase: readConstructionPhase(value.phase, 'phase'),
         tool: value.tool === undefined ? undefined : readTool(value.tool),
         ...(pointsPerFrame === undefined ? {} : { pointsPerFrame }),
         ...captureOptions,
@@ -1158,6 +1313,7 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         id,
         action,
         points: readShapePoints(value.points, 'points'),
+        phase: readConstructionPhase(value.phase, 'phase'),
         direction: value.direction === undefined
           ? undefined
           : readDirectionPoints(value.direction, 'direction'),
@@ -1256,6 +1412,76 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         throw new Error(`batch cannot contain more than ${MAX_BATCH_POINTS} points`);
       }
       return { id, action, operations, ...captureOptions };
+    }
+    case 'artwork-job': {
+      if (!Array.isArray(value.operations) || value.operations.length === 0) {
+        throw new Error('operations must contain at least one operation');
+      }
+      if (value.operations.length > MAX_ARTWORK_JOB_OPERATIONS) {
+        throw new Error(
+          `artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_OPERATIONS} operations`,
+        );
+      }
+      if (captureOptions.capture === 'each-thumbnail') {
+        throw new Error('artwork jobs use named checkpoints instead of each-thumbnail capture');
+      }
+      if (
+        captureOptions.runtimeFence?.expectedProjectId === undefined ||
+        captureOptions.runtimeFence.expectedProjectRevision === undefined
+      ) {
+        throw new Error('artwork jobs require an expected project ID and revision fence');
+      }
+      const operations = value.operations.map(readBatchOperation);
+      const unsupportedOperation = operations.find(
+        (operation) =>
+          operation.action === 'create-layer' ||
+          operation.action === 'set-active-layer' ||
+          operation.action === 'set-layer-visibility',
+      );
+      if (unsupportedOperation) {
+        throw new Error(
+          `unsupported artwork job operation: ${unsupportedOperation.action}`,
+        );
+      }
+      const unphasedGestureIndex = operations.findIndex(
+        (operation) =>
+          (operation.action === 'stroke' || operation.action === 'shape') && !operation.phase,
+      );
+      if (unphasedGestureIndex >= 0) {
+        throw new Error(
+          `operations[${unphasedGestureIndex}].phase is required for artwork job gestures`,
+        );
+      }
+      const checkpointNames = operations
+        .filter((operation) => operation.action === 'checkpoint')
+        .map((operation) => operation.name);
+      if (checkpointNames.length === 0) {
+        throw new Error('artwork jobs must contain at least one named checkpoint');
+      }
+      if (new Set(checkpointNames).size !== checkpointNames.length) {
+        throw new Error('checkpoint names must be unique within an artwork job');
+      }
+      if (checkpointNames.length > MAX_CAPTURED_BATCH_FRAMES) {
+        throw new Error(
+          `artwork jobs cannot contain more than ${MAX_CAPTURED_BATCH_FRAMES} checkpoints`,
+        );
+      }
+      const pointCount = operations.reduce((total, operation) => {
+        if (operation.action === 'stroke') return total + operation.points.length;
+        if (operation.action === 'shape') {
+          return total + operation.points.length + (operation.direction?.length ?? 0);
+        }
+        return total;
+      }, 0);
+      if (pointCount > MAX_ARTWORK_JOB_POINTS) {
+        throw new Error(
+          `artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_POINTS} points`,
+        );
+      }
+      return { id, action, operations, ...captureOptions } as Extract<
+        VesselCollaborationCommand,
+        { action: 'artwork-job' }
+      >;
     }
     case 'wait-for-frame': {
       const afterRevision = requireInteger(value.afterRevision, 'afterRevision');

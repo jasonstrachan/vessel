@@ -1,5 +1,7 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { BrushShape } from '@/types';
+import { setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
 import { deserializeProject } from '@/utils/projectIO';
 
 import { dispatchVesselCollaborationStroke } from '../dispatchVesselCollaborationStroke';
@@ -9,17 +11,43 @@ jest.mock('@/stores/appStoreAccess', () => ({
   getAppStoreState: jest.fn(),
 }));
 
+jest.mock('@/stores/colorCycleBrushManager', () => ({
+  getColorCycleBrushManager: jest.fn(),
+}));
+
 jest.mock('@/utils/projectIO', () => ({
   deserializeProject: jest.fn(),
 }));
 
+jest.mock('@/utils/colorCycleGradients', () => ({
+  setSharedColorCycleGradient: jest.fn(),
+}));
+
 const mockedGetAppStoreState = getAppStoreState as jest.MockedFunction<typeof getAppStoreState>;
+const mockedGetColorCycleBrushManager = getColorCycleBrushManager as jest.MockedFunction<
+  typeof getColorCycleBrushManager
+>;
 const mockedDeserializeProject = deserializeProject as jest.MockedFunction<typeof deserializeProject>;
+const mockedSetSharedColorCycleGradient = setSharedColorCycleGradient as jest.MockedFunction<
+  typeof setSharedColorCycleGradient
+>;
 const originalCreateImageBitmap = globalThis.createImageBitmap;
 
 describe('createVesselCollaborationExecutor', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockedGetColorCycleBrushManager.mockReturnValue({
+      getDocument: jest.fn(() => undefined),
+    } as unknown as ReturnType<typeof getColorCycleBrushManager>);
+    mockedSetSharedColorCycleGradient.mockImplementation((stops) => {
+      getAppStoreState().setBrushSettings({
+        colorCycleGradient: stops,
+        ccGradientSource: 'manual',
+        colorCycleUseForegroundGradient: false,
+        autoSampleGradient: false,
+        autoSampleGradientRealtime: false,
+      });
+    });
     global.requestAnimationFrame = ((callback: FrameRequestCallback) => {
       callback(0);
       return 1;
@@ -272,6 +300,100 @@ describe('createVesselCollaborationExecutor', () => {
     });
   });
 
+  it('reports canonical sampled Color Cycle paint evidence instead of transient brush sampling', async () => {
+    mockedGetAppStoreState.mockReturnValue({
+      project: { id: 'project-1', name: 'Portrait', width: 2, height: 2 },
+      activeLayerId: 'layer-cc',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'layer-cc',
+        name: 'Portrait paint',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+        colorCycleData: {
+          canvasWidth: 2,
+          canvasHeight: 2,
+          hasContent: true,
+          gradientDefIdBuffer: new Uint16Array([0, 7, 7, 9]).buffer,
+          gradientDefStore: [
+            {
+              id: 7,
+              kind: 'linear',
+              source: 'sampled',
+              hash: 'sampled-hash',
+              createdAtMs: 20,
+              stops: [
+                { position: 0, color: '#6f89bd' },
+                { position: 1, color: '#d5d0c8' },
+              ],
+            },
+            {
+              id: 9,
+              kind: 'linear',
+              source: 'manual',
+              hash: 'manual-hash',
+              createdAtMs: 30,
+              stops: [
+                { position: 0, color: '#000000' },
+                { position: 1, color: '#ffffff' },
+              ],
+            },
+          ],
+        },
+      }],
+      tools: {
+        currentTool: 'brush',
+        ccGradientSource: 'sampled',
+        brushSettings: {
+          size: 8,
+          opacity: 1,
+          color: '#000000',
+          spacing: 1,
+          colorCycleGradient: [
+            { position: 0, color: '#111111' },
+            { position: 1, color: '#eeeeee' },
+          ],
+        },
+      },
+      ccGradientSampleCount: 0,
+      autosave: { dirtyRevision: 1 },
+    } as unknown as ReturnType<typeof getAppStoreState>);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-observe-sampled-paint',
+      action: 'observe',
+      capture: 'none',
+    });
+
+    expect(result.state).toMatchObject({
+      gradient: { sampleCount: 0 },
+      colorCycle: {
+        hasContent: true,
+        gradientDefinitionCount: 2,
+        sampledGradientDefinitionCount: 1,
+        sampledPaintedPixelCount: 2,
+        latestSampledGradient: {
+          id: 7,
+          stopCount: 2,
+          uniqueColorCount: 2,
+          stops: [
+            { position: 0, color: '#6f89bd' },
+            { position: 1, color: '#d5d0c8' },
+          ],
+        },
+      },
+    });
+  });
+
   it('routes strokes through the canonical lifecycle and returns the rendered frame', async () => {
     const setCurrentTool = jest.fn();
     mockedGetAppStoreState.mockReturnValue({
@@ -337,7 +459,7 @@ describe('createVesselCollaborationExecutor', () => {
     expect(result).toMatchObject({
       ok: true,
       commandId: 'command-1',
-      revision: 1,
+      revision: 0,
       frame: {
         kind: 'thumbnail',
         width: 512,
@@ -356,7 +478,7 @@ describe('createVesselCollaborationExecutor', () => {
     });
 
     const observation = await execute({ id: 'command-2', action: 'observe' });
-    expect(observation.revision).toBe(1);
+    expect(observation.revision).toBe(0);
   });
 
   it('refuses to draw on a locked layer', async () => {
@@ -442,13 +564,223 @@ describe('createVesselCollaborationExecutor', () => {
     expect(dispatchStroke).toHaveBeenNthCalledWith(
       1,
       [{ x: 10, y: 20 }, { x: 30, y: 40 }],
-      { pointsPerFrame: 1 },
+      { pointsPerFrame: 1, framePacing: 'finalize-only' },
     );
     expect(dispatchStroke).toHaveBeenNthCalledWith(
       2,
       [{ x: 20, y: 30 }, { x: 40, y: 30 }],
-      { pointsPerFrame: 1 },
+      { pointsPerFrame: 1, framePacing: 'finalize-only' },
     );
+  });
+
+  it('delivers every shape point rapidly while preserving the two-stage lifecycle', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Shape paint',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 8, opacity: 1, shapeEnabled: true },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockReturnValue(state);
+    const dispatchStroke = jest.fn(async () => undefined);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+    const points = Array.from({ length: 20 }, (_, index) => ({
+      x: 100 + index,
+      y: 100 + (index % 4),
+    }));
+
+    await execute({
+      id: 'command-fast-shape',
+      action: 'shape',
+      capture: 'none',
+      points,
+      direction: [{ x: 105, y: 105 }, { x: 115, y: 105 }],
+    });
+
+    expect(dispatchStroke).toHaveBeenNthCalledWith(1, points, {
+      pointsPerFrame: 1,
+      framePacing: 'finalize-only',
+    });
+    expect(dispatchStroke).toHaveBeenNthCalledWith(2, [
+      { x: 105, y: 105 },
+      { x: 115, y: 105 },
+    ], { pointsPerFrame: 1, framePacing: 'finalize-only' });
+  });
+
+  it('returns canonical changed-pixel evidence for a committed Color Cycle shape', async () => {
+    const paint = new Uint8Array(16);
+    const gradientDefIds = new Uint16Array(16);
+    let documentVersion = 1;
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 4, height: 4 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Shape paint',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 8, opacity: 1, shapeEnabled: true },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockReturnValue(state);
+    mockedGetColorCycleBrushManager.mockReturnValue({
+      getDocument: jest.fn(() => ({
+        read: () => ({
+          version: documentVersion,
+          snapshot: {
+            layerId: 'layer-1',
+            width: 4,
+            height: 4,
+            paintBuffer: paint.buffer,
+            gradientDefIdBuffer: gradientDefIds.buffer,
+            gradientDefStore: [],
+            hasContent: true,
+            sources: { brushStateSnapshot: false, topLevelBuffers: true, legacyStateRefs: false },
+          },
+        }),
+      })),
+    } as unknown as ReturnType<typeof getColorCycleBrushManager>);
+    const dispatchStroke = jest.fn(async () => {
+      if (dispatchStroke.mock.calls.length === 2) {
+        paint[5] = 7;
+        gradientDefIds[5] = 11;
+        state.autosave.dirtyRevision += 1;
+        documentVersion += 1;
+      }
+    });
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-shape-evidence',
+      action: 'shape',
+      capture: 'none',
+      phase: 'primary',
+      points: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
+      direction: [{ x: 1, y: 1 }, { x: 2, y: 2 }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      revision: 1,
+      markEvidence: {
+        layerId: 'layer-1',
+        markType: 'shape',
+        phase: 'primary',
+        status: 'committed',
+        changedPixels: 1,
+        normalizedCoverage: 1 / 16,
+        dirtyRevisionDelta: 1,
+        documentVersionDelta: 1,
+      },
+    });
+  });
+
+  it('rejects a completed pointer lifecycle with no canonical Color Cycle delta', async () => {
+    const paint = new Uint8Array(16);
+    const gradientDefIds = new Uint16Array(16);
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 4, height: 4 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Shape paint',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 8, opacity: 1, shapeEnabled: true },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockReturnValue(state);
+    mockedGetColorCycleBrushManager.mockReturnValue({
+      getDocument: jest.fn(() => ({
+        read: () => ({
+          version: 1,
+          snapshot: {
+            layerId: 'layer-1',
+            width: 4,
+            height: 4,
+            paintBuffer: paint.buffer,
+            gradientDefIdBuffer: gradientDefIds.buffer,
+            gradientDefStore: [],
+            hasContent: false,
+            sources: { brushStateSnapshot: false, topLevelBuffers: true, legacyStateRefs: false },
+          },
+        }),
+      })),
+    } as unknown as ReturnType<typeof getColorCycleBrushManager>);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(async () => undefined),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-shape-no-delta',
+      action: 'shape',
+      capture: 'none',
+      phase: 'primary',
+      points: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
+      direction: [{ x: 1, y: 1 }, { x: 2, y: 2 }],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      revision: 0,
+      markEvidence: {
+        layerId: 'layer-1',
+        markType: 'shape',
+        phase: 'primary',
+        status: 'rejected',
+        changedPixels: 0,
+        normalizedCoverage: 0,
+        dirtyRevisionDelta: 0,
+        rejectionReason: 'no-authored-delta',
+      },
+    });
   });
 
   it('falls back to one pointer sample per frame for long strokes', async () => {
@@ -626,6 +958,7 @@ describe('createVesselCollaborationExecutor', () => {
       },
       autosave: { dirtyRevision: 0 },
       addLayer: jest.fn(),
+      initColorCycleForLayer: jest.fn(),
       ensureColorCycleLayerRuntime: jest.fn(async () => true),
     } as unknown as ReturnType<typeof getAppStoreState>;
     (state.addLayer as jest.Mock).mockImplementation((layer) => {
@@ -666,6 +999,10 @@ describe('createVesselCollaborationExecutor', () => {
     expect(state.ensureColorCycleLayerRuntime).toHaveBeenCalledWith('layer-created', {
       target: 'active',
     });
+    expect(state.initColorCycleForLayer).toHaveBeenCalledWith('layer-created', 512, 640);
+    expect((state.initColorCycleForLayer as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (state.ensureColorCycleLayerRuntime as jest.Mock).mock.invocationCallOrder[0],
+    );
     expect(result).toMatchObject({
       ok: true,
       revision: 1,
@@ -826,11 +1163,11 @@ describe('createVesselCollaborationExecutor', () => {
       setCcGradientSource: jest.fn((source) => {
         state.tools.ccGradientSource = source;
       }),
-      commitColorCycleGradientDraft: jest.fn((stops) => {
-        state.tools.brushSettings.colorCycleGradient = stops;
-      }),
       setBrushSettings: jest.fn((settings) => {
         Object.assign(state.tools.brushSettings, settings);
+        if (settings.ccGradientSource) {
+          state.tools.ccGradientSource = settings.ccGradientSource;
+        }
       }),
       resetCcGradientSample: jest.fn(() => {
         state.ccGradientSampleCount = 0;
@@ -891,16 +1228,26 @@ describe('createVesselCollaborationExecutor', () => {
     expect(state.setPaletteColor).toHaveBeenNthCalledWith(2, 'background', '#abcdef');
     expect(state.setActivePaletteSlot).toHaveBeenCalledWith('background');
     expect(state.setCcGradientSource).toHaveBeenCalledWith('fg');
-    expect(state.commitColorCycleGradientDraft).toHaveBeenCalledWith([
+    expect(mockedSetSharedColorCycleGradient).toHaveBeenCalledWith([
       { position: 0, color: '#112233' },
       { position: 1, color: '#ddeeff' },
-    ]);
+    ], { fork: true });
     expect(state.setBrushSettings).toHaveBeenNthCalledWith(1, {
+      colorCycleGradient: [
+        { position: 0, color: '#112233' },
+        { position: 1, color: '#ddeeff' },
+      ],
+      ccGradientSource: 'manual',
+      colorCycleUseForegroundGradient: false,
+      autoSampleGradient: false,
+      autoSampleGradientRealtime: false,
+    });
+    expect(state.setBrushSettings).toHaveBeenNthCalledWith(2, {
       colorCycleFgLightness: 35,
       colorCycleFgHueShift: 20,
       colorCycleFgStops: 4,
     });
-    expect(state.setBrushSettings).toHaveBeenNthCalledWith(2, {
+    expect(state.setBrushSettings).toHaveBeenNthCalledWith(3, {
       ditherEnabled: true,
       ditherAlgorithm: 'sierra-lite',
       fillResolution: 6,
@@ -928,7 +1275,7 @@ describe('createVesselCollaborationExecutor', () => {
           activeSlot: 'background',
         },
         gradient: {
-          source: 'fg',
+          source: 'manual',
           sampleCount: 0,
           foreground: { lightness: 35, hueShift: 20, stopCount: 4 },
         },
@@ -1175,6 +1522,443 @@ describe('createVesselCollaborationExecutor', () => {
     expect(result.frame).toBeUndefined();
   });
 
+  it('streams artwork-job progress and cancels safely between completed marks', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      setShapeMode: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+
+    const commandAbortController = new AbortController();
+    const dispatchStroke = jest.fn(async () => {
+      state.autosave.dirtyRevision += 1;
+      commandAbortController.abort();
+    });
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+    const events: Array<{ type: string; completedOperations?: number }> = [];
+
+    const result = await execute({
+      id: 'command-artwork-job-cancel',
+      action: 'artwork-job',
+      capture: 'none',
+      operations: [
+        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
+        { action: 'stroke', phase: 'primary', points: [{ x: 30, y: 40 }] },
+        { action: 'stroke', phase: 'primary', points: [{ x: 50, y: 60 }] },
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    }, {
+      signal: commandAbortController.signal,
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(dispatchStroke).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([
+      { type: 'validated', totalOperations: 4 },
+      { type: 'progress', completedOperations: 1, totalOperations: 4, revision: 1 },
+    ]);
+    expect(result).toMatchObject({
+      ok: true,
+      action: 'artwork-job',
+      revision: 1,
+      completedOperations: 1,
+      cancelled: true,
+    });
+  });
+
+  it('keeps maximum-size artwork-job progress within the retained event budget', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const canvas = {
+      width: 512,
+      height: 640,
+      toDataURL: jest.fn(() => 'data:image/png;base64,frame'),
+    } as unknown as HTMLCanvasElement;
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+    const events: Array<{ type: string }> = [];
+
+    const result = await execute({
+      id: 'command-artwork-job-progress-budget',
+      action: 'artwork-job',
+      capture: 'none',
+      operations: [
+        ...Array.from({ length: 1999 }, () => ({
+          action: 'set-tool' as const,
+          tool: 'brush' as const,
+        })),
+        { action: 'checkpoint' as const, name: 'final' },
+      ],
+    }, {
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(result).toMatchObject({ ok: true, completedOperations: 2000 });
+    expect(events.filter((event) => event.type === 'progress')).toHaveLength(223);
+    expect(events).toHaveLength(225);
+  });
+
+  it('rejects an artwork job before its first mark when any gesture starts outside', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const dispatchStroke = jest.fn(async () => undefined);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-artwork-job-invalid-start',
+      action: 'artwork-job',
+      capture: 'none',
+      operations: [
+        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
+        { action: 'stroke', phase: 'primary', points: [{ x: -1, y: 40 }] },
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    });
+
+    expect(dispatchStroke).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      ok: false,
+      completedOperations: undefined,
+      error: 'operations[1].points must start inside the project canvas',
+    });
+  });
+
+  it('rejects one malformed shape candidate and continues the artwork job to checkpoint', async () => {
+    const paint = new Uint8Array(100);
+    const gradientDefIds = new Uint16Array(100);
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 10, height: 10 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: {
+          size: 20,
+          opacity: 1,
+          color: '#112233',
+          spacing: 1,
+          shapeEnabled: true,
+        },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      setShapeMode: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    mockedGetColorCycleBrushManager.mockReturnValue({
+      getDocument: jest.fn(() => ({
+        read: () => ({
+          version: 7,
+          snapshot: {
+            layerId: 'layer-1',
+            width: 10,
+            height: 10,
+            paintBuffer: paint.buffer,
+            gradientDefIdBuffer: gradientDefIds.buffer,
+            gradientDefStore: [],
+            hasContent: true,
+            sources: { brushStateSnapshot: false, topLevelBuffers: true, legacyStateRefs: false },
+          },
+        }),
+      })),
+    } as unknown as ReturnType<typeof getColorCycleBrushManager>);
+    const canvas = {
+      width: 10,
+      height: 10,
+      toDataURL: jest.fn(() => 'data:image/png;base64,frame'),
+    } as unknown as HTMLCanvasElement;
+    const dispatchStroke = jest.fn(async () => {
+      state.autosave.dirtyRevision += 1;
+    });
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }), { enforceGeometryPreflight: true });
+
+    const result = await execute({
+      id: 'command-artwork-job-candidate-rejection',
+      action: 'artwork-job',
+      capture: 'none',
+      operations: [
+        {
+          action: 'shape',
+          phase: 'primary',
+          points: [
+            { x: 1, y: 1 },
+            { x: 8, y: 8 },
+            { x: 1, y: 8 },
+            { x: 8, y: 1 },
+          ],
+        },
+        { action: 'stroke', phase: 'primary', points: [{ x: 2, y: 2 }] },
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true, completedOperations: 3 });
+    expect(result.profile?.operations?.[0]).toMatchObject({
+      index: 0,
+      action: 'shape',
+      markEvidence: {
+        status: 'rejected',
+        rejectionReason: 'invalid-geometry',
+        layerId: 'layer-1',
+        documentVersion: 7,
+      },
+    });
+    expect(dispatchStroke).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let candidate geometry rejection bypass a hard layer contract', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 10, height: 10 },
+      activeLayerId: 'normal-layer',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'normal-layer',
+        name: 'Wrong paint layer',
+        layerType: 'normal',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: {
+          size: 8,
+          opacity: 1,
+          shapeEnabled: true,
+          brushShape: BrushShape.COLOR_CYCLE,
+        },
+      },
+      autosave: { dirtyRevision: 0 },
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockReturnValue(state);
+    const dispatchStroke = jest.fn();
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }), { enforceGeometryPreflight: true });
+
+    const result = await execute({
+      id: 'command-artwork-job-invalid-shape-wrong-layer',
+      action: 'artwork-job',
+      capture: 'none',
+      operations: [
+        {
+          action: 'shape',
+          phase: 'primary',
+          points: [
+            { x: 1, y: 1 },
+            { x: 8, y: 8 },
+            { x: 1, y: 8 },
+            { x: 8, y: 1 },
+          ],
+        },
+        { action: 'checkpoint', name: 'must-not-present' },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'Color Cycle brush requires a Color Cycle layer: Wrong paint layer',
+    });
+    expect(dispatchStroke).not.toHaveBeenCalled();
+  });
+
+  it('settles presentation-side document revisions before returning a fence', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: null,
+      currentBrushPreset: null,
+      layers: [],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const canvas = {
+      width: 512,
+      height: 640,
+      toDataURL: jest.fn(() => 'data:image/png;base64,frame'),
+    } as unknown as HTMLCanvasElement;
+    const rebuildStaticComposite = jest.fn(async () => {
+      state.autosave.dirtyRevision = 2;
+      return true;
+    });
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(),
+      rebuildStaticComposite,
+      requestRedraw: jest.fn(),
+    }));
+
+    const result = await execute({
+      id: 'command-observe-settled-revision',
+      action: 'observe',
+      capture: 'final-thumbnail',
+    });
+
+    expect(result).toMatchObject({ ok: true, revision: 2, state: { dirtyRevision: 2 } });
+  });
+
+  it('streams artwork-job checkpoint frames without duplicating them in the final result', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      setShapeMode: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const canvas = {
+      width: 512,
+      height: 640,
+      toDataURL: jest.fn(() => 'data:image/png;base64,frame'),
+    } as unknown as HTMLCanvasElement;
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke: jest.fn(async () => {
+        state.autosave.dirtyRevision += 1;
+      }),
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }));
+    const events: Array<{ type: string; checkpointName?: string; frame?: unknown }> = [];
+
+    const result = await execute({
+      id: 'command-artwork-job-checkpoint',
+      action: 'artwork-job',
+      capture: 'none',
+      operations: [
+        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
+        { action: 'checkpoint', name: 'primary-masses' },
+      ],
+    }, {
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+
+    expect(events.map((event) => event.type)).toEqual([
+      'validated',
+      'progress',
+      'checkpoint',
+    ]);
+    expect(events[2]).toMatchObject({
+      checkpointName: 'primary-masses',
+      frame: { kind: 'thumbnail', width: 512, height: 640 },
+    });
+    expect(result.frames).toBeUndefined();
+    expect(result.frame).toBeUndefined();
+  });
+
   it('reports partial batch progress when a later operation fails', async () => {
     const state = {
       project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
@@ -1323,6 +2107,226 @@ describe('createVesselCollaborationExecutor', () => {
         [24, 36, 0.8],
       ]);
       expect(waitForFrame).toHaveBeenCalledTimes(5);
+    } finally {
+      global.PointerEvent = originalPointerEvent;
+    }
+  });
+
+  it('reads the mounted gesture runtime after tool state has propagated', async () => {
+    const setCurrentTool = jest.fn();
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'dither-shape' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Shape paint',
+        layerType: 'normal',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          size: 20,
+          opacity: 1,
+          color: '#112233',
+          spacing: 1,
+          shapeEnabled: true,
+        },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool,
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const commitGesture = jest.fn(async () => undefined);
+    const getRuntime = jest.fn(() => {
+      expect(setCurrentTool).toHaveBeenCalledWith('brush');
+      return {
+        canvasRef: { current: null },
+        compositeCanvasDirtyRef: { current: false },
+        commitGesture,
+        rebuildStaticComposite: jest.fn(),
+        requestRedraw: jest.fn(),
+      };
+    });
+    const execute = createVesselCollaborationExecutor(getRuntime);
+
+    const result = await execute({
+      id: 'command-fresh-shape-runtime',
+      action: 'shape',
+      capture: 'none',
+      points: [{ x: 20, y: 20 }, { x: 120, y: 20 }, { x: 60, y: 120 }],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(getRuntime).toHaveBeenCalled();
+    expect(commitGesture).toHaveBeenCalledWith({
+      kind: 'shape',
+      points: [{ x: 20, y: 20 }, { x: 120, y: 20 }, { x: 60, y: 120 }],
+    });
+  });
+
+  it('requires shape direction only for the canonical multi-band linear fill', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-flat-dither' },
+      layers: [{
+        id: 'layer-1',
+        name: 'CC Shape paint',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          size: 20,
+          opacity: 1,
+          shapeEnabled: true,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'concentric',
+          gradientBands: 4,
+        },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const commitGesture = jest.fn(async () => undefined);
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      commitGesture,
+      rebuildStaticComposite: jest.fn(),
+      requestRedraw: jest.fn(),
+    }));
+    const shape = {
+      capture: 'none' as const,
+      points: [{ x: 20, y: 20 }, { x: 120, y: 20 }, { x: 60, y: 120 }],
+    };
+
+    await expect(execute({ id: 'command-concentric-shape', action: 'shape', ...shape }))
+      .resolves.toMatchObject({ ok: true });
+    state.tools.brushSettings.colorCycleFillMode = 'linear';
+    await expect(execute({ id: 'command-linear-shape', action: 'shape', ...shape }))
+      .resolves.toMatchObject({
+        ok: false,
+        error: 'This Color Cycle shape requires direction points',
+      });
+    expect(commitGesture).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a stale runtime fence before invoking any mutation runtime', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'dither-shape' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Shape paint',
+        layerType: 'normal',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: { size: 20, opacity: 1, shapeEnabled: true },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const getRuntime = jest.fn(() => ({
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      commitGesture: jest.fn(),
+      rebuildStaticComposite: jest.fn(),
+      requestRedraw: jest.fn(),
+    }));
+    const execute = createVesselCollaborationExecutor(getRuntime, {
+      requireRuntimeFence: true,
+      getRuntimeIdentity: () => ({
+        protocolVersion: 2,
+        runtimeBuildId: 'build-current',
+        runtimeInstanceId: 'runtime-current',
+        leaseEpoch: 3,
+      }),
+    });
+
+    const result = await execute({
+      id: 'command-stale-runtime',
+      action: 'shape',
+      capture: 'none',
+      runtimeFence: {
+        protocolVersion: 2,
+        runtimeBuildId: 'build-stale',
+        runtimeInstanceId: 'runtime-stale',
+        leaseEpoch: 2,
+      },
+      points: [{ x: 20, y: 20 }, { x: 120, y: 20 }, { x: 60, y: 120 }],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: 'Collaboration command targets a stale or incompatible Vessel runtime',
+    });
+    expect(getRuntime).not.toHaveBeenCalled();
+    expect(state.setCurrentTool).not.toHaveBeenCalled();
+  });
+
+  it('dispatches every rapid shape point while waiting only for finalization', async () => {
+    const originalPointerEvent = global.PointerEvent;
+    class MockPointerEvent extends Event {
+      clientX: number;
+      clientY: number;
+      pressure: number;
+      buttons: number;
+
+      constructor(type: string, init: PointerEventInit) {
+        super(type, init);
+        this.clientX = init.clientX ?? 0;
+        this.clientY = init.clientY ?? 0;
+        this.pressure = init.pressure ?? 0;
+        this.buttons = init.buttons ?? 0;
+      }
+    }
+    global.PointerEvent = MockPointerEvent as unknown as typeof PointerEvent;
+
+    try {
+      const canvas = document.createElement('canvas');
+      jest.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0 } as DOMRect);
+      const dispatched: string[] = [];
+      ['pointerdown', 'pointermove', 'pointerup'].forEach((type) => {
+        canvas.addEventListener(type, () => dispatched.push(type));
+      });
+      const waitForFrame = jest.fn(async () => undefined);
+
+      await dispatchVesselCollaborationStroke({
+        canvas,
+        pointsPerFrame: 1,
+        framePacing: 'finalize-only',
+        zoom: 1,
+        worldToScreen: (x, y) => ({ x, y }),
+        isBusy: () => false,
+        waitForFrame,
+        points: Array.from({ length: 20 }, (_, index) => ({ x: index, y: index })),
+      });
+
+      expect(dispatched).toEqual([
+        'pointerdown',
+        ...Array.from({ length: 19 }, () => 'pointermove'),
+        'pointerup',
+      ]);
+      expect(waitForFrame).toHaveBeenCalledTimes(3);
     } finally {
       global.PointerEvent = originalPointerEvent;
     }
