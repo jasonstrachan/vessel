@@ -1,6 +1,11 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
+import {
+  waitForAllPendingColorCycleSaves,
+  waitForFinalizeQueueIdle,
+} from '@/stores/pendingColorCycleSaves';
 import { createVesselCollaborationExecutor, type VesselCollaborationRuntime } from './vesselCollaborationExecutor';
 import { parseVesselCollaborationCommand } from './vesselCollaborationProtocol';
 import {
@@ -38,6 +43,12 @@ const waitForRetry = (signal: AbortSignal, milliseconds: number) =>
     }, { once: true });
   });
 
+const waitForCanonicalCollaborationIdle = async () => {
+  await waitForFinalizeQueueIdle();
+  await waitForAllPendingColorCycleSaves();
+  await waitForPendingHistoryCommits();
+};
+
 export const useVesselCollaborationBridge = (runtime: VesselCollaborationRuntime) => {
   const runtimeRef = useRef(runtime);
   runtimeRef.current = runtime;
@@ -61,6 +72,7 @@ export const useVesselCollaborationBridge = (runtime: VesselCollaborationRuntime
         getRuntimeIdentity: () => runtimeIdentityRef.current,
         requireRuntimeFence: true,
         enforceGeometryPreflight: true,
+        waitForCanonicalIdle: waitForCanonicalCollaborationIdle,
       },
     );
 

@@ -79,7 +79,7 @@ describe('Vessel collaboration geometry preflight', () => {
         { x: 20, y: 180 },
         { x: 220, y: 20 },
       ],
-    })).toBe('invalid-geometry');
+    }, 512, 640)).toBe('invalid-geometry');
     expect(resolveVesselCollaborationCandidateGeometryRejection({
       action: 'shape',
       phase: 'medium',
@@ -89,7 +89,30 @@ describe('Vessel collaboration geometry preflight', () => {
         { x: 220, y: 180 },
         { x: 20, y: 180 },
       ],
-    })).toBeNull();
+    }, 512, 640)).toBeNull();
+  });
+
+  it('rejects degenerate and out-of-canvas geometry', () => {
+    expect(() => assertVesselCollaborationGestureGeometry({
+      operation: {
+        action: 'shape',
+        phase: 'primary',
+        points: [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }],
+      },
+      canvasWidth: 10,
+      canvasHeight: 10,
+      label: 'shape',
+    })).toThrow('shape.points must enclose a non-degenerate area');
+    expect(() => assertVesselCollaborationGestureGeometry({
+      operation: {
+        action: 'stroke',
+        phase: 'primary',
+        points: [{ x: 1, y: 1 }, { x: 10, y: 2 }],
+      },
+      canvasWidth: 10,
+      canvasHeight: 10,
+      label: 'stroke',
+    })).toThrow('stroke.points[1] must be inside the project canvas');
   });
 
   it('measures stroke span across the whole path instead of only from its start', () => {

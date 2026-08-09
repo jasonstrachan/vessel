@@ -588,12 +588,23 @@ describe('parseVesselCollaborationCommand', () => {
           action: 'set-tool' as const,
           tool: 'brush' as const,
         })),
-        { action: 'checkpoint', name: 'primary-masses' },
+        {
+          action: 'checkpoint',
+          name: 'primary-masses',
+          capture: 'full',
+          thumbnailMaxSize: 512,
+        },
       ],
     });
     expect(job.action).toBe('artwork-job');
     if (job.action !== 'artwork-job') throw new Error('Expected artwork job');
     expect(job.operations).toHaveLength(121);
+    expect(job.operations.at(-1)).toEqual({
+      action: 'checkpoint',
+      name: 'primary-masses',
+      capture: 'full',
+      thumbnailMaxSize: 512,
+    });
 
     expect(() => parseVesselCollaborationCommand({
       id: 'command-artwork-job-each-frame',
@@ -644,6 +655,17 @@ describe('parseVesselCollaborationCommand', () => {
     });
     if (phasedJob.action !== 'artwork-job') throw new Error('Expected artwork job');
     expect(phasedJob.operations[0]).toMatchObject({ phase: 'primary' });
+    expect(phasedJob.operations[1]).toMatchObject({
+      action: 'checkpoint',
+      name: 'primary-masses',
+    });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-invalid-checkpoint-capture',
+      action: 'artwork-job',
+      runtimeFence,
+      operations: [{ action: 'checkpoint', name: 'review', capture: 'none' }],
+    })).toThrow('operations[0].capture must be final-thumbnail or full');
 
     expect(() => parseVesselCollaborationCommand({
       id: 'command-artwork-job-over-limit',

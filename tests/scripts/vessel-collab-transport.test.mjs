@@ -564,6 +564,9 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
   const resultDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vessel-collab-job-'));
   const planPath = path.join(resultDir, 'portrait-plan.json');
   const invalidPlanPath = path.join(resultDir, 'invalid-plan.json');
+  const unphasedPlanPath = path.join(resultDir, 'unphased-plan.json');
+  const selfIntersectingPlanPath = path.join(resultDir, 'self-intersecting-plan.json');
+  const stagedCachePath = path.join(resultDir, 'staged-cache.json');
   const operations = [
     ...Array.from({ length: 120 }, () => ({ action: 'set-tool', tool: 'brush' })),
     { action: 'checkpoint', name: 'primary-masses' },
@@ -579,6 +582,37 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
   await fs.writeFile(invalidPlanPath, JSON.stringify([
     { action: 'replace-project-state' },
   ]));
+  await fs.writeFile(unphasedPlanPath, JSON.stringify([
+    { action: 'stroke', points: [{ x: 1, y: 1 }] },
+    { action: 'checkpoint', name: 'must-not-dispatch' },
+  ]));
+  await fs.writeFile(selfIntersectingPlanPath, JSON.stringify({
+    canvas: { width: 10, height: 10 },
+    operations: [
+      {
+        action: 'shape',
+        phase: 'primary',
+        points: [
+          { x: 1, y: 1 },
+          { x: 8, y: 8 },
+          { x: 1, y: 8 },
+          { x: 8, y: 1 },
+        ],
+      },
+      { action: 'checkpoint', name: 'must-not-dispatch' },
+    ],
+  }));
+  await fs.writeFile(stagedCachePath, JSON.stringify({
+    schemaVersion: 1,
+    workflowId: 'general-artwork-v1',
+    project: { id: 'project-1', width: 512, height: 640 },
+    stages: [{
+      id: 'close-review',
+      capture: 'full',
+      gestureBudget: 0,
+      candidates: [],
+    }],
+  }));
   const server = spawn(process.execPath, [
     SCRIPT_PATH,
     'serve',
@@ -640,6 +674,36 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     headers: callerHeaders,
   });
   assert.equal(healthAfterRejection.value.queued, 0);
+
+  client.stdin.write(`${JSON.stringify({
+    requestId: 'unphased-job-from-file',
+    action: 'artwork-job',
+    planFile: unphasedPlanPath,
+    runtimeFence: {
+      expectedProjectId: 'project-1',
+      expectedProjectRevision: 0,
+    },
+  })}\n`);
+  const phaseRejection = await output.next();
+  assert.equal(phaseRejection.value.type, 'unknown');
+  assert.match(phaseRejection.value.error, /gesture 0 requires a construction phase/);
+
+  client.stdin.write(`${JSON.stringify({
+    requestId: 'self-intersecting-job-from-file',
+    action: 'artwork-job',
+    planFile: selfIntersectingPlanPath,
+    runtimeFence: {
+      expectedProjectId: 'project-1',
+      expectedProjectRevision: 0,
+    },
+  })}\n`);
+  const geometryRejection = await output.next();
+  assert.equal(geometryRejection.value.type, 'unknown');
+  assert.match(geometryRejection.value.error, /gesture 0\.points must not self-intersect/);
+  const healthAfterGeometryRejection = await fetchJson(`${state.url}/v1/health`, {
+    headers: callerHeaders,
+  });
+  assert.equal(healthAfterGeometryRejection.value.queued, 0);
 
   const request = JSON.stringify({
     requestId: 'portrait-job-from-file',
@@ -743,6 +807,86 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
   });
   assert.equal(lateCancel.value.completed, true);
   assert.equal(lateCancel.value.cancelRequested, false);
+
+  client.stdin.write(`${JSON.stringify({
+    requestId: 'staged-review',
+    action: 'artwork-stage',
+    cacheFile: stagedCachePath,
+    stageId: 'close-review',
+    runtimeFence: {
+      expectedProjectId: 'project-1',
+      expectedProjectRevision: 5,
+    },
+  })}\n`);
+  const preparedStage = await output.next();
+  assert.equal(preparedStage.value.type, 'stage-prepared');
+  assert.equal(preparedStage.value.workflowId, 'general-artwork-v1');
+  assert.equal(preparedStage.value.stageId, 'close-review');
+  assert.equal(preparedStage.value.gestureCount, 0);
+  assert.equal(preparedStage.value.capture, 'full');
+  const stageAccepted = await output.next();
+  assert.equal(stageAccepted.value.type, 'accepted');
+  const deliveredStage = await waitForNextCommand({ ...state, clientId });
+  assert.equal(deliveredStage.action, 'artwork-job');
+  assert.equal(deliveredStage.operations.length, 1);
+  assert.deepEqual(deliveredStage.operations[0], {
+    action: 'checkpoint',
+    name: 'close-review',
+    capture: 'full',
+    thumbnailMaxSize: 512,
+  });
+  assert.equal((await fetchJson(
+    `${state.url}/v1/commands/${stageAccepted.value.commandId}/events`,
+    {
+      method: 'POST',
+      headers: browserHeaders,
+      body: JSON.stringify({
+        commandId: stageAccepted.value.commandId,
+        eventId: `${stageAccepted.value.commandId}:1`,
+        event: {
+          type: 'checkpoint',
+          operationIndex: 0,
+          checkpointName: 'close-review',
+          completedOperations: 1,
+          totalOperations: 1,
+          revision: 5,
+          frame: {
+            mimeType: 'image/png',
+            kind: 'full',
+            width: 512,
+            height: 640,
+            sourceWidth: 512,
+            sourceHeight: 640,
+            dataUrl: 'data:image/png;base64,c3RhZ2Vk',
+          },
+        },
+        runtime: deliveredStage.runtimeFence,
+      }),
+    },
+  )).response.status, 202);
+  const streamedStage = await output.next();
+  assert.equal(streamedStage.value.type, 'checkpoint');
+  assert.equal(streamedStage.value.frame.kind, 'full');
+  assert.ok(streamedStage.value.frame.path.endsWith('.png'));
+  assert.equal((await fetchJson(
+    `${state.url}/v1/commands/${stageAccepted.value.commandId}/result`,
+    {
+      method: 'POST',
+      headers: browserHeaders,
+      body: JSON.stringify({
+        ok: true,
+        commandId: stageAccepted.value.commandId,
+        action: 'artwork-job',
+        revision: 5,
+        completedOperations: 1,
+        runtime: deliveredStage.runtimeFence,
+        state: { project: { id: 'project-1', width: 512, height: 640 } },
+      }),
+    },
+  )).response.status, 202);
+  const stageCompleted = await output.next();
+  assert.equal(stageCompleted.value.type, 'completed');
+  assert.equal(stageCompleted.value.revision, 5);
 });
 
 test('reference preparation reaches one sampled gate through one bounded process', async (t) => {
@@ -856,6 +1000,7 @@ test('reference preparation reaches one sampled gate through one bounded process
       ditherAlgorithm: 'sierra-lite',
       fillResolution: 3,
       ditherPaletteSpread: 100,
+      ccSampledSoftSeamEnabled: false,
     },
     eraser: { size: 8, opacity: 1, linkSizeToBrush: true, tip: 'square' },
     layers: [
@@ -992,6 +1137,7 @@ test('reference preparation reaches one sampled gate through one bounded process
   assert.equal(brushSettings.settings.ditherAlgorithm, 'sierra-lite');
   assert.equal(brushSettings.settings.fillResolution, 3);
   assert.equal(brushSettings.settings.ditherPaletteSpread, 100);
+  assert.equal(brushSettings.settings.ccSampledSoftSeamEnabled, false);
 });
 
 test('reference preparation rejects an accidental project aspect mismatch before attaching', async (t) => {

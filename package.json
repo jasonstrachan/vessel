@@ -36,7 +36,7 @@
     "collab:cancel": "node scripts/vessel-collab.mjs cancel",
     "collab:status": "node scripts/vessel-collab.mjs status",
     "collab:prepare-reference": "node scripts/vessel-collab.mjs prepare-reference",
-    "test:collab": "node --test tests/scripts/vessel-collab-transport.test.mjs",
+    "test:collab": "node --test tests/scripts/vessel-collab-*.test.mjs",
     "lint": "eslint src",
     "audit:prod": "node scripts/audit-prod.mjs",
     "audit:full": "npm audit",

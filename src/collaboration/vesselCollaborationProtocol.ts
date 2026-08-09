@@ -163,6 +163,8 @@ interface VesselCollaborationSetEraserOperation {
 interface VesselCollaborationCheckpointOperation {
   action: 'checkpoint';
   name: string;
+  capture?: 'final-thumbnail' | 'full';
+  thumbnailMaxSize?: number;
 }
 
 interface VesselCollaborationCreateLayerOperation {
@@ -1141,6 +1143,29 @@ const readCheckpointName = (value: unknown, field: string) => {
   return name;
 };
 
+const readCheckpointCapture = (
+  value: unknown,
+  field: string,
+): 'final-thumbnail' | 'full' | undefined => {
+  if (value === undefined) return undefined;
+  if (value !== 'final-thumbnail' && value !== 'full') {
+    throw new Error(`${field} must be final-thumbnail or full`);
+  }
+  return value;
+};
+
+const readCheckpointThumbnailMaxSize = (
+  value: unknown,
+  field: string,
+): number | undefined => {
+  if (value === undefined) return undefined;
+  const size = requireInteger(value, field);
+  if (size < 256 || size > 1024) {
+    throw new Error(`${field} must be between 256 and 1024`);
+  }
+  return size;
+};
+
 const readLayerType = (value: unknown, field: string): 'normal' | 'color-cycle' => {
   if (value !== 'normal' && value !== 'color-cycle') {
     throw new Error(`${field} must be normal or color-cycle`);
@@ -1237,11 +1262,22 @@ const readBatchOperation = (value: unknown, index: number): VesselCollaborationB
         layerType: readLayerType(value.layerType, `operations[${index}].layerType`),
         name: readLayerName(value.name, `operations[${index}].name`),
       };
-    case 'checkpoint':
+    case 'checkpoint': {
+      const capture = readCheckpointCapture(
+        value.capture,
+        `operations[${index}].capture`,
+      );
+      const thumbnailMaxSize = readCheckpointThumbnailMaxSize(
+        value.thumbnailMaxSize,
+        `operations[${index}].thumbnailMaxSize`,
+      );
       return {
         action,
         name: readCheckpointName(value.name, `operations[${index}].name`),
+        ...(capture === undefined ? {} : { capture }),
+        ...(thumbnailMaxSize === undefined ? {} : { thumbnailMaxSize }),
       };
+    }
     default:
       throw new Error(`unsupported batch operation: ${action}`);
   }

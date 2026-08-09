@@ -1692,11 +1692,11 @@ describe('createVesselCollaborationExecutor', () => {
     expect(result).toMatchObject({
       ok: false,
       completedOperations: undefined,
-      error: 'operations[1].points must start inside the project canvas',
+      error: 'operations[1].points[0] must be inside the project canvas',
     });
   });
 
-  it('rejects one malformed shape candidate and continues the artwork job to checkpoint', async () => {
+  it('rejects malformed geometry before any artwork-job mark reaches Vessel', async () => {
     const paint = new Uint8Array(100);
     const gradientDefIds = new Uint16Array(100);
     const state = {
@@ -1780,18 +1780,12 @@ describe('createVesselCollaborationExecutor', () => {
       ],
     });
 
-    expect(result).toMatchObject({ ok: true, completedOperations: 3 });
-    expect(result.profile?.operations?.[0]).toMatchObject({
-      index: 0,
-      action: 'shape',
-      markEvidence: {
-        status: 'rejected',
-        rejectionReason: 'invalid-geometry',
-        layerId: 'layer-1',
-        documentVersion: 7,
-      },
+    expect(result).toMatchObject({
+      ok: false,
+      completedOperations: undefined,
+      error: 'operations[0].points must not self-intersect',
     });
-    expect(dispatchStroke).toHaveBeenCalledTimes(1);
+    expect(dispatchStroke).not.toHaveBeenCalled();
   });
 
   it('does not let candidate geometry rejection bypass a hard layer contract', async () => {
@@ -1838,9 +1832,9 @@ describe('createVesselCollaborationExecutor', () => {
           phase: 'primary',
           points: [
             { x: 1, y: 1 },
+            { x: 8, y: 1 },
             { x: 8, y: 8 },
             { x: 1, y: 8 },
-            { x: 8, y: 1 },
           ],
         },
         { action: 'checkpoint', name: 'must-not-present' },
@@ -1893,6 +1887,97 @@ describe('createVesselCollaborationExecutor', () => {
     expect(result).toMatchObject({ ok: true, revision: 2, state: { dirtyRevision: 2 } });
   });
 
+  it('waits for canonical work before capturing and returns a reusable revision fence', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
+      activeLayerId: 'layer-1',
+      currentBrushPreset: { id: 'color-cycle-stroke' },
+      layers: [{
+        id: 'layer-1',
+        name: 'Layer 1',
+        layerType: 'color-cycle',
+        visible: true,
+        locked: false,
+        opacity: 1,
+      }],
+      tools: {
+        currentTool: 'brush',
+        brushSettings: { size: 20, opacity: 1, color: '#112233', spacing: 1 },
+      },
+      autosave: { dirtyRevision: 0 },
+      setCurrentTool: jest.fn(),
+      ensureColorCycleLayerRuntime: jest.fn(async () => true),
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockImplementation(() => state);
+    const order: string[] = [];
+    let deferredRevisionPublished = false;
+    const waitForCanonicalIdle = jest.fn(async () => {
+      order.push('idle');
+      if (!deferredRevisionPublished && state.autosave.dirtyRevision === 1) {
+        state.autosave.dirtyRevision = 3;
+        deferredRevisionPublished = true;
+      }
+    });
+    const canvas = {
+      width: 512,
+      height: 640,
+      toDataURL: jest.fn(() => {
+        order.push('capture');
+        return 'data:image/png;base64,frame';
+      }),
+    } as unknown as HTMLCanvasElement;
+    const dispatchStroke = jest.fn(async () => {
+      order.push('gesture');
+      state.autosave.dirtyRevision = 1;
+    });
+    const runtimeIdentity = {
+      protocolVersion: 2 as const,
+      runtimeBuildId: 'build-current',
+      runtimeInstanceId: 'runtime-current',
+      leaseEpoch: 3,
+    };
+    const execute = createVesselCollaborationExecutor(() => ({
+      canvasRef: { current: canvas },
+      compositeCanvasDirtyRef: { current: false },
+      dispatchStroke,
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+    }), {
+      getRuntimeIdentity: () => runtimeIdentity,
+      requireRuntimeFence: true,
+      waitForCanonicalIdle,
+    });
+
+    const first = await execute({
+      id: 'command-canonical-idle-checkpoint',
+      action: 'batch',
+      runtimeFence: runtimeIdentity,
+      operations: [
+        { action: 'stroke', points: [{ x: 10, y: 20 }] },
+        { action: 'checkpoint', name: 'settled' },
+      ],
+    });
+
+    expect(first.error).toBeUndefined();
+    expect(first).toMatchObject({ ok: true, revision: 3 });
+    const gestureIndex = order.indexOf('gesture');
+    const captureIndex = order.indexOf('capture');
+    expect(order.slice(gestureIndex + 1, captureIndex)).toContain('idle');
+
+    const second = await execute({
+      id: 'command-canonical-idle-reuse',
+      action: 'observe',
+      capture: 'none',
+      runtimeFence: {
+        ...runtimeIdentity,
+        expectedProjectId: 'project-1',
+        expectedProjectRevision: 3,
+      },
+    });
+
+    expect(second).toMatchObject({ ok: true, revision: 3 });
+  });
+
   it('streams artwork-job checkpoint frames without duplicating them in the final result', async () => {
     const state = {
       project: { id: 'project-1', name: 'Portrait', width: 512, height: 640 },
@@ -1938,7 +2023,7 @@ describe('createVesselCollaborationExecutor', () => {
       capture: 'none',
       operations: [
         { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
-        { action: 'checkpoint', name: 'primary-masses' },
+        { action: 'checkpoint', name: 'primary-masses', capture: 'full' },
       ],
     }, {
       onEvent: (event) => {
@@ -1953,7 +2038,7 @@ describe('createVesselCollaborationExecutor', () => {
     ]);
     expect(events[2]).toMatchObject({
       checkpointName: 'primary-masses',
-      frame: { kind: 'thumbnail', width: 512, height: 640 },
+      frame: { kind: 'full', width: 512, height: 640 },
     });
     expect(result.frames).toBeUndefined();
     expect(result.frame).toBeUndefined();

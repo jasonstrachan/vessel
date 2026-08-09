@@ -19,9 +19,14 @@ import {
   writeVesselCollaborationResultArtifact as writeResultArtifact,
 } from './vessel-collab-artifacts.mjs';
 import {
+  expandArtworkJobFile,
+  preflightArtworkJob,
+} from './vessel-collab-artwork-job.mjs';
+import {
   createVesselCollaborationBridgeClient as createBridgeClient,
   fetchVesselCollaborationJson as fetchJson,
 } from './vessel-collab-client.mjs';
+import { createStagedArtworkExpander } from './vessel-collab-staged-artwork.mjs';
 
 const DEFAULT_PORT = 4317;
 const DEFAULT_COMMAND_TIMEOUT_MS = 120000;
@@ -30,14 +35,13 @@ const MAX_PROJECT_FILE_BYTES = 18 * 1024 * 1024;
 const MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_RETAINED_COMMANDS = 32;
 const MAX_RETAINED_COMMAND_EVENTS = 512;
-const MAX_ARTWORK_JOB_OPERATIONS = 2000;
-const MAX_ARTWORK_JOB_POINTS = 250000;
 const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REQUEST_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const CLIENT_ID_HEADER = 'x-vessel-collab-client';
 const VESSEL_COLLABORATION_PROTOCOL_VERSION = 2;
 const VESSEL_COLLABORATION_STATE_SCHEMA_VERSION = 1;
 const PAIRING_TTL_MS = 60_000;
+const stagedArtworkExpander = createStagedArtworkExpander();
 
 const runtimeMatchesFence = (runtime, fence) => Boolean(
   runtime && fence &&
@@ -397,7 +401,7 @@ const serve = async ({ flags }) => {
         if (!body || typeof body !== 'object' || Array.isArray(body)) {
           throw new Error('Command must be a JSON object');
         }
-        preflightArtworkJob(body);
+        preflightArtworkJob(body, { requireCanvas: false });
         if (!activeClient) {
           throw new Error('No compatible Vessel runtime has claimed this bridge');
         }
@@ -791,107 +795,13 @@ const expandLocalReferenceImage = async (command) => {
   return expanded;
 };
 
-const ARTWORK_JOB_ACTIONS = new Set([
-  'stroke',
-  'shape',
-  'checkpoint',
-  'set-tool',
-  'set-brush-preset',
-  'set-brush',
-  'set-palette',
-  'set-gradient-source',
-  'set-gradient',
-  'set-eraser',
-]);
-
-const preflightArtworkJob = (command) => {
-  if (command.action !== 'artwork-job') return command;
-  if (!Array.isArray(command.operations) || command.operations.length === 0) {
-    throw new Error('Artwork job operations must contain at least one operation');
-  }
-  if (command.operations.length > MAX_ARTWORK_JOB_OPERATIONS) {
-    throw new Error(
-      `Artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_OPERATIONS} operations`,
-    );
-  }
-  if (command.capture === 'each-thumbnail') {
-    throw new Error('Artwork jobs use named checkpoints instead of each-thumbnail capture');
-  }
-  if (!command.runtimeFence ||
-      !Object.hasOwn(command.runtimeFence, 'expectedProjectId') ||
-      !Number.isInteger(command.runtimeFence.expectedProjectRevision)) {
-    throw new Error('Artwork jobs require runtimeFence.expectedProjectId and expectedProjectRevision');
-  }
-  const checkpointNames = new Set();
-  let pointCount = 0;
-  for (let index = 0; index < command.operations.length; index += 1) {
-    const operation = command.operations[index];
-    if (!operation || typeof operation !== 'object' || Array.isArray(operation) ||
-        !ARTWORK_JOB_ACTIONS.has(operation.action)) {
-      throw new Error(`Artwork job operation ${index} has an unsupported action`);
-    }
-    if (operation.action === 'checkpoint') {
-      if (typeof operation.name !== 'string' || operation.name.trim().length === 0) {
-        throw new Error(`Artwork job checkpoint ${index} requires a name`);
-      }
-      if (checkpointNames.has(operation.name)) {
-        throw new Error('Artwork job checkpoint names must be unique');
-      }
-      checkpointNames.add(operation.name);
-      continue;
-    }
-    if (operation.action !== 'stroke' && operation.action !== 'shape') continue;
-    const pointGroups = [operation.points];
-    if (operation.action === 'shape' && operation.direction !== undefined) {
-      pointGroups.push(operation.direction);
-    }
-    for (const points of pointGroups) {
-      if (!Array.isArray(points) || points.length === 0) {
-        throw new Error(`Artwork job gesture ${index} requires points`);
-      }
-      for (const point of points) {
-        if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) {
-          throw new Error(`Artwork job gesture ${index} contains an invalid point`);
-        }
-      }
-      pointCount += points.length;
-    }
-  }
-  if (checkpointNames.size === 0) {
-    throw new Error('Artwork jobs must contain at least one named checkpoint');
-  }
-  if (checkpointNames.size > 8) {
-    throw new Error('Artwork jobs cannot contain more than 8 checkpoints');
-  }
-  if (pointCount > MAX_ARTWORK_JOB_POINTS) {
-    throw new Error(`Artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_POINTS} points`);
-  }
-  return command;
-};
-
-const expandArtworkJobFile = async (command) => {
-  if (command.action !== 'artwork-job' || command.planFile === undefined) {
-    return preflightArtworkJob(command);
-  }
-  const planPath = path.resolve(String(command.planFile));
-  const plan = JSON.parse(await fs.readFile(planPath, 'utf8'));
-  const planCommand = Array.isArray(plan)
-    ? { operations: plan }
-    : plan;
-  if (!planCommand || typeof planCommand !== 'object' || Array.isArray(planCommand)) {
-    throw new Error('Artwork job plan file must contain an object or operation array');
-  }
-  if (planCommand.action !== undefined && planCommand.action !== 'artwork-job') {
-    throw new Error('Artwork job plan file has a conflicting action');
-  }
-  const expanded = {
-    ...planCommand,
-    ...command,
-    action: 'artwork-job',
-    operations: planCommand.operations,
+const expandLocalCollaborationCommand = async (command, { project } = {}) => {
+  const referenceExpanded = await expandLocalReferenceImage(command);
+  const staged = await stagedArtworkExpander.expand(referenceExpanded, { project });
+  return {
+    command: await expandArtworkJobFile(staged.command, { project }),
+    stageEvidence: staged.stageEvidence,
   };
-  delete expanded.planFile;
-  return preflightArtworkJob(expanded);
 };
 
 const buildCommand = async ({ positional, flags }) => {
@@ -930,7 +840,7 @@ const buildCommand = async ({ positional, flags }) => {
     if (typeof fileFlag !== 'string' || fileFlag.trim().length === 0) {
       throw new Error('artwork-job requires --file /path/to/plan.json');
     }
-    command = await expandArtworkJobFile({ action, planFile: fileFlag });
+    command = { action, planFile: fileFlag };
   } else if (flags.has('json')) {
     command = JSON.parse(String(flags.get('json')));
   } else if (action) {
@@ -939,7 +849,8 @@ const buildCommand = async ({ positional, flags }) => {
   } else {
     throw new Error('Call requires an action or --json command');
   }
-  return expandArtworkJobFile(applyCaptureFlags(command, flags));
+  const expanded = await expandLocalCollaborationCommand(applyCaptureFlags(command, flags));
+  return expanded.command;
 };
 
 const call = async ({ positional, flags }) => {
@@ -982,7 +893,7 @@ const persistentClient = async ({ flags }) => {
   process.once('SIGINT', handleSigint);
   process.once('SIGTERM', handleSigterm);
   let lastRevision = 0;
-  let lastProjectId = null;
+  let lastProject = null;
   const preparedCommandsByRequestId = new Map();
 
   try {
@@ -1007,14 +918,20 @@ const persistentClient = async ({ flags }) => {
           }
           command = structuredClone(preparedCommand.command);
         } else {
-          command = await expandLocalReferenceImage(command);
-          if (command.action === 'artwork-job' && lastProjectId && command.runtimeFence === undefined) {
+          if ((command.action === 'artwork-job' || command.action === 'artwork-stage') &&
+              lastProject && command.runtimeFence === undefined) {
             command.runtimeFence = {
-              expectedProjectId: lastProjectId,
+              expectedProjectId: lastProject.id,
               expectedProjectRevision: lastRevision,
             };
           }
-          command = await expandArtworkJobFile(command);
+          const expanded = await expandLocalCollaborationCommand(command, {
+            project: lastProject ?? undefined,
+          });
+          command = expanded.command;
+          if (expanded.stageEvidence) {
+            process.stdout.write(`${JSON.stringify(expanded.stageEvidence)}\n`);
+          }
         }
         if (command.action === 'get-result') {
           const commandId = String(command.commandId ?? '');
@@ -1031,7 +948,7 @@ const persistentClient = async ({ flags }) => {
           }
           const result = recovered.result;
           if (typeof result.revision === 'number') lastRevision = result.revision;
-          lastProjectId = result.state?.project?.id ?? lastProjectId;
+          lastProject = result.state?.project ?? lastProject;
           await materializeFrames(result, {
             session,
             frameDir: flags.get('frame-dir'),
@@ -1051,11 +968,11 @@ const persistentClient = async ({ flags }) => {
           command.action !== 'new-project' &&
           command.action !== 'open-project' &&
           !preparedCommand &&
-          lastProjectId &&
+          lastProject &&
           command.runtimeFence === undefined
         ) {
           command.runtimeFence = {
-            expectedProjectId: lastProjectId,
+            expectedProjectId: lastProject.id,
             expectedProjectRevision: lastRevision,
           };
         }
@@ -1082,7 +999,7 @@ const persistentClient = async ({ flags }) => {
           },
         });
         if (typeof result.revision === 'number') lastRevision = result.revision;
-        lastProjectId = result.state?.project?.id ?? lastProjectId;
+        lastProject = result.state?.project ?? lastProject;
         await materializeFrames(result, {
           session,
           frameDir: flags.get('frame-dir'),
@@ -1268,7 +1185,8 @@ const assertReferenceReadyState = ({
   if (state.currentBrushPresetId !== 'color-cycle-flat-dither' ||
       state.brush?.ditherAlgorithm !== 'sierra-lite' ||
       state.brush?.ditherPaletteSpread !== 100 ||
-      state.brush?.fillResolution !== 3) {
+      state.brush?.fillResolution !== 3 ||
+      state.brush?.ccSampledSoftSeamEnabled !== false) {
     throw new Error('Prepared brush state does not match the reference collaboration contract');
   }
 };
@@ -1386,6 +1304,7 @@ const prepareReference = async ({ flags }) => {
           gradientBands: 6,
           colorCycleFillMode: 'linear',
           ccGradientDrawingShape: 'freehand',
+          ccSampledSoftSeamEnabled: false,
         },
       },
     ],

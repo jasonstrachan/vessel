@@ -35,7 +35,7 @@ import type {
 import type { VesselCanonicalGesture } from './commitVesselCollaborationGesture';
 import { evaluateVesselCollaborationMarkImpact } from './vesselCollaborationMarkImpact';
 import {
-  resolveVesselCollaborationCandidateGeometryRejection,
+  assertVesselCollaborationGestureGeometry,
 } from './vesselCollaborationGeometry';
 import { summarizeVesselCollaborationOutcome } from './vesselCollaborationOutcomes';
 import {
@@ -89,6 +89,7 @@ interface VesselCollaborationExecutorOptions {
   getRuntimeIdentity?: () => VesselCollaborationRuntimeIdentity;
   requireRuntimeFence?: boolean;
   enforceGeometryPreflight?: boolean;
+  waitForCanonicalIdle?: () => Promise<void>;
 }
 
 const commitRuntimeGesture = async (
@@ -739,7 +740,7 @@ const assertGestureStartsInsideProject = (
   }
 };
 
-const assertArtworkJobStartsInsideProject = (
+const assertArtworkJobGeometry = (
   operations: VesselCollaborationBatchOperation[],
 ) => {
   operations.forEach((operation, index) => {
@@ -747,13 +748,14 @@ const assertArtworkJobStartsInsideProject = (
     if (!operation.phase) {
       throw new Error(`operations[${index}].phase is required for artwork job gestures`);
     }
-    assertGestureStartsInsideProject(operation.points, `operations[${index}].points`);
-    if (operation.action === 'shape' && operation.direction) {
-      assertGestureStartsInsideProject(
-        operation.direction,
-        `operations[${index}].direction`,
-      );
-    }
+    const project = getAppStoreState().project;
+    if (!project) throw new Error('No Vessel project is loaded');
+    assertVesselCollaborationGestureGeometry({
+      operation,
+      canvasWidth: project.width,
+      canvasHeight: project.height,
+      label: `operations[${index}]`,
+    });
   });
 };
 
@@ -787,27 +789,6 @@ const assertGestureExecutionContract = (operation: StrokeOperation | ShapeOperat
   if (!usesColorCycle && layer.layerType === 'color-cycle') {
     throw new Error(`Normal brush requires a normal layer: ${layer.name}`);
   }
-};
-
-const createGeometryRejectionEvidence = (
-  operation: StrokeOperation | ShapeOperation,
-  before: CanonicalGestureRegionSnapshot | null,
-): VesselCollaborationMarkEvidence => {
-  const state = getAppStoreState();
-  const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
-  return {
-    layerId: before?.layerId ?? layer?.id ?? state.activeLayerId ?? 'unknown',
-    documentVersion: before?.documentVersion ?? 0,
-    documentVersionDelta: 0,
-    markType: operation.action,
-    phase: operation.phase ?? null,
-    status: 'rejected',
-    changedPixels: 0,
-    normalizedCoverage: 0,
-    dirtyRevisionDelta: 0,
-    changedChannels: [],
-    rejectionReason: 'invalid-geometry',
-  };
 };
 
 const executeStroke = async (
@@ -1148,6 +1129,22 @@ export const createVesselCollaborationExecutor = (
     return revision;
   };
 
+  const settleCanonicalRevision = async () => {
+    await executorOptions.waitForCanonicalIdle?.();
+    return settleExternalRevision();
+  };
+
+  const presentCanonicalAndCapture = async (
+    runtime: VesselCollaborationRuntime,
+    capturePolicy: VesselCollaborationCapturePolicy,
+    thumbnailMaxSize: number,
+  ) => {
+    await executorOptions.waitForCanonicalIdle?.();
+    const captured = await presentAndCapture(runtime, capturePolicy, thumbnailMaxSize);
+    await settleExternalRevision();
+    return captured;
+  };
+
   const updateRevisionAfterMutation = () => {
     syncExternalRevision();
     return revision;
@@ -1185,6 +1182,7 @@ export const createVesselCollaborationExecutor = (
     };
 
     try {
+      await executorOptions.waitForCanonicalIdle?.();
       syncExternalRevision();
       const runtimeIdentity = executorOptions.getRuntimeIdentity?.();
       if (executorOptions.requireRuntimeFence) {
@@ -1202,10 +1200,13 @@ export const createVesselCollaborationExecutor = (
         const changed = await waitForFrameRevision(command.afterRevision, command.timeoutMs ?? 25000);
         let frame: VesselCollaborationFrame | undefined;
         if (changed && capturePolicy !== 'none') {
-          const captured = await presentAndCapture(getRuntime(), capturePolicy, thumbnailMaxSize);
+          const captured = await presentCanonicalAndCapture(
+            getRuntime(),
+            capturePolicy,
+            thumbnailMaxSize,
+          );
           presentationMs += captured.presentationMs;
           captureMs += captured.captureMs;
-          await settleExternalRevision();
           frame = captured.frame;
         }
         syncExternalRevision();
@@ -1235,7 +1236,7 @@ export const createVesselCollaborationExecutor = (
         let cancelled = false;
 
         if (isArtworkJob) {
-          assertArtworkJobStartsInsideProject(command.operations);
+          assertArtworkJobGeometry(command.operations);
           await emitEvent({ type: 'validated', totalOperations });
         }
 
@@ -1246,14 +1247,13 @@ export const createVesselCollaborationExecutor = (
           }
           const operation = command.operations[index];
           if (operation.action === 'checkpoint') {
-            const captured = await presentAndCapture(
+            const captured = await presentCanonicalAndCapture(
               getRuntime(),
-              'final-thumbnail',
-              thumbnailMaxSize,
+              operation.capture ?? 'final-thumbnail',
+              operation.thumbnailMaxSize ?? thumbnailMaxSize,
             );
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
-            await settleExternalRevision();
             hasPresentedFrame = true;
             completedOperations += 1;
             operationProfiles.push({
@@ -1296,39 +1296,6 @@ export const createVesselCollaborationExecutor = (
           ) {
             assertGestureExecutionContract(operation);
           }
-          const geometryRejection = isArtworkJob &&
-            executorOptions.enforceGeometryPreflight === true &&
-            (operation.action === 'stroke' || operation.action === 'shape')
-            ? resolveVesselCollaborationCandidateGeometryRejection(operation)
-            : null;
-          if (geometryRejection) {
-            const markEvidence = createGeometryRejectionEvidence(
-              operation as StrokeOperation | ShapeOperation,
-              beforeGesture,
-            );
-            completedOperations += 1;
-            operationProfiles.push({
-              index,
-              action: operation.action,
-              mutationMs: 0,
-              revision,
-              markEvidence,
-            });
-            if (
-              completedOperations === totalOperations ||
-              completedOperations === 1 ||
-              completedOperations % progressStride === 0
-            ) {
-              await emitEvent({
-                type: 'progress',
-                completedOperations,
-                totalOperations,
-                revision,
-                markEvidence,
-              });
-            }
-            continue;
-          }
           await executeMutation(operation, getRuntime);
           updateRevisionAfterMutation();
           const markEvidence = resolveMarkEvidence(operation, beforeGesture);
@@ -1363,14 +1330,13 @@ export const createVesselCollaborationExecutor = (
             capturePolicy === 'each-thumbnail' &&
             (operation.action === 'stroke' || operation.action === 'shape')
           ) {
-            const captured = await presentAndCapture(
+            const captured = await presentCanonicalAndCapture(
               getRuntime(),
               'final-thumbnail',
               thumbnailMaxSize,
             );
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
-            await settleExternalRevision();
             hasPresentedFrame = true;
             if (captured.frame) {
               batchFrames.push({ operationIndex: index, revision, frame: captured.frame });
@@ -1387,23 +1353,25 @@ export const createVesselCollaborationExecutor = (
               operation.action !== 'checkpoint' && needsPresentation(operation.action))
           ) || capturePolicy !== 'none';
           if (shouldPresent) {
-            const captured = await presentAndCapture(
+            const captured = await presentCanonicalAndCapture(
               getRuntime(),
               capturePolicy,
               thumbnailMaxSize,
             );
             presentationMs += captured.presentationMs;
             captureMs += captured.captureMs;
-            await settleExternalRevision();
             frame = captured.frame;
           }
         } else if (!hasPresentedFrame) {
-          const captured = await presentAndCapture(getRuntime(), 'none', thumbnailMaxSize);
+          const captured = await presentCanonicalAndCapture(
+            getRuntime(),
+            'none',
+            thumbnailMaxSize,
+          );
           presentationMs += captured.presentationMs;
-          await settleExternalRevision();
         }
 
-        await settleExternalRevision();
+        await settleCanonicalRevision();
 
         return {
           ok: true,
@@ -1446,10 +1414,13 @@ export const createVesselCollaborationExecutor = (
 
       let frame: VesselCollaborationFrame | undefined;
       if (needsPresentation(command.action) || capturePolicy !== 'none') {
-        const captured = await presentAndCapture(getRuntime(), capturePolicy, thumbnailMaxSize);
+        const captured = await presentCanonicalAndCapture(
+          getRuntime(),
+          capturePolicy,
+          thumbnailMaxSize,
+        );
         presentationMs += captured.presentationMs;
         captureMs += captured.captureMs;
-        await settleExternalRevision();
         frame = captured.frame;
       }
 
