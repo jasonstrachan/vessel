@@ -1,11 +1,18 @@
 "use client";
 
 import React from 'react';
+import {
+  startVesselMultiplayerSession,
+  stopVesselMultiplayerSession,
+  type VesselMultiplayerStatus,
+  useVesselMultiplayerSnapshot,
+} from '@/collaboration/vesselMultiplayerSession';
 import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
+import { showAppFeedback } from '@/utils/appFeedback';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
-type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters';
+type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'multiplayer';
 
 const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
@@ -17,6 +24,16 @@ const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: stri
   'magic-wand': { aria: 'KeyW', display: 'W' },
   save: { aria: 'Control+KeyS Meta+KeyS', display: 'Ctrl/Cmd+S' },
   load: { aria: 'Control+KeyO Meta+KeyO', display: 'Ctrl/Cmd+O' },
+};
+
+const getMultiplayerLabel = (
+  pending: boolean,
+  status: VesselMultiplayerStatus,
+) => {
+  if (pending) return 'Starting multiplayer painting';
+  if (status === 'stopping') return 'Stopping AI multiplayer painting';
+  if (status === 'active') return 'Stop AI multiplayer painting';
+  return 'Start multiplayer painting';
 };
 
 const LeftToolbar = () => {
@@ -32,6 +49,10 @@ const LeftToolbar = () => {
     setSettingsSection,
   } = useAppStore();
   const switchTool = useToolSwitcher();
+  const multiplayer = useVesselMultiplayerSnapshot();
+  const [multiplayerPending, setMultiplayerPending] = React.useState(false);
+  const multiplayerActive = multiplayer.status === 'active' || multiplayer.status === 'stopping';
+  const multiplayerTransitioning = multiplayerPending || multiplayer.status === 'stopping';
 
   const baseButtonStyle: React.CSSProperties = {
     fontFamily: 'IBM Plex Mono, "Courier New", monospace',
@@ -64,11 +85,43 @@ const LeftToolbar = () => {
       { id: 'export' as Tool, label: 'Export', abbr: 'Ex' },
       { id: 'grid-toggle' as ToolbarItemId, label: 'Grid', abbr: 'Gd' },
       { id: 'options' as Tool, label: 'Options', abbr: 'St' },
+      {
+        id: 'multiplayer' as ToolbarItemId,
+        label: getMultiplayerLabel(multiplayerPending, multiplayer.status),
+        abbr: 'Mp',
+      },
     ],
   ];
 
   const handleToolClick = async (toolId: ToolbarItemId) => {
-    if (toolId === 'new-document') {
+    if (toolId === 'multiplayer') {
+      if (multiplayerTransitioning) return;
+      if (multiplayerActive && multiplayer.sessionId) {
+        const stopped = stopVesselMultiplayerSession({
+          sessionId: multiplayer.sessionId,
+          reason: 'Stopped from the Vessel toolbar',
+        });
+        showAppFeedback(
+          stopped.status === 'stopping' ? 'Stopping multiplayer…' : 'Multiplayer stopped',
+        );
+        return;
+      }
+
+      setMultiplayerPending(true);
+      try {
+        const sessionId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? `vessel-${crypto.randomUUID()}`
+          : `vessel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        await startVesselMultiplayerSession({ sessionId });
+        showAppFeedback('Multiplayer active — AI can join');
+      } catch (error) {
+        showAppFeedback(
+          `Multiplayer unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      } finally {
+        setMultiplayerPending(false);
+      }
+    } else if (toolId === 'new-document') {
       toggleModal('document');
     } else if (toolId === 'save') {
       try {
@@ -118,6 +171,8 @@ const LeftToolbar = () => {
             const isFilterSectionActive = ui.brushPanelSection === 'filters';
             const isActive = tool.id === 'grid-toggle'
               ? ui.grid.enabled
+              : tool.id === 'multiplayer'
+                ? multiplayerActive
               : tool.id === 'filters'
                 ? isFilterSectionActive
                 : tool.id === 'magic-wand'
@@ -140,8 +195,9 @@ const LeftToolbar = () => {
                   aria-pressed={isActive}
                   aria-keyshortcuts={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.aria}
                   data-shortcut={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display}
+                  disabled={tool.id === 'multiplayer' && multiplayerTransitioning}
                   type="button"
-                  className={`w-[44px] h-10 min-h-[36px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1`}
+                  className="w-[44px] h-10 min-h-[36px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1 disabled:cursor-wait disabled:opacity-60"
                   style={baseButtonStyle}
                 >
                   <span
@@ -149,8 +205,12 @@ const LeftToolbar = () => {
                       display: 'inline-block',
                       padding: isActive ? '1px 3px' : 0,
                       color: isActive ? '#1A1A1A' : '#FFFFFF',
-                      backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-                      boxShadow: isActive ? '0 0 0 1px #FFFFFF' : 'none',
+                      backgroundColor: isActive
+                        ? tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'
+                        : 'transparent',
+                      boxShadow: isActive
+                        ? `0 0 0 1px ${tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'}`
+                        : 'none',
                       lineHeight: 1.2,
                     }}
                   >

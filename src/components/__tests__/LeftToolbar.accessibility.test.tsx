@@ -1,7 +1,31 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { VesselMultiplayerSnapshot } from '@/collaboration/vesselMultiplayerSession';
 import LeftToolbar from '../LeftToolbar';
 
 const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
+const mockStartVesselMultiplayerSession = jest.fn().mockResolvedValue(undefined);
+const mockStopVesselMultiplayerSession = jest.fn();
+const mockShowAppFeedback = jest.fn();
+let multiplayer: VesselMultiplayerSnapshot = {
+  sessionId: null,
+  status: 'idle',
+  humanLayerId: null,
+  aiLayerId: null,
+  activeGestureId: null,
+  aiCursor: null,
+  stopReason: null,
+  error: null,
+};
+
+jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
+  startVesselMultiplayerSession: (...args: unknown[]) => mockStartVesselMultiplayerSession(...args),
+  stopVesselMultiplayerSession: (...args: unknown[]) => mockStopVesselMultiplayerSession(...args),
+  useVesselMultiplayerSnapshot: () => multiplayer,
+}));
+
+jest.mock('@/utils/appFeedback', () => ({
+  showAppFeedback: (...args: unknown[]) => mockShowAppFeedback(...args),
+}));
 
 jest.mock('@/utils/toolSwitch', () => ({
   useToolSwitcher: () => mockSwitchTool,
@@ -62,6 +86,18 @@ describe('LeftToolbar accessibility', () => {
     mockStore.ui.grid.enabled = false;
     mockStore.ui.modals.settings = false;
     mockStore.ui.brushPanelSection = 'tool';
+    multiplayer = {
+      sessionId: null,
+      status: 'idle',
+      humanLayerId: null,
+      aiLayerId: null,
+      activeGestureId: null,
+      aiCursor: null,
+      stopReason: null,
+      error: null,
+    };
+    mockStartVesselMultiplayerSession.mockResolvedValue(undefined);
+    mockStopVesselMultiplayerSession.mockReturnValue({ status: 'stopped' });
     mockStore.setBrushPanelSection.mockImplementation((section: 'tool' | 'filters') => {
       mockStore.ui.brushPanelSection = section;
     });
@@ -183,5 +219,81 @@ describe('LeftToolbar accessibility', () => {
 
     expect(mockStore.setSettingsSection).toHaveBeenCalledWith('display');
     expect(mockStore.toggleModal).not.toHaveBeenCalled();
+  });
+
+  it('starts multiplayer from the left toolbar without switching tools', async () => {
+    render(<LeftToolbar />);
+
+    const multiplayerButton = screen.getByRole('button', { name: 'Start multiplayer painting' });
+    expect(multiplayerButton).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(multiplayerButton);
+
+    await waitFor(() => {
+      expect(mockStartVesselMultiplayerSession).toHaveBeenCalledWith({
+        sessionId: expect.stringMatching(/^vessel-/),
+      });
+      expect(mockShowAppFeedback).toHaveBeenCalledWith('Multiplayer active — AI can join');
+    });
+    expect(mockSwitchTool).not.toHaveBeenCalled();
+  });
+
+  it('stops an active multiplayer session from the same toolbar item', () => {
+    multiplayer = {
+      ...multiplayer,
+      sessionId: 'portrait-together',
+      status: 'active',
+    };
+    render(<LeftToolbar />);
+
+    const multiplayerButton = screen.getByRole('button', { name: 'Stop AI multiplayer painting' });
+    expect(multiplayerButton).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(multiplayerButton);
+
+    expect(mockStopVesselMultiplayerSession).toHaveBeenCalledWith({
+      sessionId: 'portrait-together',
+      reason: 'Stopped from the Vessel toolbar',
+    });
+    expect(mockShowAppFeedback).toHaveBeenCalledWith('Multiplayer stopped');
+  });
+
+  it('reports multiplayer startup failures and re-enables the toolbar item', async () => {
+    mockStartVesselMultiplayerSession.mockRejectedValueOnce(new Error('Select a drawable layer'));
+    render(<LeftToolbar />);
+
+    const multiplayerButton = screen.getByRole('button', { name: 'Start multiplayer painting' });
+    fireEvent.click(multiplayerButton);
+
+    await waitFor(() => {
+      expect(mockShowAppFeedback).toHaveBeenCalledWith(
+        'Multiplayer unavailable: Select a drawable layer',
+      );
+      expect(multiplayerButton).not.toBeDisabled();
+    });
+  });
+
+  it('disables the multiplayer item while an active gesture is stopping', () => {
+    multiplayer = {
+      ...multiplayer,
+      sessionId: 'portrait-together',
+      status: 'stopping',
+    };
+    render(<LeftToolbar />);
+
+    expect(screen.getByRole('button', { name: 'Stopping AI multiplayer painting' })).toBeDisabled();
+  });
+
+  it('reports an in-flight gesture as stopping instead of already stopped', () => {
+    multiplayer = {
+      ...multiplayer,
+      sessionId: 'portrait-together',
+      status: 'active',
+      activeGestureId: 'ai-stroke-1',
+    };
+    mockStopVesselMultiplayerSession.mockReturnValueOnce({ status: 'stopping' });
+    render(<LeftToolbar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop AI multiplayer painting' }));
+
+    expect(mockShowAppFeedback).toHaveBeenCalledWith('Stopping multiplayer…');
   });
 });
