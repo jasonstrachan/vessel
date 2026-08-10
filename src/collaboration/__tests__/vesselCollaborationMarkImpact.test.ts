@@ -14,14 +14,14 @@ describe('evaluateVesselCollaborationMarkImpact', () => {
     const primary = evaluateVesselCollaborationMarkImpact({
       ...base,
       markType: 'shape',
-      phase: 'primary',
+      phase: 'establish',
       changedPixels: 1000,
       points: [{ x: 10, y: 10 }, { x: 80, y: 10 }, { x: 40, y: 50 }],
     });
     const focal = evaluateVesselCollaborationMarkImpact({
       ...base,
       markType: 'shape',
-      phase: 'focal',
+      phase: 'deepen',
       changedPixels: 1000,
       points: [{ x: 10, y: 10 }, { x: 80, y: 10 }, { x: 40, y: 50 }],
     });
@@ -40,14 +40,14 @@ describe('evaluateVesselCollaborationMarkImpact', () => {
     const shortStroke = evaluateVesselCollaborationMarkImpact({
       ...base,
       markType: 'stroke',
-      phase: 'medium',
+      phase: 'develop',
       changedPixels: 1000,
       points: [{ x: 10, y: 10 }, { x: 20, y: 10 }],
     });
     const meaningfulStroke = evaluateVesselCollaborationMarkImpact({
       ...base,
       markType: 'stroke',
-      phase: 'medium',
+      phase: 'develop',
       changedPixels: 1000,
       points: [{ x: 10, y: 10 }, { x: 80, y: 10 }],
     });
@@ -64,7 +64,7 @@ describe('evaluateVesselCollaborationMarkImpact', () => {
     const evidence = evaluateVesselCollaborationMarkImpact({
       ...base,
       markType: 'stroke',
-      phase: 'focal',
+      phase: 'deepen',
       changedPixels: 1000,
       points: [
         { x: 10, y: 10 },
@@ -81,7 +81,7 @@ describe('evaluateVesselCollaborationMarkImpact', () => {
     const evidence = evaluateVesselCollaborationMarkImpact({
       ...base,
       markType: 'stroke',
-      phase: 'focal',
+      phase: 'deepen',
       changedPixels: 1000,
       points: [
         { x: 10, y: 10 },
@@ -99,7 +99,7 @@ describe('evaluateVesselCollaborationMarkImpact', () => {
     expect(evaluateVesselCollaborationMarkImpact({
       ...base,
       markType: 'stroke',
-      phase: 'revision',
+      phase: 'deepen',
       changedPixels: 0,
       points: [{ x: 10, y: 10 }, { x: 11, y: 10 }],
     })).toMatchObject({
@@ -113,7 +113,7 @@ describe('evaluateVesselCollaborationMarkImpact', () => {
       ...base,
       documentVersionDelta: 0,
       markType: 'shape',
-      phase: 'focal',
+      phase: 'deepen',
       changedPixels: 1000,
       points: [{ x: 10, y: 10 }, { x: 80, y: 10 }, { x: 40, y: 50 }],
     })).toMatchObject({
@@ -124,7 +124,7 @@ describe('evaluateVesselCollaborationMarkImpact', () => {
       ...base,
       dirtyRevisionDelta: 0,
       markType: 'shape',
-      phase: 'focal',
+      phase: 'deepen',
       changedPixels: 1000,
       points: [{ x: 10, y: 10 }, { x: 80, y: 10 }, { x: 40, y: 50 }],
     })).toMatchObject({

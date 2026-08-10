@@ -4,7 +4,7 @@ import path from 'node:path';
 
 const STAGE_CAPTURES = new Set(['final-thumbnail', 'full']);
 const GESTURE_ACTIONS = new Set(['shape', 'stroke']);
-const ARTWORK_DECISIONS = new Set(['advance', 'repair-current', 'blocked']);
+const ARTWORK_DECISIONS = new Set(['advance', 'continue-current', 'blocked']);
 const COORDINATE_CONVENTIONS = new Set(['vessel-canvas-pixels-v1']);
 const MAX_PRIORITY_MASK_PIXELS = 4_000_000;
 
@@ -222,8 +222,8 @@ const readPriorityMasks = (value, width, height) => {
 
 const parseCache = (value, cachePath) => {
   const cache = requireRecord(value, 'Staged artwork cache');
-  if (cache.schemaVersion !== 2) {
-    throw new Error('Staged artwork cache schemaVersion must be 2');
+  if (cache.schemaVersion !== 4) {
+    throw new Error('Staged artwork cache schemaVersion must be 4');
   }
   const workflowId = requireIdentifier(cache.workflowId, 'Staged artwork cache workflowId');
   const cacheIdentity = requireRecord(cache.cacheIdentity, 'Staged artwork cache cacheIdentity');
@@ -239,6 +239,28 @@ const parseCache = (value, cachePath) => {
     cacheIdentity.plannerSchemaVersion,
     'Staged artwork cache cacheIdentity.plannerSchemaVersion',
   );
+  const massObservationPlanValue = requireRecord(
+    cache.massObservationPlan,
+    'Staged artwork cache massObservationPlan',
+  );
+  if (massObservationPlanValue.schemaVersion !== 3) {
+    throw new Error('Staged artwork cache massObservationPlan.schemaVersion must be 3');
+  }
+  const massObservationPlan = {
+    schemaVersion: 3,
+    checkpointId: requireIdentifier(
+      massObservationPlanValue.checkpointId,
+      'Staged artwork cache massObservationPlan.checkpointId',
+    ),
+    fingerprint: requireIdentifier(
+      massObservationPlanValue.fingerprint,
+      'Staged artwork cache massObservationPlan.fingerprint',
+    ),
+    observedMassCount: requirePositiveInteger(
+      massObservationPlanValue.observedMassCount,
+      'Staged artwork cache massObservationPlan.observedMassCount',
+    ),
+  };
   if (!COORDINATE_CONVENTIONS.has(cacheIdentity.coordinateConvention)) {
     throw new Error('Staged artwork cache coordinateConvention must be vessel-canvas-pixels-v1');
   }
@@ -367,6 +389,7 @@ const parseCache = (value, cachePath) => {
       coordinateConvention: cacheIdentity.coordinateConvention,
     },
     project: { id: projectId, width, height },
+    massObservationPlan,
     priorityMasks,
     stages,
   };
@@ -426,7 +449,7 @@ export const createStagedArtworkExpander = () => {
     );
     const decision = requireRecord(command.decision, 'artwork-stage decision');
     if (!ARTWORK_DECISIONS.has(decision.status)) {
-      throw new Error('artwork-stage decision.status must be advance, repair-current, or blocked');
+      throw new Error('artwork-stage decision.status must be advance, continue-current, or blocked');
     }
     const decisionRevision = requireNonNegativeInteger(
       decision.basedOnRevision,
@@ -597,6 +620,11 @@ export const createStagedArtworkExpander = () => {
         runtimeFence: command.runtimeFence,
         canvas: { width: cache.project.width, height: cache.project.height },
         capture: 'none',
+        massObservationPlan: {
+          ...cache.massObservationPlan,
+          basedOnRevision: decisionRevision,
+          basedOnCheckpointId: decisionCheckpointId,
+        },
         operations,
         ...(priorityMask ? {
           priorityCoverage: {

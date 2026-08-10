@@ -689,7 +689,7 @@ describe('createVesselCollaborationExecutor', () => {
       id: 'command-shape-evidence',
       action: 'shape',
       capture: 'none',
-      phase: 'primary',
+      phase: 'establish',
       points: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
       direction: [{ x: 1, y: 1 }, { x: 2, y: 2 }],
     });
@@ -700,7 +700,7 @@ describe('createVesselCollaborationExecutor', () => {
       markEvidence: {
         layerId: 'layer-1',
         markType: 'shape',
-        phase: 'primary',
+        phase: 'establish',
         status: 'committed',
         changedPixels: 1,
         normalizedCoverage: 1 / 16,
@@ -778,7 +778,7 @@ describe('createVesselCollaborationExecutor', () => {
       id: 'coverage-job',
       action: 'artwork-job',
       runtimeFence: {
-        protocolVersion: 3,
+        protocolVersion: 4,
         runtimeBuildId: 'test',
         runtimeInstanceId: 'runtime',
         leaseEpoch: 1,
@@ -798,7 +798,7 @@ describe('createVesselCollaborationExecutor', () => {
         {
           id: 'face-light-1',
           action: 'shape',
-          phase: 'focal',
+          phase: 'deepen',
           points: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
           direction: [{ x: 1, y: 1 }, { x: 2, y: 2 }],
         },
@@ -895,7 +895,7 @@ describe('createVesselCollaborationExecutor', () => {
       id: 'partial-job',
       action: 'artwork-job',
       runtimeFence: {
-        protocolVersion: 3,
+        protocolVersion: 4,
         runtimeBuildId: 'test',
         runtimeInstanceId: 'runtime',
         leaseEpoch: 1,
@@ -904,8 +904,8 @@ describe('createVesselCollaborationExecutor', () => {
         expectedCheckpointId: null,
       },
       operations: [
-        { id: 'committed-stroke', action: 'stroke', phase: 'revision', points: [{ x: 1, y: 1 }] },
-        { id: 'failed-stroke', action: 'stroke', phase: 'revision', points: [{ x: 2, y: 2 }] },
+        { id: 'committed-stroke', action: 'stroke', phase: 'deepen', points: [{ x: 1, y: 1 }] },
+        { id: 'failed-stroke', action: 'stroke', phase: 'deepen', points: [{ x: 2, y: 2 }] },
         { action: 'checkpoint', name: 'must-not-exist' },
       ],
     });
@@ -975,7 +975,7 @@ describe('createVesselCollaborationExecutor', () => {
       id: 'command-shape-no-delta',
       action: 'shape',
       capture: 'none',
-      phase: 'primary',
+      phase: 'establish',
       points: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 2 }],
       direction: [{ x: 1, y: 1 }, { x: 2, y: 2 }],
     });
@@ -986,7 +986,7 @@ describe('createVesselCollaborationExecutor', () => {
       markEvidence: {
         layerId: 'layer-1',
         markType: 'shape',
-        phase: 'primary',
+        phase: 'establish',
         status: 'rejected',
         changedPixels: 0,
         normalizedCoverage: 0,
@@ -1778,9 +1778,9 @@ describe('createVesselCollaborationExecutor', () => {
       action: 'artwork-job',
       capture: 'none',
       operations: [
-        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
-        { action: 'stroke', phase: 'primary', points: [{ x: 30, y: 40 }] },
-        { action: 'stroke', phase: 'primary', points: [{ x: 50, y: 60 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: 10, y: 20 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: 30, y: 40 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: 50, y: 60 }] },
         { action: 'checkpoint', name: 'primary-masses' },
       ],
     }, {
@@ -1895,8 +1895,8 @@ describe('createVesselCollaborationExecutor', () => {
       action: 'artwork-job',
       capture: 'none',
       operations: [
-        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
-        { action: 'stroke', phase: 'primary', points: [{ x: -1, y: 40 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: 10, y: 20 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: -1, y: 40 }] },
         { action: 'checkpoint', name: 'primary-masses' },
       ],
     });
@@ -1980,7 +1980,7 @@ describe('createVesselCollaborationExecutor', () => {
       operations: [
         {
           action: 'shape',
-          phase: 'primary',
+          phase: 'establish',
           points: [
             { x: 1, y: 1 },
             { x: 8, y: 8 },
@@ -1988,7 +1988,7 @@ describe('createVesselCollaborationExecutor', () => {
             { x: 8, y: 1 },
           ],
         },
-        { action: 'stroke', phase: 'primary', points: [{ x: 2, y: 2 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: 2, y: 2 }] },
         { action: 'checkpoint', name: 'primary-masses' },
       ],
     });
@@ -2042,7 +2042,7 @@ describe('createVesselCollaborationExecutor', () => {
       operations: [
         {
           action: 'shape',
-          phase: 'primary',
+          phase: 'establish',
           points: [
             { x: 1, y: 1 },
             { x: 8, y: 1 },
@@ -2144,7 +2144,7 @@ describe('createVesselCollaborationExecutor', () => {
       state.autosave.dirtyRevision = 1;
     });
     const runtimeIdentity = {
-      protocolVersion: 3 as const,
+      protocolVersion: 4 as const,
       runtimeBuildId: 'build-current',
       runtimeInstanceId: 'runtime-current',
       leaseEpoch: 3,
@@ -2230,7 +2230,7 @@ describe('createVesselCollaborationExecutor', () => {
       }),
     } as unknown as HTMLCanvasElement;
     const runtimeIdentity = {
-      protocolVersion: 3 as const,
+      protocolVersion: 4 as const,
       runtimeBuildId: 'build-current',
       runtimeInstanceId: 'runtime-current',
       leaseEpoch: 3,
@@ -2256,7 +2256,7 @@ describe('createVesselCollaborationExecutor', () => {
       capture: 'none',
       runtimeFence: runtimeIdentity,
       operations: [
-        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: 10, y: 20 }] },
         { action: 'checkpoint', name: 'settled' },
       ],
     }, {
@@ -2314,7 +2314,7 @@ describe('createVesselCollaborationExecutor', () => {
       action: 'artwork-job',
       capture: 'none',
       operations: [
-        { action: 'stroke', phase: 'primary', points: [{ x: 10, y: 20 }] },
+        { action: 'stroke', phase: 'establish', points: [{ x: 10, y: 20 }] },
         { action: 'checkpoint', name: 'primary-masses', capture: 'full' },
       ],
     }, {
@@ -2632,7 +2632,7 @@ describe('createVesselCollaborationExecutor', () => {
     const execute = createVesselCollaborationExecutor(getRuntime, {
       requireRuntimeFence: true,
       getRuntimeIdentity: () => ({
-        protocolVersion: 3,
+        protocolVersion: 4,
         runtimeBuildId: 'build-current',
         runtimeInstanceId: 'runtime-current',
         leaseEpoch: 3,
@@ -2644,7 +2644,7 @@ describe('createVesselCollaborationExecutor', () => {
       action: 'shape',
       capture: 'none',
       runtimeFence: {
-        protocolVersion: 3,
+        protocolVersion: 4,
         runtimeBuildId: 'build-stale',
         runtimeInstanceId: 'runtime-stale',
         leaseEpoch: 2,

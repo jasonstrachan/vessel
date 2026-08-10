@@ -10,13 +10,19 @@ test('tool adapter emits the committed checkpoint image and compact evidence tog
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vessel-tool-stage-'));
   const cachePath = path.join(directory, 'cache.json');
   await fs.writeFile(cachePath, JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: 4,
     workflowId: 'general-artwork-v1',
     cacheIdentity: {
       referenceContentFingerprint: 'sha256:reference-1',
       referenceTransformFingerprint: 'sha256:contain-transform-1',
-      plannerSchemaVersion: 'mass-planner-v2',
+      plannerSchemaVersion: 'mass-planner-v3',
       coordinateConvention: 'vessel-canvas-pixels-v1',
+    },
+    massObservationPlan: {
+      schemaVersion: 3,
+      checkpointId: 'reference-observation-1',
+      fingerprint: 'mass-plan-sha256-1',
+      observedMassCount: 1,
     },
     project: { id: 'project-1', width: 64, height: 80 },
     stages: [{

@@ -2,7 +2,7 @@ import { assertVesselCollaborationRuntimeFence } from '../vesselCollaborationRun
 
 describe('assertVesselCollaborationRuntimeFence', () => {
   const identity = {
-    protocolVersion: 3,
+    protocolVersion: 4,
     runtimeBuildId: 'build-current',
     runtimeInstanceId: 'runtime-current',
     leaseEpoch: 7,

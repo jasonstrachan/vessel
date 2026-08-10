@@ -18,7 +18,7 @@ const ARTWORK_JOB_ACTIONS = new Set([
   'set-gradient',
   'set-eraser',
 ]);
-const ARTWORK_JOB_PHASES = new Set(['primary', 'medium', 'focal', 'revision']);
+const ARTWORK_JOB_PHASES = new Set(['establish', 'develop', 'deepen']);
 const CHECKPOINT_CAPTURES = new Set(['final-thumbnail', 'full']);
 
 const readCanvas = (command, project) => {
@@ -61,6 +61,28 @@ const assertIdentifier = (value, label) => {
   if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(value)) {
     throw new Error(`${label} must use 1-128 safe identifier characters`);
   }
+};
+
+const readMassObservationPlan = (value) => {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Artwork job massObservationPlan must be an object');
+  }
+  if (value.schemaVersion !== 3) {
+    throw new Error('Artwork job massObservationPlan schemaVersion must be 3');
+  }
+  assertIdentifier(value.checkpointId, 'Artwork job mass observation checkpointId');
+  assertIdentifier(value.fingerprint, 'Artwork job mass observation fingerprint');
+  if (!Number.isInteger(value.observedMassCount) || value.observedMassCount < 1) {
+    throw new Error('Artwork job mass observation observedMassCount must be a positive integer');
+  }
+  if (!Number.isInteger(value.basedOnRevision) || value.basedOnRevision < 0 ||
+      !Object.hasOwn(value, 'basedOnCheckpointId') ||
+      (value.basedOnCheckpointId !== null &&
+        (typeof value.basedOnCheckpointId !== 'string' || value.basedOnCheckpointId.length === 0))) {
+    throw new Error('Artwork job mass observation requires revision and checkpoint provenance');
+  }
+  return value;
 };
 
 const assertPriorityCoverage = (coverage, canvas, expectedRevision) => {
@@ -134,6 +156,12 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
   }
 
   const canvas = readCanvas(command, project);
+  const massObservationPlan = readMassObservationPlan(command.massObservationPlan);
+  if (massObservationPlan &&
+      (massObservationPlan.basedOnRevision !== command.runtimeFence.expectedProjectRevision ||
+       massObservationPlan.basedOnCheckpointId !== command.runtimeFence.expectedCheckpointId)) {
+    throw new Error('Artwork job mass observation must match its revision and checkpoint fence');
+  }
   assertPriorityCoverage(
     command.priorityCoverage,
     canvas,
@@ -141,6 +169,8 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
   );
   const checkpointNames = new Set();
   const gestureIds = new Set();
+  const sourceRegionIds = new Set();
+  let gestureCount = 0;
   let pointCount = 0;
   for (let index = 0; index < command.operations.length; index += 1) {
     const operation = command.operations[index];
@@ -153,6 +183,7 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
       continue;
     }
     if (operation.action !== 'stroke' && operation.action !== 'shape') continue;
+    gestureCount += 1;
     if (!ARTWORK_JOB_PHASES.has(operation.phase)) {
       throw new Error(`Artwork job gesture ${index} requires a construction phase`);
     }
@@ -161,6 +192,32 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
       throw new Error(`Artwork job gesture ID is duplicated: ${operation.id}`);
     }
     gestureIds.add(operation.id);
+    if (operation.boundaryAnchorCount !== undefined &&
+        (!Number.isInteger(operation.boundaryAnchorCount) ||
+          operation.boundaryAnchorCount < 20 || operation.boundaryAnchorCount > 60)) {
+      throw new Error(`Artwork job gesture ${index} boundaryAnchorCount must be between 20 and 60`);
+    }
+    if (massObservationPlan) {
+      assertIdentifier(
+        operation.sourceRegionId,
+        `Artwork job gesture ${index} sourceRegionId`,
+      );
+      if (sourceRegionIds.has(operation.sourceRegionId)) {
+        throw new Error('Artwork job mass-observed gestures must use distinct sourceRegionId values');
+      }
+      sourceRegionIds.add(operation.sourceRegionId);
+      if (operation.action === 'shape' && operation.boundaryAnchorCount === undefined) {
+        throw new Error(
+          `Artwork job gesture ${index} boundaryAnchorCount is required by the mass observation plan`,
+        );
+      }
+      if (operation.action === 'shape' && operation.phase !== 'establish') {
+        assertIdentifier(
+          operation.parentMassId,
+          `Artwork job gesture ${index} parentMassId`,
+        );
+      }
+    }
     if (operation.basedOnRevision !== undefined &&
         operation.basedOnRevision !== command.runtimeFence.expectedProjectRevision) {
       throw new Error(`Artwork job gesture ${index} was derived from a stale revision`);
@@ -196,6 +253,9 @@ export const preflightArtworkJob = (command, { project, requireCanvas = true } =
   }
   if (pointCount > MAX_ARTWORK_JOB_POINTS) {
     throw new Error(`Artwork jobs cannot contain more than ${MAX_ARTWORK_JOB_POINTS} points`);
+  }
+  if (massObservationPlan && gestureCount > massObservationPlan.observedMassCount) {
+    throw new Error('Artwork job gestures exceed the observed mass inventory');
   }
 
   const expanded = { ...command };

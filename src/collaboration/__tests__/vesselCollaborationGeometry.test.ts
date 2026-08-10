@@ -36,7 +36,7 @@ describe('Vessel collaboration geometry preflight', () => {
     expect(() => assertVesselCollaborationGestureGeometry({
       operation: {
         action: 'shape',
-        phase: 'primary',
+        phase: 'establish',
         points: polygon,
         direction: [{ x: 30, y: 30 }, { x: 260, y: 90 }],
       },
@@ -50,7 +50,7 @@ describe('Vessel collaboration geometry preflight', () => {
     expect(() => assertVesselCollaborationGestureGeometry({
       operation: {
         action: 'shape',
-        phase: 'primary',
+        phase: 'establish',
         points: [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 15, y: 15 }],
       },
       canvasWidth: 512,
@@ -60,7 +60,7 @@ describe('Vessel collaboration geometry preflight', () => {
     expect(() => assertVesselCollaborationGestureGeometry({
       operation: {
         action: 'stroke',
-        phase: 'focal',
+        phase: 'deepen',
         points: [{ x: 10, y: 10 }, { x: 20, y: 10 }],
       },
       canvasWidth: 512,
@@ -72,7 +72,7 @@ describe('Vessel collaboration geometry preflight', () => {
   it('reports a self-intersecting candidate without rejecting overlapping masses', () => {
     expect(resolveVesselCollaborationCandidateGeometryRejection({
       action: 'shape',
-      phase: 'medium',
+      phase: 'develop',
       points: [
         { x: 20, y: 20 },
         { x: 220, y: 180 },
@@ -82,7 +82,7 @@ describe('Vessel collaboration geometry preflight', () => {
     }, 512, 640)).toBe('invalid-geometry');
     expect(resolveVesselCollaborationCandidateGeometryRejection({
       action: 'shape',
-      phase: 'medium',
+      phase: 'develop',
       points: [
         { x: 20, y: 20 },
         { x: 220, y: 20 },
@@ -96,7 +96,7 @@ describe('Vessel collaboration geometry preflight', () => {
     expect(() => assertVesselCollaborationGestureGeometry({
       operation: {
         action: 'shape',
-        phase: 'primary',
+        phase: 'establish',
         points: [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }],
       },
       canvasWidth: 10,
@@ -106,7 +106,7 @@ describe('Vessel collaboration geometry preflight', () => {
     expect(() => assertVesselCollaborationGestureGeometry({
       operation: {
         action: 'stroke',
-        phase: 'primary',
+        phase: 'establish',
         points: [{ x: 1, y: 1 }, { x: 10, y: 2 }],
       },
       canvasWidth: 10,
@@ -119,7 +119,7 @@ describe('Vessel collaboration geometry preflight', () => {
     expect(() => assertVesselCollaborationGestureGeometry({
       operation: {
         action: 'stroke',
-        phase: 'focal',
+        phase: 'deepen',
         points: [
           { x: 500, y: 500 },
           { x: 450, y: 500 },

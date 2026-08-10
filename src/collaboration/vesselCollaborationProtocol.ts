@@ -48,10 +48,18 @@ export type VesselCollaborationPatternStyle =
 export type VesselCollaborationGradientSource = 'manual' | 'fg' | 'sampled';
 export type VesselCollaborationEraserTip = 'square' | 'round' | 'diamond5';
 export type VesselCollaborationConstructionPhase =
-  | 'primary'
-  | 'medium'
-  | 'focal'
-  | 'revision';
+  | 'establish'
+  | 'develop'
+  | 'deepen';
+
+export interface VesselCollaborationMassObservationPlan {
+  schemaVersion: 3;
+  checkpointId: string;
+  fingerprint: string;
+  observedMassCount: number;
+  basedOnRevision: number;
+  basedOnCheckpointId: string | null;
+}
 
 const MAX_PRIORITY_MASK_PIXELS = 4_000_000;
 
@@ -67,6 +75,7 @@ interface VesselCollaborationStrokeOperation {
   basedOnRevision?: number;
   parentMassId?: string;
   sourceRegionId?: string;
+  boundaryAnchorCount?: number;
   points: VesselCollaborationPoint[];
   tool?: 'brush' | 'eraser';
   pointsPerFrame?: number;
@@ -79,6 +88,7 @@ interface VesselCollaborationShapeOperation {
   basedOnRevision?: number;
   parentMassId?: string;
   sourceRegionId?: string;
+  boundaryAnchorCount?: number;
   points: VesselCollaborationPoint[];
   direction?: VesselCollaborationPoint[];
   pointsPerFrame?: number;
@@ -254,6 +264,7 @@ export type VesselCollaborationCommand =
       id: string;
       action: 'artwork-job';
       operations: VesselCollaborationArtworkOperation[];
+      massObservationPlan?: VesselCollaborationMassObservationPlan;
       priorityCoverage?: VesselCollaborationPriorityCoverageRequest;
       capture?: Exclude<VesselCollaborationCapturePolicy, 'each-thumbnail'>;
       thumbnailMaxSize?: number;
@@ -1234,8 +1245,8 @@ const readConstructionPhase = (
   field: string,
 ): VesselCollaborationConstructionPhase | undefined => {
   if (value === undefined) return undefined;
-  if (value !== 'primary' && value !== 'medium' && value !== 'focal' && value !== 'revision') {
-    throw new Error(`${field} must be primary, medium, focal, or revision`);
+  if (value !== 'establish' && value !== 'develop' && value !== 'deepen') {
+    throw new Error(`${field} must be establish, develop, or deepen`);
   }
   return value;
 };
@@ -1265,11 +1276,65 @@ const readGestureMetadata = (value: Record<string, unknown>, index: number) => {
   if (basedOnRevision !== undefined && basedOnRevision < 0) {
     throw new Error(`operations[${index}].basedOnRevision must be at least 0`);
   }
+  const boundaryAnchorCount = value.boundaryAnchorCount === undefined
+    ? undefined
+    : requireInteger(value.boundaryAnchorCount, `operations[${index}].boundaryAnchorCount`);
+  if (boundaryAnchorCount !== undefined && (boundaryAnchorCount < 20 || boundaryAnchorCount > 60)) {
+    throw new Error(`operations[${index}].boundaryAnchorCount must be between 20 and 60`);
+  }
   return {
     ...(id === undefined ? {} : { id }),
     ...(basedOnRevision === undefined ? {} : { basedOnRevision }),
     ...(parentMassId === undefined ? {} : { parentMassId }),
     ...(sourceRegionId === undefined ? {} : { sourceRegionId }),
+    ...(boundaryAnchorCount === undefined ? {} : { boundaryAnchorCount }),
+  };
+};
+
+const readMassObservationPlan = (
+  value: unknown,
+): VesselCollaborationMassObservationPlan | undefined => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) throw new Error('massObservationPlan must be an object');
+  if (value.schemaVersion !== 3) {
+    throw new Error('massObservationPlan.schemaVersion must be 3');
+  }
+  const checkpointId = readOperationIdentifier(
+    value.checkpointId,
+    'massObservationPlan.checkpointId',
+  );
+  const fingerprint = readOperationIdentifier(
+    value.fingerprint,
+    'massObservationPlan.fingerprint',
+  );
+  const observedMassCount = requireInteger(
+    value.observedMassCount,
+    'massObservationPlan.observedMassCount',
+  );
+  const basedOnRevision = requireInteger(
+    value.basedOnRevision,
+    'massObservationPlan.basedOnRevision',
+  );
+  if (basedOnRevision < 0) {
+    throw new Error('massObservationPlan.basedOnRevision must be at least 0');
+  }
+  const basedOnCheckpointId = value.basedOnCheckpointId === null
+    ? null
+    : readOperationIdentifier(
+        value.basedOnCheckpointId,
+        'massObservationPlan.basedOnCheckpointId',
+      );
+  if (!checkpointId || !fingerprint || observedMassCount < 1 ||
+      basedOnCheckpointId === undefined) {
+    throw new Error('massObservationPlan requires checkpoint, fingerprint, and observed masses');
+  }
+  return {
+    schemaVersion: 3,
+    checkpointId,
+    fingerprint,
+    observedMassCount,
+    basedOnRevision,
+    basedOnCheckpointId,
   };
 };
 
@@ -1611,6 +1676,14 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         throw new Error('artwork jobs require project, revision, and checkpoint fences');
       }
       const operations = value.operations.map(readBatchOperation);
+      const massObservationPlan = readMassObservationPlan(value.massObservationPlan);
+      if (massObservationPlan &&
+          (massObservationPlan.basedOnRevision !==
+            captureOptions.runtimeFence.expectedProjectRevision ||
+           massObservationPlan.basedOnCheckpointId !==
+            captureOptions.runtimeFence.expectedCheckpointId)) {
+        throw new Error('massObservationPlan must match the artwork job revision and checkpoint fence');
+      }
       const unsupportedOperation = operations.find(
         (operation) =>
           operation.action === 'create-layer' ||
@@ -1622,6 +1695,15 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
           `unsupported artwork job operation: ${unsupportedOperation.action}`,
         );
       }
+      const eraserOperation = operations.find(
+        (operation) =>
+          (operation.action === 'stroke' && operation.tool === 'eraser') ||
+          (operation.action === 'set-tool' && operation.tool === 'eraser') ||
+          operation.action === 'set-eraser',
+      );
+      if (eraserOperation) {
+        throw new Error('artwork jobs cannot erase committed marks');
+      }
       const unphasedGestureIndex = operations.findIndex(
         (operation) =>
           (operation.action === 'stroke' || operation.action === 'shape') && !operation.phase,
@@ -1630,6 +1712,46 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         throw new Error(
           `operations[${unphasedGestureIndex}].phase is required for artwork job gestures`,
         );
+      }
+      if (massObservationPlan) {
+        const gestures = operations.filter(
+          (operation): operation is VesselCollaborationStrokeOperation | VesselCollaborationShapeOperation =>
+            operation.action === 'stroke' || operation.action === 'shape',
+        );
+        const unobservedGestureIndex = operations.findIndex(
+          (operation) =>
+            (operation.action === 'stroke' || operation.action === 'shape') &&
+            !operation.sourceRegionId,
+        );
+        if (unobservedGestureIndex >= 0) {
+          throw new Error(
+            `operations[${unobservedGestureIndex}].sourceRegionId is required by the mass observation plan`,
+          );
+        }
+        const unanchoredShapeIndex = operations.findIndex(
+          (operation) => operation.action === 'shape' && operation.boundaryAnchorCount === undefined,
+        );
+        if (unanchoredShapeIndex >= 0) {
+          throw new Error(
+            `operations[${unanchoredShapeIndex}].boundaryAnchorCount is required by the mass observation plan`,
+          );
+        }
+        const orphanedNestedShapeIndex = operations.findIndex(
+          (operation) => operation.action === 'shape' &&
+            operation.phase !== 'establish' && !operation.parentMassId,
+        );
+        if (orphanedNestedShapeIndex >= 0) {
+          throw new Error(
+            `operations[${orphanedNestedShapeIndex}].parentMassId is required for an observed nested mass`,
+          );
+        }
+        const sourceRegionIds = gestures.map((operation) => operation.sourceRegionId);
+        if (new Set(sourceRegionIds).size !== sourceRegionIds.length) {
+          throw new Error('mass-observed artwork gestures must use distinct sourceRegionId values');
+        }
+        if (gestures.length > massObservationPlan.observedMassCount) {
+          throw new Error('artwork job gestures exceed the observed mass inventory');
+        }
       }
       const checkpointNames = operations
         .filter((operation) => operation.action === 'checkpoint')
@@ -1655,6 +1777,7 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         action,
         operations,
         ...captureOptions,
+        ...(massObservationPlan ? { massObservationPlan } : {}),
         ...(priorityCoverage ? { priorityCoverage } : {}),
       } as Extract<
         VesselCollaborationCommand,

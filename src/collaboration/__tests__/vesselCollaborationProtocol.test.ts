@@ -562,7 +562,7 @@ describe('parseVesselCollaborationCommand', () => {
 
   it('keeps atomic batches bounded and accepts a larger streamed artwork job', () => {
     const runtimeFence = {
-      protocolVersion: 3,
+      protocolVersion: 4,
       runtimeBuildId: 'test-build',
       runtimeInstanceId: 'test-runtime',
       leaseEpoch: 1,
@@ -641,6 +641,24 @@ describe('parseVesselCollaborationCommand', () => {
       ],
     })).toThrow('unsupported artwork job operation: create-layer');
 
+    for (const operation of [
+      { action: 'set-tool', tool: 'eraser' },
+      { action: 'set-eraser', settings: { size: 8 } },
+      {
+        action: 'stroke',
+        tool: 'eraser',
+        phase: 'establish',
+        points: [{ x: 1, y: 1 }, { x: 2, y: 2 }],
+      },
+    ]) {
+      expect(() => parseVesselCollaborationCommand({
+        id: 'command-artwork-job-eraser',
+        action: 'artwork-job',
+        runtimeFence,
+        operations: [operation, { action: 'checkpoint', name: 'establish-review' }],
+      })).toThrow('artwork jobs cannot erase committed marks');
+    }
+
     expect(() => parseVesselCollaborationCommand({
       id: 'command-artwork-job-unphased-mark',
       action: 'artwork-job',
@@ -659,6 +677,14 @@ describe('parseVesselCollaborationCommand', () => {
       id: 'command-artwork-job-phased-mark',
       action: 'artwork-job',
       runtimeFence,
+      massObservationPlan: {
+        schemaVersion: 3,
+        checkpointId: 'visible-checkpoint-17',
+        fingerprint: 'mass-plan-sha256-17',
+        observedMassCount: 1,
+        basedOnRevision: 0,
+        basedOnCheckpointId: null,
+      },
       priorityCoverage: {
         priorityMaskId: 'face-priority',
         priorityMaskFingerprint: 'mask-fingerprint',
@@ -671,10 +697,11 @@ describe('parseVesselCollaborationCommand', () => {
         {
           action: 'shape',
           id: 'primary-shape',
-          phase: 'primary',
+          phase: 'establish',
           basedOnRevision: 0,
           parentMassId: 'head-shadow',
           sourceRegionId: 'reference-region-17',
+          boundaryAnchorCount: 37,
           points: [{ x: 1, y: 1 }, { x: 5, y: 1 }, { x: 3, y: 5 }],
         },
         { action: 'checkpoint', name: 'primary-masses' },
@@ -683,10 +710,19 @@ describe('parseVesselCollaborationCommand', () => {
     if (phasedJob.action !== 'artwork-job') throw new Error('Expected artwork job');
     expect(phasedJob.operations[0]).toMatchObject({
       id: 'primary-shape',
-      phase: 'primary',
+      phase: 'establish',
       basedOnRevision: 0,
       parentMassId: 'head-shadow',
       sourceRegionId: 'reference-region-17',
+      boundaryAnchorCount: 37,
+    });
+    expect(phasedJob.massObservationPlan).toEqual({
+      schemaVersion: 3,
+      checkpointId: 'visible-checkpoint-17',
+      fingerprint: 'mass-plan-sha256-17',
+      observedMassCount: 1,
+      basedOnRevision: 0,
+      basedOnCheckpointId: null,
     });
     expect(phasedJob.priorityCoverage).toMatchObject({
       priorityMaskId: 'face-priority',
@@ -696,6 +732,30 @@ describe('parseVesselCollaborationCommand', () => {
       action: 'checkpoint',
       name: 'primary-masses',
     });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-artwork-job-unobserved-mark',
+      action: 'artwork-job',
+      runtimeFence,
+      massObservationPlan: {
+        schemaVersion: 3,
+        checkpointId: 'visible-checkpoint-18',
+        fingerprint: 'mass-plan-sha256-18',
+        observedMassCount: 1,
+        basedOnRevision: 0,
+        basedOnCheckpointId: null,
+      },
+      operations: [
+        {
+          action: 'shape',
+          id: 'generic-face-blob',
+          phase: 'establish',
+          boundaryAnchorCount: 20,
+          points: [{ x: 1, y: 1 }, { x: 5, y: 1 }, { x: 3, y: 5 }],
+        },
+        { action: 'checkpoint', name: 'must-not-dispatch' },
+      ],
+    })).toThrow('sourceRegionId is required by the mass observation plan');
 
     expect(() => parseVesselCollaborationCommand({
       id: 'command-artwork-job-invalid-checkpoint-capture',

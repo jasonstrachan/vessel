@@ -61,7 +61,7 @@ const claimRuntime = (url, headers, runtimeInstanceId) => fetchJson(
     method: 'POST',
     headers,
     body: JSON.stringify({
-      protocolVersion: 3,
+      protocolVersion: 4,
       runtimeBuildId: 'transport-test-build',
       runtimeInstanceId,
     }),
@@ -631,7 +631,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
       {
         action: 'shape',
         id: 'self-intersecting-shape',
-        phase: 'primary',
+        phase: 'establish',
         points: [
           { x: 1, y: 1 },
           { x: 8, y: 8 },
@@ -643,13 +643,19 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     ],
   }));
   await fs.writeFile(stagedCachePath, JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: 4,
     workflowId: 'general-artwork-v1',
     cacheIdentity: {
       referenceContentFingerprint: 'sha256:reference-1',
       referenceTransformFingerprint: 'sha256:contain-transform-1',
-      plannerSchemaVersion: 'mass-planner-v2',
+      plannerSchemaVersion: 'mass-planner-v3',
       coordinateConvention: 'vessel-canvas-pixels-v1',
+    },
+    massObservationPlan: {
+      schemaVersion: 3,
+      checkpointId: 'reference-observation-1',
+      fingerprint: 'mass-plan-sha256-1',
+      observedMassCount: 1,
     },
     project: { id: 'project-1', width: 512, height: 640 },
     stages: [{

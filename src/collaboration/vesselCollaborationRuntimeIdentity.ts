@@ -1,4 +1,4 @@
-export const VESSEL_COLLABORATION_PROTOCOL_VERSION = 3;
+export const VESSEL_COLLABORATION_PROTOCOL_VERSION = 4;
 
 export interface VesselCollaborationRuntimeIdentity {
   protocolVersion: number;

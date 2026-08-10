@@ -33,6 +33,41 @@ normal undo history. Check that the target layer is active, visible, and
 unlocked before erasing. Return to painting with `tool: "brush"`; do not fake
 erasures with white paint or direct pixel-buffer edits.
 
+For Jason and AI collaboration, a valid artistic mark is permanent once
+committed. Do not use undo or erasure to remove it for aesthetic reasons unless
+Jason explicitly changes that rule for the current artwork. Later shapes may
+overlap, contradict, absorb, or redirect the earlier mark.
+
+### Look, remember, then draw
+
+The collaboration method is `look -> hold a mass in memory -> draw it -> look
+again -> respond`. Particular inaccuracy produced by genuinely observing the
+subject is part of the work. Generic blobs, symbols, and reusable polygons come
+from insufficient observation and should be prevented before the gesture.
+
+A mass is one connected observed colour/value/material plane, not a semantic
+object or face part. “Head”, “eye”, “nose”, “shirt”, and “background” are only
+names; each may contain many distinct masses and cannot stand in for looking.
+
+Before drawing, record the mass's normalized source crop, at least three
+interior colour/value samples, its visual distinction from neighbours, its
+neighbour and occlusion relations, and the current visible checkpoint. Then
+describe its source boundary with 20-60 meaningful anchors. Each anchor names a
+turn, curvature change, corner, flat, notch, bulge, taper, interruption,
+occlusion, or closure; its edge character; its adjacent region; and a stable ID.
+
+Hide the source before translating that observation into a gesture. The
+remembered contour answers every source-anchor ID in order. Preserve the source
+boundary and remembered contour separately: their difference is where
+particular inaccuracy enters. Extra interpolated pointer samples may preserve
+continuous motion, but they do not add observational information.
+
+A complex portrait normally contains hundreds of such masses rather than a few
+dozen enlarged containers. The exact inventory comes from the image. Spend
+materially more mass density on focal and structurally important regions, and
+use the approximate 5/15/80 establish/develop/deepen distribution across that
+observed total.
+
 ### Bridge controls before a painting batch
 
 Start with `observe` and `capture: "none"`. Read back the active layer, brush
@@ -85,14 +120,13 @@ cannot be reused.
 - Each stage is a bounded job with a named checkpoint. Inspect that rendered
   checkpoint before planning the next stage; do not plan the whole portrait as
   one static operation list.
-- A checkpoint decides `advance` or `repair-current`. An underdeveloped stage
-  repeats with newly observed masses; completing an operation list never forces
-  progression.
+- A checkpoint decides `advance` or `continue-current`. Continuing keeps the
+  same conceptual pass open for more permanent observed responses; completing
+  an operation list never forces progression.
 - Artwork stages have no default time deadline. Their bounds are the declared
   mark budget, canonical completion, and named checkpoint—not elapsed minutes.
 - Count only marks whose canonical document evidence says `committed`. A
-  completed transport request with rejected or unverifiable marks is not a
-  successful artwork stage.
+  rejected or unverifiable attempt never became an artistic mark.
 - Hard failures are limited to unsafe or invalid execution contracts such as
   non-finite data, an off-canvas start point, an incompatible layer/runtime, or
   a stale fence. Coverage, span, and direction placement are diagnostics, not
@@ -100,26 +134,29 @@ cannot be reused.
   and the job continues to its checkpoint. Independent polygons may overlap.
 - Keep one persistent bridge client. Reconcile uncertain work by command ID and
   the bridge journal; never recover by reloading the artwork tab.
-- Precompute immutable source-derived candidates, but derive every repair from
+- Precompute immutable source-derived candidates, but derive every response from
   the latest authoritative checkpoint. Fence every dispatch to the exact
   project revision and planning checkpoint; stale geometry must fail before the
   first mark.
 - Reusing a request ID with identical content returns its original result;
   different content fails. Never automatically retry an unfinished or partially
   committed job. Recover its authoritative revision and committed operation IDs,
-  then plan a new fenced repair.
+  then plan a new fenced continuation.
 - The 100-operation batch ceiling is a synchronous transport guardrail, not the
   artwork's shape budget. Set creative budgets for the whole intervention and
   continue to its checkpoint without an agent or browser round trip per mark.
 - Treat the planned shape and stroke budgets for an artistic stage as initial
   plans, not ceilings. Set them from observed connected regions and linear
-  structures plus explicit repair capacity, then extend the stage through
+  structures plus explicit response capacity, then extend the stage through
   additional validated batches whenever its committed checkpoint remains
   underdeveloped. The 100-operation batch ceiling remains a transport safety
   limit for each dispatch, not a completion rule for the artwork.
 - Apply gesture, point, and serialized-payload limits after cached candidates,
   transforms, and residual operations have been expanded. Residual geometry
-  records its source revision, parent mass, and reference region.
+  records its source revision, parent mass, and reference region. Current staged
+  artwork commands also carry mass-plan schema v3 provenance: observation
+  checkpoint, fingerprint, observed-mass count, source-region ID, and meaningful
+  boundary-anchor count.
 
 ### Two types of marks: strokes and shapes
 
@@ -205,23 +242,25 @@ continuing a detail tier.
 
 ### Build from large to small
 
-1. Use observed **shapes** to place the main support and silhouettes and make
-   the composition read at a distance.
-2. Divide those silhouettes into connected colour and value masses, recording
-   which earlier mass each new region subdivides.
-3. Use **strokes** for selected contours, seams, connections, and internal
-   structure.
-4. Continue the mass hierarchy at focal construction only after the large and
-   middle relationships work.
-5. Use detail selectively to explain form or direct attention.
+1. **Establish** with approximately 5% of planned shapes: a few large support,
+   silhouette, and dominant colour/value masses.
+2. **Develop** with approximately 15%: secondary overlapping masses that
+   organise internal structure.
+3. **Deepen** with approximately 80%: repeated observation and nested masses,
+   transitions, interruptions, negative spaces, and concentrated detail.
+
+The percentages describe shape count, not coverage or a signoff quota. Deepen
+may span several bounded batches and still includes medium or large responsive
+shapes; it is not a layer of tiny decorative details. Strokes remain reserved
+for genuinely linear structures.
 
 Large-to-small describes hierarchy, not a forced monotonic size sequence. Each
-shape takes its physical extent from the observed region. Medium and focal
-stages need varied scales, and a later correction may be physically large.
+shape takes its physical extent from the observed region. Develop and deepen
+need varied scales, and a later response may be physically large.
 `Res` controls the dither detail tier independently of that geometry.
 
-Do not use detail to repair an unclear silhouette. Return to the larger mass,
-correct it, and then resume with the same brush and Res language.
+Do not disguise an unclear silhouette with symbolic detail. Look again and add
+the larger permanent mass the artwork now asks for.
 
 ## About this guide
 

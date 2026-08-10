@@ -16,7 +16,7 @@ const mark = (
     documentVersion: index + 1,
     documentVersionDelta: status === 'committed' ? 1 : 0,
     markType: action,
-    phase: 'primary',
+    phase: 'establish',
     status,
     changedPixels,
     normalizedCoverage: changedPixels / (512 * 640),

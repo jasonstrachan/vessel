@@ -11,13 +11,19 @@ import {
 } from '../../scripts/vessel-collab-staged-artwork.mjs';
 
 const createCache = () => ({
-  schemaVersion: 2,
+  schemaVersion: 4,
   workflowId: 'reference-study-v1',
   cacheIdentity: {
     referenceContentFingerprint: 'sha256:reference-1',
     referenceTransformFingerprint: 'sha256:contain-transform-1',
-    plannerSchemaVersion: 'mass-planner-v2',
+    plannerSchemaVersion: 'mass-planner-v3',
     coordinateConvention: 'vessel-canvas-pixels-v1',
+  },
+  massObservationPlan: {
+    schemaVersion: 3,
+    checkpointId: 'reference-observation-1',
+    fingerprint: 'mass-plan-sha256-1',
+    observedMassCount: 3,
   },
   project: { id: 'project-1', width: 100, height: 120 },
   stages: [
@@ -36,7 +42,8 @@ const createCache = () => ({
           sourceRegionId: 'reference-region-1',
           operations: [{
             action: 'shape',
-            phase: 'primary',
+            phase: 'establish',
+            boundaryAnchorCount: 20,
             points: [
               { x: 10, y: 10 },
               { x: 50, y: 10 },
@@ -158,7 +165,7 @@ test('staged artwork rejects budget overflow and stale project caches', async (t
       {
         id: 'repair-1',
         action: 'stroke',
-        phase: 'primary',
+        phase: 'establish',
         basedOnRevision: 5,
         parentMassId: 'dominant-mass',
         sourceRegionId: 'reference-region-2',
@@ -167,7 +174,7 @@ test('staged artwork rejects budget overflow and stale project caches', async (t
       {
         id: 'repair-2',
         action: 'stroke',
-        phase: 'primary',
+        phase: 'establish',
         basedOnRevision: 5,
         parentMassId: 'dominant-mass',
         sourceRegionId: 'reference-region-3',
@@ -180,7 +187,7 @@ test('staged artwork rejects budget overflow and stale project caches', async (t
       expectedCheckpointId: null,
     },
     decision: {
-      status: 'repair-current',
+      status: 'continue-current',
       basedOnRevision: 5,
       basedOnCheckpointId: null,
     },
@@ -211,7 +218,7 @@ test('local artwork preflight rejects stale dimensions and malformed pressure be
       {
         action: 'stroke',
         id: 'invalid-pressure',
-        phase: 'primary',
+        phase: 'establish',
         points: [{ x: 10, y: 10, pressure: 2 }],
       },
       { action: 'checkpoint', name: 'structure' },
@@ -227,6 +234,50 @@ test('local artwork preflight rejects stale dimensions and malformed pressure be
   assert.throws(
     () => preflightArtworkJob(command),
     /pressure must be between 0 and 1/,
+  );
+});
+
+test('local artwork preflight binds planned shapes to observed mass evidence', () => {
+  const points = Array.from({ length: 20 }, (_, index) => {
+    const angle = index / 20 * Math.PI * 2;
+    return { x: 50 + Math.cos(angle) * 20, y: 60 + Math.sin(angle) * 25 };
+  });
+  const command = {
+    action: 'artwork-job',
+    runtimeFence: {
+      expectedProjectId: 'project-1',
+      expectedProjectRevision: 2,
+      expectedCheckpointId: 'visible-checkpoint-1',
+    },
+    canvas: { width: 100, height: 120 },
+    massObservationPlan: {
+      schemaVersion: 3,
+      checkpointId: 'visible-checkpoint-1',
+      fingerprint: 'mass-plan-sha256-1',
+      observedMassCount: 1,
+      basedOnRevision: 2,
+      basedOnCheckpointId: 'visible-checkpoint-1',
+    },
+    operations: [
+      {
+        action: 'shape',
+        id: 'cheek-light-plane',
+        phase: 'deepen',
+        parentMassId: 'head-mid-plane',
+        sourceRegionId: 'reference-cheek-light-1',
+        boundaryAnchorCount: 20,
+        points,
+      },
+      { action: 'checkpoint', name: 'deepen-review' },
+    ],
+  };
+
+  assert.doesNotThrow(() => preflightArtworkJob(command));
+  const genericBlob = structuredClone(command);
+  delete genericBlob.operations[0].sourceRegionId;
+  assert.throws(
+    () => preflightArtworkJob(genericBlob),
+    /sourceRegionId/,
   );
 });
 
@@ -248,7 +299,7 @@ test('staged artwork invalidates changed cache files and rejects stale residual 
       expectedCheckpointId: 'checkpoint-6',
     },
     decision: {
-      status: 'repair-current',
+      status: 'continue-current',
       basedOnRevision: 7,
       basedOnCheckpointId: 'checkpoint-6',
     },
@@ -258,7 +309,7 @@ test('staged artwork invalidates changed cache files and rejects stale residual 
   const second = await expander.expand(command);
   assert.equal(second.stageEvidence.cacheHit, true);
 
-  cache.cacheIdentity.plannerSchemaVersion = 'mass-planner-v3';
+  cache.massObservationPlan.fingerprint = 'mass-plan-sha256-2';
   await fs.writeFile(cachePath, JSON.stringify(cache));
   const refreshed = await expander.expand(command);
   assert.equal(refreshed.stageEvidence.cacheHit, false);
@@ -270,7 +321,7 @@ test('staged artwork invalidates changed cache files and rejects stale residual 
     residualOperations: [{
       id: 'jaw-shadow-repair-1',
       action: 'shape',
-      phase: 'revision',
+      phase: 'deepen',
       basedOnRevision: 6,
       parentMassId: 'head-shadow',
       sourceRegionId: 'reference-region-17',
@@ -349,7 +400,7 @@ test('footprint evidence uses robust percentiles and accumulates only committed 
     residualOperations: [{
       id: 'small-repair',
       action: 'shape',
-      phase: 'primary',
+      phase: 'establish',
       basedOnRevision: 2,
       parentMassId: 'dominant-mass',
       sourceRegionId: 'reference-region-2',
@@ -361,7 +412,7 @@ test('footprint evidence uses robust percentiles and accumulates only committed 
       expectedCheckpointId: 'checkpoint-1',
     },
     decision: {
-      status: 'repair-current',
+      status: 'continue-current',
       basedOnRevision: 2,
       basedOnCheckpointId: 'checkpoint-1',
     },
