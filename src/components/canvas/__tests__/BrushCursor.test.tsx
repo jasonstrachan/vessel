@@ -16,6 +16,9 @@ describe('BrushCursor', () => {
     lineTo: jest.fn(),
     closePath: jest.fn(),
     stroke: jest.fn(),
+    fillRect: jest.fn(),
+    fillText: jest.fn(),
+    measureText: jest.fn(() => ({ width: 32 })),
     save: jest.fn(),
     restore: jest.fn(),
     translate: jest.fn(),
@@ -24,6 +27,9 @@ describe('BrushCursor', () => {
     imageSmoothingEnabled: false,
     strokeStyle: '',
     lineWidth: 1,
+    fillStyle: '',
+    font: '',
+    textBaseline: '',
   };
 
   beforeAll(() => {
@@ -87,6 +93,24 @@ describe('BrushCursor', () => {
     expect(cursor.tagName).toBe('CANVAS');
     expect(context.stroke).toHaveBeenCalled();
     expect(context.scale).toHaveBeenCalled();
+  });
+
+  it('labels the local multiplayer cursor as Jason using its participant color', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+    render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{ kind: 'shape', shape: BrushShape.SQUARE, pixelSize: 20 }}
+        zoom={1}
+        visible
+        participant={{ label: 'JASON', color: '#52e5ff' }}
+      />
+    );
+
+    ref.current?.setPosition(110, 70);
+
+    expect(context.fillText).toHaveBeenCalledWith('JASON', expect.any(Number), expect.any(Number));
+    expect(context.fillStyle).toBe('#52e5ff');
   });
 
   it('clears the full cursor layer when zoom changes', () => {

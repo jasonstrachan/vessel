@@ -1,6 +1,71 @@
 import { parseVesselCollaborationCommand } from '../vesselCollaborationProtocol';
 
 describe('parseVesselCollaborationCommand', () => {
+  it('accepts bounded multiplayer start, gesture, and stop commands', () => {
+    expect(parseVesselCollaborationCommand({
+      id: 'multiplayer-start-command',
+      action: 'multiplayer-start',
+      sessionId: 'portrait-together',
+      aiLayerName: 'AI portrait marks',
+    })).toEqual({
+      id: 'multiplayer-start-command',
+      action: 'multiplayer-start',
+      sessionId: 'portrait-together',
+      aiLayerName: 'AI portrait marks',
+    });
+
+    expect(parseVesselCollaborationCommand({
+      id: 'multiplayer-gesture-command',
+      action: 'multiplayer-gesture',
+      sessionId: 'portrait-together',
+      gestureId: 'ai-mark-1',
+      actor: 'ai',
+      kind: 'stroke',
+      pointsPerFrame: 4,
+      points: [{ x: 12, y: 14, pressure: 0.5 }, { x: 22, y: 24 }],
+      settings: { size: 18, ditherAlgorithm: 'sierra-lite' },
+    })).toEqual({
+      id: 'multiplayer-gesture-command',
+      action: 'multiplayer-gesture',
+      sessionId: 'portrait-together',
+      gestureId: 'ai-mark-1',
+      actor: 'ai',
+      kind: 'stroke',
+      pointsPerFrame: 4,
+      points: [{ x: 12, y: 14, pressure: 0.5 }, { x: 22, y: 24, pressure: undefined }],
+      direction: undefined,
+      settings: { size: 18, ditherAlgorithm: 'sierra-lite' },
+    });
+
+    expect(parseVesselCollaborationCommand({
+      id: 'multiplayer-stop-command',
+      action: 'multiplayer-stop',
+      sessionId: 'portrait-together',
+      reason: 'Jason stopped the AI',
+    })).toMatchObject({ action: 'multiplayer-stop', reason: 'Jason stopped the AI' });
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'multiplayer-human-command',
+      action: 'multiplayer-gesture',
+      sessionId: 'portrait-together',
+      gestureId: 'human-mark-1',
+      actor: 'human',
+      kind: 'stroke',
+      points: [{ x: 1, y: 2 }],
+    })).toThrow('actor must be ai');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'multiplayer-stroke-direction-command',
+      action: 'multiplayer-gesture',
+      sessionId: 'portrait-together',
+      gestureId: 'ai-mark-direction',
+      actor: 'ai',
+      kind: 'stroke',
+      points: [{ x: 1, y: 2 }],
+      direction: [{ x: 1, y: 2 }, { x: 2, y: 3 }],
+    })).toThrow('direction is only supported for multiplayer shapes');
+  });
+
   it('accepts bounded new-project dimensions and an optional name', () => {
     expect(parseVesselCollaborationCommand({
       id: 'command-new-project',

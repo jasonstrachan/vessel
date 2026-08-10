@@ -47,6 +47,7 @@ export type VesselCollaborationPatternStyle =
 
 export type VesselCollaborationGradientSource = 'manual' | 'fg' | 'sampled';
 export type VesselCollaborationEraserTip = 'square' | 'round' | 'diamond5';
+export type VesselCollaborationMultiplayerActor = 'human' | 'ai';
 export type VesselCollaborationConstructionPhase =
   | 'establish'
   | 'develop'
@@ -277,6 +278,30 @@ export type VesselCollaborationCommand =
       timeoutMs?: number;
     }>
   | WithCaptureOptions<{ id: string; action: 'set-active-layer'; layerId: string }>
+  | WithCaptureOptions<{
+      id: string;
+      action: 'multiplayer-start';
+      sessionId: string;
+      aiLayerName?: string;
+    }>
+  | WithCaptureOptions<{
+      id: string;
+      action: 'multiplayer-gesture';
+      sessionId: string;
+      gestureId: string;
+      actor: 'ai';
+      kind: 'stroke' | 'shape';
+      points: VesselCollaborationPoint[];
+      direction?: VesselCollaborationPoint[];
+      pointsPerFrame?: number;
+      settings?: VesselCollaborationSetBrushOperation['settings'];
+    }>
+  | WithCaptureOptions<{
+      id: string;
+      action: 'multiplayer-stop';
+      sessionId: string;
+      reason?: string;
+    }>
   | WithCaptureOptions<{ id: string; action: 'undo' | 'redo' }>
   | WithCaptureOptions<{ id: string; action: 'save'; filename?: string }>;
 
@@ -483,6 +508,21 @@ export interface VesselCollaborationResult {
       locked: boolean;
       opacity: number;
     }>;
+    multiplayer: {
+      sessionId: string | null;
+      status: 'idle' | 'active' | 'stopping' | 'stopped' | 'error';
+      humanLayerId: string | null;
+      aiLayerId: string | null;
+      activeGestureId: string | null;
+      aiCursor: {
+        x: number;
+        y: number;
+        visible: boolean;
+        drawing: boolean;
+      } | null;
+      stopReason: string | null;
+      error: string | null;
+    };
   };
   frame?: VesselCollaborationFrame;
   frames?: Array<{
@@ -725,6 +765,29 @@ const readPointsPerFrame = (value: unknown, field: string): number | undefined =
     throw new Error(`${field} must be 1 or 2`);
   }
   return pointsPerFrame;
+};
+
+const readMultiplayerPointsPerFrame = (value: unknown): number | undefined => {
+  if (value === undefined) return undefined;
+  return requireIntegerInRange(value, 'pointsPerFrame', 1, 8);
+};
+
+const readMultiplayerActor = (value: unknown): 'ai' => {
+  if (value !== 'ai') throw new Error('actor must be ai for bridge-authored multiplayer gestures');
+  return value;
+};
+
+const readMultiplayerKind = (value: unknown): 'stroke' | 'shape' => {
+  if (value !== 'stroke' && value !== 'shape') {
+    throw new Error('kind must be stroke or shape');
+  }
+  return value;
+};
+
+const readMultiplayerIdentifier = (value: unknown, field: string): string => {
+  const identifier = requireString(value, field);
+  if (identifier.length > 128) throw new Error(`${field} cannot exceed 128 characters`);
+  return identifier;
 };
 
 const validateStrokePointBatch = (
@@ -1608,6 +1671,52 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         visible: requireBoolean(value.visible, 'visible'),
         ...captureOptions,
       };
+    case 'multiplayer-start': {
+      return {
+        id,
+        action,
+        sessionId: readMultiplayerIdentifier(value.sessionId, 'sessionId'),
+        aiLayerName: readLayerName(value.aiLayerName, 'aiLayerName'),
+        ...captureOptions,
+      };
+    }
+    case 'multiplayer-gesture': {
+      const sessionId = readMultiplayerIdentifier(value.sessionId, 'sessionId');
+      const gestureId = readMultiplayerIdentifier(value.gestureId, 'gestureId');
+      const kind = readMultiplayerKind(value.kind);
+      if (kind === 'stroke' && value.direction !== undefined) {
+        throw new Error('direction is only supported for multiplayer shapes');
+      }
+      const points = kind === 'shape'
+        ? readShapePoints(value.points, 'points')
+        : readPoints(value.points);
+      return {
+        id,
+        action,
+        sessionId,
+        gestureId,
+        actor: readMultiplayerActor(value.actor),
+        kind,
+        points,
+        direction: value.direction === undefined
+          ? undefined
+          : readDirectionPoints(value.direction, 'direction'),
+        pointsPerFrame: readMultiplayerPointsPerFrame(value.pointsPerFrame),
+        settings: value.settings === undefined ? undefined : readBrushSettings(value.settings),
+        ...captureOptions,
+      };
+    }
+    case 'multiplayer-stop': {
+      const reason = value.reason === undefined ? undefined : requireString(value.reason, 'reason');
+      if (reason && reason.length > 160) throw new Error('reason cannot exceed 160 characters');
+      return {
+        id,
+        action,
+        sessionId: readMultiplayerIdentifier(value.sessionId, 'sessionId'),
+        reason,
+        ...captureOptions,
+      };
+    }
     case 'batch': {
       if (!Array.isArray(value.operations) || value.operations.length === 0) {
         throw new Error('operations must contain at least one operation');

@@ -215,7 +215,7 @@ export const useVesselCollaborationBridge = (runtime: VesselCollaborationRuntime
           let result: unknown;
           try {
             const command = parseVesselCollaborationCommand(incoming);
-            if (command.action === 'artwork-job') {
+            if (command.action === 'artwork-job' || command.action === 'multiplayer-gesture') {
               const commandAbortController = new AbortController();
               const abortCommand = () => commandAbortController.abort();
               abortController.signal.addEventListener('abort', abortCommand, { once: true });

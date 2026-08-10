@@ -10,6 +10,7 @@ export const buildDrawingHandlersResultColorCycleArgs = ({
   initDrawingCanvas: colorCycleRuntime.initDrawingCanvas,
   stopContinuousColorCycleAnimation: colorCycleRuntime.stopContinuousColorCycleAnimation,
   resumeColorCycleAfterInteraction: colorCycleRuntime.resumeColorCycleAfterInteraction,
+  scheduleHistoryCommit: colorCycleRuntime.scheduleHistoryCommit,
   commitRasterOverlay: colorCycleRuntime.commitRasterOverlay,
   updateCcSampledGradient: colorCycleRuntime.updateCcSampledGradient,
   updateDitherGradSamples: colorCycleRuntime.updateDitherGradSamples,

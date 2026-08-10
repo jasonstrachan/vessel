@@ -3,6 +3,7 @@ import type { Tool } from '@/types';
 import BrushCursor, { type BrushCursorHandle } from './BrushCursor';
 import { DrawingCanvasOverlays } from './DrawingCanvasOverlays';
 import type { BrushCursorDescriptor } from './useDrawingCanvasCursorModel';
+import { useVesselMultiplayerSnapshot } from '@/collaboration/vesselMultiplayerSession';
 
 export interface DrawingCanvasViewportProps {
   wrapperRef: React.RefObject<HTMLDivElement | null>;
@@ -60,7 +61,11 @@ export const DrawingCanvasViewport = ({
   brushCursorHandleRef,
   cursorDescriptor,
   brushCursorVisible,
-}: DrawingCanvasViewportProps) => (
+}: DrawingCanvasViewportProps) => {
+  const multiplayer = useVesselMultiplayerSnapshot();
+  const showParticipantCursor = multiplayer.status === 'active' || multiplayer.status === 'stopping';
+
+  return (
   <div
     ref={wrapperRef}
     className="w-full h-full relative"
@@ -112,6 +117,8 @@ export const DrawingCanvasViewport = ({
       descriptor={cursorDescriptor}
       zoom={canvasZoom || 1}
       visible={brushCursorVisible}
+      participant={showParticipantCursor ? { label: 'JASON', color: '#52e5ff' } : undefined}
     />
   </div>
-);
+  );
+};

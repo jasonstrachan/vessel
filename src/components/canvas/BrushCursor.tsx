@@ -18,6 +18,7 @@ interface BrushCursorProps {
   descriptor: BrushCursorDescriptor;
   zoom: number;
   visible: boolean;
+  participant?: { label: string; color: string };
 }
 
 export interface BrushCursorHandle {
@@ -394,6 +395,7 @@ const BrushCursorComponent = ({
   descriptor,
   zoom,
   visible,
+  participant,
 }: BrushCursorProps, ref: React.Ref<BrushCursorHandle>) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -422,7 +424,7 @@ const BrushCursorComponent = ({
     const width = canvas.width / dprRef.current;
     const height = canvas.height / dprRef.current;
     ctx.setTransform(dprRef.current, 0, 0, dprRef.current, 0, 0);
-    const descriptorKey = getDescriptorCacheKey(descriptor);
+    const descriptorKey = `${getDescriptorCacheKey(descriptor)}:${participant?.label ?? ''}:${participant?.color ?? ''}`;
     const shouldClearWholeCanvas =
       lastZoomRef.current !== zoom ||
       lastVisibleRef.current !== visible ||
@@ -494,7 +496,7 @@ const BrushCursorComponent = ({
     };
 
     drawCursorPass(CURSOR_OUTER_STROKE, 3);
-    drawCursorPass(CURSOR_INNER_STROKE, 1);
+    drawCursorPass(participant?.color ?? CURSOR_INNER_STROKE, participant ? 2 : 1);
 
     if (Math.max(screenWidth, screenHeight) < 4) {
       const drawCenterMarker = (strokeStyle: string, lineWidth: number) => {
@@ -508,16 +510,28 @@ const BrushCursorComponent = ({
         ctx.stroke();
       };
       drawCenterMarker(CURSOR_OUTER_STROKE, 3);
-      drawCenterMarker(CURSOR_INNER_STROKE, 1);
+      drawCenterMarker(participant?.color ?? CURSOR_INNER_STROKE, participant ? 2 : 1);
+    }
+
+    if (participant) {
+      const labelX = centerX + Math.max(8, screenWidth / 2 + 5);
+      const labelY = centerY + Math.max(12, screenHeight / 2 + 5);
+      ctx.font = '700 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+      ctx.textBaseline = 'middle';
+      const labelWidth = Math.ceil(ctx.measureText(participant.label).width) + 10;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
+      ctx.fillRect(labelX, labelY - 8, labelWidth, 16);
+      ctx.fillStyle = participant.color;
+      ctx.fillText(participant.label, labelX + 5, labelY);
     }
 
     lastPaintedRectRef.current = getCursorRect(
       centerX,
       centerY,
-      Math.max(rotatedDimensions.width, 4),
-      Math.max(rotatedDimensions.height, 4)
+      Math.max(rotatedDimensions.width, participant ? 150 : 4),
+      Math.max(rotatedDimensions.height, participant ? 54 : 4)
     );
-  }, [descriptor, visible, zoom]);
+  }, [descriptor, participant, visible, zoom]);
 
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;

@@ -3,6 +3,25 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { DrawingCanvasOverlays } from '../DrawingCanvasOverlays';
 
 const setZoom = jest.fn();
+const stopVesselMultiplayerSession = jest.fn();
+let multiplayer = {
+  sessionId: null as string | null,
+  status: 'idle' as 'idle' | 'active',
+  humanLayerId: null,
+  aiLayerId: null,
+  activeGestureId: null,
+  aiCursor: null as null | { x: number; y: number; visible: boolean; drawing: boolean },
+  stopReason: null,
+  error: null,
+};
+
+jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
+  useVesselMultiplayerSnapshot: () => multiplayer,
+  stopVesselMultiplayerSession: (...args: unknown[]) => stopVesselMultiplayerSession(...args),
+}));
+
+jest.mock('../SelectionMarqueeHandles', () => () => null);
+jest.mock('../GridOverlay', () => () => null);
 
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: (selector?: (state: unknown) => unknown) => {
@@ -24,6 +43,48 @@ jest.mock('@/stores/useAppStore', () => ({
 describe('DrawingCanvasOverlays', () => {
   beforeEach(() => {
     setZoom.mockClear();
+    stopVesselMultiplayerSession.mockClear();
+    multiplayer = {
+      sessionId: null,
+      status: 'idle',
+      humanLayerId: null,
+      aiLayerId: null,
+      activeGestureId: null,
+      aiCursor: null,
+      stopReason: null,
+      error: null,
+    };
+  });
+
+  it('identifies both painters, positions the AI cursor, and exposes an emergency stop', () => {
+    multiplayer = {
+      ...multiplayer,
+      sessionId: 'portrait-together',
+      status: 'active',
+      aiCursor: { x: 20, y: 30, visible: true, drawing: true },
+    };
+
+    render(
+      <DrawingCanvasOverlays
+        project={{ width: 100, height: 100 }}
+        floatingPaste={null}
+        canvasZoom={2}
+        offsetX={5}
+        offsetY={7}
+        currentTool="brush"
+        isSpacePressed={false}
+        displayProjectName="Portrait"
+      />
+    );
+
+    expect(screen.getByTestId('multiplayer-status')).toHaveTextContent('Jason');
+    expect(screen.getByTestId('multiplayer-status')).toHaveTextContent('AI');
+    expect(screen.getByTestId('multiplayer-ai-cursor')).toHaveStyle({ left: '45px', top: '67px' });
+    fireEvent.click(screen.getByRole('button', { name: 'Stop AI multiplayer painting' }));
+    expect(stopVesselMultiplayerSession).toHaveBeenCalledWith({
+      sessionId: 'portrait-together',
+      reason: 'Stopped from the Vessel canvas',
+    });
   });
 
   it('resets canvas zoom to 100% when the zoom badge is double-clicked', () => {

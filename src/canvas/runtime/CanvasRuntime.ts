@@ -46,6 +46,7 @@ export const useCanvasRuntime = ({ showFeedback }: UseCanvasRuntimeOptions) => {
     }),
     rebuildStaticComposite: orchestration.renderRuntime.rebuildStaticComposite,
     requestRedraw: () => stateBundle.setNeedsRedraw((value) => value + 1),
+    scheduleHistoryCommit: orchestration.handlersRuntime.drawingHandlers.scheduleHistoryCommit,
   });
 
   const viewportProps = useDrawingCanvasRuntimeViewportPropsFromOrchestration(

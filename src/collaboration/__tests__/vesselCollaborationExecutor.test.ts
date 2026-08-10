@@ -7,6 +7,12 @@ import { deserializeProject } from '@/utils/projectIO';
 import { dispatchVesselCollaborationStroke } from '../dispatchVesselCollaborationStroke';
 import { createVesselCollaborationExecutor } from '../vesselCollaborationExecutor';
 import type { VesselCollaborationExecutionEvent } from '../vesselCollaborationProtocol';
+import {
+  executeVesselMultiplayerGesture,
+  getVesselMultiplayerSnapshot,
+  startVesselMultiplayerSession,
+  stopVesselMultiplayerSession,
+} from '../vesselMultiplayerSession';
 
 jest.mock('@/stores/appStoreAccess', () => ({
   getAppStoreState: jest.fn(),
@@ -24,6 +30,22 @@ jest.mock('@/utils/colorCycleGradients', () => ({
   setSharedColorCycleGradient: jest.fn(),
 }));
 
+jest.mock('../vesselMultiplayerSession', () => ({
+  executeVesselMultiplayerGesture: jest.fn(),
+  getVesselMultiplayerSnapshot: jest.fn(() => ({
+    sessionId: null,
+    status: 'idle',
+    humanLayerId: null,
+    aiLayerId: null,
+    activeGestureId: null,
+    aiCursor: null,
+    stopReason: null,
+    error: null,
+  })),
+  startVesselMultiplayerSession: jest.fn(),
+  stopVesselMultiplayerSession: jest.fn(),
+}));
+
 const mockedGetAppStoreState = getAppStoreState as jest.MockedFunction<typeof getAppStoreState>;
 const mockedGetColorCycleBrushManager = getColorCycleBrushManager as jest.MockedFunction<
   typeof getColorCycleBrushManager
@@ -32,6 +54,16 @@ const mockedDeserializeProject = deserializeProject as jest.MockedFunction<typeo
 const mockedSetSharedColorCycleGradient = setSharedColorCycleGradient as jest.MockedFunction<
   typeof setSharedColorCycleGradient
 >;
+const mockedExecuteVesselMultiplayerGesture = executeVesselMultiplayerGesture as jest.MockedFunction<
+  typeof executeVesselMultiplayerGesture
+>;
+const mockedStartVesselMultiplayerSession = startVesselMultiplayerSession as jest.MockedFunction<
+  typeof startVesselMultiplayerSession
+>;
+const mockedStopVesselMultiplayerSession = stopVesselMultiplayerSession as jest.MockedFunction<
+  typeof stopVesselMultiplayerSession
+>;
+void getVesselMultiplayerSnapshot;
 const originalCreateImageBitmap = globalThis.createImageBitmap;
 
 describe('createVesselCollaborationExecutor', () => {
@@ -53,6 +85,67 @@ describe('createVesselCollaborationExecutor', () => {
       callback(0);
       return 1;
     }) as typeof requestAnimationFrame;
+  });
+
+  it('routes multiplayer commands without changing Jason\'s active tool or layer', async () => {
+    const state = {
+      project: { id: 'project-1', name: 'Portrait', width: 100, height: 100 },
+      activeLayerId: 'jason-layer',
+      currentBrushPreset: null,
+      layers: [],
+      tools: { currentTool: 'brush', brushSettings: { size: 10, opacity: 1, spacing: 1 } },
+      palette: { foregroundColor: '#000000', backgroundColor: '#ffffff', activeSlot: 'foreground' },
+      autosave: { dirtyRevision: 0 },
+      brushPresets: [],
+      ccGradientSampleCount: 0,
+      colorPickerPreferReferenceLayer: true,
+      referenceLayerId: null,
+    } as unknown as ReturnType<typeof getAppStoreState>;
+    mockedGetAppStoreState.mockReturnValue(state);
+    mockedStartVesselMultiplayerSession.mockResolvedValue({ status: 'active' } as never);
+    mockedExecuteVesselMultiplayerGesture.mockResolvedValue({ status: 'active' } as never);
+    const runtime = {
+      canvasRef: { current: null },
+      compositeCanvasDirtyRef: { current: false },
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+      scheduleHistoryCommit: jest.fn(async () => undefined),
+    };
+    const execute = createVesselCollaborationExecutor(() => runtime);
+
+    await execute({
+      id: 'start',
+      action: 'multiplayer-start',
+      sessionId: 'portrait-together',
+    });
+    await execute({
+      id: 'gesture',
+      action: 'multiplayer-gesture',
+      sessionId: 'portrait-together',
+      gestureId: 'ai-1',
+      actor: 'ai',
+      kind: 'stroke',
+      points: [{ x: 1, y: 2 }],
+    });
+    await execute({
+      id: 'stop',
+      action: 'multiplayer-stop',
+      sessionId: 'portrait-together',
+    });
+
+    expect(mockedStartVesselMultiplayerSession).toHaveBeenCalledWith({
+      sessionId: 'portrait-together',
+    });
+    expect(mockedExecuteVesselMultiplayerGesture).toHaveBeenCalledWith(
+      expect.objectContaining({ gestureId: 'ai-1', actor: 'ai' }),
+      runtime,
+      undefined,
+    );
+    expect(mockedStopVesselMultiplayerSession).toHaveBeenCalledWith({
+      sessionId: 'portrait-together',
+    });
+    expect(state.activeLayerId).toBe('jason-layer');
+    expect(state.tools.currentTool).toBe('brush');
   });
 
   afterEach(() => {

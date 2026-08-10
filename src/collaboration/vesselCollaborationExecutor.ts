@@ -13,7 +13,7 @@ import {
   isColorCycleBrushShape,
   isColorCyclePresetId,
 } from '@/stores/helpers/toolsState';
-import type { Layer } from '@/types';
+import type { BrushSettings, Layer } from '@/types';
 import { BrushShape } from '@/types';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -44,6 +44,13 @@ import {
   assertVesselCollaborationRuntimeFence,
   type VesselCollaborationRuntimeIdentity,
 } from './vesselCollaborationRuntimeIdentity';
+import {
+  executeVesselMultiplayerGesture,
+  getVesselMultiplayerSnapshot,
+  startVesselMultiplayerSession,
+  stopVesselMultiplayerSession,
+  type VesselMultiplayerRuntime,
+} from './vesselMultiplayerSession';
 
 const DEFAULT_THUMBNAIL_MAX_SIZE = 768;
 const DEFAULT_POINTS_PER_FRAME = 2;
@@ -80,6 +87,7 @@ export interface VesselCollaborationRuntime {
   ) => Promise<void>;
   rebuildStaticComposite: () => boolean | Promise<boolean>;
   requestRedraw: () => void;
+  scheduleHistoryCommit?: VesselMultiplayerRuntime['scheduleHistoryCommit'];
 }
 
 export interface VesselCollaborationExecutionOptions {
@@ -642,6 +650,7 @@ const readState = () => {
       locked: layer.locked,
       opacity: layer.opacity,
     })),
+    multiplayer: getVesselMultiplayerSnapshot(),
   };
 };
 
@@ -1049,6 +1058,7 @@ const executeSetEraser = (
 const executeMutation = async (
   operation: MutationOperation,
   getRuntime: () => VesselCollaborationRuntime,
+  signal?: AbortSignal,
 ) => {
   const state = getAppStoreState();
   switch (operation.action) {
@@ -1115,6 +1125,32 @@ const executeMutation = async (
       state.setLayersVisibility([layer.id], operation.visible);
       return;
     }
+    case 'multiplayer-start':
+      await startVesselMultiplayerSession({
+        sessionId: operation.sessionId,
+        ...(operation.aiLayerName ? { aiLayerName: operation.aiLayerName } : {}),
+      });
+      return;
+    case 'multiplayer-gesture':
+      await executeVesselMultiplayerGesture({
+        sessionId: operation.sessionId,
+        gestureId: operation.gestureId,
+        actor: operation.actor,
+        kind: operation.kind,
+        points: operation.points,
+        ...(operation.direction ? { direction: operation.direction } : {}),
+        ...(operation.pointsPerFrame ? { pointsPerFrame: operation.pointsPerFrame } : {}),
+        ...(operation.settings
+          ? { settings: operation.settings as Partial<BrushSettings> }
+          : {}),
+      }, getRuntime(), signal);
+      return;
+    case 'multiplayer-stop':
+      stopVesselMultiplayerSession({
+        sessionId: operation.sessionId,
+        ...(operation.reason ? { reason: operation.reason } : {}),
+      });
+      return;
     case 'create-layer':
       await executeCreateLayer(operation);
       return;
@@ -1150,6 +1186,8 @@ const defaultCapturePolicy = (
     case 'set-active-layer':
     case 'create-layer':
     case 'set-layer-visibility':
+    case 'multiplayer-start':
+    case 'multiplayer-stop':
     case 'save':
       return 'none';
     default:
@@ -1162,6 +1200,8 @@ const needsPresentation = (action: MutationOperation['action']) =>
   action === 'open-project' ||
   action === 'import-reference-image' ||
   action === 'set-layer-visibility' ||
+  action === 'multiplayer-start' ||
+  action === 'multiplayer-gesture' ||
   action === 'stroke' ||
   action === 'shape' ||
   action === 'undo' ||
@@ -1573,7 +1613,7 @@ export const createVesselCollaborationExecutor = (
       const beforeGesture = command.action === 'stroke' || command.action === 'shape'
         ? captureCanonicalGestureRegion(command)
         : null;
-      await executeMutation(command, getRuntime);
+      await executeMutation(command, getRuntime, options.signal);
       updateRevisionAfterMutation();
       const markEvidence = resolveMarkEvidence(command, beforeGesture);
       mutationMs = roundMs(performance.now() - mutationStartedAt);
@@ -1601,6 +1641,9 @@ export const createVesselCollaborationExecutor = (
         ...(runtimeIdentity ? { runtime: runtimeIdentity } : {}),
         state: readState(),
         frame,
+        ...(command.action === 'multiplayer-gesture' && options.signal?.aborted
+          ? { cancelled: true }
+          : {}),
         ...(markEvidence ? { markEvidence } : {}),
         profile: {
           mutationMs,
