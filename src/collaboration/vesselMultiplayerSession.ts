@@ -8,10 +8,17 @@ import {
   commitColorCycleLayerStroke,
   type ManagedColorCycleBrush,
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
+import { createBrushEngineFacade } from '@/hooks/brushEngine/BrushEngineFacade';
+import {
+  createPixelCircleStamp,
+  createPixelSquareStamp,
+} from '@/hooks/brushEngine/brushStampController';
 import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
 import type { CCBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushContracts';
+import type { ColorCycleDirtyRect } from '@/lib/colorCycle/document';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import type { RenderStaticCompositeOptions } from '@/stores/layers/layersSliceTypes';
 import type { BrushSettings, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
@@ -56,7 +63,9 @@ export interface VesselMultiplayerGesture {
 
 export interface VesselMultiplayerRuntime {
   compositeCanvasDirtyRef: { current: boolean };
-  rebuildStaticComposite: () => boolean | Promise<boolean>;
+  rebuildStaticComposite: (
+    options?: RenderStaticCompositeOptions,
+  ) => boolean | Promise<boolean>;
   requestRedraw: () => void;
   scheduleHistoryCommit?: (payload: LayerHistoryPayload) => Promise<void>;
 }
@@ -100,21 +109,31 @@ const cloneBrushSettings = (settings: BrushSettings): BrushSettings => ({
   colorCycleGradient: settings.colorCycleGradient?.map((stop) => ({ ...stop })),
 });
 
-const createAiLayer = (name: string): Omit<Layer, 'id' | 'order'> => {
+const createAiLayer = (
+  name: string,
+  layerType: 'normal' | 'color-cycle',
+  project: { width: number; height: number },
+): Omit<Layer, 'id' | 'order'> => {
   const state = getAppStoreState();
   const framebuffer = document.createElement('canvas');
-  framebuffer.width = 1;
-  framebuffer.height = 1;
-  return {
+  framebuffer.width = layerType === 'normal' ? project.width : 1;
+  framebuffer.height = layerType === 'normal' ? project.height : 1;
+  const commonLayer = {
     name,
     visible: true,
     opacity: 1,
-    blendMode: 'source-over',
+    blendMode: 'source-over' as const,
     locked: false,
     transparencyLocked: false,
     imageData: null,
     framebuffer,
     alignment: createDefaultLayerAlignment(),
+  };
+  if (layerType === 'normal') {
+    return { ...commonLayer, layerType: 'normal' };
+  }
+  return {
+    ...commonLayer,
     layerType: 'color-cycle',
     colorCycleData: {
       gradient: (
@@ -142,25 +161,31 @@ export const startVesselMultiplayerSession = async ({
   if (!state.project) throw new Error('No Vessel project is loaded');
   const humanLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
   if (!humanLayer) throw new Error('No active layer is selected');
-  if (humanLayer.layerType !== 'color-cycle') {
-    throw new Error('Multiplayer painting requires Jason to use a Color Cycle layer');
+  if (humanLayer.layerType !== 'normal' && humanLayer.layerType !== 'color-cycle') {
+    throw new Error('Multiplayer painting requires Jason to use a normal or Color Cycle layer');
   }
   if (!humanLayer.visible || humanLayer.locked) {
     throw new Error('Jason\'s multiplayer layer must be visible and unlocked');
   }
 
-  const aiLayerId = state.addLayer(createAiLayer(aiLayerName));
-  if (!aiLayerId) throw new Error('Failed to create the AI multiplayer layer');
-  let ready = false;
+  let aiLayerId: string | null = null;
   try {
-    ready = await getAppStoreState().ensureColorCycleLayerRuntime(aiLayerId, {
-      target: 'active',
-    });
+    aiLayerId = state.addLayer(createAiLayer(aiLayerName, humanLayer.layerType, state.project));
+    if (!aiLayerId) throw new Error('Failed to create the AI multiplayer layer');
+    if (humanLayer.layerType === 'color-cycle') {
+      const ready = await getAppStoreState().ensureColorCycleLayerRuntime(aiLayerId, {
+        target: 'active',
+      });
+      if (!ready) throw new Error('The AI Color Cycle layer could not become editable');
+      await getAppStoreState().ensureColorCycleLayerRuntime(aiLayerId, { target: 'warm' });
+    }
+  } catch (error) {
+    if (aiLayerId) getAppStoreState().removeLayer(aiLayerId);
+    throw error;
   } finally {
     getAppStoreState().setActiveLayer(humanLayer.id);
   }
-  if (!ready) throw new Error('The AI Color Cycle layer could not become editable');
-  await getAppStoreState().ensureColorCycleLayerRuntime(aiLayerId, { target: 'warm' });
+  if (!aiLayerId) throw new Error('Failed to create the AI multiplayer layer');
 
   sessionBrushSettings = cloneBrushSettings(state.tools.brushSettings);
   publish({
@@ -228,13 +253,143 @@ const pointBounds = (
 const presentAiLayer = async (
   runtime: VesselMultiplayerRuntime,
   layer: Layer,
+  dirtyRects?: ColorCycleDirtyRect[],
 ) => {
-  const brush = getColorCycleBrushManager().getSurfaceBrush(layer.id);
-  const canvas = layer.colorCycleData?.canvas ?? null;
-  if (brush && canvas) brush.renderDirectToCanvas?.(canvas, layer.id);
+  if (layer.layerType === 'color-cycle') {
+    const brush = getColorCycleBrushManager().getSurfaceBrush(layer.id);
+    const canvas = layer.colorCycleData?.canvas ?? null;
+    if (brush && canvas) brush.renderDirectToCanvas?.(canvas, layer.id);
+  }
   runtime.compositeCanvasDirtyRef.current = true;
-  await runtime.rebuildStaticComposite();
+  if (layer.layerType === 'normal' && dirtyRects?.length) {
+    await runtime.rebuildStaticComposite({
+      captureBitmap: false,
+      dirtyBatches: [{
+        layerId: layer.id,
+        version: layer.version ?? 0,
+        rects: dirtyRects,
+      }],
+    });
+  } else {
+    await runtime.rebuildStaticComposite();
+  }
   runtime.requestRedraw();
+};
+
+const executeNormalMultiplayerStroke = async (
+  gesture: VesselMultiplayerGesture,
+  runtime: VesselMultiplayerRuntime,
+  layer: Layer,
+  settings: BrushSettings,
+  externalSignal?: AbortSignal,
+): Promise<VesselMultiplayerSnapshot> => {
+  if (gesture.kind !== 'stroke') {
+    throw new Error('Normal-layer multiplayer currently supports strokes only');
+  }
+  const project = getAppStoreState().project;
+  if (!project) throw new Error('The Vessel project closed during multiplayer painting');
+  if (!runtime.scheduleHistoryCommit) {
+    throw new Error('The canonical Vessel history queue is unavailable');
+  }
+
+  const framebuffer = layer.framebuffer;
+  if (!(framebuffer instanceof HTMLCanvasElement)) {
+    throw new Error('The AI normal layer requires an HTML canvas framebuffer');
+  }
+  if (framebuffer.width !== project.width || framebuffer.height !== project.height) {
+    framebuffer.width = project.width;
+    framebuffer.height = project.height;
+  }
+  const context = framebuffer.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('The AI normal-layer canvas is unavailable');
+  context.imageSmoothingEnabled = settings.antialiasing !== false;
+  const beforeImage = context.getImageData(0, 0, project.width, project.height);
+  const stampCache = new Map<string, HTMLCanvasElement>();
+  const brushEngine = createBrushEngineFacade({
+    brushSettings: settings,
+    transparencyLockEnabled: layer.transparencyLocked === true,
+    brushStampCache: stampCache,
+    createPixelCircleStamp: (size) => createPixelCircleStamp({ size, brushStampCache: stampCache }),
+    createPixelSquareStamp: (size) => createPixelSquareStamp({ size, brushStampCache: stampCache }),
+    customBrushes: project.customBrushes ?? [],
+  });
+  brushEngine.resetStroke();
+
+  const localAbortController = new AbortController();
+  activeGestureAbortController = localAbortController;
+  const detachExternalAbort = combineAbortSignals(localAbortController, externalSignal);
+  const signal = localAbortController.signal;
+  const pointsPerFrame = Math.max(1, Math.min(8, gesture.pointsPerFrame ?? 2));
+  const dirtyPadding = Math.max(2, Math.ceil((settings.size ?? 1) / 2) + 2);
+  let authoredPointCount = 0;
+  let presentedPointCount = 0;
+  publish({ activeGestureId: gesture.gestureId, error: null });
+
+  try {
+    for (let index = 0; index < gesture.points.length && !signal.aborted; index += 1) {
+      const point = gesture.points[index];
+      const previous = gesture.points[Math.max(0, index - 1)];
+      brushEngine.renderBrushStroke(context, {
+        from: { x: previous.x, y: previous.y },
+        to: { x: point.x, y: point.y },
+        pressure: point.pressure ?? 1,
+        velocity: 0,
+        timestamp: performance.now(),
+      });
+      authoredPointCount += 1;
+      publish({ aiCursor: { x: point.x, y: point.y, visible: true, drawing: true } });
+      if ((index + 1) % pointsPerFrame === 0) {
+        const dirtyPoints = gesture.points.slice(
+          Math.max(0, presentedPointCount - 1),
+          index + 1,
+        );
+        await presentAiLayer(runtime, layer, [pointBounds(dirtyPoints, dirtyPadding, project)]);
+        presentedPointCount = index + 1;
+        await nextFrame(signal);
+      }
+    }
+  } finally {
+    detachExternalAbort();
+    try {
+      if (authoredPointCount > 0) {
+        brushEngine.finalizeStroke(context);
+        const finalDirtyPoints = gesture.points.slice(
+          Math.max(0, presentedPointCount - 1),
+          authoredPointCount,
+        );
+        await presentAiLayer(runtime, layer, [
+          pointBounds(finalDirtyPoints, dirtyPadding, project),
+        ]);
+        const afterImage = context.getImageData(0, 0, project.width, project.height);
+        getAppStoreState().updateLayer(layer.id, { framebuffer, imageData: afterImage });
+        await runtime.scheduleHistoryCommit({
+          layerId: layer.id,
+          beforeImage,
+          afterImage,
+          beforeColorState: null,
+          afterColorState: null,
+          actionType: 'brush',
+          description: 'AI multiplayer stroke',
+          tool: 'brush',
+        });
+        await presentAiLayer(runtime, layer);
+      }
+    } finally {
+      brushEngine.resetStroke();
+      activeGestureAbortController = null;
+      const lastPoint = gesture.points[Math.max(0, authoredPointCount - 1)];
+      publish({
+        activeGestureId: null,
+        status: getVesselMultiplayerSnapshot().status === 'stopping'
+          ? 'stopped'
+          : getVesselMultiplayerSnapshot().status,
+        aiCursor: lastPoint
+          ? { x: lastPoint.x, y: lastPoint.y, visible: true, drawing: false }
+          : snapshot.aiCursor,
+      });
+    }
+  }
+  return snapshot;
 };
 
 const commitAiMark = async ({
@@ -340,7 +495,7 @@ export const executeVesselMultiplayerGesture = async (
 
   const state = getAppStoreState();
   const aiLayer = state.layers.find((layer) => layer.id === snapshot.aiLayerId);
-  if (!state.project || !aiLayer || aiLayer.layerType !== 'color-cycle') {
+  if (!state.project || !aiLayer) {
     throw new Error('The AI multiplayer layer is unavailable');
   }
   const project = state.project;
@@ -349,14 +504,26 @@ export const executeVesselMultiplayerGesture = async (
     (point) => point.x < 0 || point.y < 0 || point.x >= project.width || point.y >= project.height,
   );
   if (outsideProject) throw new Error('Multiplayer gesture points must stay inside the project canvas');
-  const ready = await state.ensureColorCycleLayerRuntime(aiLayer.id, { target: 'warm' });
-  if (!ready) throw new Error('The AI multiplayer layer is not editable');
-
   const settings = {
     ...cloneBrushSettings(sessionBrushSettings ?? state.tools.brushSettings),
     ...gesture.settings,
   } as BrushSettings;
   sessionBrushSettings = cloneBrushSettings(settings);
+  if (aiLayer.layerType === 'normal') {
+    return executeNormalMultiplayerStroke(
+      gesture,
+      runtime,
+      aiLayer,
+      settings,
+      externalSignal,
+    );
+  }
+  if (aiLayer.layerType !== 'color-cycle') {
+    throw new Error('The AI multiplayer layer is not drawable');
+  }
+  const ready = await state.ensureColorCycleLayerRuntime(aiLayer.id, { target: 'warm' });
+  if (!ready) throw new Error('The AI multiplayer layer is not editable');
+
   const manager = getColorCycleBrushManager();
   const settingsBrush = manager.getSettingsPatchBrush(aiLayer.id);
   applyColorCycleBrushSettingsPatch(settingsBrush, brushSettingsPatch(settings));

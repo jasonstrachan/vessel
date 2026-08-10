@@ -45,6 +45,24 @@ describe('assertVesselCollaborationRuntimeFence', () => {
     })).toThrow('stale Vessel checkpoint');
   });
 
+  it('allows multiplayer revision drift without relaxing runtime or project identity', () => {
+    expect(() => assertVesselCollaborationRuntimeFence({
+      fence,
+      identity,
+      projectId: 'project-current',
+      projectRevision: 18,
+      checkpointId: 'checkpoint-new',
+      allowConcurrentProjectRevision: true,
+    })).not.toThrow();
+    expect(() => assertVesselCollaborationRuntimeFence({
+      fence: { ...fence, expectedProjectId: 'project-other' },
+      identity,
+      projectId: 'project-current',
+      projectRevision: 18,
+      allowConcurrentProjectRevision: true,
+    })).toThrow('different Vessel project');
+  });
+
   it('fails closed when the fence is absent', () => {
     expect(() => assertVesselCollaborationRuntimeFence({
       fence: undefined,

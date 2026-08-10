@@ -1378,6 +1378,8 @@ export const createVesselCollaborationExecutor = (
           projectId: getAppStoreState().project?.id ?? null,
           projectRevision: revision,
           checkpointId,
+          allowConcurrentProjectRevision:
+            command.action === 'multiplayer-gesture' || command.action === 'multiplayer-stop',
         });
       }
       coverageTracker = command.action === 'artwork-job'

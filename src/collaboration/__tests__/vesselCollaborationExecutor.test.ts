@@ -111,27 +111,48 @@ describe('createVesselCollaborationExecutor', () => {
       requestRedraw: jest.fn(),
       scheduleHistoryCommit: jest.fn(async () => undefined),
     };
-    const execute = createVesselCollaborationExecutor(() => runtime);
+    const runtimeIdentity = {
+      protocolVersion: 4,
+      runtimeBuildId: 'build-current',
+      runtimeInstanceId: 'runtime-current',
+      leaseEpoch: 3,
+    };
+    const runtimeFence = {
+      ...runtimeIdentity,
+      expectedProjectId: 'project-1',
+      expectedProjectRevision: 0,
+    };
+    const execute = createVesselCollaborationExecutor(() => runtime, {
+      requireRuntimeFence: true,
+      getRuntimeIdentity: () => runtimeIdentity,
+    });
 
-    await execute({
+    await expect(execute({
       id: 'start',
       action: 'multiplayer-start',
       sessionId: 'portrait-together',
-    });
-    await execute({
+      runtimeFence,
+    })).resolves.toMatchObject({ ok: true });
+    state.autosave.dirtyRevision = 3;
+    const gestureResult = await execute({
       id: 'gesture',
       action: 'multiplayer-gesture',
       sessionId: 'portrait-together',
       gestureId: 'ai-1',
       actor: 'ai',
       kind: 'stroke',
+      capture: 'none',
       points: [{ x: 1, y: 2 }],
+      runtimeFence,
     });
-    await execute({
+    expect(gestureResult).not.toHaveProperty('error');
+    expect(gestureResult).toMatchObject({ ok: true });
+    await expect(execute({
       id: 'stop',
       action: 'multiplayer-stop',
       sessionId: 'portrait-together',
-    });
+      runtimeFence,
+    })).resolves.toMatchObject({ ok: true });
 
     expect(mockedStartVesselMultiplayerSession).toHaveBeenCalledWith({
       sessionId: 'portrait-together',

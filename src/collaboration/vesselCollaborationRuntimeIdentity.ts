@@ -32,12 +32,14 @@ export const assertVesselCollaborationRuntimeFence = ({
   projectId,
   projectRevision,
   checkpointId,
+  allowConcurrentProjectRevision = false,
 }: {
   fence: VesselCollaborationRuntimeFence | undefined;
   identity: VesselCollaborationRuntimeIdentity;
   projectId: string | null;
   projectRevision: number;
   checkpointId?: string | null;
+  allowConcurrentProjectRevision?: boolean;
 }) => {
   if (!fence) {
     throw new Error('Collaboration command is missing its runtime fence');
@@ -57,12 +59,14 @@ export const assertVesselCollaborationRuntimeFence = ({
     throw new Error('Collaboration command targets a different Vessel project');
   }
   if (
+    !allowConcurrentProjectRevision &&
     fence.expectedProjectRevision !== undefined &&
     fence.expectedProjectRevision !== projectRevision
   ) {
     throw new Error('Collaboration command targets a stale Vessel project revision');
   }
   if (
+    !allowConcurrentProjectRevision &&
     fence.expectedCheckpointId !== undefined &&
     fence.expectedCheckpointId !== (checkpointId ?? null)
   ) {
