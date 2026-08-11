@@ -156,6 +156,211 @@ const clamp01 = (value) => {
   return value;
 };
 
+const hashSierraLite32 = (a, b, c, d) => {
+  let n =
+    Math.imul((a | 0) ^ 0x9e3779b9, 374761393) +
+    Math.imul((b | 0) ^ 0x85ebca6b, 668265263) +
+    Math.imul((c | 0) ^ 0xc2b2ae35, 1274126177) +
+    Math.imul((d | 0) ^ 0x27d4eb2d, 1597334677);
+  n = (n ^ (n >>> 13)) >>> 0;
+  n = Math.imul(n, 1274126177) >>> 0;
+  n = (n ^ (n >>> 16)) >>> 0;
+  return n >>> 0;
+};
+
+const resolveSierraLiteNoise = (x, y, identityKey, seed, variant, patternKey) => {
+  const hash = hashSierraLite32(
+    x + variant * 17,
+    y + variant * 31,
+    identityKey ^ seed,
+    patternKey ^ (variant << 24),
+  );
+  return (hash & 1023) / 1023;
+};
+
+const resolveSierraLiteInitialError = (x, y, identityKey, seed, variant, patternKey) => {
+  const first = resolveSierraLiteNoise(x, y, identityKey, seed, variant, patternKey) - 0.5;
+  const second = resolveSierraLiteNoise(
+    x + 37,
+    y - 19,
+    identityKey ^ 11,
+    seed ^ 23,
+    variant ^ 3,
+    patternKey ^ 0x5a5a,
+  ) - 0.5;
+  switch (variant) {
+    case 0: return first * 0.06;
+    case 1: return (((x + y) & 1) === 0 ? 1 : -1) * 0.035 + first * 0.025;
+    case 2: return ((x & 1) === 0 ? 1 : -1) * 0.03 + first * 0.02;
+    case 3: return ((((x + y) & 3) - 1.5) / 1.5) * 0.03 + first * 0.02;
+    case 4: return first * 0.03 + second * 0.03;
+    case 5: return ((y & 1) === 0 ? 1 : -1) * 0.03 + first * 0.025;
+    case 6: return ((((x - y) & 3) - 1.5) / 1.5) * 0.028 + first * 0.022;
+    default: return first * 0.025 + second * 0.035;
+  }
+};
+
+/**
+ * Exact binary Sierra Lite field shared by Vessel flat fills and Interlace playback.
+ * Values are 0 for the low source and 1 for the high source.
+ * @param {{
+ *   width: number,
+ *   height: number,
+ *   mix: number,
+ *   seed?: number,
+ *   phaseX?: number,
+ *   phaseY?: number,
+ *   identityKey?: number,
+ *   lowKey?: number,
+ *   highKey?: number,
+ *   diversity?: number,
+ *   activeMask?: Uint8Array | null,
+ * }} options
+ * @returns {Uint8Array}
+ */
+export const resolveSierraLiteBinaryField = ({
+  width,
+  height,
+  mix,
+  seed = 0,
+  phaseX = 0,
+  phaseY = 0,
+  identityKey = 0,
+  lowKey = 0,
+  highKey = 1,
+  diversity = 1,
+  activeMask = null,
+}) => {
+  const gridWidth = Math.max(0, Math.round(Number(width) || 0));
+  const gridHeight = Math.max(0, Math.round(Number(height) || 0));
+  const output = new Uint8Array(gridWidth * gridHeight);
+  if (gridWidth === 0 || gridHeight === 0) {
+    return output;
+  }
+  const errors = new Float32Array(output.length);
+  const diversity01 = clamp01(Number.isFinite(diversity) ? diversity : 1);
+  const baseMix = 0.5 + (clamp01(Number.isFinite(mix) ? mix : 0.5) - 0.5) * diversity01 * diversity01;
+  const mixKey = Math.round(baseMix * 255) & 255;
+  const normalizedLowKey = Number(lowKey) & 255;
+  const normalizedHighKey = Number(highKey) & 255;
+  const normalizedSeed = Number(seed) >>> 0;
+  const seedPhaseX = normalizedSeed & 7;
+  const seedPhaseY = (normalizedSeed >>> 3) & 7;
+  const patternKey =
+    (mixKey << 16)
+    ^ (normalizedLowKey << 8)
+    ^ normalizedHighKey
+    ^ Math.imul(normalizedSeed, 0x9e3779b1);
+  const variant = hashSierraLite32(
+    normalizedSeed,
+    patternKey,
+    normalizedSeed ^ patternKey,
+    0x51f15e,
+  ) & 7;
+
+  for (let y = 0; y < gridHeight; y += 1) {
+    const serpentine = (y & 1) === 1;
+    const start = serpentine ? gridWidth - 1 : 0;
+    const end = serpentine ? -1 : gridWidth;
+    const step = serpentine ? -1 : 1;
+    for (let x = start; x !== end; x += step) {
+      const index = y * gridWidth + x;
+      if (activeMask && !activeMask[index]) {
+        continue;
+      }
+      const seededX = x + phaseX + seedPhaseX;
+      const seededY = y + phaseY + seedPhaseY;
+      const initialError = resolveSierraLiteInitialError(
+        seededX,
+        seededY,
+        identityKey,
+        normalizedSeed,
+        variant,
+        patternKey,
+      );
+      const noise = resolveSierraLiteNoise(
+        seededX,
+        seededY,
+        identityKey,
+        normalizedSeed,
+        variant,
+        patternKey,
+      );
+      const amplitude = [0.03, 0.045, 0.035, 0.05, 0.04, 0.055, 0.038, 0.048][variant];
+      const threshold = 0.5 + (noise - 0.5) * amplitude;
+      const blendedThreshold = 0.5 + (threshold - 0.5) * diversity01;
+      const value = clamp01(baseMix + initialError * diversity01 + errors[index]);
+      const bit = value >= blendedThreshold ? 1 : 0;
+      output[index] = bit;
+      const quantizationError = value - bit;
+      const nextX = serpentine ? x - 1 : x + 1;
+      if (nextX >= 0 && nextX < gridWidth) {
+        const nextIndex = index + (serpentine ? -1 : 1);
+        if (!activeMask || activeMask[nextIndex]) errors[nextIndex] += quantizationError * 0.5;
+      }
+      if (y + 1 < gridHeight) {
+        const diagonalX = serpentine ? x + 1 : x - 1;
+        if (diagonalX >= 0 && diagonalX < gridWidth) {
+          const diagonalIndex = index + gridWidth + (serpentine ? 1 : -1);
+          if (!activeMask || activeMask[diagonalIndex]) errors[diagonalIndex] += quantizationError * 0.25;
+        }
+        const belowIndex = index + gridWidth;
+        if (!activeMask || activeMask[belowIndex]) errors[belowIndex] += quantizationError * 0.25;
+      }
+    }
+  }
+  return output;
+};
+
+export const rollSierraLiteBinaryField = (field, width, height, motionCells) => {
+  const gridWidth = Math.max(1, Math.round(Number(width) || 1));
+  const gridHeight = Math.max(0, Math.round(Number(height) || 0));
+  const shift = ((Math.round(Number(motionCells) || 0) % gridWidth) + gridWidth) % gridWidth;
+  if (shift === 0) return field;
+  const output = new Uint8Array(gridWidth * gridHeight);
+  for (let y = 0; y < gridHeight; y += 1) {
+    const rowOffset = y * gridWidth;
+    for (let x = 0; x < gridWidth; x += 1) {
+      const sourceX = (x - shift + gridWidth) % gridWidth;
+      output[rowOffset + x] = field[rowOffset + sourceX] ?? 0;
+    }
+  }
+  return output;
+};
+
+export const resolveInterlaceFrame = ({
+  elapsedSeconds,
+  sourceCount,
+  loopDurationSeconds,
+  dominance,
+  direction,
+  travelCycles,
+  gridWidth,
+}) => {
+  const count = Math.max(2, Math.round(Number(sourceCount) || 2));
+  const duration = Math.max(0.001, Number(loopDurationSeconds) || 10);
+  const loopProgress = wrapGobletPhase01((Number(elapsedSeconds) || 0) / duration);
+  const sourceProgress = loopProgress * count;
+  const currentIndex = Math.floor(sourceProgress) % count;
+  const localProgress = sourceProgress - Math.floor(sourceProgress);
+  const resolvedDominance = Math.max(0.5, Math.min(1, Number(dominance) || 0.92));
+  const lowMix = 1 - resolvedDominance;
+  const mix = lowMix + localProgress * (resolvedDominance - lowMix);
+  const directionSign = direction === 'left' ? -1 : 1;
+  const motionCells = Math.floor(
+    loopProgress
+    * Math.max(1, Math.round(Number(travelCycles) || 1))
+    * Math.max(1, Math.round(Number(gridWidth) || 1)),
+  ) * directionSign;
+  return {
+    currentIndex,
+    nextIndex: (currentIndex + 1) % count,
+    mix,
+    motionCells,
+    loopProgress,
+  };
+};
+
 export const clampGobletByte = (value) => {
   const rounded = Math.round(value);
   if (rounded <= 0) {

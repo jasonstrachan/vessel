@@ -15,6 +15,7 @@ import { BrushShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
 import ProgressSlider from '@/components/ui/ProgressSlider';
+import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 
 const LAYER_GROUPS_COLLAPSED_STORAGE_KEY = 'vessel-layer-groups-collapsed';
 const GROUP_DRAG_PAYLOAD_PREFIX = 'group:';
@@ -1104,6 +1105,7 @@ const LayersPanel: React.FC = () => {
             renderedGroupIds.add(groupId);
           }
           const groupName = groupId ? (layerGroupsById.get(groupId)?.name ?? 'Group') : null;
+          const isInterlaceMember = Boolean(groupId && isInterlaceGroup(layerGroupsById.get(groupId)));
           const groupAllVisible = Boolean(groupId && layerGroupVisibilityById.get(groupId));
           const isGroupCollapsed = Boolean(groupId && collapsedGroupIds.has(groupId));
           const groupLayerIds = groupId ? (layerIdsByGroupId.get(groupId) ?? []) : [];
@@ -1223,6 +1225,11 @@ const LayersPanel: React.FC = () => {
                     {groupAllVisible ? <Eye size={12} /> : <EyeOff size={12} />}
                   </button>
                   <span className="truncate">{groupName}</span>
+                  {isInterlaceMember && (
+                    <span className="border border-[#38BDF8] px-1 text-[8px] font-semibold normal-case text-[#7DD3FC]">
+                      In
+                    </span>
+                  )}
                 </div>
               )}
               {isGroupCollapsed ? null : (
@@ -1336,6 +1343,15 @@ const LayersPanel: React.FC = () => {
                       <LoaderCircle aria-hidden="true" className="animate-spin" size={10} />
                     ) : layerKindLabel}
                   </span>
+                  {isInterlaceMember && (
+                    <span
+                      aria-label={`${layer.name} participates in Interlace`}
+                      className={`${labelClass} w-6 border-[#38BDF8] text-[#0284C7]`}
+                      title="Interlace source"
+                    >
+                      In
+                    </span>
+                  )}
                 </div>
 
                 {isMenuOpen && (

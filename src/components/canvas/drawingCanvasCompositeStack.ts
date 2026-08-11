@@ -15,6 +15,11 @@ import {
   getSequentialLivePreviewFrame,
   type SequentialLivePreviewFrame,
 } from '@/lib/sequential/SequentialLivePreviewRuntime';
+import { getInterlaceElapsedSeconds } from '@/lib/interlace/interlaceClock';
+import {
+  drawSierraLiteInterlace,
+  type InterlaceRenderSource,
+} from '@/lib/interlace/interlaceRenderer';
 import {
   getColorCyclePresentationCanvas,
   resolveColorCyclePresentation,
@@ -274,6 +279,43 @@ export const drawVisibleCompositeStack = ({
         } catch (error) {
           debugWarn('raw-console', '[CompositeSegments] Failed to draw static segment', error);
         }
+        return;
+      }
+
+      if (segment.kind === 'interlace') {
+        const projectWidth = storeState.project?.width ?? width;
+        const projectHeight = storeState.project?.height ?? height;
+        const sources = segment.layerIds.flatMap<InterlaceRenderSource>((layerId) => {
+          const layer = layerMap.get(layerId);
+          if (!layer?.visible || layer.layerType === 'sequential') {
+            return [];
+          }
+          let source: CanvasImageSource | null = null;
+          if (layer.layerType === 'color-cycle') {
+            const presentation = resolveColorCyclePresentation({
+              layer,
+              activeLayerId: storeState.activeLayerId ?? null,
+              projectWidth,
+              projectHeight,
+            });
+            source = getColorCyclePresentationCanvas(presentation, layer);
+          } else if (layer.framebuffer) {
+            source = layer.framebuffer as CanvasImageSource;
+          }
+          return source
+            ? [{ source, opacity: layer.opacity, blendMode: layer.blendMode }]
+            : [];
+        });
+        drawSierraLiteInterlace({
+          context: ctx,
+          width: projectWidth,
+          height: projectHeight,
+          sources,
+          settings: segment.settings,
+          elapsedSeconds: getInterlaceElapsedSeconds(),
+          sourceRect: visibleRect,
+          destinationRect: destination,
+        });
         return;
       }
 

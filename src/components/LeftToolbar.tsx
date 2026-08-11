@@ -7,12 +7,13 @@ import {
   type VesselMultiplayerStatus,
   useVesselMultiplayerSnapshot,
 } from '@/collaboration/vesselMultiplayerSession';
+import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
 import { showAppFeedback } from '@/utils/appFeedback';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
-type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'multiplayer';
+type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'interlace' | 'multiplayer';
 
 const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
@@ -47,6 +48,11 @@ const LeftToolbar = () => {
     setSelectionMode,
     setBrushPanelSection,
     setSettingsSection,
+    layers,
+    layerGroups,
+    activeLayerId,
+    selectedLayerIds,
+    createInterlaceGroupFromSelection,
   } = useAppStore();
   const switchTool = useToolSwitcher();
   const multiplayer = useVesselMultiplayerSnapshot();
@@ -78,6 +84,7 @@ const LeftToolbar = () => {
       { id: 'magic-wand' as ToolbarItemId, label: 'Magic Wand', abbr: 'Mw' },
       { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
       { id: 'filters' as ToolbarItemId, label: 'Filters', abbr: 'Fl' },
+      { id: 'interlace' as ToolbarItemId, label: 'Interlace', abbr: 'In' },
     ],
     [
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },
@@ -137,6 +144,23 @@ const LeftToolbar = () => {
       toggleGrid();
     } else if (toolId === 'filters') {
       setBrushPanelSection('filters');
+    } else if (toolId === 'interlace') {
+      const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+      const selectedLayers = layers.filter((layer) => selectedLayerIds.includes(layer.id));
+      const existingInterlaceGroup = layerGroups.find((group) => (
+        isInterlaceGroup(group)
+        && (activeLayer?.groupId === group.id || selectedLayers.some((layer) => layer.groupId === group.id))
+      ));
+      if (!existingInterlaceGroup) {
+        const eligibleIds = selectedLayers
+          .filter((layer) => layer.layerType !== 'sequential')
+          .map((layer) => layer.id);
+        if (eligibleIds.length < 2 || !createInterlaceGroupFromSelection(eligibleIds)) {
+          showAppFeedback('Select at least two regular or Color Cycle layers');
+          return;
+        }
+      }
+      setBrushPanelSection('interlace');
     } else if (toolId === 'options') {
       setSettingsSection('display');
       if (!ui.modals.settings) {
@@ -169,21 +193,24 @@ const LeftToolbar = () => {
           )}
           {group.map((tool, toolIndex) => {
             const isFilterSectionActive = ui.brushPanelSection === 'filters';
+            const isInterlaceSectionActive = ui.brushPanelSection === 'interlace';
             const isActive = tool.id === 'grid-toggle'
               ? ui.grid.enabled
               : tool.id === 'multiplayer'
                 ? multiplayerActive
               : tool.id === 'filters'
                 ? isFilterSectionActive
+                : tool.id === 'interlace'
+                  ? isInterlaceSectionActive
                 : tool.id === 'magic-wand'
-                  ? !isFilterSectionActive
+                  ? !isFilterSectionActive && !isInterlaceSectionActive
                     && toolState.currentTool === 'selection'
                     && toolState.selectionMode === 'magic-wand'
                 : tool.id === 'selection'
-                  ? !isFilterSectionActive
+                  ? !isFilterSectionActive && !isInterlaceSectionActive
                     && toolState.currentTool === 'selection'
                     && toolState.selectionMode !== 'magic-wand'
-                  : !isFilterSectionActive && toolState.currentTool === tool.id;
+                  : !isFilterSectionActive && !isInterlaceSectionActive && toolState.currentTool === tool.id;
             const shortcut = tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display;
 
             return (

@@ -7,6 +7,9 @@ import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
 import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { getInterlaceElapsedSeconds } from '@/lib/interlace/interlaceClock';
+import { drawSierraLiteInterlace, type InterlaceRenderSource } from '@/lib/interlace/interlaceRenderer';
+import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
 import {
   getColorCyclePresentationCanvas,
@@ -40,6 +43,25 @@ export const useDrawingCanvasLayerRendering = ({
     const storeState = getAppStoreState() as AppState;
     const sequentialFrameIndex = getSequentialRenderFrame(storeState);
     const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
+    const groupById = new Map((storeState.layerGroups ?? []).map((group) => [group.id, group]));
+    const activeGroupId = sortedLayers.find((layer) => layer.id === activeId)?.groupId;
+    const interlaceLayersByGroupId = new Map<string, Layer[]>();
+    sortedLayers.forEach((layer) => {
+      const group = layer.groupId ? groupById.get(layer.groupId) : undefined;
+      if (
+        layer.visible
+        && layer.id !== activeId
+        && layer.groupId !== activeGroupId
+        && layer.layerType !== 'sequential'
+        && isInterlaceGroup(group)
+      ) {
+        interlaceLayersByGroupId.set(
+          group.id,
+          [...(interlaceLayersByGroupId.get(group.id) ?? []), layer],
+        );
+      }
+    });
+    const paintedInterlaceGroupIds = new Set<string>();
     const isPixelatedDisplay = displayMode === 'pixelated';
     const shouldSmooth = !isPixelatedDisplay && !(
       brushShape === BrushShape.PIXEL_ROUND ||
@@ -56,6 +78,42 @@ export const useDrawingCanvasLayerRendering = ({
 
     for (const layer of sortedLayers) {
       if (!layer.visible || layer.id === activeId) {
+        continue;
+      }
+
+      const group = layer.groupId ? groupById.get(layer.groupId) : undefined;
+      const interlaceLayers = group ? interlaceLayersByGroupId.get(group.id) : undefined;
+      if (isInterlaceGroup(group) && interlaceLayers && interlaceLayers.length >= 2) {
+        if (!paintedInterlaceGroupIds.has(group.id)) {
+          const sources = interlaceLayers.flatMap<InterlaceRenderSource>((member) => {
+            let source: CanvasImageSource | null = null;
+            if (member.layerType === 'color-cycle') {
+              const presentation = resolveColorCyclePresentation({
+                layer: member,
+                activeLayerId,
+                projectWidth: project.width,
+                projectHeight: project.height,
+              });
+              source = getColorCyclePresentationCanvas(presentation, member);
+            } else if (member.framebuffer) {
+              source = member.framebuffer as CanvasImageSource;
+            } else if (member.imageData) {
+              source = getLayerTransferCanvas(member, layerTransferCacheRef.current);
+            }
+            return source
+              ? [{ source, opacity: member.opacity, blendMode: member.blendMode }]
+              : [];
+          });
+          drawSierraLiteInterlace({
+            context: ctx,
+            width: project.width,
+            height: project.height,
+            sources,
+            settings: group.interlace,
+            elapsedSeconds: getInterlaceElapsedSeconds(),
+          });
+          paintedInterlaceGroupIds.add(group.id);
+        }
         continue;
       }
 

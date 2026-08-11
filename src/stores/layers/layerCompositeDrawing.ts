@@ -1,5 +1,8 @@
 import type { ColorCycleDirtyRect } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
+import { getInterlaceElapsedSeconds } from '@/lib/interlace/interlaceClock';
+import { drawSierraLiteInterlace, type InterlaceRenderSource } from '@/lib/interlace/interlaceRenderer';
+import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import {
   getColorCycleBrushManager,
   type ColorCycleBrushManager,
@@ -29,6 +32,14 @@ export const createLayerCompositeDrawing = ({
       dirtyRects?: ColorCycleDirtyRect[],
     ) => {
       const shouldPartialDraw = Boolean(dirtyRects?.length);
+      const interlaceGroupIds = new Set(
+        (project.layerGroups ?? [])
+          .filter(isInterlaceGroup)
+          .filter((group) => sortedLayers.filter((layer) => (
+            layer.visible && layer.layerType !== 'sequential' && layer.groupId === group.id
+          )).length >= 2)
+          .map((group) => group.id),
+      );
 
       if (shouldPartialDraw && dirtyRects) {
         dirtyRects.forEach((rect) => {
@@ -56,7 +67,8 @@ export const createLayerCompositeDrawing = ({
         if (
           !layer.visible ||
           layer.layerType === 'color-cycle' ||
-          layer.layerType === 'sequential'
+          layer.layerType === 'sequential' ||
+          (layer.groupId ? interlaceGroupIds.has(layer.groupId) : false)
         ) {
           continue;
         }
@@ -109,9 +121,71 @@ export const createLayerCompositeDrawing = ({
       }
 
       const brushManager = manager ?? getColorCycleBrushManager();
+      const groupById = new Map((project.layerGroups ?? []).map((group) => [group.id, group]));
+      const interlaceLayersByGroupId = new Map<string, Layer[]>();
+      sortedLayers.forEach((layer) => {
+        const group = layer.groupId ? groupById.get(layer.groupId) : undefined;
+        if (layer.visible && layer.layerType !== 'sequential' && isInterlaceGroup(group)) {
+          interlaceLayersByGroupId.set(
+            group.id,
+            [...(interlaceLayersByGroupId.get(group.id) ?? []), layer],
+          );
+        }
+      });
+      const drawnInterlaceGroupIds = new Set<string>();
+
+      const resolveInterlaceSource = (layer: Layer): InterlaceRenderSource | null => {
+        let source: CanvasImageSource | null = null;
+        if (layer.layerType === 'color-cycle' && layer.colorCycleData?.canvas) {
+          const canvas = layer.colorCycleData.canvas;
+          if (layer.colorCycleData.mode !== 'recolor') {
+            const brush = brushManager?.getSurfaceBrush(layer.id);
+            try {
+              if (layer.colorCycleData.isAnimating) brush?.updateAnimation?.();
+              brush?.renderDirectToCanvas?.(canvas, layer.id);
+            } catch (error) {
+              logError('[compose] Interlace CC advance/render failed', error);
+            }
+          }
+          source = prepareColorCycleCompositeSource(layer, canvas, createLayerTransferCanvas);
+        } else if (hasValidFramebuffer(layer.framebuffer)) {
+          source = layer.framebuffer as CanvasImageSource;
+        } else if (layer.imageData) {
+          const transfer = createLayerTransferCanvas(layer.imageData.width, layer.imageData.height);
+          const transferContext = transfer?.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          transferContext?.putImageData(layer.imageData, 0, 0);
+          source = transfer as CanvasImageSource | null;
+        }
+        return source
+          ? { source, opacity: layer.opacity, blendMode: layer.blendMode }
+          : null;
+      };
 
       for (const layer of sortedLayers) {
         if (!layer.visible) {
+          continue;
+        }
+
+        const group = layer.groupId ? groupById.get(layer.groupId) : undefined;
+        const interlaceLayers = group ? interlaceLayersByGroupId.get(group.id) : undefined;
+        if (isInterlaceGroup(group) && interlaceLayers && interlaceLayers.length >= 2) {
+          if (!drawnInterlaceGroupIds.has(group.id)) {
+            const sources = interlaceLayers
+              .map(resolveInterlaceSource)
+              .filter((source): source is InterlaceRenderSource => Boolean(source));
+            drawSierraLiteInterlace({
+              context: ctx,
+              width: project.width,
+              height: project.height,
+              sources,
+              settings: group.interlace,
+              elapsedSeconds: getInterlaceElapsedSeconds(),
+            });
+            drawnInterlaceGroupIds.add(group.id);
+          }
           continue;
         }
 

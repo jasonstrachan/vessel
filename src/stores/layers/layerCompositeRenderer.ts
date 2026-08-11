@@ -1,4 +1,5 @@
-import type { Layer, Project } from '@/types';
+import type { InterlaceGroupSettings, Layer, Project } from '@/types';
+import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import {
   coalesceColorCycleDirtyRects,
   type ColorCycleDirtyRect,
@@ -32,10 +33,19 @@ export type SequentialCompositeSegment = {
   opacity: number;
 };
 
+export type InterlaceCompositeSegment = {
+  kind: 'interlace';
+  id: string;
+  groupId: string;
+  layerIds: string[];
+  settings: InterlaceGroupSettings;
+};
+
 export type CompositeSegment =
   | StaticCompositeSegment
   | ColorCycleCompositeSegment
-  | SequentialCompositeSegment;
+  | SequentialCompositeSegment
+  | InterlaceCompositeSegment;
 
 export type StaticSegmentDescriptor = {
   kind: 'static';
@@ -51,7 +61,14 @@ export type DynamicSegmentDescriptor = {
   opacity: number;
 };
 
-export type SegmentDescriptor = StaticSegmentDescriptor | DynamicSegmentDescriptor;
+export type InterlaceSegmentDescriptor = {
+  kind: 'interlace';
+  groupId: string;
+  layerIds: string[];
+  settings: InterlaceGroupSettings;
+};
+
+export type SegmentDescriptor = StaticSegmentDescriptor | DynamicSegmentDescriptor | InterlaceSegmentDescriptor;
 
 type Canvas2DContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -120,6 +137,15 @@ export const buildCompositeSegmentDescriptors = (
     project.backgroundColor && project.backgroundColor !== 'transparent'
   );
   let includeBackgroundNext = shouldPaintBackground;
+  const layerGroups = new Map((project.layerGroups ?? []).map((group) => [group.id, group]));
+  const interlaceMembers = new Map<string, Layer[]>();
+  sortedLayers.forEach((layer) => {
+    const group = layer.groupId ? layerGroups.get(layer.groupId) : undefined;
+    if (layer.visible && layer.layerType !== 'sequential' && isInterlaceGroup(group)) {
+      interlaceMembers.set(group.id, [...(interlaceMembers.get(group.id) ?? []), layer]);
+    }
+  });
+  const emittedInterlaceGroups = new Set<string>();
 
   const flushStaticSegment = () => {
     if (!pendingStatic.length && !includeBackgroundNext) {
@@ -146,6 +172,22 @@ export const buildCompositeSegmentDescriptors = (
 
   for (const layer of sortedLayers) {
     if (!layer.visible) {
+      continue;
+    }
+
+    const group = layer.groupId ? layerGroups.get(layer.groupId) : undefined;
+    const groupMembers = group ? interlaceMembers.get(group.id) : undefined;
+    if (isInterlaceGroup(group) && groupMembers && groupMembers.length >= 2) {
+      if (!emittedInterlaceGroups.has(group.id)) {
+        flushStaticSegment();
+        descriptors.push({
+          kind: 'interlace',
+          groupId: group.id,
+          layerIds: groupMembers.map((member) => member.id),
+          settings: { ...group.interlace },
+        });
+        emittedInterlaceGroups.add(group.id);
+      }
       continue;
     }
 
@@ -214,6 +256,12 @@ export const compositeSegmentStructureMatches = (
       return true;
     }
 
+    if (descriptor.kind === 'interlace' && segment.kind === 'interlace') {
+      return segment.groupId === descriptor.groupId
+        && segment.layerIds.length === descriptor.layerIds.length
+        && segment.layerIds.every((id, layerIndex) => id === descriptor.layerIds[layerIndex]);
+    }
+
     if (descriptor.kind === 'color-cycle' && segment.kind === 'color-cycle') {
       return segment.layerId === descriptor.layerId;
     }
@@ -280,11 +328,32 @@ export const createNextCompositeSegments = ({
     }
 
     if (structuresMatch) {
-      const previous = previousSegments[index] as ColorCycleCompositeSegment | SequentialCompositeSegment;
+      const previous = previousSegments[index] as
+        | ColorCycleCompositeSegment
+        | SequentialCompositeSegment
+        | InterlaceCompositeSegment;
+      if (descriptor.kind === 'interlace') {
+        return {
+          ...previous,
+          layerIds: descriptor.layerIds,
+          settings: descriptor.settings,
+        } as InterlaceCompositeSegment;
+      }
       return {
         ...previous,
         blendMode: descriptor.blendMode,
         opacity: descriptor.opacity,
+      };
+    }
+
+
+    if (descriptor.kind === 'interlace') {
+      return {
+        kind: 'interlace',
+        id: `interlace-${descriptor.groupId}-${index}`,
+        groupId: descriptor.groupId,
+        layerIds: descriptor.layerIds,
+        settings: descriptor.settings,
       };
     }
 

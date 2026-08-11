@@ -9,6 +9,7 @@ import {
   resolveCcPatternThreshold,
   withCcImageTileThresholdResolver,
 } from '@/utils/colorCycle/ccPatternThreshold';
+import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 export type FlatInkCount = 2;
 
 type FlatInkSet = {
@@ -47,7 +48,6 @@ export type FlatPatternFillOptions = {
 };
 
 const SIERRA_LITE_TONE_BANDS = 5;
-const SIERRA_LITE_THRESHOLD = 0.5;
 const SIERRA_LITE_MIN_MIX = 0.08;
 const SIERRA_LITE_MAX_MIX = 0.92;
 const FLAT_BAND_CENTERS: [number, number, number, number, number] = [26, 77, 128, 179, 230];
@@ -206,100 +206,6 @@ const resolveBandMixAmount = (
   return 0.5;
 };
 
-const hash32 = (a: number, b: number, c: number, d: number): number => {
-  let n =
-    Math.imul((a | 0) ^ 0x9e3779b9, 374761393) +
-    Math.imul((b | 0) ^ 0x85ebca6b, 668265263) +
-    Math.imul((c | 0) ^ 0xc2b2ae35, 1274126177) +
-    Math.imul((d | 0) ^ 0x27d4eb2d, 1597334677);
-  n = (n ^ (n >>> 13)) >>> 0;
-  n = Math.imul(n, 1274126177) >>> 0;
-  n = (n ^ (n >>> 16)) >>> 0;
-  return n >>> 0;
-};
-
-const variantNoise01 = (
-  x: number,
-  y: number,
-  identityKey: number,
-  flatSeed: number,
-  variant: number,
-  patternKey: number
-): number => {
-  const h = hash32(
-    x + variant * 17,
-    y + variant * 31,
-    identityKey ^ flatSeed,
-    patternKey ^ (variant << 24)
-  );
-  return (h & 1023) / 1023;
-};
-
-const resolvePatternVariant = (flatSeed = 0, patternKey = 0): number => {
-  return hash32(flatSeed, patternKey, flatSeed ^ patternKey, 0x51f15e) & 7;
-};
-
-const resolveSeededThreshold = (
-  x: number,
-  y: number,
-  identityKey: number,
-  flatSeed: number,
-  variant: number,
-  patternKey: number
-): number => {
-  const n = variantNoise01(x, y, identityKey, flatSeed, variant, patternKey);
-  const amp =
-    variant === 0 ? 0.03 :
-    variant === 1 ? 0.045 :
-    variant === 2 ? 0.035 :
-    variant === 3 ? 0.05 :
-    variant === 4 ? 0.04 :
-    variant === 5 ? 0.055 :
-    variant === 6 ? 0.038 :
-    0.048;
-  return SIERRA_LITE_THRESHOLD + (n - 0.5) * amp;
-};
-
-const resolveInitialError = (
-  x: number,
-  y: number,
-  identityKey: number,
-  flatSeed: number,
-  variant: number,
-  patternKey: number
-): number => {
-  const n0 = variantNoise01(x, y, identityKey, flatSeed, variant, patternKey);
-  const n1 = variantNoise01(
-    x + 37,
-    y - 19,
-    identityKey ^ 11,
-    flatSeed ^ 23,
-    variant ^ 3,
-    patternKey ^ 0x5a5a
-  );
-  const centered0 = n0 - 0.5;
-  const centered1 = n1 - 0.5;
-
-  switch (variant) {
-    case 0:
-      return centered0 * 0.06;
-    case 1:
-      return (((x + y) & 1) === 0 ? 1 : -1) * 0.035 + centered0 * 0.025;
-    case 2:
-      return (((x & 1) === 0 ? 1 : -1) * 0.03) + centered0 * 0.02;
-    case 3:
-      return ((((x + y) & 3) - 1.5) / 1.5) * 0.03 + centered0 * 0.02;
-    case 4:
-      return centered0 * 0.03 + centered1 * 0.03;
-    case 5:
-      return (((y & 1) === 0 ? 1 : -1) * 0.03) + centered0 * 0.025;
-    case 6:
-      return ((((x - y) & 3) - 1.5) / 1.5) * 0.028 + centered0 * 0.022;
-    default:
-      return centered0 * 0.025 + centered1 * 0.035;
-  }
-};
-
 const fillOrderedFlatPatternMode = ({
   algorithm,
   patternStyle,
@@ -394,7 +300,6 @@ const fillSierraLiteFlatPatternMode = ({
   writeCellIndex,
   debugCollector,
 }: Omit<FlatPatternFillOptions, 'algorithm' | 'patternStyle'>): void => {
-  const errors = new Float32Array(gridW * gridH);
   const isSampledFlat =
     Number.isFinite(flatLowIndex) &&
     Number.isFinite(flatHighIndex) &&
@@ -418,109 +323,38 @@ const fillSierraLiteFlatPatternMode = ({
     : resolveBandMixAmount(resolvedBand, flatPosition, flatMix, flatMixByBand, spread);
   const mixStrength = diversity01 * diversity01;
   const baseMix = 0.5 + (resolvedMix - 0.5) * mixStrength;
-  const mixKey = Math.round(baseMix * 255) & 255;
   const lowIdx = inkSet.indices[0] & 255;
   const highIdx = inkSet.indices[1] & 255;
   const shapeSeed = (flatSeed ?? 0) >>> 0;
-  const seedPhaseX = shapeSeed & 7;
-  const seedPhaseY = (shapeSeed >>> 3) & 7;
-  const patternKey =
-    (mixKey << 16) ^
-    (lowIdx << 8) ^
-    highIdx ^
-    Math.imul(shapeSeed, 0x9e3779b1);
-  const variant = resolvePatternVariant(shapeSeed, patternKey);
-  const patternFingerprint = `${patternKey}:${variant}:${patternBand}:${mixKey}:${lowIdx}:${highIdx}`;
-  void patternFingerprint;
-  const debugBits: number[] = [];
-  const debugThresholds: number[] = [];
-  const debugInitialErrs: number[] = [];
-  const debugCoords: Array<[number, number]> = [];
-  const debugIndices: number[] = [];
-
   debugCollector?.({
     baseMix,
     lowIdx,
     highIdx,
   });
-
-  for (let y = 0; y < gridH; y += 1) {
-    const serpentine = (y & 1) === 1;
-    const start = serpentine ? gridW - 1 : 0;
-    const end = serpentine ? -1 : gridW;
-    const step = serpentine ? -1 : 1;
-
-    for (let x = start; x !== end; x += step) {
-      const idx = y * gridW + x;
-      if (activeMask && !activeMask[idx]) {
-        continue;
-      }
-
-      const errorBandKey = isSampledFlat ? 0 : patternBand;
-      const seededX = x + phaseX + seedPhaseX;
-      const seededY = y + phaseY + seedPhaseY;
-      const initialErr = resolveInitialError(
-        seededX,
-        seededY,
-        errorBandKey,
-        shapeSeed,
-        variant,
-        patternKey
-      );
-      const threshold = resolveSeededThreshold(
-        seededX,
-        seededY,
-        errorBandKey,
-        shapeSeed,
-        variant,
-        patternKey
-      );
-      const blendedInitialErr = initialErr * diversity01;
-      const blendedThreshold = 0.5 + (threshold - 0.5) * diversity01;
-      const value = clamp01(baseMix + blendedInitialErr + errors[idx]);
-      const bit: 0 | 1 = value >= blendedThreshold ? 1 : 0;
-      const qErr = value - bit;
-
-      const index = !fillBackground && bit === 0
-        ? 0
-        : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]);
-
-      writeCellIndex(idx, index);
-      if (debugBits.length < 24) {
-        debugBits.push(bit);
-        debugThresholds.push(Number(blendedThreshold.toFixed(4)));
-        debugInitialErrs.push(Number(blendedInitialErr.toFixed(4)));
-        debugCoords.push([seededX, seededY]);
-        debugIndices.push(index);
-      }
-
-      if (!serpentine) {
-        if (x + 1 < gridW && (!activeMask || activeMask[idx + 1])) {
-          errors[idx + 1] += qErr * 0.5;
-        }
-        if (y + 1 < gridH) {
-          if (x - 1 >= 0 && (!activeMask || activeMask[idx + gridW - 1])) {
-            errors[idx + gridW - 1] += qErr * 0.25;
-          }
-          if (!activeMask || activeMask[idx + gridW]) {
-            errors[idx + gridW] += qErr * 0.25;
-          }
-        }
-      } else {
-        if (x - 1 >= 0 && (!activeMask || activeMask[idx - 1])) {
-          errors[idx - 1] += qErr * 0.5;
-        }
-        if (y + 1 < gridH) {
-          if (x + 1 < gridW && (!activeMask || activeMask[idx + gridW + 1])) {
-            errors[idx + gridW + 1] += qErr * 0.25;
-          }
-          if (!activeMask || activeMask[idx + gridW]) {
-            errors[idx + gridW] += qErr * 0.25;
-          }
-        }
-      }
+  const bits = resolveSierraLiteBinaryField({
+    width: gridW,
+    height: gridH,
+    mix: resolvedMix,
+    seed: shapeSeed,
+    phaseX,
+    phaseY,
+    identityKey: isSampledFlat ? 0 : patternBand,
+    lowKey: lowIdx,
+    highKey: highIdx,
+    diversity: diversity01,
+    activeMask,
+  });
+  bits.forEach((bit, index) => {
+    if (activeMask && !activeMask[index]) {
+      return;
     }
-  }
+    writeCellIndex(
+      index,
+      !fillBackground && bit === 0
+        ? 0
+        : (bit === 0 ? inkSet.indices[0] : inkSet.indices[1]),
+    );
+  });
 
 };
 

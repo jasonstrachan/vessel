@@ -1,7 +1,11 @@
 import type { StateCreator } from 'zustand';
 
-import type { Layer } from '@/types';
+import type { InterlaceGroupSettings, Layer } from '@/types';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
+import {
+  DEFAULT_INTERLACE_SETTINGS,
+  sanitizeInterlaceSettings,
+} from '@/lib/interlace/interlaceSettings';
 import type {
   CommitLayerStructureHistoryOptions,
   LayerHistorySnapshotOptions,
@@ -93,6 +97,119 @@ export const createLayerGroupFromSelectionAction = (
   });
 
   return newGroupId;
+};
+
+export const createInterlaceGroupFromSelectionAction = (
+  layerIds: string[],
+  deps: LayerGroupActionDeps,
+): string | null => {
+  const { set, get, captureLayerStructureSnapshot, commitLayerStructureHistory } = deps;
+  const stateBeforeChange = get();
+  const targetIds = stateBeforeChange.layers
+    .filter((layer) => (
+      layerIds.includes(layer.id)
+      && layer.layerType !== 'sequential'
+    ))
+    .map((layer) => layer.id);
+  if (targetIds.length < 2) {
+    return null;
+  }
+
+  const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+    actionType: 'layers',
+    description: 'Create interlace group',
+  });
+  const newGroupId = `interlace-${Date.now()}-${Math.random()}`;
+  const nextGroupName = `Interlace ${stateBeforeChange.layerGroups.filter(
+    (group) => group.kind === 'interlace',
+  ).length + 1}`;
+  const destinationIndex = Math.min(...targetIds.map((id) => (
+    stateBeforeChange.layers.findIndex((layer) => layer.id === id)
+  )));
+
+  set((state) => {
+    const reordered = reorderLayerBlock(state.layers, targetIds, destinationIndex).layers;
+    const targetIdSet = new Set(targetIds);
+    const nextLayers = normalizeLayerOrder(reordered.map((layer) => (
+      targetIdSet.has(layer.id) ? { ...layer, groupId: newGroupId } : layer
+    )));
+    const nextGroups = sanitizeLayerGroups(nextLayers, [
+      ...state.layerGroups,
+      {
+        id: newGroupId,
+        name: nextGroupName,
+        kind: 'interlace',
+        interlace: { ...DEFAULT_INTERLACE_SETTINGS },
+      },
+    ]);
+    return {
+      layers: nextLayers,
+      layerGroups: nextGroups,
+      hiddenLayerGroupIds: sanitizeHiddenLayerGroupIds(state.hiddenLayerGroupIds, nextGroups),
+      layersNeedRecomposition: true,
+    };
+  });
+
+  const afterSnapshot = captureLayerStructureSnapshot(get(), {
+    actionType: 'layers',
+    description: 'Create interlace group',
+    previousSnapshot: beforeSnapshot,
+  });
+  commitLayerStructureHistory({
+    set,
+    beforeSnapshot,
+    afterSnapshot,
+    label: 'Create interlace group',
+    metadata: {
+      operation: 'create-interlace-group',
+      groupId: newGroupId,
+      layerIds: targetIds,
+    },
+  });
+  get().markAllCompositeSegmentsDirty();
+  return newGroupId;
+};
+
+export const updateInterlaceGroupAction = (
+  groupId: string,
+  updates: Partial<InterlaceGroupSettings>,
+  deps: LayerGroupActionDeps,
+): void => {
+  const { set, get, captureLayerStructureSnapshot, commitLayerStructureHistory } = deps;
+  const stateBeforeChange = get();
+  const target = stateBeforeChange.layerGroups.find((group) => (
+    group.id === groupId && group.kind === 'interlace'
+  ));
+  if (!target) {
+    return;
+  }
+  const nextSettings = sanitizeInterlaceSettings({ ...target.interlace, ...updates });
+  if (JSON.stringify(nextSettings) === JSON.stringify(sanitizeInterlaceSettings(target.interlace))) {
+    return;
+  }
+  const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
+    actionType: 'layers',
+    description: 'Update interlace group',
+  });
+  set((state) => ({
+    layerGroups: state.layerGroups.map((group) => (
+      group.id === groupId ? { ...group, interlace: nextSettings } : group
+    )),
+    layersNeedRecomposition: true,
+  }));
+  const afterSnapshot = captureLayerStructureSnapshot(get(), {
+    actionType: 'layers',
+    description: 'Update interlace group',
+    previousSnapshot: beforeSnapshot,
+  });
+  commitLayerStructureHistory({
+    set,
+    beforeSnapshot,
+    afterSnapshot,
+    label: 'Update interlace group',
+    metadata: { operation: 'update-interlace-group', groupId },
+  });
+  get().markAllCompositeSegmentsDirty();
 };
 
 export const removeLayerGroupAction = (

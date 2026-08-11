@@ -218,6 +218,9 @@ const buildInlineGobletPlaybackMathRuntime = (playbackMathJs) => {
     'applyGobletSoftEdgeMaskToAlphaChannel',
     'hasAnyGobletMaskValue',
     'hasVisibleGobletAlpha',
+    'resolveSierraLiteBinaryField',
+    'rollSierraLiteBinaryField',
+    'resolveInterlaceFrame',
   ];
   const exportList = exports.join(', ');
   return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;

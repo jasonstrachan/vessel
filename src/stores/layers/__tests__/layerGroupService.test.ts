@@ -44,6 +44,37 @@ describe('layerGroupService', () => {
     ).toEqual(['group-a', 'group-c']);
   });
 
+  it('preserves and clamps persisted Interlace settings', () => {
+    expect(sanitizeLayerGroups(
+      [{ groupId: 'interlace' }],
+      [{
+        id: 'interlace',
+        name: '  Poses  ',
+        kind: 'interlace',
+        interlace: {
+          cellSize: 0,
+          dominance: 2,
+          direction: 'left',
+          travelCycles: 1,
+          loopDurationSeconds: 10,
+          seed: 9,
+        },
+      }],
+    )).toEqual([{
+      id: 'interlace',
+      name: 'Poses',
+      kind: 'interlace',
+      interlace: {
+        cellSize: 2,
+        dominance: 1,
+        direction: 'left',
+        travelCycles: 1,
+        loopDurationSeconds: 10,
+        seed: 9,
+      },
+    }]);
+  });
+
   it('generates the first unused group name starting after the current group count', () => {
     expect(generateLayerGroupName([
       { id: 'one', name: 'Group 1' },

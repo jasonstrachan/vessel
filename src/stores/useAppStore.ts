@@ -667,6 +667,11 @@ export interface AppState {
   setLayersVisibility: (layerIds: string[], visible: boolean) => void;
   toggleLayersVisibility: (layerIds: string[]) => void;
   createLayerGroupFromSelection: (layerIds: string[]) => string | null;
+  createInterlaceGroupFromSelection: (layerIds: string[]) => string | null;
+  updateInterlaceGroup: (
+    groupId: string,
+    updates: Partial<NonNullable<LayerGroup['interlace']>>,
+  ) => void;
   moveLayersToGroup: (
     layerIds: string[],
     groupId: string | undefined,

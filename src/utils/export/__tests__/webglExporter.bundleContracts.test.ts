@@ -50,6 +50,31 @@ const layout: ExportContainerLayout = {
   height: 32,
 };
 
+const createNormalLayer = (id: string, order: number, groupId?: string): Layer => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 32;
+  const context = canvas.getContext('2d');
+  if (context) {
+    context.fillStyle = order === 0 ? '#ff0000' : '#0000ff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  return {
+    id,
+    name: id,
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    locked: false,
+    order,
+    imageData: null,
+    framebuffer: canvas,
+    alignment: createDefaultLayerAlignment(),
+    groupId,
+    layerType: 'normal',
+  };
+};
+
 const createDenseBrushLayer = (): Layer => {
   const canvas = document.createElement('canvas');
   canvas.width = 64;
@@ -308,6 +333,41 @@ afterEach(() => {
 });
 
 describe('webglExporter bundle contracts', () => {
+  it('serializes ordered Interlace groups into Goblet metadata', async () => {
+    const project = createProject();
+    const layers = [
+      createNormalLayer('pose-a', 0, 'interlace-1'),
+      createNormalLayer('pose-b', 1, 'interlace-1'),
+    ];
+    project.layers = layers;
+    project.layerGroups = [{
+      id: 'interlace-1',
+      name: 'Interlace 1',
+      kind: 'interlace',
+      interlace: {
+        cellSize: 10,
+        dominance: 0.92,
+        direction: 'right',
+        travelCycles: 1,
+        loopDurationSeconds: 10,
+        seed: 91,
+      },
+    }];
+
+    const metadata = await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      layers,
+      bundleFormat: 'json',
+    });
+
+    expect(metadata.interlaceGroups).toEqual([{
+      id: 'interlace-1',
+      layerIds: ['pose-a', 'pose-b'],
+      settings: project.layerGroups[0].interlace,
+    }]);
+  });
+
   it('embeds metadata, title, and background in single-file HTML exports', async () => {
     const metadata = await exportProjectAsWebGL({
       ...baseExportRequest(),

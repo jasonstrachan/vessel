@@ -1310,6 +1310,48 @@ describe('layers slice integration', () => {
     expect(nextState.layers.find((layer) => layer.id === layerB)?.groupId).toBeUndefined();
   });
 
+  it('creates and updates an ordered Interlace group with undoable settings', async () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Pose A'));
+    store.addLayer(createNormalLayerInput('Between'));
+    const layerB = store.addLayer(createColorCycleLayerInput('Pose B'));
+
+    historyManager.clear();
+    const groupId = useAppStore.getState().createInterlaceGroupFromSelection([layerA, layerB]);
+
+    expect(groupId).toBeTruthy();
+    let nextState = useAppStore.getState();
+    expect(nextState.layers.filter((layer) => layer.groupId === groupId).map((layer) => layer.id)).toEqual([
+      layerA,
+      layerB,
+    ]);
+    expect(nextState.layerGroups[0]).toMatchObject({
+      id: groupId,
+      kind: 'interlace',
+      interlace: { cellSize: 10, dominance: 0.92, direction: 'right' },
+    });
+    expect(historyManager.entries()).toHaveLength(1);
+
+    useAppStore.getState().updateInterlaceGroup(groupId as string, { cellSize: 18, direction: 'left' });
+    expect(useAppStore.getState().layerGroups[0].interlace).toMatchObject({
+      cellSize: 18,
+      direction: 'left',
+    });
+    expect(historyManager.entries()).toHaveLength(2);
+
+    await historyManager.undo();
+    nextState = useAppStore.getState();
+    expect(nextState.layerGroups[0].interlace).toMatchObject({ cellSize: 10, direction: 'right' });
+  });
+
+  it('rejects sequential layers and selections with fewer than two Interlace sources', () => {
+    const store = useAppStore.getState();
+    const normal = store.addLayer(createNormalLayerInput('Pose'));
+
+    expect(useAppStore.getState().createInterlaceGroupFromSelection([normal])).toBeNull();
+    expect(useAppStore.getState().layerGroups).toEqual([]);
+  });
+
   it('moves layer order and group membership in one history entry', () => {
     const store = useAppStore.getState();
     const layerA = store.addLayer(createNormalLayerInput('Layer A'));

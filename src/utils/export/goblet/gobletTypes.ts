@@ -281,6 +281,19 @@ export interface WebGLExportAnimationMetadata {
   perfectLoop: boolean;
 }
 
+export interface WebGLSerializedInterlaceGroup {
+  id: string;
+  layerIds: string[];
+  settings: {
+    cellSize: number;
+    dominance: number;
+    direction: 'left' | 'right';
+    travelCycles: number;
+    loopDurationSeconds: number;
+    seed: number;
+  };
+}
+
 export interface WebGLExportMetadata {
   format: 'vessel-goblet' | 'vessel-goblet2';
   version: 1;
@@ -312,6 +325,7 @@ export interface WebGLExportMetadata {
     transparencyBackgroundMode: 'checker' | 'gray';
   };
   layers: WebGLLayerMetadata[];
+  interlaceGroups?: WebGLSerializedInterlaceGroup[];
   gradients?: SerializedGradientStops[];
   preview?: {
     type: CanvasExportMimeType;

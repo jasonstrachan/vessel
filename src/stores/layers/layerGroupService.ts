@@ -1,4 +1,5 @@
 import type { Layer, LayerGroup } from '@/types';
+import { sanitizeInterlaceSettings } from '@/lib/interlace/interlaceSettings';
 
 export const normalizeLayerGroupName = (
   name: string | undefined,
@@ -25,9 +26,18 @@ export const sanitizeLayerGroups = (
       return;
     }
     deduped.add(group.id);
+    const isInterlace = group.kind === 'interlace';
     sanitized.push({
       id: group.id,
       name: normalizeLayerGroupName(group.name, index),
+      ...(isInterlace
+        ? {
+            kind: 'interlace' as const,
+            interlace: sanitizeInterlaceSettings(group.interlace),
+          }
+        : group.kind === 'visual'
+          ? { kind: 'visual' as const }
+          : {}),
     });
   });
 

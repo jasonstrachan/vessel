@@ -236,7 +236,7 @@ export type DisplayFilterConfig =
   | NoiseDisplayFilter
   | FilmNoiseDisplayFilter;
 
-export type BrushPanelSectionId = 'tool' | 'filters';
+export type BrushPanelSectionId = 'tool' | 'filters' | 'interlace';
 
 export type SettingsSectionId =
   | 'display'
@@ -266,9 +266,22 @@ export interface CanvasFreehandShape {
 
 export type CanvasShape = CanvasRectangleShape | CanvasCircleShape | CanvasFreehandShape;
 
+export type InterlaceDirection = 'left' | 'right';
+
+export interface InterlaceGroupSettings {
+  cellSize: number;
+  dominance: number;
+  direction: InterlaceDirection;
+  travelCycles: number;
+  loopDurationSeconds: number;
+  seed: number;
+}
+
 export interface LayerGroup {
   id: string;
   name: string;
+  kind?: 'visual' | 'interlace';
+  interlace?: InterlaceGroupSettings;
 }
 
 export interface CcCustomTilePattern {

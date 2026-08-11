@@ -26,7 +26,10 @@ const cloneImageData = (imageData: ImageData | null | undefined): ImageData | nu
 };
 
 const cloneLayerGroups = (groups: LayerGroup[]): LayerGroup[] => (
-  groups.map((group) => ({ ...group }))
+  groups.map((group) => ({
+    ...group,
+    interlace: group.interlace ? { ...group.interlace } : undefined,
+  }))
 );
 
 const cloneLayerForReplay = (layer: Layer): Layer => ({

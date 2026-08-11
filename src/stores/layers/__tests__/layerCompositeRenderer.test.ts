@@ -124,6 +124,50 @@ describe('layerCompositeRenderer', () => {
     ]);
   });
 
+  it('replaces participating layers with one ordered interlace segment', () => {
+    const layers = [
+      makeLayer({ id: 'bottom', order: 0 }),
+      makeLayer({ id: 'pose-a', order: 1, groupId: 'interlace-1' }),
+      makeLayer({ id: 'pose-b', order: 2, groupId: 'interlace-1', layerType: 'color-cycle' }),
+      makeLayer({ id: 'top', order: 3 }),
+    ];
+    const project = makeProject(layers, '#ffffff');
+    project.layerGroups = [{
+      id: 'interlace-1',
+      name: 'Interlace 1',
+      kind: 'interlace',
+      interlace: {
+        cellSize: 10,
+        dominance: 0.92,
+        direction: 'right',
+        travelCycles: 1,
+        loopDurationSeconds: 10,
+        seed: 17,
+      },
+    }];
+
+    expect(buildCompositeSegmentDescriptors(layers, project)).toEqual([
+      {
+        kind: 'static',
+        layerIds: ['bottom'],
+        includeBackground: true,
+        orderRange: { start: 0, end: 0 },
+      },
+      {
+        kind: 'interlace',
+        groupId: 'interlace-1',
+        layerIds: ['pose-a', 'pose-b'],
+        settings: project.layerGroups[0].interlace,
+      },
+      {
+        kind: 'static',
+        layerIds: ['top'],
+        includeBackground: false,
+        orderRange: { start: 3, end: 3 },
+      },
+    ]);
+  });
+
   it('repaints dirty static segments and preserves clean structure versions', () => {
     const framebuffer = createCanvas(2, 2);
     const framebufferCtx = framebuffer.getContext('2d');

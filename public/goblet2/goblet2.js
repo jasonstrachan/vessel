@@ -32,6 +32,9 @@ import {
   resolveGobletIndexedAlphaByte,
   sampleGobletGradient,
   hasVisibleGobletAlpha,
+  resolveInterlaceFrame,
+  rollSierraLiteBinaryField,
+  resolveSierraLiteBinaryField,
   wrapGobletPhase01,
 } from './gobletPlaybackMath.js';
 import {
@@ -5375,6 +5378,10 @@ class VesselGoblet {
     this.dynamicLayerEntries = [];
     this.dynamicPlayers = [];
     this.dynamicPlayerSet = new Set();
+    this.interlaceGroups = [];
+    this.interlaceLayerIdSet = new Set();
+    this.interlaceElapsedSeconds = 0;
+    this.interlaceScratch = new Map();
     this.canUseStaticComposite = false;
     this.staticCompositeLayerKey = '';
     this.staticCompositeCanvas = null;
@@ -5662,6 +5669,28 @@ class VesselGoblet {
       .filter((entry) => entry.layer.visible !== false)
       .flatMap((entry) => [entry.player, entry.sequentialPlayer])
       .filter((entryPlayer) => entryPlayer && typeof entryPlayer.hasAnimation === 'function' && entryPlayer.hasAnimation());
+    const entryById = new Map(entries.map((entry) => [entry.layer.id, entry]));
+    this.interlaceGroups = (Array.isArray(this.metadata?.interlaceGroups) ? this.metadata.interlaceGroups : [])
+      .map((group) => ({
+        ...group,
+        entries: (Array.isArray(group?.layerIds) ? group.layerIds : [])
+          .map((id) => entryById.get(id))
+          .filter((entry) => entry?.layer?.visible !== false),
+      }))
+      .filter((group) => group.entries.length >= 2);
+    this.interlaceLayerIdSet = new Set(
+      this.interlaceGroups.flatMap((group) => group.entries.map((entry) => entry.layer.id)),
+    );
+    if (this.interlaceGroups.length > 0) {
+      this.dynamicPlayers.push({
+        hasAnimation: () => true,
+        advance: (delta) => {
+          if (Number.isFinite(delta) && delta > 0 && delta < 1) this.interlaceElapsedSeconds += delta;
+          return true;
+        },
+        destroy: () => {},
+      });
+    }
     this.dynamicPlayerSet = new Set(this.dynamicPlayers);
     this.dynamicLayerEntries = this.sortedLayerEntries.filter((entry) => (
       entry.layer.visible !== false && this.isDynamicEntry(entry)
@@ -5687,6 +5716,7 @@ class VesselGoblet {
         break;
       }
     }
+    if (this.interlaceGroups.length > 0) this.canUseStaticComposite = false;
     this.staticCompositeLayerKey = JSON.stringify(this.staticLayerEntries.map((entry) => [
       entry.layer.id,
       entry.layer.stackIndex,
@@ -5980,6 +6010,108 @@ class VesselGoblet {
     return true;
   }
 
+  paintInterlaceGroup(group, renderCtx, renderOptions) {
+    const settings = group?.settings ?? {};
+    const documentWidth = Math.max(1, Math.round(renderOptions.documentSize.width));
+    const documentHeight = Math.max(1, Math.round(renderOptions.documentSize.height));
+    const cellSize = Math.max(2, Math.min(128, Math.round(Number(settings.cellSize) || 10)));
+    const gridWidth = Math.ceil(documentWidth / cellSize);
+    const gridHeight = Math.ceil(documentHeight / cellSize);
+    const frame = resolveInterlaceFrame({
+      elapsedSeconds: this.interlaceElapsedSeconds,
+      sourceCount: group.entries.length,
+      loopDurationSeconds: Number(settings.loopDurationSeconds) || 10,
+      dominance: Number(settings.dominance) || 0.92,
+      direction: settings.direction === 'left' ? 'left' : 'right',
+      travelCycles: Number(settings.travelCycles) || 1,
+      gridWidth,
+    });
+    const baseBits = resolveSierraLiteBinaryField({
+      width: gridWidth,
+      height: gridHeight,
+      mix: frame.mix,
+      seed: Number(settings.seed) || 0,
+      phaseX: 0,
+      phaseY: 0,
+      identityKey: frame.currentIndex,
+      lowKey: frame.currentIndex,
+      highKey: frame.nextIndex,
+      diversity: 1,
+    });
+    const bits = rollSierraLiteBinaryField(
+      baseBits,
+      gridWidth,
+      gridHeight,
+      frame.motionCells,
+    );
+    const renderWidth = Math.max(1, Math.round(renderOptions.renderWidth));
+    const renderHeight = Math.max(1, Math.round(renderOptions.renderHeight));
+    const scratchKey = `${group.id}:${renderWidth}x${renderHeight}:${gridWidth}x${gridHeight}`;
+    let scratch = this.interlaceScratch.get(scratchKey);
+    if (!scratch) {
+      const mask = document.createElement('canvas');
+      mask.width = gridWidth;
+      mask.height = gridHeight;
+      const layer = document.createElement('canvas');
+      layer.width = renderWidth;
+      layer.height = renderHeight;
+      scratch = {
+        mask,
+        maskCtx: mask.getContext('2d'),
+        layer,
+        layerCtx: layer.getContext('2d'),
+        imageData: null,
+      };
+      if (!scratch.maskCtx || !scratch.layerCtx) return false;
+      this.interlaceScratch.clear();
+      this.interlaceScratch.set(scratchKey, scratch);
+    }
+    const imageData = scratch.imageData
+      ?? scratch.maskCtx.createImageData(gridWidth, gridHeight);
+    for (let index = 0, offset = 0; index < bits.length; index += 1, offset += 4) {
+      imageData.data[offset] = 255;
+      imageData.data[offset + 1] = 255;
+      imageData.data[offset + 2] = 255;
+      imageData.data[offset + 3] = bits[index] ? 255 : 0;
+    }
+    scratch.imageData = imageData;
+    scratch.maskCtx.putImageData(imageData, 0, 0);
+
+    const drawEntry = (entry, keepHighBits) => {
+      const originalBlendMode = entry.layer.blendMode;
+      const originalOpacity = entry.layer.opacity;
+      scratch.layerCtx.setTransform(1, 0, 0, 1, 0, 0);
+      scratch.layerCtx.globalAlpha = 1;
+      scratch.layerCtx.globalCompositeOperation = 'source-over';
+      scratch.layerCtx.clearRect(0, 0, renderWidth, renderHeight);
+      entry.layer.blendMode = 'source-over';
+      entry.layer.opacity = 1;
+      let painted = false;
+      try {
+        painted = this.paintLayerEntry(entry, 0, scratch.layerCtx, renderOptions);
+      } finally {
+        entry.layer.blendMode = originalBlendMode;
+        entry.layer.opacity = originalOpacity;
+      }
+      if (!painted) return false;
+      scratch.layerCtx.imageSmoothingEnabled = false;
+      scratch.layerCtx.globalCompositeOperation = keepHighBits ? 'destination-in' : 'destination-out';
+      scratch.layerCtx.drawImage(scratch.mask, 0, 0, renderWidth, renderHeight);
+      scratch.layerCtx.globalCompositeOperation = 'source-over';
+      renderCtx.save();
+      renderCtx.globalAlpha = Number.isFinite(originalOpacity) ? clamp(originalOpacity, 0, 1) : 1;
+      renderCtx.globalCompositeOperation = originalBlendMode ?? 'source-over';
+      renderCtx.drawImage(scratch.layer, 0, 0);
+      renderCtx.restore();
+      return true;
+    };
+
+    const currentPainted = drawEntry(group.entries[frame.currentIndex], false);
+    const nextPainted = drawEntry(group.entries[frame.nextIndex], true);
+    return currentPainted || nextPainted;
+  }
+
+
   getStaticComposite(renderOptions, profile) {
     if (!this.canUseStaticComposite) {
       return null;
@@ -6152,7 +6284,18 @@ class VesselGoblet {
       }
     } else {
       const dynamicStart = profile.enabled ? profile.now() : 0;
+      const paintedInterlaceGroupIds = new Set();
       sorted.forEach((entry, index) => {
+        if (this.interlaceLayerIdSet.has(entry.layer.id)) {
+          const group = this.interlaceGroups.find((candidate) => (
+            candidate.entries.some((member) => member.layer.id === entry.layer.id)
+          ));
+          if (group && !paintedInterlaceGroupIds.has(group.id)) {
+            if (this.paintInterlaceGroup(group, renderCtx, renderOptions)) painted += 1;
+            paintedInterlaceGroupIds.add(group.id);
+          }
+          return;
+        }
         if (this.paintLayerEntry(entry, index, renderCtx, renderOptions)) {
           painted += 1;
         }

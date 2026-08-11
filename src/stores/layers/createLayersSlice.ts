@@ -3,11 +3,13 @@ import type { StateCreator } from 'zustand';
 import type { AppState } from '@/stores/useAppStore';
 import { createDeferredColorCycleRuntimeRestoreScheduler } from '@/stores/layers/deferredColorCycleRuntimeRestore';
 import {
+  createInterlaceGroupFromSelectionAction,
   createLayerGroupFromSelectionAction,
   moveLayersToGroupAction,
   removeLayerGroupAction,
   renameLayerGroupAction,
   setLayerGroupVisibilityAction,
+  updateInterlaceGroupAction,
   type LayerGroupActionDeps,
 } from '@/stores/layers/layerGroupActions';
 import { type CompositeMode } from '@/stores/layers/layerCanvasCapture';
@@ -233,6 +235,11 @@ export const createLayersSlice = (
       ...layerColorCycleSlotActions,
       createLayerGroupFromSelection: (layerIds) =>
         createLayerGroupFromSelectionAction(layerIds, layerGroupActionDeps),
+      createInterlaceGroupFromSelection: (layerIds) =>
+        createInterlaceGroupFromSelectionAction(layerIds, layerGroupActionDeps),
+      updateInterlaceGroup: (groupId, updates) => {
+        updateInterlaceGroupAction(groupId, updates, layerGroupActionDeps);
+      },
       moveLayersToGroup: (layerIds, groupId, destinationIndex) => {
         moveLayersToGroupAction(layerIds, groupId, destinationIndex, layerGroupActionDeps);
       },

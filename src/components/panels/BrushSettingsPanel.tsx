@@ -11,6 +11,7 @@ import CropOptionsPanel from '@/components/panels/CropOptionsPanel';
 import ColorPickerToolPanel from '@/components/panels/ColorPickerToolPanel';
 import SelectionOptionsPanel from '@/components/panels/SelectionOptionsPanel';
 import { DisplayFiltersSection } from '@/components/panels/DisplayFiltersSection';
+import { InterlaceSettingsPanel } from '@/components/panels/InterlaceSettingsPanel';
 import { useAppStore } from '@/stores/useAppStore';
 import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
 import { brushCache } from '@/utils/brushCache';
@@ -78,11 +79,14 @@ const BrushSettingsPanel: React.FC = () => {
     brushSettings.brushShape === BrushShape.CUSTOM || brushEditorStatus === 'EDITING';
 
   const isFiltersSection = brushPanelSection === 'filters';
+  const isInterlaceSection = brushPanelSection === 'interlace';
 
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
-        {isFiltersSection ? (
+        {isInterlaceSection ? (
+          <InterlaceSettingsPanel />
+        ) : isFiltersSection ? (
           <div className="px-4 py-4">
             <DisplayFiltersSection />
           </div>

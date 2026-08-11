@@ -260,6 +260,7 @@ export const createLayerCompositeActions = ({
           !currentState.tools.brushSettings.antialiasing);
 
       const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
+      const projectWithGroups = { ...state.project, layerGroups: state.layerGroups };
 
       const drawAllLayers = (
         ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
@@ -270,7 +271,7 @@ export const createLayerCompositeActions = ({
         drawAllLayersInOrder(
           ctx,
           sortedLayers,
-          state.project!,
+          projectWithGroups,
           colorCycleBrushManager,
           get().sequentialRecord.currentFrame
         );
@@ -353,10 +354,11 @@ export const createLayerCompositeActions = ({
       ctx.imageSmoothingEnabled = !isPixelBrush;
 
       const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
+      const projectWithGroups = { ...state.project, layerGroups: state.layerGroups };
       drawAllLayersInOrder(
         ctx,
         sortedLayers,
-        state.project,
+        projectWithGroups,
         colorCycleBrushManager,
         get().sequentialRecord.currentFrame
       );
@@ -397,7 +399,7 @@ export const createLayerCompositeActions = ({
         return false;
       }
 
-      const project = state.project;
+      const project = { ...state.project, layerGroups: state.layerGroups };
       const expectedWidth = project.width;
       const expectedHeight = project.height;
       if (expectedWidth <= 0 || expectedHeight <= 0) {

@@ -583,6 +583,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   useKeyboardScope('modal', isOpen);
 
   const project = useAppStore((s) => s.project);
+  const layerGroups = useAppStore((s) => s.layerGroups);
   const compositeLayersToCanvas = useAppStore((s) => s.compositeLayersToCanvas);
   const compositeLayersToCanvasSync = useAppStore((s) => s.compositeLayersToCanvasSync);
   const layers = useAppStore((s) => s.layers);
@@ -1301,7 +1302,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               filenameBase,
               options: {
                 request: buildGobletExportSnapshotRequest({
-                  project,
+                  project: { ...project, layerGroups },
                   layers,
                   layout: project.exportLayout ?? createDefaultExportLayout(),
                   viewport: {

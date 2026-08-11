@@ -21,6 +21,7 @@ import type {
   WebGLViewport,
   WebGLViewportMode,
 } from '@/utils/export/goblet/gobletTypes';
+import { isInterlaceGroup, sanitizeInterlaceSettings } from '@/lib/interlace/interlaceSettings';
 import {
   GOBLET_PROPERTY_MINIFY_MAP,
   type GobletPropertyMinifyKey,
@@ -918,7 +919,19 @@ export const exportProjectAsWebGL = async (
       htmlBackgroundColor: resolvedHtmlBackgroundColor,
       transparencyBackgroundMode,
     },
-    layers: metadataLayers
+    layers: metadataLayers,
+    interlaceGroups: (options.project.layerGroups ?? [])
+      .filter(isInterlaceGroup)
+      .map((group) => ({
+        id: group.id,
+        layerIds: metadataLayers
+          .filter((layer) => layer.visible !== false && options.layers.find(
+            (sourceLayer) => sourceLayer.id === layer.id,
+          )?.groupId === group.id)
+          .map((layer) => layer.id),
+        settings: sanitizeInterlaceSettings(group.interlace),
+      }))
+      .filter((group) => group.layerIds.length >= 2),
   };
 
   if (preview) {
