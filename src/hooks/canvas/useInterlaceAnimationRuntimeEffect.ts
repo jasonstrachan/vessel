@@ -4,9 +4,10 @@ import { dispatchInterlaceFrameUpdate } from '@/hooks/canvas/handlers/animation/
 import { advanceInterlaceClock, resetInterlaceClock } from '@/lib/interlace/interlaceClock';
 import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import { getPlaybackRuntimeController } from '@/runtime/playback/PlaybackRuntimeController';
-import { useAppStore } from '@/stores/useAppStore';
+import { getAppStoreState } from '@/stores/appStoreAccess';
+import { useAppStore, type AppState } from '@/stores/useAppStore';
 
-export const hasPlayableInterlace = (state: ReturnType<typeof useAppStore.getState>): boolean => {
+export const hasPlayableInterlace = (state: AppState): boolean => {
   const visibleLayerCountByGroupId = new Map<string, number>();
   (state.layers ?? []).forEach((layer) => {
     if (layer.visible && layer.layerType !== 'sequential' && layer.groupId) {
@@ -24,7 +25,7 @@ export const hasPlayableInterlace = (state: ReturnType<typeof useAppStore.getSta
 };
 
 export const isInterlacePlaybackActive = (
-  state: ReturnType<typeof useAppStore.getState>,
+  state: AppState,
 ): boolean => Boolean(
   state.colorCyclePlayback?.desiredPlaying
   && state.colorCyclePlayback.suspendDepth === 0
@@ -34,8 +35,8 @@ export const isInterlacePlaybackActive = (
 export const useInterlaceAnimationRuntimeEffect = (): void => {
   useEffect(() => {
     const controller = getPlaybackRuntimeController();
-    let currentProjectId = useAppStore.getState().project?.id ?? null;
-    const sync = (state: ReturnType<typeof useAppStore.getState>) => {
+    let currentProjectId = getAppStoreState().project?.id ?? null;
+    const sync = (state: AppState) => {
       const nextProjectId = state.project?.id ?? null;
       if (nextProjectId !== currentProjectId) {
         currentProjectId = nextProjectId;
@@ -45,9 +46,9 @@ export const useInterlaceAnimationRuntimeEffect = (): void => {
       if (isPlaying) controller.sync(state, 'interlace-store-sync');
     };
     const unsubscribe = useAppStore.subscribe(sync);
-    sync(useAppStore.getState());
+    sync(getAppStoreState());
     const unregister = controller.registerAnimationConsumer((_timestampMs, deltaMs) => {
-      const state = useAppStore.getState();
+      const state = getAppStoreState();
       const playback = state.colorCyclePlayback;
       if (!isInterlacePlaybackActive(state)) {
         return;

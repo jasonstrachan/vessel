@@ -10,7 +10,7 @@ import {
   getColorCycleFrameReadySourceLayerId,
 } from '@/hooks/brushEngine/colorCycleFrameEvents';
 import { isInterlacePlaybackActive } from '@/hooks/canvas/useInterlaceAnimationRuntimeEffect';
-import { useAppStore } from '@/stores/useAppStore';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
 
 import { createColorCycleFrameCoalescer } from './colorCycleFrameCoalescer';
@@ -75,7 +75,7 @@ export const useDrawingCanvasRedrawEffects = ({
     const handleColorCycleFrameReady = (event: Event) => {
       const dirtyBatches = getColorCycleFrameReadyDirtyBatches(event);
       const sourceLayerId = getColorCycleFrameReadySourceLayerId(event);
-      const state = useAppStore.getState();
+      const state = getAppStoreState();
       const sourceLayer = sourceLayerId
         ? state.layers.find((layer) => layer.id === sourceLayerId)
         : undefined;
@@ -98,7 +98,7 @@ export const useDrawingCanvasRedrawEffects = ({
     };
 
     const handleAnimationFrameUpdate = () => {
-      if (isInterlacePlaybackActive(useAppStore.getState())) {
+      if (isInterlacePlaybackActive(getAppStoreState())) {
         return;
       }
       queue.enqueueRedraw();
