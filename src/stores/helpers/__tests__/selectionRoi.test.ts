@@ -2,6 +2,7 @@ import {
   clampMarqueeDragRectToBounds,
   clampSelectionBounds,
   copyRegionIntoTarget,
+  fillRasterWithinSelection,
   hasVisibleSelectionMask,
 } from '@/stores/helpers/selectionRoi';
 
@@ -61,5 +62,72 @@ describe('hasVisibleSelectionMask', () => {
     mask.data[3] = 255;
 
     expect(hasVisibleSelectionMask(mask)).toBe(true);
+  });
+});
+
+describe('fillRasterWithinSelection', () => {
+  it('fills every pixel in a rectangular selection regardless of its source color', () => {
+    const image = createImageData(4, 1);
+    image.data.set([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+      0, 0, 255, 255,
+      255, 255, 0, 255,
+    ]);
+
+    const bounds = fillRasterWithinSelection(
+      image,
+      { x: 1, y: 0, width: 2, height: 1 },
+      { r: 12, g: 34, b: 56, a: 255 },
+      null,
+      null,
+    );
+
+    expect(bounds).toEqual({ x: 1, y: 0, width: 2, height: 1 });
+    expect(Array.from(image.data)).toEqual([
+      255, 0, 0, 255,
+      12, 34, 56, 255,
+      12, 34, 56, 255,
+      255, 255, 0, 255,
+    ]);
+  });
+
+  it('fills only visible pixels in a mask-backed selection', () => {
+    const image = createImageData(3, 1, 90);
+    const mask = createImageData(3, 1);
+    mask.data[7] = 255;
+
+    const bounds = fillRasterWithinSelection(
+      image,
+      { x: 0, y: 0, width: 3, height: 1 },
+      { r: 0, g: 0, b: 0, a: 255 },
+      mask,
+      { x: 0, y: 0, width: 3, height: 1 },
+    );
+
+    expect(bounds).toEqual({ x: 1, y: 0, width: 1, height: 1 });
+    expect(Array.from(image.data)).toEqual([
+      90, 90, 90, 90,
+      0, 0, 0, 255,
+      90, 90, 90, 90,
+    ]);
+  });
+
+  it('returns no bounds when every selected pixel already matches the fill color', () => {
+    const image = createImageData(2, 1);
+    image.data.set([
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+    ]);
+
+    const bounds = fillRasterWithinSelection(
+      image,
+      { x: 0, y: 0, width: 2, height: 1 },
+      { r: 0, g: 0, b: 0, a: 255 },
+      null,
+      null,
+    );
+
+    expect(bounds).toBeNull();
   });
 });

@@ -1398,7 +1398,7 @@ describe('pointerHandlers main flows', () => {
     });
   });
 
-  it('clips flood fill updates to mask-backed selections', () => {
+  it('fills only visible pixels in a mask-backed selection', () => {
     const framebuffer = document.createElement('canvas');
     framebuffer.width = 3;
     framebuffer.height = 1;
@@ -1437,7 +1437,7 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.updateLayer).toHaveBeenCalledTimes(1);
     expect((deps.updateLayer as jest.Mock).mock.calls[0][2]).toEqual({
-      dirtyRects: [{ x: 0, y: 0, width: 3, height: 1 }],
+      dirtyRects: [{ x: 1, y: 0, width: 1, height: 1 }],
     });
     const updatedImageData = (deps.updateLayer as jest.Mock).mock.calls[0][1].imageData as ImageData;
     expect(Array.from(updatedImageData.data)).toEqual([
@@ -1445,6 +1445,106 @@ describe('pointerHandlers main flows', () => {
       0, 0, 0, 255,
       0, 0, 0, 0,
     ]);
+  });
+
+  it('fills the whole rectangular selection even when clicking outside it', () => {
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 4;
+    framebuffer.height = 1;
+    const initialImage = new ImageData(
+      new Uint8ClampedArray([
+        255, 0, 0, 255,
+        0, 255, 0, 255,
+        0, 0, 255, 255,
+        255, 255, 0, 255,
+      ]),
+      4,
+      1,
+    );
+    framebuffer.getContext('2d')?.putImageData(initialImage, 0, 0);
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'fill',
+        fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
+      } as any,
+      layers: [{
+        id: 'layer-1',
+        imageData: initialImage,
+        framebuffer,
+        layerType: 'normal',
+      } as any],
+      activeLayerId: 'layer-1',
+      project: { ...mockProject, width: 4, height: 1 },
+      selectionStart: { x: 1, y: 0 },
+      selectionEnd: { x: 3, y: 1 },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    dynamicDepsRef.current.selectionStart = deps.selectionStart;
+    dynamicDepsRef.current.selectionEnd = deps.selectionEnd;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0 }));
+
+    expect(deps.updateLayer).toHaveBeenCalledTimes(1);
+    expect((deps.updateLayer as jest.Mock).mock.calls[0][2]).toEqual({
+      dirtyRects: [{ x: 1, y: 0, width: 2, height: 1 }],
+    });
+    const updatedImageData = (deps.updateLayer as jest.Mock).mock.calls[0][1].imageData as ImageData;
+    expect(Array.from(updatedImageData.data)).toEqual([
+      255, 0, 0, 255,
+      0, 0, 0, 255,
+      0, 0, 0, 255,
+      255, 255, 0, 255,
+    ]);
+    expect(Array.from(initialImage.data)).toEqual([
+      255, 0, 0, 255,
+      0, 255, 0, 255,
+      0, 0, 255, 255,
+      255, 255, 0, 255,
+    ]);
+  });
+
+  it('does not update a layer when the selected pixels already match the fill color', () => {
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 2;
+    framebuffer.height = 1;
+    const initialImage = new ImageData(
+      new Uint8ClampedArray([
+        0, 0, 0, 255,
+        0, 0, 0, 255,
+      ]),
+      2,
+      1,
+    );
+    framebuffer.getContext('2d')?.putImageData(initialImage, 0, 0);
+
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'fill',
+        fillSettings: { threshold: 0, contiguous: true, eraseInstead: false },
+      } as any,
+      layers: [{
+        id: 'layer-1',
+        imageData: initialImage,
+        framebuffer,
+        layerType: 'normal',
+      } as any],
+      activeLayerId: 'layer-1',
+      project: { ...mockProject, width: 2, height: 1 },
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 1 },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    dynamicDepsRef.current.selectionStart = deps.selectionStart;
+    dynamicDepsRef.current.selectionEnd = deps.selectionEnd;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 0, clientY: 0 }));
+
+    expect(deps.updateLayer).not.toHaveBeenCalled();
   });
 
   it('allows dither gradient shape start outside canvas', () => {

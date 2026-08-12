@@ -13,6 +13,13 @@ export interface SelectionRasterScope {
   selectionMaskBounds: Rectangle | null;
 }
 
+interface SelectionFillColor {
+  r: number;
+  g: number;
+  b: number;
+  a: number;
+}
+
 export const hasVisibleSelectionMask = (selectionMask: ImageData | null): boolean => {
   if (!selectionMask) {
     return false;
@@ -140,6 +147,54 @@ const isMaskPixelSelected = (
 
   const alphaIndex = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
   return (selectionMask.data[alphaIndex] ?? 0) > 0;
+};
+
+export const fillRasterWithinSelection = (
+  target: ImageData,
+  bounds: Rectangle,
+  fillColor: SelectionFillColor,
+  selectionMask: ImageData | null,
+  selectionMaskBounds: Rectangle | null
+): Rectangle | null => {
+  const startX = Math.max(0, Math.floor(bounds.x));
+  const startY = Math.max(0, Math.floor(bounds.y));
+  const endX = Math.min(target.width, Math.ceil(bounds.x + bounds.width));
+  const endY = Math.min(target.height, Math.ceil(bounds.y + bounds.height));
+  let minX = target.width;
+  let minY = target.height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = startY; y < endY; y += 1) {
+    for (let x = startX; x < endX; x += 1) {
+      if (!isMaskPixelSelected(x, y, selectionMask, selectionMaskBounds)) {
+        continue;
+      }
+
+      const index = (y * target.width + x) * 4;
+      if (
+        target.data[index] === fillColor.r &&
+        target.data[index + 1] === fillColor.g &&
+        target.data[index + 2] === fillColor.b &&
+        target.data[index + 3] === fillColor.a
+      ) {
+        continue;
+      }
+
+      target.data[index] = fillColor.r;
+      target.data[index + 1] = fillColor.g;
+      target.data[index + 2] = fillColor.b;
+      target.data[index + 3] = fillColor.a;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  return maxX >= minX && maxY >= minY
+    ? { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
+    : null;
 };
 
 export const copyRectWithinSelection = (

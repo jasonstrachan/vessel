@@ -305,7 +305,7 @@ import {
   shouldPixelAlignBrush,
 } from '@/hooks/canvas/utils/strokeRasterPolicy';
 import {
-  copyRectWithinSelection,
+  fillRasterWithinSelection,
   resolveSelectionRasterScope,
 } from '@/stores/helpers/selectionRoi';
 import { applyMagicWandSelection } from './magicWandSelection';
@@ -3002,6 +3002,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         }
 
         const beforeImage = cloneLayerImageData(currentImageData);
+        const workingImageData = cloneLayerImageData(currentImageData);
+        if (!beforeImage || !workingImageData) {
+          return;
+        }
         const beforeColorState =
           activeLayer.layerType === 'color-cycle'
             ? captureColorCycleBrushState(activeLayer.id)
@@ -3020,40 +3024,41 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
               return { r, g, b, a: 255 };
             })();
 
-        // Perform flood fill on the current image data
-        const { imageData: filledImageData, bounds: fillBounds } = floodFill(
-          currentImageData,
-          Math.floor(worldPos.x),
-          Math.floor(worldPos.y),
-          fillColor,
-          {
-            threshold: tools.fillSettings.threshold,
-            contiguous: tools.fillSettings.contiguous
-          }
-        );
-
         const selectionScope = resolveSelectionRasterScope({
           selectionStart,
           selectionEnd,
           selectionMask,
           selectionMaskBounds,
-        }, filledImageData.width, filledImageData.height);
-        const nextImageData = selectionScope.bounds
-          ? cloneLayerImageData(beforeImage ?? currentImageData)
-          : filledImageData;
+        }, workingImageData.width, workingImageData.height);
+        let nextImageData: ImageData;
+        let fillBounds: { x: number; y: number; width: number; height: number } | null;
 
-        if (!nextImageData) {
-          return;
-        }
-
-        if (selectionScope.bounds && fillBounds) {
-          copyRectWithinSelection(
-            filledImageData,
+        if (selectionScope.bounds) {
+          nextImageData = workingImageData;
+          fillBounds = fillRasterWithinSelection(
             nextImageData,
-            fillBounds,
+            selectionScope.bounds,
+            fillColor,
             selectionScope.selectionMask,
             selectionScope.selectionMaskBounds
           );
+        } else {
+          const fillResult = floodFill(
+            workingImageData,
+            Math.floor(worldPos.x),
+            Math.floor(worldPos.y),
+            fillColor,
+            {
+              threshold: tools.fillSettings.threshold,
+              contiguous: tools.fillSettings.contiguous
+            }
+          );
+          nextImageData = fillResult.imageData;
+          fillBounds = fillResult.bounds;
+        }
+
+        if (!fillBounds) {
+          return;
         }
 
         // Update the layer's framebuffer with the constrained filled image data
@@ -3070,7 +3075,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           updateLayer(
             activeLayerId,
             { imageData: nextImageData },
-            fillBounds ? { dirtyRects: [fillBounds] } : undefined,
+            { dirtyRects: [fillBounds] },
           );
         }
 
@@ -3097,7 +3102,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           actionType: 'fill',
           description: shouldErase ? 'Flood erase' : 'Flood fill',
           tool: shouldErase ? 'eraser-fill' : 'fill',
-          bitmapRoi: fillBounds ?? undefined,
+          bitmapRoi: fillBounds,
         }).catch((error) => {
           if (process.env.NODE_ENV !== 'production') {
             debugWarn('raw-console', '[history] Failed to record flood fill history', error);
