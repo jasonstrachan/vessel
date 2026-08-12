@@ -1140,25 +1140,32 @@ export const createSelectionPasteHelpers = ({
   const cancelFloatingPaste = (): void => {
     const state = get();
     const floatingPaste = state.floatingPaste;
+    const restoreContext = state.floatingPasteHistoryContext;
     const project = state.project;
+    const shouldRestoreExtractedSelection = Boolean(
+      floatingPaste?.sourceLayerId &&
+      restoreContext &&
+      restoreContext.sourceLayerId === floatingPaste.sourceLayerId
+    );
 
     if (
       floatingPaste &&
       hasColorCycleIndices(floatingPaste) &&
       floatingPaste.sourceLayerId &&
+      shouldRestoreExtractedSelection &&
       project
     ) {
       const targetLayer = state.layers.find((layer) => layer.id === floatingPaste.sourceLayerId);
       if (targetLayer && targetLayer.layerType === 'color-cycle') {
+        const sourceIndices = restoreContext?.sourceIndices;
+        if (!sourceIndices) {
+          logError('[floatingPaste] Cannot restore extracted CC selection without source indices');
+          return;
+        }
         let restoreTransactionId: string | null = null;
         let restoreTransactionKind = 'paste-cancel-restore';
         const targetCanvas = targetLayer.colorCycleData?.canvas ?? targetLayer.framebuffer ?? null;
-        const restoreRect = {
-          x: floatingPaste.originalPosition.x,
-          y: floatingPaste.originalPosition.y,
-          width: floatingPaste.width,
-          height: floatingPaste.height,
-        };
+        const restoreRect = restoreContext.sourceBounds;
         const targetCanonical = buildCcCanonicalPayload(
           state,
           targetLayer.id,
@@ -1197,26 +1204,26 @@ export const createSelectionPasteHelpers = ({
         restoreTransactionId = restorePreflight.transactionId;
         restoreTransactionKind = restorePreflight.kind;
 
-        const bitmapAlphaData = floatingPaste.imageData?.data ?? null;
+        const bitmapAlphaData = restoreContext.sourceBeforeImage?.data ?? null;
         const hasBitmapAlpha = bitmapAlphaData
           ? bitmapAlphaData.some((value, index) => index % 4 === 3 && value > 0)
           : false;
         const synthesizedAlpha = hasBitmapAlpha
           ? null
-          : buildOpaqueAlphaFromIndices(floatingPaste.colorCycleIndices);
+          : buildOpaqueAlphaFromIndices(sourceIndices);
         const alphaData = hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha;
         const restoreAlreadyMatches = colorCyclePayloadAlreadyMatchesRegion(
           targetCanonical,
           restoreRect,
-          floatingPaste.colorCycleIndices,
-          floatingPaste.width,
-          floatingPaste.height,
+          sourceIndices,
+          restoreRect.width,
+          restoreRect.height,
           {
-            sourceGradientIds: floatingPaste.colorCycleGradientIds,
-            sourceGradientDefIds: floatingPaste.colorCycleGradientDefIds,
-            sourceSpeed: floatingPaste.colorCycleSpeed,
-            sourceFlow: floatingPaste.colorCycleFlow,
-            sourcePhase: floatingPaste.colorCyclePhase,
+            sourceGradientIds: restoreContext.sourceGradientIds,
+            sourceGradientDefIds: restoreContext.sourceGradientDefIds,
+            sourceSpeed: restoreContext.sourceSpeed,
+            sourceFlow: restoreContext.sourceFlow,
+            sourcePhase: restoreContext.sourcePhase,
             alphaData,
             alphaStride: hasBitmapAlpha ? 4 : 1,
             alphaChannelOffset: hasBitmapAlpha ? 3 : 0,
@@ -1228,15 +1235,15 @@ export const createSelectionPasteHelpers = ({
           targetLayer,
           project,
           restoreRect,
-          floatingPaste.colorCycleIndices,
-          floatingPaste.width,
-          floatingPaste.height,
+          sourceIndices,
+          restoreRect.width,
+          restoreRect.height,
           {
-            sourceGradientIds: floatingPaste.colorCycleGradientIds,
-            sourceGradientDefIds: floatingPaste.colorCycleGradientDefIds,
-            sourceSpeed: floatingPaste.colorCycleSpeed,
-            sourceFlow: floatingPaste.colorCycleFlow,
-            sourcePhase: floatingPaste.colorCyclePhase,
+            sourceGradientIds: restoreContext.sourceGradientIds,
+            sourceGradientDefIds: restoreContext.sourceGradientDefIds,
+            sourceSpeed: restoreContext.sourceSpeed,
+            sourceFlow: restoreContext.sourceFlow,
+            sourcePhase: restoreContext.sourcePhase,
             alphaData,
             alphaStride: hasBitmapAlpha ? 4 : 1,
             alphaChannelOffset: hasBitmapAlpha ? 3 : 0,
@@ -1282,7 +1289,13 @@ export const createSelectionPasteHelpers = ({
       }
     }
 
-    if (floatingPaste && floatingPaste.imageData && floatingPaste.sourceLayerId) {
+    if (
+      floatingPaste &&
+      floatingPaste.imageData &&
+      floatingPaste.sourceLayerId &&
+      shouldRestoreExtractedSelection &&
+      restoreContext
+    ) {
       const targetLayer = state.layers.find((layer) => layer.id === floatingPaste.sourceLayerId);
       let layerImageData = targetLayer?.imageData || null;
 
@@ -1302,12 +1315,13 @@ export const createSelectionPasteHelpers = ({
       }
 
       if (layerImageData) {
+        const sourceImage = restoreContext.sourceBeforeImage ?? floatingPaste.imageData;
         const restoredLayerData = new Uint8ClampedArray(layerImageData.data);
-        const pasteData = floatingPaste.imageData.data;
-        const pasteWidth = floatingPaste.imageData.width;
-        const pasteHeight = floatingPaste.imageData.height;
-        const baseX = clamp(Math.round(floatingPaste.originalPosition.x), 0, layerImageData.width);
-        const baseY = clamp(Math.round(floatingPaste.originalPosition.y), 0, layerImageData.height);
+        const pasteData = sourceImage.data;
+        const pasteWidth = sourceImage.width;
+        const pasteHeight = sourceImage.height;
+        const baseX = clamp(Math.round(restoreContext.sourceBounds.x), 0, layerImageData.width);
+        const baseY = clamp(Math.round(restoreContext.sourceBounds.y), 0, layerImageData.height);
 
         for (let y = 0; y < pasteHeight; y++) {
           const targetY = baseY + y;

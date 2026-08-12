@@ -88,6 +88,7 @@ export interface FloatingPasteHistoryContext {
   sourceLayerId: string;
   sourceBounds: Rectangle;
   sourceBeforeImage?: ImageData | null;
+  sourceIndices?: Uint8Array | null;
   sourceGradientIds?: Uint8Array | null;
   sourceGradientDefIds?: Uint16Array | null;
   sourceSpeed?: Uint8Array | null;
@@ -2278,6 +2279,9 @@ export const createSelectionSlice = ({
             height: capture.bounds.height,
           },
           sourceBeforeImage: extractImageDataRegion(sourceImageData, capture.bounds),
+          sourceIndices: colorCyclePayload.colorCycleIndices
+            ? new Uint8Array(colorCyclePayload.colorCycleIndices)
+            : null,
           sourceGradientIds: extractColorCycleRegion(beforeColorState, capture.bounds, 'gradientIdBuffer', activeLayerId),
           sourceGradientDefIds: extractColorCycleDefRegion(beforeColorState, capture.bounds, activeLayerId),
           sourceSpeed: extractColorCycleRegion(beforeColorState, capture.bounds, 'speedBuffer', activeLayerId),

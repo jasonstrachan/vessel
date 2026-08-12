@@ -302,18 +302,10 @@ export const useDrawingCanvasKeyboard = ({
         return;
       }
 
-      const cancelled = cancelActiveOperations({
+      cancelActiveOperations({
         includeFloatingPaste: true,
         dispatchInteractionEnd: true,
       });
-
-      if (cancelled) {
-        const canvas = canvasRef.current;
-        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-        if (ctx) {
-          draw(ctx, viewTransformRef.current);
-        }
-      }
     },
     enabled: true,
   });

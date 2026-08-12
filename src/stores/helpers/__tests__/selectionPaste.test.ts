@@ -208,6 +208,53 @@ const setupHelpers = (
   return { helpers, state, captureCanvasToActiveLayer, layer };
 };
 
+const markFloatingPasteAsExtractedSelection = (state: TestState) => {
+  const floatingPaste = state.floatingPaste as NonNullable<AppState['floatingPaste']>;
+  state.floatingPasteHistoryContext = {
+    sourceLayerId: floatingPaste.sourceLayerId!,
+    sourceBounds: {
+      x: floatingPaste.originalPosition.x,
+      y: floatingPaste.originalPosition.y,
+      width: floatingPaste.width,
+      height: floatingPaste.height,
+    },
+    sourceBeforeImage: floatingPaste.imageData
+      ? new ImageData(
+          new Uint8ClampedArray(floatingPaste.imageData.data),
+          floatingPaste.imageData.width,
+          floatingPaste.imageData.height,
+        )
+      : null,
+    sourceIndices: floatingPaste.colorCycleIndices
+      ? new Uint8Array(floatingPaste.colorCycleIndices)
+      : null,
+    sourceGradientIds: floatingPaste.colorCycleGradientIds
+      ? new Uint8Array(floatingPaste.colorCycleGradientIds)
+      : null,
+    sourceGradientDefIds: floatingPaste.colorCycleGradientDefIds
+      ? new Uint16Array(floatingPaste.colorCycleGradientDefIds)
+      : null,
+    sourceSpeed: floatingPaste.colorCycleSpeed
+      ? new Uint8Array(floatingPaste.colorCycleSpeed)
+      : null,
+    sourceFlow: floatingPaste.colorCycleFlow
+      ? new Uint8Array(floatingPaste.colorCycleFlow)
+      : null,
+    sourcePhase: floatingPaste.colorCyclePhase
+      ? new Uint8Array(floatingPaste.colorCyclePhase)
+      : null,
+    beforeImage: null,
+    beforeColorState: null,
+    selectionBefore: {
+      start: { ...floatingPaste.originalPosition },
+      end: {
+        x: floatingPaste.originalPosition.x + floatingPaste.width,
+        y: floatingPaste.originalPosition.y + floatingPaste.height,
+      },
+    },
+  };
+};
+
 const setMatchingCcSnapshotForFloatingPaste = (
   state: TestState,
   layer: Layer,
@@ -980,6 +1027,76 @@ describe('selection paste commit', () => {
     }));
   });
 
+  it('discards a copied CC clipboard paste on cancel without writing it into the source layer', () => {
+    const { helpers, state } = setupHelpers(
+      {
+        imageData: new ImageData(2, 2),
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        originalPosition: { x: 20, y: 21 },
+        position: { x: 20, y: 21 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+
+    helpers.cancelFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(state.updateLayer).not.toHaveBeenCalled();
+    expect(state.scheduleColorCycleSlotRebuild).not.toHaveBeenCalled();
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it('restores an extracted bitmap selection only when its move context authorizes restoration', () => {
+    const sourceImage = new ImageData(
+      new Uint8ClampedArray([
+        255, 0, 0, 255,
+        0, 255, 0, 255,
+        0, 0, 255, 255,
+        255, 255, 0, 255,
+      ]),
+      2,
+      2,
+    );
+    const { helpers, state } = setupHelpers({
+      imageData: sourceImage,
+      width: 2,
+      height: 2,
+      displayWidth: 2,
+      displayHeight: 2,
+      originalPosition: { x: 6, y: 7 },
+      position: { x: 20, y: 21 },
+    });
+    markFloatingPasteAsExtractedSelection(state);
+    state.floatingPaste!.imageData = new ImageData(2, 2);
+
+    helpers.cancelFloatingPaste();
+
+    expect(state.updateLayer).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        imageData: expect.objectContaining({
+          width: 64,
+          height: 64,
+        }),
+      }),
+      {
+        dirtyRects: [{ x: 6, y: 7, width: 2, height: 2 }],
+      },
+    );
+    const restoredImage = (state.updateLayer as jest.Mock).mock.calls[0]?.[1].imageData as ImageData;
+    const restoredOffset = (7 * restoredImage.width + 6) * 4;
+    expect(Array.from(restoredImage.data.slice(restoredOffset, restoredOffset + 4))).toEqual([
+      255, 0, 0, 255,
+    ]);
+    expect(state.floatingPaste).toBeNull();
+  });
+
   it('uses floating paste alpha when cancel restores a moved freehand color-cycle selection', () => {
     const colorCycleIndices = new Uint8Array([
       1, 0,
@@ -1008,6 +1125,7 @@ describe('selection paste commit', () => {
         layerType: 'color-cycle',
       }
     );
+    markFloatingPasteAsExtractedSelection(state);
 
     mockWriteColorCycleRegion.mockReturnValueOnce(true);
 
@@ -1037,6 +1155,42 @@ describe('selection paste commit', () => {
     expect(state.floatingPaste).toBeNull();
   });
 
+  it('restores immutable source indices after the floating CC selection changes', () => {
+    const sourceIndices = new Uint8Array([1, 0, 0, 4]);
+    const { helpers, state } = setupHelpers(
+      {
+        imageData: new ImageData(2, 2),
+        colorCycleIndices: sourceIndices,
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        originalPosition: { x: 6, y: 7 },
+        position: { x: 20, y: 21 },
+      },
+      {
+        layerType: 'color-cycle',
+      }
+    );
+    markFloatingPasteAsExtractedSelection(state);
+    state.floatingPaste!.colorCycleIndices = new Uint8Array([4, 0, 0, 1]);
+    mockWriteColorCycleRegion.mockReturnValueOnce(true);
+
+    helpers.cancelFloatingPaste();
+
+    expect(mockWriteColorCycleRegion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      { x: 6, y: 7, width: 2, height: 2 },
+      sourceIndices,
+      2,
+      2,
+      expect.anything()
+    );
+    expect(state.floatingPaste).toBeNull();
+  });
+
   it('keeps a CC floating paste active when cancel restore fails', () => {
     const colorCycleIndices = new Uint8Array([
       1, 0,
@@ -1058,6 +1212,7 @@ describe('selection paste commit', () => {
         layerType: 'color-cycle',
       }
     );
+    markFloatingPasteAsExtractedSelection(state);
 
     mockWriteColorCycleRegion.mockReturnValueOnce(false);
 
@@ -1089,6 +1244,7 @@ describe('selection paste commit', () => {
         layerType: 'color-cycle',
       }
     );
+    markFloatingPasteAsExtractedSelection(state);
     setIncompleteCcSnapshot(state, layer);
 
     helpers.cancelFloatingPaste();
@@ -1151,6 +1307,7 @@ describe('selection paste commit', () => {
         layerType: 'color-cycle',
       }
     );
+    markFloatingPasteAsExtractedSelection(state);
     setMatchingCcSnapshotForFloatingPaste(
       state,
       layer,
@@ -1188,6 +1345,7 @@ describe('selection paste commit', () => {
         layerType: 'color-cycle',
       }
     );
+    markFloatingPasteAsExtractedSelection(state);
 
     mockWriteColorCycleRegion.mockReturnValueOnce(true);
 
