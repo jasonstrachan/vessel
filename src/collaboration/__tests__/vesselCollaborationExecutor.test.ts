@@ -1,5 +1,9 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import {
+  colorCycleFlatDitherArtworkProfile,
+  colorCycleStrokeArtworkProfile,
+} from '@/presets/brushPresets';
 import { BrushShape } from '@/types';
 import { setSharedColorCycleGradient } from '@/utils/colorCycleGradients';
 import { deserializeProject } from '@/utils/projectIO';
@@ -112,7 +116,7 @@ describe('createVesselCollaborationExecutor', () => {
       scheduleHistoryCommit: jest.fn(async () => undefined),
     };
     const runtimeIdentity = {
-      protocolVersion: 4,
+      protocolVersion: 6,
       runtimeBuildId: 'build-current',
       runtimeInstanceId: 'runtime-current',
       leaseEpoch: 3,
@@ -143,7 +147,11 @@ describe('createVesselCollaborationExecutor', () => {
       kind: 'stroke',
       capture: 'none',
       points: [{ x: 1, y: 2 }],
-      runtimeFence,
+      observedProjectId: 'project-1',
+      observedProjectRevision: 3,
+      observationId: 'frame-1',
+      respondingToGestureId: 'human-1',
+      runtimeFence: { ...runtimeFence, expectedProjectRevision: 3 },
     });
     expect(gestureResult).not.toHaveProperty('error');
     expect(gestureResult).toMatchObject({ ok: true });
@@ -892,7 +900,7 @@ describe('createVesselCollaborationExecutor', () => {
       id: 'coverage-job',
       action: 'artwork-job',
       runtimeFence: {
-        protocolVersion: 4,
+        protocolVersion: 6,
         runtimeBuildId: 'test',
         runtimeInstanceId: 'runtime',
         leaseEpoch: 1,
@@ -1009,7 +1017,7 @@ describe('createVesselCollaborationExecutor', () => {
       id: 'partial-job',
       action: 'artwork-job',
       runtimeFence: {
-        protocolVersion: 4,
+        protocolVersion: 6,
         runtimeBuildId: 'test',
         runtimeInstanceId: 'runtime',
         leaseEpoch: 1,
@@ -1443,6 +1451,13 @@ describe('createVesselCollaborationExecutor', () => {
         name: 'CC Flat Dither',
         category: 'Color Cycle',
         isCustomBrush: false,
+        artworkProfile: colorCycleFlatDitherArtworkProfile,
+      }, {
+        id: 'color-cycle-stroke',
+        name: 'CC Stroke',
+        category: 'Color Cycle',
+        isCustomBrush: false,
+        artworkProfile: colorCycleStrokeArtworkProfile,
       }],
       layers: [{
         id: 'layer-1',
@@ -1591,11 +1606,93 @@ describe('createVesselCollaborationExecutor', () => {
       ditherStrokeTipShape: 'diamond5',
       antialiasing: false,
     }));
+    expect(colorCycleFlatDitherArtworkProfile).toMatchObject({
+      schemaVersion: 1,
+      markType: 'shape',
+      baseSettings: {
+        ditherAlgorithm: 'sierra-lite',
+        ditherPaletteSpread: 100,
+        ditherPhaseJitter: 0,
+        ccGradientRangeContrast: 100,
+        ccFlatCycleBands: 0,
+        colorCycleFillMode: 'linear',
+      },
+      speed: {
+        absoluteMaximum: 0.08,
+        phaseTier: {
+          establish: 'quiet',
+          develop: 'secondary',
+          deepen: 'foreground',
+        },
+        tiers: {
+          quiet: { min: 0.005, max: 0.01 },
+          secondary: { min: 0.015, max: 0.02 },
+          foreground: { min: 0.05, max: 0.075 },
+          focal: { min: 0.055, max: 0.08 },
+        },
+      },
+      detail: {
+        fillResolutionByPhase: { establish: 3, develop: 2, deepen: 1 },
+        finalPeripheralCluster: {
+          fillResolution: 8,
+          shapeCount: { min: 3, max: 5 },
+          physicalScale: 'medium',
+          placement: 'connected-cluster',
+          speedTier: 'secondary',
+        },
+      },
+      construction: {
+        boundaryAnchors: { min: 20, max: 60 },
+        gesturePoints: { min: 40, max: 120 },
+        gradientDirection: {
+          strategy: 'farthest-boundary-pair',
+          startPoint: 'mass-centroid',
+          minimumSpanRatio: 4,
+          maximumSpanRatio: 8,
+          endpointMayLeaveCanvas: true,
+        },
+      },
+      inventory: { defaultMassCount: 300, permanentPreparationMasses: 1 },
+    });
+    expect(colorCycleStrokeArtworkProfile).toMatchObject({
+      schemaVersion: 1,
+      markType: 'stroke',
+      gradientSource: 'sampled',
+      baseSettings: {
+        size: 4,
+        spacing: 4,
+        gradientBands: 64,
+        ccGradientRangeContrast: 100,
+        ccSampledSoftSeamEnabled: false,
+        colorCycleStampDitherEnabled: true,
+        ditherAlgorithm: 'sierra-lite',
+      },
+      preparation: { colorCycleSpeed: 0.01, stampDitherPixelSize: 3 },
+      speed: {
+        absoluteMaximum: 0.08,
+        phaseTier: {
+          establish: 'quiet',
+          develop: 'secondary',
+          deepen: 'foreground',
+        },
+      },
+      detail: {
+        stampDitherPixelSizeByPhase: { establish: 3, develop: 2, deepen: 1 },
+      },
+      strokeSize: { pixels: 4, canvasShortEdge: 512, consistentWithinArtwork: true },
+    });
     expect(result).toMatchObject({
       ok: true,
       completedOperations: 5,
       state: {
         currentBrushCapabilities: { canDither: false, forceDither: true },
+        availableBrushPresets: [{
+          id: 'color-cycle-flat-dither',
+          artworkProfile: colorCycleFlatDitherArtworkProfile,
+        }, {
+          id: 'color-cycle-stroke',
+          artworkProfile: colorCycleStrokeArtworkProfile,
+        }],
         palette: {
           foreground: '#123456',
           background: '#abcdef',
@@ -2258,7 +2355,7 @@ describe('createVesselCollaborationExecutor', () => {
       state.autosave.dirtyRevision = 1;
     });
     const runtimeIdentity = {
-      protocolVersion: 4 as const,
+      protocolVersion: 6 as const,
       runtimeBuildId: 'build-current',
       runtimeInstanceId: 'runtime-current',
       leaseEpoch: 3,
@@ -2344,7 +2441,7 @@ describe('createVesselCollaborationExecutor', () => {
       }),
     } as unknown as HTMLCanvasElement;
     const runtimeIdentity = {
-      protocolVersion: 4 as const,
+      protocolVersion: 6 as const,
       runtimeBuildId: 'build-current',
       runtimeInstanceId: 'runtime-current',
       leaseEpoch: 3,
@@ -2746,7 +2843,7 @@ describe('createVesselCollaborationExecutor', () => {
     const execute = createVesselCollaborationExecutor(getRuntime, {
       requireRuntimeFence: true,
       getRuntimeIdentity: () => ({
-        protocolVersion: 4,
+        protocolVersion: 6,
         runtimeBuildId: 'build-current',
         runtimeInstanceId: 'runtime-current',
         leaseEpoch: 3,
@@ -2758,7 +2855,7 @@ describe('createVesselCollaborationExecutor', () => {
       action: 'shape',
       capture: 'none',
       runtimeFence: {
-        protocolVersion: 4,
+        protocolVersion: 6,
         runtimeBuildId: 'build-stale',
         runtimeInstanceId: 'runtime-stale',
         leaseEpoch: 2,

@@ -6,13 +6,19 @@ const setZoom = jest.fn();
 const stopVesselMultiplayerSession = jest.fn();
 let multiplayer = {
   sessionId: null as string | null,
-  status: 'idle' as 'idle' | 'active',
+  projectId: null as string | null,
+  status: 'idle' as 'idle' | 'active' | 'stopping' | 'stopped' | 'error',
   humanLayerId: null,
   aiLayerId: null,
   activeGestureId: null,
   aiCursor: null as null | { x: number; y: number; visible: boolean; drawing: boolean },
   stopReason: null,
-  error: null,
+  error: null as string | null,
+  bridgeStatus: 'connected' as 'connected' | 'connecting' | 'disconnected',
+  aiState: 'watching',
+  aiModel: 'test-model' as string | null,
+  lastObservationAt: null as number | null,
+  bridgeError: null as string | null,
 };
 
 jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
@@ -46,6 +52,7 @@ describe('DrawingCanvasOverlays', () => {
     stopVesselMultiplayerSession.mockClear();
     multiplayer = {
       sessionId: null,
+      projectId: null,
       status: 'idle',
       humanLayerId: null,
       aiLayerId: null,
@@ -53,6 +60,11 @@ describe('DrawingCanvasOverlays', () => {
       aiCursor: null,
       stopReason: null,
       error: null,
+      bridgeStatus: 'connected',
+      aiState: 'watching',
+      aiModel: 'test-model',
+      lastObservationAt: null,
+      bridgeError: null,
     };
   });
 
@@ -85,6 +97,34 @@ describe('DrawingCanvasOverlays', () => {
       sessionId: 'portrait-together',
       reason: 'Stopped from the Vessel canvas',
     });
+  });
+
+  it('shows a failed session instead of masking it with healthy bridge state', () => {
+    multiplayer = {
+      ...multiplayer,
+      sessionId: 'portrait-together',
+      status: 'error',
+      error: 'The Vessel project changed during multiplayer painting',
+    };
+
+    render(
+      <DrawingCanvasOverlays
+        project={{ width: 100, height: 100 }}
+        floatingPaste={null}
+        canvasZoom={1}
+        offsetX={0}
+        offsetY={0}
+        currentTool="brush"
+        isSpacePressed={false}
+        displayProjectName="Portrait"
+      />
+    );
+
+    expect(screen.getByTestId('multiplayer-status')).toHaveTextContent('error');
+    expect(screen.getByTestId('multiplayer-status')).toHaveAttribute(
+      'title',
+      'The Vessel project changed during multiplayer painting',
+    );
   });
 
   it('resets canvas zoom to 100% when the zoom badge is double-clicked', () => {

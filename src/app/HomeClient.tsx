@@ -93,7 +93,7 @@ export default function Home() {
       }
 
       if (layers.length === 0) {
-        newProject(2000, 2000, 'Untitled', { preserveRecoverySession: true });
+        newProject(512, 512, 'Untitled', { preserveRecoverySession: true });
       }
 
       // Preload risograph texture to avoid lag on first use

@@ -46,6 +46,37 @@ describe('Vessel collaboration geometry preflight', () => {
     })).not.toThrow();
   });
 
+  it('allows a gradient endpoint outside the canvas while keeping its start anchored inside', () => {
+    const polygon = [
+      { x: 20, y: 20 },
+      { x: 220, y: 20 },
+      { x: 220, y: 180 },
+      { x: 20, y: 180 },
+    ];
+    expect(() => assertVesselCollaborationGestureGeometry({
+      operation: {
+        action: 'shape',
+        phase: 'deepen',
+        points: polygon,
+        direction: [{ x: 120, y: 100 }, { x: 1200, y: -900 }],
+      },
+      canvasWidth: 512,
+      canvasHeight: 640,
+      label: 'shape',
+    })).not.toThrow();
+    expect(() => assertVesselCollaborationGestureGeometry({
+      operation: {
+        action: 'shape',
+        phase: 'deepen',
+        points: polygon,
+        direction: [{ x: -1, y: 100 }, { x: 1200, y: -900 }],
+      },
+      canvasWidth: 512,
+      canvasHeight: 640,
+      label: 'shape',
+    })).toThrow('shape.direction[0] must be inside the project canvas');
+  });
+
   it('does not turn predicted size or span into a hard geometry failure', () => {
     expect(() => assertVesselCollaborationGestureGeometry({
       operation: {

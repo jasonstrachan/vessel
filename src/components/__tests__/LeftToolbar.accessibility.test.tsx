@@ -8,6 +8,7 @@ const mockStopVesselMultiplayerSession = jest.fn();
 const mockShowAppFeedback = jest.fn();
 let multiplayer: VesselMultiplayerSnapshot = {
   sessionId: null,
+  projectId: null,
   status: 'idle',
   humanLayerId: null,
   aiLayerId: null,
@@ -15,6 +16,11 @@ let multiplayer: VesselMultiplayerSnapshot = {
   aiCursor: null,
   stopReason: null,
   error: null,
+  bridgeStatus: 'connected',
+  aiState: 'watching',
+  aiModel: 'test-model',
+  lastObservationAt: null,
+  bridgeError: null,
 };
 
 jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
@@ -88,6 +94,7 @@ describe('LeftToolbar accessibility', () => {
     mockStore.ui.brushPanelSection = 'tool';
     multiplayer = {
       sessionId: null,
+      projectId: null,
       status: 'idle',
       humanLayerId: null,
       aiLayerId: null,
@@ -95,6 +102,11 @@ describe('LeftToolbar accessibility', () => {
       aiCursor: null,
       stopReason: null,
       error: null,
+      bridgeStatus: 'connected',
+      aiState: 'watching',
+      aiModel: 'test-model',
+      lastObservationAt: null,
+      bridgeError: null,
     };
     mockStartVesselMultiplayerSession.mockResolvedValue(undefined);
     mockStopVesselMultiplayerSession.mockReturnValue({ status: 'stopped' });
@@ -232,7 +244,7 @@ describe('LeftToolbar accessibility', () => {
       expect(mockStartVesselMultiplayerSession).toHaveBeenCalledWith({
         sessionId: expect.stringMatching(/^vessel-/),
       });
-      expect(mockShowAppFeedback).toHaveBeenCalledWith('Multiplayer active — AI can join');
+      expect(mockShowAppFeedback).toHaveBeenCalledWith('Multiplayer active — AI watching');
     });
     expect(mockSwitchTool).not.toHaveBeenCalled();
   });

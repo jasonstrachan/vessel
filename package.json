@@ -32,6 +32,7 @@
     "collab:pair": "node scripts/vessel-collab.mjs pair",
     "collab:call": "node scripts/vessel-collab.mjs call",
     "collab:client": "node scripts/vessel-collab.mjs client",
+    "collab:events": "node scripts/vessel-collab.mjs events",
     "collab:result": "node scripts/vessel-collab.mjs result",
     "collab:cancel": "node scripts/vessel-collab.mjs cancel",
     "collab:status": "node scripts/vessel-collab.mjs status",

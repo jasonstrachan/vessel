@@ -40,6 +40,7 @@ export interface BitmapDeltaOptions {
     width: number;
     height: number;
   };
+  bitmapSize?: { width: number; height: number };
 }
 
 const TILE_SIZE_DEFAULT = 256;
@@ -257,6 +258,50 @@ const hashImagePatchRegions = (
   return hasher.digest();
 };
 
+const readLayerFramebufferImageData = (
+  layer: Layer | undefined,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): ImageData | null => {
+  try {
+    const context = layer?.framebuffer?.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null | undefined;
+    return context?.getImageData(x, y, width, height) ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const hashLayerPatchRegions = (
+  layer: Layer | undefined,
+  width: number,
+  height: number,
+  patches: TilePatch[],
+): string => {
+  if (layer?.imageData?.width === width && layer.imageData.height === height) {
+    return hashImagePatchRegions(layer.imageData, width, height, patches);
+  }
+  const hasher = createPatchHasher(width, height);
+  patches.forEach((patch) => {
+    const region = readLayerFramebufferImageData(
+      layer,
+      patch.x,
+      patch.y,
+      patch.width,
+      patch.height,
+    );
+    hasher.addPatch(
+      patch,
+      region ? new Uint8Array(region.data) : new Uint8Array(patch.width * patch.height * 4),
+    );
+  });
+  return hasher.digest();
+};
+
 const tilesEqual = (
   before: Uint8Array,
   after: Uint8Array
@@ -362,11 +407,11 @@ class BitmapTileDelta implements HistoryDelta {
       const targetLayer = useAppStore.getState().layers.find((layer) => layer.id === this.layerId);
       const actualHash =
         this.validationMode === 'patches'
-          ? hashImagePatchRegions(
-              targetLayer?.imageData,
+          ? hashLayerPatchRegions(
+              targetLayer,
               this.width,
               this.height,
-              direction === 'forward' ? this.backward : this.forward
+              direction === 'forward' ? this.backward : this.forward,
             )
           : hashImageData(targetLayer?.imageData, this.width, this.height);
       if (actualHash !== expectedHash) {
@@ -420,12 +465,19 @@ class BitmapTileDelta implements HistoryDelta {
 
       const width = targetLayer.imageData?.width ?? this.width;
       const height = targetLayer.imageData?.height ?? this.height;
+      const framebufferImage = readLayerFramebufferImageData(
+        targetLayer,
+        0,
+        0,
+        width,
+        height,
+      );
       const base =
         targetLayer.imageData &&
         targetLayer.imageData.width === width &&
         targetLayer.imageData.height === height
           ? cloneImageData(targetLayer.imageData)
-          : new ImageData(width, height);
+          : framebufferImage ?? new ImageData(width, height);
       const baseData = base.data;
 
       decoded.forEach(({ patch, data }) => {
@@ -508,12 +560,13 @@ export const createBitmapTileDelta = async ({
   after,
   tileSize = TILE_SIZE_DEFAULT,
   roi,
+  bitmapSize,
 }: BitmapDeltaOptions): Promise<HistoryDelta | null> => {
   if (!after) {
     return null;
   }
-  const width = after.width;
-  const height = after.height;
+  const width = bitmapSize?.width ?? after.width;
+  const height = bitmapSize?.height ?? after.height;
   const probeMetaBase = {
     layerId,
     width,
@@ -560,6 +613,13 @@ export const createBitmapTileDelta = async ({
     (before?.height ?? 0) === roiHeight;
   const beforeOffsetX = beforeIsRoi && normalizedRoi ? normalizedRoi.x : 0;
   const beforeOffsetY = beforeIsRoi && normalizedRoi ? normalizedRoi.y : 0;
+  const afterIsRoi =
+    Boolean(normalizedRoi) &&
+    after.width === roiWidth &&
+    after.height === roiHeight;
+  if (!afterIsRoi && (after.width !== width || after.height !== height)) {
+    throw new Error('Bitmap delta after image must match the bitmap or ROI dimensions');
+  }
 
   const horizontalTiles = Math.ceil(width / tileSize);
   const verticalTiles = Math.ceil(height / tileSize);
@@ -593,11 +653,30 @@ export const createBitmapTileDelta = async ({
   });
   for (let ty = tyStart; ty <= tyEnd; ty += 1) {
     for (let tx = txStart; tx <= txEnd; tx += 1) {
-      const x = tx * tileSize;
-      const y = ty * tileSize;
-      const tileWidth = Math.min(tileSize, width - x);
-      const tileHeight = Math.min(tileSize, height - y);
-      const afterTile = extractTile(afterData, width, height, x, y, tileWidth, tileHeight);
+      const tileX = tx * tileSize;
+      const tileY = ty * tileSize;
+      const tileRight = Math.min(width, tileX + tileSize);
+      const tileBottom = Math.min(height, tileY + tileSize);
+      const x = afterIsRoi && normalizedRoi ? Math.max(tileX, normalizedRoi.x) : tileX;
+      const y = afterIsRoi && normalizedRoi ? Math.max(tileY, normalizedRoi.y) : tileY;
+      const right = afterIsRoi && normalizedRoi
+        ? Math.min(tileRight, normalizedRoi.right)
+        : tileRight;
+      const bottom = afterIsRoi && normalizedRoi
+        ? Math.min(tileBottom, normalizedRoi.bottom)
+        : tileBottom;
+      const tileWidth = right - x;
+      const tileHeight = bottom - y;
+      if (tileWidth <= 0 || tileHeight <= 0) continue;
+      const afterTile = extractTile(
+        afterData,
+        after.width,
+        after.height,
+        afterIsRoi && normalizedRoi ? x - normalizedRoi.x : x,
+        afterIsRoi && normalizedRoi ? y - normalizedRoi.y : y,
+        tileWidth,
+        tileHeight,
+      );
       let beforeTile = extractTile(
         beforeData,
         before?.width ?? width,
@@ -607,7 +686,7 @@ export const createBitmapTileDelta = async ({
         tileWidth,
         tileHeight
       );
-      if (beforeIsRoi && beforeData && normalizedRoi) {
+      if (beforeIsRoi && beforeData && normalizedRoi && !afterIsRoi) {
         // Preserve pixels outside ROI by seeding from afterTile, then overwrite ROI pixels only.
         beforeTile = afterTile.slice();
         const ix0 = Math.max(x, normalizedRoi.x);
@@ -671,6 +750,7 @@ export const createBitmapTileDelta = async ({
     forwardPatchCount: forwardPatches.length,
     backwardPatchCount: backwardPatches.length,
     beforeIsRoi,
+    afterIsRoi,
   });
 
   if (forwardPatches.length === 0) {
@@ -688,6 +768,7 @@ export const createBitmapTileDelta = async ({
     {
       ...probeMetaBase,
       beforeIsRoi,
+      afterIsRoi,
       validationMode,
     }
   );

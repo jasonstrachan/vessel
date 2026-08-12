@@ -273,7 +273,8 @@ export const createLayerCompositeActions = ({
           sortedLayers,
           projectWithGroups,
           colorCycleBrushManager,
-          get().sequentialRecord.currentFrame
+          get().sequentialRecord.currentFrame,
+          options?.liveLayerOverlay,
         );
         const stats = getSequentialLayerRendererStats();
         get().setSequentialFrameCacheStats({
@@ -360,7 +361,8 @@ export const createLayerCompositeActions = ({
         sortedLayers,
         projectWithGroups,
         colorCycleBrushManager,
-        get().sequentialRecord.currentFrame
+        get().sequentialRecord.currentFrame,
+        options?.liveLayerOverlay,
       );
 
       const stats = getSequentialLayerRendererStats();

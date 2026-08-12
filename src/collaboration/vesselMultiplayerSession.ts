@@ -16,6 +16,7 @@ import {
 import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
 import type { CCBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import type { ColorCycleDirtyRect } from '@/lib/colorCycle/document';
+import { brushPresets } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { RenderStaticCompositeOptions } from '@/stores/layers/layersSliceTypes';
@@ -32,6 +33,19 @@ export type VesselMultiplayerStatus =
   | 'stopped'
   | 'error';
 
+export type VesselMultiplayerBridgeStatus = 'disconnected' | 'connecting' | 'connected';
+export type VesselMultiplayerAiState =
+  | 'unknown'
+  | 'starting'
+  | 'disabled'
+  | 'warming'
+  | 'watching'
+  | 'observing'
+  | 'thinking'
+  | 'drawing'
+  | 'error'
+  | 'stopped';
+
 export interface VesselMultiplayerCursor {
   x: number;
   y: number;
@@ -41,6 +55,7 @@ export interface VesselMultiplayerCursor {
 
 export interface VesselMultiplayerSnapshot {
   sessionId: string | null;
+  projectId: string | null;
   status: VesselMultiplayerStatus;
   humanLayerId: string | null;
   aiLayerId: string | null;
@@ -48,6 +63,11 @@ export interface VesselMultiplayerSnapshot {
   aiCursor: VesselMultiplayerCursor | null;
   stopReason: string | null;
   error: string | null;
+  bridgeStatus: VesselMultiplayerBridgeStatus;
+  aiState: VesselMultiplayerAiState;
+  aiModel: string | null;
+  lastObservationAt: number | null;
+  bridgeError: string | null;
 }
 
 export interface VesselMultiplayerGesture {
@@ -55,10 +75,15 @@ export interface VesselMultiplayerGesture {
   gestureId: string;
   actor: 'ai';
   kind: 'stroke' | 'shape';
+  brushPresetId?: string;
   points: VesselCollaborationPoint[];
   direction?: VesselCollaborationPoint[];
   pointsPerFrame?: number;
   settings?: Partial<BrushSettings>;
+  observedProjectId: string;
+  observedProjectRevision: number;
+  observationId: string;
+  respondingToGestureId: string;
 }
 
 export interface VesselMultiplayerRuntime {
@@ -67,11 +92,13 @@ export interface VesselMultiplayerRuntime {
     options?: RenderStaticCompositeOptions,
   ) => boolean | Promise<boolean>;
   requestRedraw: () => void;
+  presentFrame?: () => Promise<void> | void;
   scheduleHistoryCommit?: (payload: LayerHistoryPayload) => Promise<void>;
 }
 
 const INITIAL_SNAPSHOT: VesselMultiplayerSnapshot = {
   sessionId: null,
+  projectId: null,
   status: 'idle',
   humanLayerId: null,
   aiLayerId: null,
@@ -79,10 +106,14 @@ const INITIAL_SNAPSHOT: VesselMultiplayerSnapshot = {
   aiCursor: null,
   stopReason: null,
   error: null,
+  bridgeStatus: 'disconnected',
+  aiState: 'unknown',
+  aiModel: null,
+  lastObservationAt: null,
+  bridgeError: null,
 };
 
 let snapshot = INITIAL_SNAPSHOT;
-let sessionBrushSettings: BrushSettings | null = null;
 let activeGestureAbortController: AbortController | null = null;
 const listeners = new Set<() => void>();
 
@@ -104,10 +135,50 @@ export const useVesselMultiplayerSnapshot = () => useSyncExternalStore(
   getVesselMultiplayerSnapshot,
 );
 
+export const updateVesselMultiplayerBridgeHealth = ({
+  bridgeStatus,
+  aiState,
+  aiModel,
+  lastObservationAt,
+  error,
+}: {
+  bridgeStatus: VesselMultiplayerBridgeStatus;
+  aiState?: VesselMultiplayerAiState;
+  aiModel?: string | null;
+  lastObservationAt?: number | null;
+  error?: string | null;
+}) => {
+  publish({
+    bridgeStatus,
+    ...(aiState === undefined ? {} : { aiState }),
+    ...(aiModel === undefined ? {} : { aiModel }),
+    ...(lastObservationAt === undefined ? {} : { lastObservationAt }),
+    bridgeError: error ?? null,
+  });
+};
+
 const cloneBrushSettings = (settings: BrushSettings): BrushSettings => ({
   ...settings,
   colorCycleGradient: settings.colorCycleGradient?.map((stop) => ({ ...stop })),
 });
+
+const multiplayerPresetSettings = (presetId?: string): Partial<BrushSettings> => {
+  if (!presetId) return {};
+  const preset = brushPresets.find((candidate) => candidate.id === presetId);
+  if (!preset) throw new Error(`AI multiplayer brush preset is unavailable: ${presetId}`);
+  const profile = preset.artworkProfile;
+  if (!profile) return { ...preset.preferredSettings };
+  return {
+    ...profile.baseSettings,
+    colorCycleSpeed: profile.preparation.colorCycleSpeed,
+    ...(profile.preparation.fillResolution === undefined
+      ? {}
+      : { fillResolution: profile.preparation.fillResolution }),
+    ...(profile.preparation.stampDitherPixelSize === undefined
+      ? {}
+      : { colorCycleStampDitherPixelSize: profile.preparation.stampDitherPixelSize }),
+  };
+};
 
 const createAiLayer = (
   name: string,
@@ -156,9 +227,46 @@ export const startVesselMultiplayerSession = async ({
     if (snapshot.sessionId === sessionId) return snapshot;
     throw new Error(`Multiplayer session is already active: ${snapshot.sessionId}`);
   }
+  if (snapshot.bridgeStatus !== 'connected') {
+    throw new Error('The local AI collaboration bridge is not connected');
+  }
+  if (snapshot.aiState === 'disabled' || snapshot.aiState === 'error') {
+    throw new Error(snapshot.bridgeError ?? 'The local multiplayer AI is unavailable');
+  }
 
   const state = getAppStoreState();
   if (!state.project) throw new Error('No Vessel project is loaded');
+  if (
+    snapshot.status === 'stopped' &&
+    snapshot.sessionId === sessionId &&
+    snapshot.projectId === state.project.id
+  ) {
+    const existingHumanLayer = state.layers.find((layer) => layer.id === snapshot.humanLayerId);
+    const existingAiLayer = state.layers.find((layer) => layer.id === snapshot.aiLayerId);
+    if (!existingHumanLayer || !existingAiLayer) {
+      throw new Error('The stopped multiplayer participant layers are unavailable');
+    }
+    if (!existingHumanLayer.visible || existingHumanLayer.locked) {
+      throw new Error('Jason\'s multiplayer layer must be visible and unlocked');
+    }
+    if (!existingAiLayer.visible || existingAiLayer.locked) {
+      throw new Error('The AI multiplayer layer is unavailable');
+    }
+    if (existingHumanLayer.layerType !== existingAiLayer.layerType) {
+      throw new Error('The multiplayer participant layers no longer use the same layer type');
+    }
+    state.setActiveLayer(existingHumanLayer.id);
+    publish({
+      status: 'active',
+      activeGestureId: null,
+      stopReason: null,
+      error: null,
+      aiCursor: snapshot.aiCursor
+        ? { ...snapshot.aiCursor, drawing: false }
+        : null,
+    });
+    return snapshot;
+  }
   const humanLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
   if (!humanLayer) throw new Error('No active layer is selected');
   if (humanLayer.layerType !== 'normal' && humanLayer.layerType !== 'color-cycle') {
@@ -187,9 +295,9 @@ export const startVesselMultiplayerSession = async ({
   }
   if (!aiLayerId) throw new Error('Failed to create the AI multiplayer layer');
 
-  sessionBrushSettings = cloneBrushSettings(state.tools.brushSettings);
   publish({
     sessionId,
+    projectId: state.project.id,
     status: 'active',
     humanLayerId: humanLayer.id,
     aiLayerId,
@@ -201,13 +309,86 @@ export const startVesselMultiplayerSession = async ({
   return snapshot;
 };
 
-const nextFrame = (signal: AbortSignal) => new Promise<void>((resolve) => {
+const nextPaint = (signal: AbortSignal) => new Promise<void>((resolve) => {
   if (signal.aborted) {
     resolve();
     return;
   }
-  requestAnimationFrame(() => resolve());
+  requestAnimationFrame(() => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    requestAnimationFrame(() => resolve());
+  });
 });
+
+const MULTIPLAYER_TARGET_FRAME_COUNT = 18;
+
+export const interpolateVesselMultiplayerStrokePoints = (
+  points: VesselCollaborationPoint[],
+  targetPointCount = MULTIPLAYER_TARGET_FRAME_COUNT,
+): VesselCollaborationPoint[] => {
+  if (points.length < 2 || points.length >= targetPointCount) return points;
+
+  const segmentLengths = points.slice(1).map((point, index) => {
+    const previous = points[index];
+    return Math.hypot(point.x - previous.x, point.y - previous.y);
+  });
+  const totalLength = segmentLengths.reduce((sum, length) => sum + length, 0);
+  if (totalLength === 0) return points;
+
+  const segmentCount = points.length - 1;
+  const remainingIntervals = Math.max(0, targetPointCount - 1 - segmentCount);
+  const intervalAllocations = segmentLengths.map((length) => {
+    const exactShare = remainingIntervals * (length / totalLength);
+    return {
+      intervals: 1 + Math.floor(exactShare),
+      remainder: exactShare - Math.floor(exactShare),
+    };
+  });
+  const unallocated = targetPointCount - 1
+    - intervalAllocations.reduce((sum, allocation) => sum + allocation.intervals, 0);
+  const allocationOrder = intervalAllocations
+    .map((allocation, index) => ({ index, remainder: allocation.remainder }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  for (let index = 0; index < unallocated; index += 1) {
+    intervalAllocations[allocationOrder[index].index].intervals += 1;
+  }
+
+  const interpolated = [{ ...points[0] }];
+  intervalAllocations.forEach(({ intervals }, segmentIndex) => {
+    const from = points[segmentIndex];
+    const to = points[segmentIndex + 1];
+    for (let interval = 1; interval <= intervals; interval += 1) {
+      if (interval === intervals) {
+        interpolated.push({ ...to });
+        continue;
+      }
+      const progress = interval / intervals;
+      const pressure = from.pressure === undefined && to.pressure === undefined
+        ? undefined
+        : (from.pressure ?? 1) + ((to.pressure ?? 1) - (from.pressure ?? 1)) * progress;
+      interpolated.push({
+        x: from.x + (to.x - from.x) * progress,
+        y: from.y + (to.y - from.y) * progress,
+        ...(pressure === undefined ? {} : { pressure }),
+      });
+    }
+  });
+  return interpolated;
+};
+
+export const resolveVesselMultiplayerPointsPerFrame = ({
+  pointCount,
+  requested,
+}: {
+  pointCount: number;
+  requested?: number;
+}) => {
+  const defaultPacing = Math.max(1, Math.ceil(pointCount / MULTIPLAYER_TARGET_FRAME_COUNT));
+  return Math.max(1, Math.min(8, requested ?? defaultPacing));
+};
 
 const brushSettingsPatch = (settings: BrushSettings): CCBrushSettingsPatch => ({
   brushSize: Math.max(1, Math.round(settings.size ?? 1)),
@@ -254,6 +435,7 @@ const presentAiLayer = async (
   runtime: VesselMultiplayerRuntime,
   layer: Layer,
   dirtyRects?: ColorCycleDirtyRect[],
+  rebuildColorCycleStructure = true,
 ) => {
   if (layer.layerType === 'color-cycle') {
     const brush = getColorCycleBrushManager().getSurfaceBrush(layer.id);
@@ -270,10 +452,11 @@ const presentAiLayer = async (
         rects: dirtyRects,
       }],
     });
-  } else {
+  } else if (layer.layerType !== 'color-cycle' || rebuildColorCycleStructure) {
     await runtime.rebuildStaticComposite();
   }
   runtime.requestRedraw();
+  await runtime.presentFrame?.();
 };
 
 const executeNormalMultiplayerStroke = async (
@@ -303,7 +486,15 @@ const executeNormalMultiplayerStroke = async (
   const context = framebuffer.getContext('2d', { willReadFrequently: true });
   if (!context) throw new Error('The AI normal-layer canvas is unavailable');
   context.imageSmoothingEnabled = settings.antialiasing !== false;
-  const beforeImage = context.getImageData(0, 0, project.width, project.height);
+  const strokePoints = interpolateVesselMultiplayerStrokePoints(gesture.points);
+  const dirtyPadding = Math.max(2, Math.ceil((settings.size ?? 1) / 2) + 2);
+  const historyRoi = pointBounds(strokePoints, dirtyPadding, project);
+  const beforeImage = context.getImageData(
+    historyRoi.x,
+    historyRoi.y,
+    historyRoi.width,
+    historyRoi.height,
+  );
   const stampCache = new Map<string, HTMLCanvasElement>();
   const brushEngine = createBrushEngineFacade({
     brushSettings: settings,
@@ -319,16 +510,18 @@ const executeNormalMultiplayerStroke = async (
   activeGestureAbortController = localAbortController;
   const detachExternalAbort = combineAbortSignals(localAbortController, externalSignal);
   const signal = localAbortController.signal;
-  const pointsPerFrame = Math.max(1, Math.min(8, gesture.pointsPerFrame ?? 2));
-  const dirtyPadding = Math.max(2, Math.ceil((settings.size ?? 1) / 2) + 2);
+  const pointsPerFrame = resolveVesselMultiplayerPointsPerFrame({
+    pointCount: strokePoints.length,
+    requested: gesture.pointsPerFrame,
+  });
   let authoredPointCount = 0;
   let presentedPointCount = 0;
   publish({ activeGestureId: gesture.gestureId, error: null });
 
   try {
-    for (let index = 0; index < gesture.points.length && !signal.aborted; index += 1) {
-      const point = gesture.points[index];
-      const previous = gesture.points[Math.max(0, index - 1)];
+    for (let index = 0; index < strokePoints.length && !signal.aborted; index += 1) {
+      const point = strokePoints[index];
+      const previous = strokePoints[Math.max(0, index - 1)];
       brushEngine.renderBrushStroke(context, {
         from: { x: previous.x, y: previous.y },
         to: { x: point.x, y: point.y },
@@ -339,13 +532,13 @@ const executeNormalMultiplayerStroke = async (
       authoredPointCount += 1;
       publish({ aiCursor: { x: point.x, y: point.y, visible: true, drawing: true } });
       if ((index + 1) % pointsPerFrame === 0) {
-        const dirtyPoints = gesture.points.slice(
+        const dirtyPoints = strokePoints.slice(
           Math.max(0, presentedPointCount - 1),
           index + 1,
         );
         await presentAiLayer(runtime, layer, [pointBounds(dirtyPoints, dirtyPadding, project)]);
         presentedPointCount = index + 1;
-        await nextFrame(signal);
+        await nextPaint(signal);
       }
     }
   } finally {
@@ -353,19 +546,26 @@ const executeNormalMultiplayerStroke = async (
     try {
       if (authoredPointCount > 0) {
         brushEngine.finalizeStroke(context);
-        const finalDirtyPoints = gesture.points.slice(
+        const finalDirtyPoints = strokePoints.slice(
           Math.max(0, presentedPointCount - 1),
           authoredPointCount,
         );
         await presentAiLayer(runtime, layer, [
           pointBounds(finalDirtyPoints, dirtyPadding, project),
         ]);
-        const afterImage = context.getImageData(0, 0, project.width, project.height);
-        getAppStoreState().updateLayer(layer.id, { framebuffer, imageData: afterImage });
+        const afterImage = context.getImageData(
+          historyRoi.x,
+          historyRoi.y,
+          historyRoi.width,
+          historyRoi.height,
+        );
+        getAppStoreState().updateLayer(layer.id, { framebuffer, imageData: null });
         await runtime.scheduleHistoryCommit({
           layerId: layer.id,
           beforeImage,
           afterImage,
+          bitmapRoi: historyRoi,
+          bitmapSize: { width: project.width, height: project.height },
           beforeColorState: null,
           afterColorState: null,
           actionType: 'brush',
@@ -377,7 +577,7 @@ const executeNormalMultiplayerStroke = async (
     } finally {
       brushEngine.resetStroke();
       activeGestureAbortController = null;
-      const lastPoint = gesture.points[Math.max(0, authoredPointCount - 1)];
+      const lastPoint = strokePoints[Math.max(0, authoredPointCount - 1)];
       publish({
         activeGestureId: null,
         status: getVesselMultiplayerSnapshot().status === 'stopping'
@@ -499,16 +699,28 @@ export const executeVesselMultiplayerGesture = async (
     throw new Error('The AI multiplayer layer is unavailable');
   }
   const project = state.project;
+  if (snapshot.projectId !== project.id) {
+    throw new Error('The multiplayer session belongs to a different Vessel project');
+  }
+  if (gesture.observedProjectId !== project.id) {
+    throw new Error('The AI multiplayer observation belongs to a different Vessel project');
+  }
+  if (gesture.observedProjectRevision > state.autosave.dirtyRevision) {
+    throw new Error('The AI multiplayer observation is newer than the current project revision');
+  }
   if (!aiLayer.visible || aiLayer.locked) throw new Error('The AI multiplayer layer is not drawable');
+  if (gesture.brushPresetId && aiLayer.layerType !== 'color-cycle') {
+    throw new Error('Color Cycle multiplayer brushes require a Color Cycle AI layer');
+  }
   const outsideProject = [...gesture.points, ...(gesture.direction ?? [])].find(
     (point) => point.x < 0 || point.y < 0 || point.x >= project.width || point.y >= project.height,
   );
   if (outsideProject) throw new Error('Multiplayer gesture points must stay inside the project canvas');
   const settings = {
-    ...cloneBrushSettings(sessionBrushSettings ?? state.tools.brushSettings),
+    ...cloneBrushSettings(state.tools.brushSettings),
+    ...multiplayerPresetSettings(gesture.brushPresetId),
     ...gesture.settings,
   } as BrushSettings;
-  sessionBrushSettings = cloneBrushSettings(settings);
   if (aiLayer.layerType === 'normal') {
     return executeNormalMultiplayerStroke(
       gesture,
@@ -534,10 +746,17 @@ export const executeVesselMultiplayerGesture = async (
   activeGestureAbortController = localAbortController;
   const detachExternalAbort = combineAbortSignals(localAbortController, externalSignal);
   const signal = localAbortController.signal;
-  const pointsPerFrame = Math.max(1, Math.min(8, gesture.pointsPerFrame ?? 2));
+  const strokePoints = gesture.kind === 'stroke'
+    ? interpolateVesselMultiplayerStrokePoints(gesture.points)
+    : gesture.points;
+  const pointsPerFrame = resolveVesselMultiplayerPointsPerFrame({
+    pointCount: strokePoints.length,
+    requested: gesture.pointsPerFrame,
+  });
   let authoredPointCount = 0;
   let hasAuthoredMark = false;
   let startedStroke = false;
+  let hasPresentedColorCycleFrame = false;
   publish({ activeGestureId: gesture.gestureId, error: null });
 
   try {
@@ -549,15 +768,16 @@ export const executeVesselMultiplayerGesture = async (
       lifecycle.setActiveLayer?.(aiLayer.id);
       lifecycle.startStroke?.(aiLayer.id, false);
       startedStroke = true;
-      for (let index = 0; index < gesture.points.length && !signal.aborted; index += 1) {
-        const point = gesture.points[index];
+      for (let index = 0; index < strokePoints.length && !signal.aborted; index += 1) {
+        const point = strokePoints[index];
         drawBrush.paint(point.x, point.y, aiLayer.id, point.pressure ?? 1);
         authoredPointCount += 1;
         hasAuthoredMark = true;
         publish({ aiCursor: { x: point.x, y: point.y, visible: true, drawing: true } });
         if ((index + 1) % pointsPerFrame === 0) {
-          await presentAiLayer(runtime, aiLayer);
-          await nextFrame(signal);
+          await presentAiLayer(runtime, aiLayer, undefined, !hasPresentedColorCycleFrame);
+          hasPresentedColorCycleFrame = true;
+          await nextPaint(signal);
         }
       }
     } else {
@@ -565,7 +785,7 @@ export const executeVesselMultiplayerGesture = async (
         const point = gesture.points[index];
         authoredPointCount += 1;
         publish({ aiCursor: { x: point.x, y: point.y, visible: true, drawing: true } });
-        if ((index + 1) % pointsPerFrame === 0) await nextFrame(signal);
+        if ((index + 1) % pointsPerFrame === 0) await nextPaint(signal);
       }
       if (!signal.aborted) {
         const fillBrush = manager.getFillBrush(aiLayer.id);
@@ -595,6 +815,8 @@ export const executeVesselMultiplayerGesture = async (
             ditherPaletteSpread: settings.ditherPaletteSpread,
             ditherPatternDiversity: settings.ditherPatternDiversity,
             ditherBackgroundFill: settings.ditherGradBgFill ?? settings.ditherBackgroundFill,
+            ditherFlatCycle: settings.ccFlatCycleDither === true,
+            ditherFlatCycleBands: settings.ccFlatCycleBands,
             lostEdge: settings.lostEdge,
           },
         }));
@@ -610,7 +832,7 @@ export const executeVesselMultiplayerGesture = async (
         await commitAiMark({
           layer: aiLayer,
           settings,
-          points: gesture.points.slice(0, authoredPointCount),
+          points: strokePoints.slice(0, authoredPointCount),
           beforeColorState,
           runtime,
           kind: gesture.kind,
@@ -618,7 +840,7 @@ export const executeVesselMultiplayerGesture = async (
       }
     } finally {
       activeGestureAbortController = null;
-      const lastPoint = gesture.points[Math.max(0, authoredPointCount - 1)];
+      const lastPoint = strokePoints[Math.max(0, authoredPointCount - 1)];
       publish({
         activeGestureId: null,
         status: getVesselMultiplayerSnapshot().status === 'stopping'
@@ -661,10 +883,28 @@ export const failVesselMultiplayerSession = (error: unknown) => {
   });
 };
 
+export const validateVesselMultiplayerSession = () => {
+  if (snapshot.status !== 'active' && snapshot.status !== 'stopping') return snapshot;
+  const state = getAppStoreState();
+  const humanLayer = state.layers.find((layer) => layer.id === snapshot.humanLayerId);
+  const aiLayer = state.layers.find((layer) => layer.id === snapshot.aiLayerId);
+  let error: string | null = null;
+  if (!state.project || state.project.id !== snapshot.projectId) {
+    error = 'The Vessel project changed during multiplayer painting';
+  } else if (!humanLayer || state.activeLayerId !== humanLayer.id) {
+    error = 'Jason changed the multiplayer painting layer';
+  } else if (!aiLayer || !aiLayer.visible || aiLayer.locked) {
+    error = 'The AI multiplayer layer is unavailable';
+  } else if (humanLayer.layerType !== aiLayer.layerType) {
+    error = 'The multiplayer participant layers no longer use the same layer type';
+  }
+  if (error) failVesselMultiplayerSession(error);
+  return snapshot;
+};
+
 export const __resetVesselMultiplayerSessionForTests = () => {
   activeGestureAbortController?.abort('test reset');
   activeGestureAbortController = null;
-  sessionBrushSettings = null;
   snapshot = INITIAL_SNAPSHOT;
   listeners.forEach((listener) => listener());
 };

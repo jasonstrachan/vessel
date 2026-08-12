@@ -1970,11 +1970,23 @@ const BrushControls = () => {
                 </button>
               </div>
               <div className="mt-2 flex items-center justify-between text-xs text-[#D9D9D9]">
-                <span>Soft seam</span>
+                <span>{isColorCycleStrokePreset ? 'Hard seam' : 'Soft seam'}</span>
                 <CustomSwitch
-                  checked={activeSettings.ccSampledSoftSeamEnabled !== false}
-                  onChange={(checked) => setActiveSettings({ ccSampledSoftSeamEnabled: checked })}
-                  aria-label="Sampled gradient soft seam"
+                  checked={
+                    isColorCycleStrokePreset
+                      ? activeSettings.ccSampledSoftSeamEnabled === false
+                      : activeSettings.ccSampledSoftSeamEnabled !== false
+                  }
+                  onChange={(checked) =>
+                    setActiveSettings({
+                      ccSampledSoftSeamEnabled: isColorCycleStrokePreset ? !checked : checked,
+                    })
+                  }
+                  aria-label={
+                    isColorCycleStrokePreset
+                      ? 'Sampled gradient hard seam'
+                      : 'Sampled gradient soft seam'
+                  }
                 />
               </div>
             </>
@@ -1985,33 +1997,34 @@ const BrushControls = () => {
           </div>
         )}
 
+        {(isColorCycleStrokePreset || isColorCycleGradientPreset) && (
+          <div className="flex items-center gap-2 mt-2 mb-2">
+            <label
+              className={`${CONTROL_LABEL_CLASS} whitespace-nowrap text-[11px]`}
+              title="Gradient Contrast"
+            >
+              Contrast
+            </label>
+            <ProgressSlider
+              value={activeSettings.ccGradientRangeContrast ?? 100}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(value) =>
+                setActiveSettings({
+                  ccGradientRangeContrast: Math.max(0, Math.min(100, Math.round(value))),
+                })
+              }
+              aria-label="Gradient Contrast"
+              className="flex-1"
+            />
+          </div>
+        )}
+
         {/* Fill Mode Tabs - only for Color Cycle Shape, not for Color Cycle Stroke */}
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
           <>
             {ccGradientColorsControl}
-            {isColorCycleGradientPreset && (
-              <div className="flex items-center gap-2 mt-2 mb-2">
-                <label
-                  className={`${CONTROL_LABEL_CLASS} whitespace-nowrap text-[11px]`}
-                  title="Gradient Contrast"
-                >
-                  Grd Contrast
-                </label>
-                <ProgressSlider
-                  value={activeSettings.ccGradientRangeContrast ?? 100}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onChange={(value) =>
-                    setActiveSettings({
-                      ccGradientRangeContrast: Math.max(0, Math.min(100, Math.round(value))),
-                    })
-                  }
-                  aria-label="Gradient Contrast"
-                  className="flex-1"
-                />
-              </div>
-            )}
             <DitherControls
               settings={activeSettings}
               onChange={setActiveSettings}

@@ -22,7 +22,8 @@ attention, signal, time, or any boundary that should remain active.
 | FG Grad | Builds related stops from the foreground colour. |
 | Light / Hue / Sat / Opacity / Stops | Defines variation across a foreground-derived gradient. |
 | Man Grad | Uses editable authored stops, positions, and opacity. |
-| Sample / Soft seam | Derives colours from the canvas and chooses whether the loop join blends or pulses. |
+| Sample / Hard seam | Derives colours from the canvas and chooses whether the loop join pulses or blends. |
+| Contrast | Increases separation across the sampled or derived gradient. |
 | Stamp Dither | Converts the animated tip into a dithered texture. |
 | Algorithm / Pattern | Distribution of pixels within a dithered stamp. |
 | Res / Pres Res / Max | Base stamp cell size, pressure linkage, and largest linked cell. |
@@ -35,6 +36,28 @@ attention, signal, time, or any boundary that should remain active.
 
 The default uses a square stamp around Size 20, Spacing 8, 30 FPS, and 12
 bands.
+
+## Collaboration profile
+
+Color Cycle Stroke is an available collaboration brush for genuinely linear
+structures. Its sampled profile starts with Size 4 at a 512 px canvas short
+edge, Spacing 4, 64 Bands, Contrast 100, Hard seam on, Sierra Lite stamp
+dither, BG Fill on, pressure and
+rotation off, Lostedge 0, dashed off, and Grid Snap off.
+
+Use one consistent Size for all strokes in an artwork. Scale the nominal 4 px
+weight proportionally with the canvas short edge; pass changes do not change
+stroke Size.
+
+Speed changes with the conceptual pass:
+
+| Pass | Speed range | Stamp-dither Res |
+| --- | --- | --- |
+| Establish | `0.005–0.010` | 3 |
+| Develop | `0.015–0.020` | 2 |
+| Deepen | `0.030–0.045` | 1 |
+
+Use `0.055–0.060` only for selective focal accents; never exceed `0.08`.
 
 ## Painting with it
 

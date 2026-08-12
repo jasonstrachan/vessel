@@ -1,9 +1,15 @@
+import { useCallback, useMemo, type PointerEvent as ReactPointerEvent } from 'react';
 import { isCcGradientPreset } from '@/presets/brushPresets';
 import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
 import { useDrawingCanvasPointerHandlers } from './useDrawingCanvasPointerHandlers';
 import { useDrawingCanvasEventBindings } from './useDrawingCanvasEventBindings';
 import { BrushShape } from '@/types';
 import { isDitherShapeMode } from '@/utils/brushCategories';
+import {
+  isVesselMultiplayerHumanPointerRelevant,
+  recordVesselMultiplayerHumanPointer,
+  type VesselMultiplayerHumanGesturePhase,
+} from '@/collaboration/vesselMultiplayerHumanInput';
 
 type UseCanvasEventHandlersArgs = Parameters<typeof useCanvasEventHandlers>[0];
 type PointerHandlersArgs = Parameters<typeof useDrawingCanvasPointerHandlers>[0];
@@ -129,6 +135,62 @@ export const useDrawingCanvasInputHandlers = ({
     basePointerLeave,
     basePointerCancel,
   });
+  const { getWorldPointFromPointerEvent, isSpacePressedRef } = pointerOptions;
+
+  const reportHumanPointer = useCallback((
+    phase: VesselMultiplayerHumanGesturePhase,
+    event: ReactPointerEvent<Element>,
+  ) => {
+    if (
+      isSpacePressedRef.current ||
+      (eventHandlerArgs.tools.currentTool !== 'brush' &&
+        eventHandlerArgs.tools.currentTool !== 'eraser') ||
+      !isVesselMultiplayerHumanPointerRelevant(phase, event.pointerId)
+    ) {
+      return;
+    }
+    if (phase === 'start' && event.button !== 0) return;
+    const point = getWorldPointFromPointerEvent(event);
+    if (!point) return;
+    recordVesselMultiplayerHumanPointer({
+      phase,
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      point: {
+        x: point.x,
+        y: point.y,
+        ...(Number.isFinite(event.pressure) ? { pressure: event.pressure } : {}),
+      },
+      tool: eventHandlerArgs.tools.currentTool,
+      shapeMode: eventHandlerArgs.tools.shapeMode === true,
+      occurredAt: Date.now(),
+    });
+  }, [
+    eventHandlerArgs.tools.currentTool,
+    eventHandlerArgs.tools.shapeMode,
+    getWorldPointFromPointerEvent,
+    isSpacePressedRef,
+  ]);
+
+  const responsivePointerHandlers = useMemo(() => ({
+    ...pointerHandlers,
+    handlePointerDown: (event: ReactPointerEvent<Element>) => {
+      pointerHandlers.handlePointerDown(event);
+      reportHumanPointer('start', event);
+    },
+    handlePointerMove: (event: ReactPointerEvent<Element>) => {
+      pointerHandlers.handlePointerMove(event);
+      reportHumanPointer('move', event);
+    },
+    handlePointerUp: (event: ReactPointerEvent<Element>) => {
+      pointerHandlers.handlePointerUp(event);
+      reportHumanPointer('end', event);
+    },
+    handlePointerCancel: (event: ReactPointerEvent<Element>) => {
+      pointerHandlers.handlePointerCancel(event);
+      reportHumanPointer('cancel', event);
+    },
+  }), [pointerHandlers, reportHumanPointer]);
 
   useDrawingCanvasEventBindings({
     eventHandleKeyDown,
@@ -140,7 +202,7 @@ export const useDrawingCanvasInputHandlers = ({
   });
 
   return {
-    ...pointerHandlers,
+    ...responsivePointerHandlers,
     handleDoubleClick,
     handleBlur,
   };

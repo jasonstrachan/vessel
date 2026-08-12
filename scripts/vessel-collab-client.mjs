@@ -42,6 +42,14 @@ export const createVesselCollaborationBridgeClient = (state) => {
     return response.value;
   };
 
+  const getRuntimeEvents = async (after = 0, waitMs = 25000) => {
+    const response = await fetchVesselCollaborationJson(
+      `${state.url}/v1/runtime-events?after=${after}&wait=${waitMs}`,
+      { headers },
+    );
+    return response.value;
+  };
+
   const cancel = async (commandId) => {
     if (!COMMAND_ID_PATTERN.test(String(commandId ?? ''))) {
       throw new Error('Cancel requires a Vessel command UUID');
@@ -49,6 +57,18 @@ export const createVesselCollaborationBridgeClient = (state) => {
     const response = await fetchVesselCollaborationJson(
       `${state.url}/v1/commands/${encodeURIComponent(commandId)}/cancel`,
       { method: 'POST', headers },
+    );
+    return response.value;
+  };
+
+  const setMultiplayerModel = async (model) => {
+    const response = await fetchVesselCollaborationJson(
+      `${state.url}/v1/multiplayer-ai/model`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model }),
+      },
     );
     return response.value;
   };
@@ -99,7 +119,9 @@ export const createVesselCollaborationBridgeClient = (state) => {
     enqueue,
     cancel,
     getEvents,
+    getRuntimeEvents,
     getResult,
+    setMultiplayerModel,
     waitForResult,
     send: async (input, { timeoutMs = 120000, requestId, onAccepted, onEvent } = {}) => {
       const accepted = await enqueue(input, requestId ?? input.requestId);

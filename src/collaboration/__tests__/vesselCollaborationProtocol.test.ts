@@ -24,6 +24,10 @@ describe('parseVesselCollaborationCommand', () => {
       pointsPerFrame: 4,
       points: [{ x: 12, y: 14, pressure: 0.5 }, { x: 22, y: 24 }],
       settings: { size: 18, ditherAlgorithm: 'sierra-lite' },
+      observedProjectId: 'project-1',
+      observedProjectRevision: 7,
+      observationId: 'frame-1',
+      respondingToGestureId: 'human-mark-1',
     })).toEqual({
       id: 'multiplayer-gesture-command',
       action: 'multiplayer-gesture',
@@ -35,6 +39,10 @@ describe('parseVesselCollaborationCommand', () => {
       points: [{ x: 12, y: 14, pressure: 0.5 }, { x: 22, y: 24, pressure: undefined }],
       direction: undefined,
       settings: { size: 18, ditherAlgorithm: 'sierra-lite' },
+      observedProjectId: 'project-1',
+      observedProjectRevision: 7,
+      observationId: 'frame-1',
+      respondingToGestureId: 'human-mark-1',
     });
 
     expect(parseVesselCollaborationCommand({
@@ -52,6 +60,10 @@ describe('parseVesselCollaborationCommand', () => {
       actor: 'human',
       kind: 'stroke',
       points: [{ x: 1, y: 2 }],
+      observedProjectId: 'project-1',
+      observedProjectRevision: 7,
+      observationId: 'frame-1',
+      respondingToGestureId: 'human-mark-1',
     })).toThrow('actor must be ai');
 
     expect(() => parseVesselCollaborationCommand({
@@ -62,8 +74,27 @@ describe('parseVesselCollaborationCommand', () => {
       actor: 'ai',
       kind: 'stroke',
       points: [{ x: 1, y: 2 }],
+      observedProjectId: 'project-1',
+      observedProjectRevision: 7,
+      observationId: 'frame-1',
+      respondingToGestureId: 'human-mark-1',
       direction: [{ x: 1, y: 2 }, { x: 2, y: 3 }],
     })).toThrow('direction is only supported for multiplayer shapes');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'multiplayer-brush-kind-command',
+      action: 'multiplayer-gesture',
+      sessionId: 'portrait-together',
+      gestureId: 'ai-mark-wrong-brush',
+      actor: 'ai',
+      kind: 'stroke',
+      brushPresetId: 'color-cycle-flat-dither',
+      points: [{ x: 1, y: 2 }],
+      observedProjectId: 'project-1',
+      observedProjectRevision: 7,
+      observationId: 'frame-1',
+      respondingToGestureId: 'human-mark-1',
+    })).toThrow('requires multiplayer kind shape');
   });
 
   it('accepts bounded new-project dimensions and an optional name', () => {
@@ -185,6 +216,8 @@ describe('parseVesselCollaborationCommand', () => {
       pxlEdge: true,
       colorCycleSpeed: 0.75,
       gradientBands: 16,
+      ccFlatCycleDither: true,
+      ccFlatCycleBands: 0,
       colorCycleFillMode: 'linear' as const,
       ccGradientDrawingShape: 'freehand' as const,
       colorCycleStampDitherEnabled: true,
@@ -192,6 +225,11 @@ describe('parseVesselCollaborationCommand', () => {
       colorCycleStampDitherPressureLinked: false,
       colorCycleStampDitherBgFill: true,
       colorCycleStampShape: 'checkered' as const,
+      pressureEnabled: false,
+      rotationEnabled: false,
+      dashedEnabled: false,
+      gridSnapEnabled: false,
+      gridSnapSize: 16,
     };
     expect(parseVesselCollaborationCommand({
       id: 'command-cc-controls',
@@ -208,6 +246,12 @@ describe('parseVesselCollaborationCommand', () => {
       action: 'set-brush',
       settings: { colorCycleSpeed: 1.51 },
     })).toThrow('settings.colorCycleSpeed must be between 0 and 1.5');
+
+    expect(() => parseVesselCollaborationCommand({
+      id: 'command-flat-cycle-bands-invalid',
+      action: 'set-brush',
+      settings: { ccFlatCycleBands: 33 },
+    })).toThrow('settings.ccFlatCycleBands must be between 0 and 32');
 
     expect(() => parseVesselCollaborationCommand({
       id: 'command-tile-without-identity',
@@ -627,7 +671,7 @@ describe('parseVesselCollaborationCommand', () => {
 
   it('keeps atomic batches bounded and accepts a larger streamed artwork job', () => {
     const runtimeFence = {
-      protocolVersion: 4,
+      protocolVersion: 6,
       runtimeBuildId: 'test-build',
       runtimeInstanceId: 'test-runtime',
       leaseEpoch: 1,

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -61,7 +62,7 @@ const claimRuntime = (url, headers, runtimeInstanceId) => fetchJson(
     method: 'POST',
     headers,
     body: JSON.stringify({
-      protocolVersion: 4,
+      protocolVersion: 6,
       runtimeBuildId: 'transport-test-build',
       runtimeInstanceId,
     }),
@@ -113,6 +114,7 @@ test('one-use pairing resolves the bridge URL from state without exposing its to
     'serve',
     '--session', session,
     '--port', String(port),
+    '--no-multiplayer-ai',
     '--quiet',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(async () => {
@@ -158,6 +160,334 @@ test('one-use pairing resolves the bridge URL from state without exposing its to
 
   const reused = await fetch(pairing.value.url, { redirect: 'manual' });
   assert.equal(reused.status, 410);
+});
+
+test('human gestures and canonical canvas frames stream through the multiplayer bridge', async (t) => {
+  const session = `collab-runtime-events-${crypto.randomUUID().slice(0, 8)}`;
+  const port = await reservePort();
+  const statePath = path.join(os.tmpdir(), `vessel-collab-${session}.json`);
+  const server = spawn(process.execPath, [
+    SCRIPT_PATH,
+    'serve',
+    '--session', session,
+    '--port', String(port),
+    '--no-multiplayer-ai',
+    '--quiet',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(async () => {
+    server.kill('SIGTERM');
+    await Promise.race([
+      new Promise((resolve) => server.once('exit', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
+    await fs.rm(statePath, { force: true });
+  });
+
+  const state = JSON.parse(await waitForFile(statePath));
+  const clientId = 'runtime-event-client';
+  const runtimeInstanceId = 'runtime-events-instance';
+  const headers = {
+    Authorization: `Bearer ${state.token}`,
+    'Content-Type': 'application/json',
+    'X-Vessel-Collab-Client': clientId,
+  };
+  const claimed = await claimRuntime(state.url, headers, runtimeInstanceId);
+  assert.equal(claimed.response.status, 200);
+  assert.deepEqual(claimed.value.multiplayerAi, {
+    enabled: false,
+    model: 'qwen2.5vl:3b',
+    state: 'disabled',
+  });
+  const runtime = {
+    protocolVersion: 6,
+    runtimeBuildId: 'transport-test-build',
+    runtimeInstanceId,
+    leaseEpoch: claimed.value.leaseEpoch,
+  };
+  const event = {
+    eventId: 'human-event-1',
+    type: 'human-gesture',
+    actor: 'human',
+    phase: 'end',
+    sessionId: 'portrait-together',
+    projectId: 'project-1',
+    projectRevision: 7,
+    gestureId: 'human-gesture-1',
+    humanLayerId: 'jason-layer',
+    tool: 'brush',
+    shapeMode: false,
+    pointerType: 'pen',
+    point: { x: 22, y: 18, pressure: 0.5 },
+    path: [
+      { x: 10, y: 9, pressure: 0.4 },
+      { x: 14, y: 12, pressure: 0.55 },
+      { x: 18, y: 15, pressure: 0.6 },
+      { x: 22, y: 18, pressure: 0.5 },
+    ],
+    bounds: { minX: 10, minY: 9, maxX: 22, maxY: 18 },
+    pointCount: 4,
+    occurredAt: 1000,
+    committed: true,
+    committedAt: 1080,
+    elapsedMs: 70,
+  };
+  const frame = {
+    frameId: 'frame-1',
+    sessionId: event.sessionId,
+    projectId: event.projectId,
+    projectRevision: event.projectRevision,
+    aiLayerType: 'normal',
+    capturedAt: 1100,
+    width: 256,
+    height: 128,
+    sourceWidth: 512,
+    sourceHeight: 256,
+    mimeType: 'image/webp',
+    gestureId: event.gestureId,
+    gesturePhase: 'end',
+    gesturePointCount: event.pointCount,
+    runtime,
+  };
+  const frameUrl = (metadata) => {
+    const target = new URL(`${state.url}/v1/multiplayer-frame`);
+    target.searchParams.set('metadata', JSON.stringify(metadata));
+    return target;
+  };
+
+  const acceptedFrame = await fetchJson(frameUrl(frame), {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'image/webp' },
+    body: Buffer.from([0, 0, 0]),
+  });
+  assert.equal(acceptedFrame.response.status, 202);
+  assert.equal(acceptedFrame.value.capturedAt, 1100);
+  const health = await fetchJson(`${state.url}/v1/health`, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  assert.equal(health.value.multiplayerAi.state, 'disabled');
+  assert.equal(health.value.latestMultiplayerFrameAt, 1100);
+  const oversizedFrame = await fetchJson(frameUrl({ ...frame, width: 2048 }), {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'image/webp' },
+    body: Buffer.from([0, 0, 0]),
+  });
+  assert.equal(oversizedFrame.response.status, 400);
+  assert.match(oversizedFrame.value.error, /safety limit/);
+
+  const accepted = await fetchJson(`${state.url}/v1/runtime-events`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ event, runtime }),
+  });
+  assert.equal(accepted.response.status, 202);
+  assert.equal(accepted.value.sequence, 1);
+
+  const streamed = await fetchJson(`${state.url}/v1/runtime-events?after=0&wait=0`, {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  assert.equal(streamed.response.status, 200);
+  assert.equal(streamed.value.next, 1);
+  assert.deepEqual(streamed.value.events[0], {
+    ...event,
+    sequence: 1,
+    receivedAt: streamed.value.events[0].receivedAt,
+  });
+  assert.equal(Number.isFinite(streamed.value.events[0].receivedAt), true);
+
+  const eventReader = spawn(process.execPath, [
+    SCRIPT_PATH,
+    'events',
+    '--session', session,
+    '--once',
+    '--after', '0',
+    '--wait', '0',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const eventReaderOutput = [];
+  eventReader.stdout.on('data', (chunk) => eventReaderOutput.push(chunk));
+  const eventReaderExit = await new Promise((resolve) => eventReader.once('exit', resolve));
+  assert.equal(eventReaderExit, 0);
+  assert.equal(JSON.parse(Buffer.concat(eventReaderOutput).toString('utf8')).sequence, 1);
+
+  const duplicate = await fetchJson(`${state.url}/v1/runtime-events`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ event, runtime }),
+  });
+  assert.equal(duplicate.value.reused, true);
+  assert.equal(duplicate.value.sequence, 1);
+
+  const conflictingDuplicate = await fetchJson(`${state.url}/v1/runtime-events`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      event: { ...event, point: { ...event.point, x: event.point.x + 1 } },
+      runtime,
+    }),
+  });
+  assert.equal(conflictingDuplicate.response.status, 400);
+  assert.match(conflictingDuplicate.value.error, /already used for different data/);
+
+  const stale = await fetchJson(`${state.url}/v1/runtime-events`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ event: { ...event, eventId: 'human-event-2' }, runtime: {
+      ...runtime,
+      leaseEpoch: runtime.leaseEpoch + 1,
+    } }),
+  });
+  assert.equal(stale.response.status, 409);
+});
+
+test('multiplayer model hot-swap preserves the bridge and active runtime', async (t) => {
+  const session = `collab-model-swap-${crypto.randomUUID().slice(0, 8)}`;
+  const port = await reservePort();
+  const ollamaPort = await reservePort();
+  const statePath = path.join(os.tmpdir(), `vessel-collab-${session}.json`);
+  const ollamaRequests = [];
+  const ollama = http.createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    ollamaRequests.push(body);
+    if (body.model === 'broken-vision:latest') {
+      response.writeHead(500, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ error: 'model failed to load' }));
+      return;
+    }
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ message: { content: 'OK' } }));
+  });
+  await new Promise((resolve, reject) => {
+    ollama.once('error', reject);
+    ollama.listen(ollamaPort, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve) => ollama.close(resolve)));
+
+  const server = spawn(process.execPath, [
+    SCRIPT_PATH,
+    'serve',
+    '--session', session,
+    '--port', String(port),
+    '--multiplayer-model', 'qwen2.5vl:3b',
+    '--multiplayer-ollama-url', `http://127.0.0.1:${ollamaPort}/api/chat`,
+    '--quiet',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(async () => {
+    server.kill('SIGTERM');
+    await Promise.race([
+      new Promise((resolve) => server.once('exit', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
+    await fs.rm(statePath, { force: true });
+  });
+
+  const state = JSON.parse(await waitForFile(statePath));
+  const headers = {
+    Authorization: `Bearer ${state.token}`,
+    'Content-Type': 'application/json',
+    'X-Vessel-Collab-Client': 'model-swap-client',
+  };
+  const claimed = await claimRuntime(state.url, headers, 'model-swap-runtime');
+  assert.equal(claimed.response.status, 200);
+  await waitFor(async () => {
+    const health = await fetchJson(`${state.url}/v1/health`, { headers });
+    return health.value.multiplayerAi.state === 'watching' ? health.value : undefined;
+  });
+  const activeBefore = await fetchJson(`${state.url}/v1/clients/active`, { headers });
+
+  const modelCommand = spawn(process.execPath, [
+    SCRIPT_PATH,
+    'multiplayer-model',
+    '--session', session,
+    '--model', 'qwen3-vl:8b-instruct',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const modelOutput = [];
+  modelCommand.stdout.on('data', (chunk) => modelOutput.push(chunk));
+  const modelExit = await new Promise((resolve) => modelCommand.once('exit', resolve));
+  assert.equal(modelExit, 0);
+  const changed = JSON.parse(Buffer.concat(modelOutput).toString('utf8'));
+  assert.equal(changed.changed, true);
+  assert.equal(changed.multiplayerAi.model, 'qwen3-vl:8b-instruct');
+  assert.equal(changed.multiplayerAi.state, 'watching');
+
+  const activeAfter = await fetchJson(`${state.url}/v1/clients/active`, { headers });
+  assert.deepEqual(activeAfter.value, activeBefore.value);
+  const healthAfter = await fetchJson(`${state.url}/v1/health`, { headers });
+  assert.equal(healthAfter.value.multiplayerAi.model, 'qwen3-vl:8b-instruct');
+  assert.equal(healthAfter.value.activeRuntime.runtimeInstanceId, 'model-swap-runtime');
+  assert.deepEqual(ollamaRequests.map((request) => request.model), [
+    'qwen2.5vl:3b',
+    'qwen3-vl:8b-instruct',
+  ]);
+
+  const failed = await fetchJson(`${state.url}/v1/multiplayer-ai/model`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model: 'broken-vision:latest' }),
+  });
+  assert.equal(failed.response.status, 502);
+  assert.match(failed.value.error, /warmup failed/);
+  const healthAfterFailure = await fetchJson(`${state.url}/v1/health`, { headers });
+  assert.equal(healthAfterFailure.value.multiplayerAi.model, 'qwen3-vl:8b-instruct');
+  assert.equal(healthAfterFailure.value.multiplayerAi.state, 'watching');
+});
+
+test('resumed bridge reclaims the existing page runtime without a reload', async (t) => {
+  const session = `collab-resume-${crypto.randomUUID().slice(0, 8)}`;
+  const port = await reservePort();
+  const statePath = path.join(os.tmpdir(), `vessel-collab-${session}.json`);
+  const resumePath = path.join(os.tmpdir(), `vessel-collab-resume-${crypto.randomUUID()}.json`);
+  const spawnBridge = (extraArgs = []) => spawn(process.execPath, [
+    SCRIPT_PATH,
+    'serve',
+    '--session', session,
+    '--port', String(port),
+    '--no-multiplayer-ai',
+    '--quiet',
+    ...extraArgs,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let server = spawnBridge();
+  t.after(async () => {
+    server.kill('SIGTERM');
+    await Promise.race([
+      new Promise((resolve) => server.once('exit', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 1000)),
+    ]);
+    await fs.rm(statePath, { force: true });
+    await fs.rm(resumePath, { force: true });
+  });
+
+  const firstState = JSON.parse(await waitForFile(statePath));
+  const headers = {
+    Authorization: `Bearer ${firstState.token}`,
+    'Content-Type': 'application/json',
+    'X-Vessel-Collab-Client': 'resumed-page-client',
+  };
+  const claimed = await claimRuntime(firstState.url, headers, 'resumed-page-runtime');
+  assert.equal(claimed.response.status, 200);
+  const runtime = {
+    protocolVersion: 6,
+    runtimeBuildId: 'transport-test-build',
+    runtimeInstanceId: 'resumed-page-runtime',
+    leaseEpoch: claimed.value.leaseEpoch,
+  };
+  const claimedState = JSON.parse(await waitForFile(statePath));
+  assert.deepEqual(claimedState.activeClient, {
+    clientId: 'resumed-page-client',
+    ...runtime,
+  });
+  await fs.copyFile(statePath, resumePath);
+  server.kill('SIGTERM');
+  await new Promise((resolve) => server.once('exit', resolve));
+
+  server = spawnBridge(['--resume-state', resumePath]);
+  const resumedState = JSON.parse(await waitForFile(statePath));
+  assert.equal(resumedState.token, firstState.token);
+  assert.notEqual(resumedState.pid, firstState.pid);
+
+  const health = await fetchJson(`${resumedState.url}/v1/health`, { headers });
+  assert.equal(health.value.clientReady, true);
+  assert.deepEqual(health.value.activeRuntime, runtime);
 });
 
 test('pairing rejects malformed bridge state without constructing an undefined URL', async (t) => {
@@ -251,6 +581,7 @@ test('durable journal reconciles accepted, delivered, cancelled, and completed c
     'serve',
     '--session', session,
     '--port', String(port),
+    '--no-multiplayer-ai',
     '--quiet',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => restartedServer.kill('SIGTERM'));
@@ -305,6 +636,7 @@ test('persistent client accepts large batches, emits compact results, and recove
     'serve',
     '--session', session,
     '--port', String(port),
+    '--no-multiplayer-ai',
     '--quiet',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -672,6 +1004,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
     'serve',
     '--session', session,
     '--port', String(port),
+    '--no-multiplayer-ai',
     '--quiet',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -954,7 +1287,7 @@ test('artwork jobs load from one plan file, stream events, and cancel without re
   assert.equal(stageCompleted.value.revision, 5);
 });
 
-test('reference preparation reaches one sampled gate through one bounded process', async (t) => {
+test('reference preparation applies the selected Stroke profile through one bounded process', async (t) => {
   const session = `collab-prepare-${crypto.randomUUID().slice(0, 8)}`;
   const port = await reservePort();
   const statePath = path.join(os.tmpdir(), `vessel-collab-${session}.json`);
@@ -971,14 +1304,13 @@ test('reference preparation reaches one sampled gate through one bounded process
     },
   }).png().toBuffer();
   const gate = {
-    action: 'shape',
+    action: 'stroke',
     points: [
       { x: 12, y: 14 },
       { x: 74, y: 12 },
       { x: 80, y: 70 },
       { x: 10, y: 76 },
     ],
-    direction: [{ x: 24, y: 30 }, { x: 62, y: 54 }],
   };
   await fs.writeFile(referencePath, referenceBytes);
   await fs.writeFile(gatePath, `${JSON.stringify(gate)}\n`);
@@ -988,6 +1320,7 @@ test('reference preparation reaches one sampled gate through one bounded process
     'serve',
     '--session', session,
     '--port', String(port),
+    '--no-multiplayer-ai',
     '--quiet',
   ], { stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(async () => {
@@ -1018,6 +1351,7 @@ test('reference preparation reaches one sampled gate through one bounded process
     '--session', session,
     '--file', referencePath,
     '--gate-file', gatePath,
+    '--brush-preset', 'color-cycle-stroke',
     '--width', '512',
     '--name', 'Reference Test',
     '--layer-name', 'Portrait paint',
@@ -1039,7 +1373,7 @@ test('reference preparation reaches one sampled gate through one bounded process
     'import-reference-image',
     'create-layer',
     'batch',
-    'shape',
+    'stroke',
     'set-layer-visibility',
   ];
   const readyState = {
@@ -1048,9 +1382,55 @@ test('reference preparation reaches one sampled gate through one bounded process
     referenceLayerId: 'reference-layer',
     preferReferenceSampling: true,
     currentTool: 'brush',
-    currentBrushPresetId: 'color-cycle-flat-dither',
-    currentBrushCapabilities: { canDither: false, forceDither: true },
-    availableBrushPresets: [],
+    currentBrushPresetId: 'color-cycle-stroke',
+    currentBrushCapabilities: { canDither: false, forceDither: false },
+    availableBrushPresets: [{
+      id: 'color-cycle-stroke',
+      name: 'Color Cycle Stroke',
+      category: 'Color Cycle',
+      isCustomBrush: false,
+      artworkProfile: {
+        schemaVersion: 1,
+        markType: 'stroke',
+        gradientSource: 'sampled',
+        baseSettings: {
+          size: 4,
+          opacity: 1,
+          spacing: 4,
+          gradientBands: 64,
+          ccGradientRangeContrast: 100,
+          ccSampledSoftSeamEnabled: false,
+          colorCycleStampShape: 'square',
+          colorCycleStampDitherEnabled: true,
+          ditherAlgorithm: 'sierra-lite',
+          colorCycleStampDitherPressureLinked: false,
+          colorCycleStampDitherBgFill: true,
+          pressureEnabled: false,
+          rotationEnabled: false,
+          lostEdge: 0,
+          dashedEnabled: false,
+          gridSnapEnabled: false,
+          gridSnapSize: 16,
+          shapeEnabled: false,
+        },
+        preparation: { colorCycleSpeed: 0.01, stampDitherPixelSize: 3 },
+        speed: {
+          absoluteMaximum: 0.08,
+          tiers: {
+            quiet: { min: 0.005, max: 0.01, values: [0.005, 0.01] },
+            secondary: { min: 0.015, max: 0.02, values: [0.015, 0.02] },
+            foreground: { min: 0.03, max: 0.045, values: [0.03, 0.045] },
+            focal: { min: 0.055, max: 0.06, values: [0.055, 0.06] },
+          },
+          phaseTier: {
+            establish: 'quiet',
+            develop: 'secondary',
+            deepen: 'foreground',
+          },
+        },
+        strokeSize: { pixels: 4, canvasShortEdge: 512, consistentWithinArtwork: true },
+      },
+    }],
     palette: { foreground: '#000000', background: '#ffffff', activeSlot: 'foreground' },
     gradient: {
       source: 'sampled',
@@ -1059,15 +1439,28 @@ test('reference preparation reaches one sampled gate through one bounded process
       sampleCount: 0,
     },
     brush: {
-      size: 8,
+      size: 4,
       opacity: 1,
-      ditherEnabled: true,
-      ditherAlgorithm: 'sierra-lite',
-      fillResolution: 3,
-      ditherPaletteSpread: 100,
+      spacing: 4,
+      gradientBands: 64,
+      ccGradientRangeContrast: 100,
       ccSampledSoftSeamEnabled: false,
+      colorCycleStampShape: 'square',
+      colorCycleStampDitherEnabled: true,
+      ditherAlgorithm: 'sierra-lite',
+      colorCycleStampDitherPixelSize: 3,
+      colorCycleStampDitherPressureLinked: false,
+      colorCycleStampDitherBgFill: true,
+      pressureEnabled: false,
+      rotationEnabled: false,
+      lostEdge: 0,
+      dashedEnabled: false,
+      gridSnapEnabled: false,
+      gridSnapSize: 16,
+      shapeEnabled: false,
+      colorCycleSpeed: 0.01,
     },
-    eraser: { size: 8, opacity: 1, linkSizeToBrush: true, tip: 'square' },
+    eraser: { size: 4, opacity: 1, linkSizeToBrush: true, tip: 'square' },
     layers: [
       {
         id: 'reference-layer',
@@ -1199,9 +1592,17 @@ test('reference preparation reaches one sampled gate through one bounded process
   assert.equal(commands[6].visible, false);
   assert.equal(commands[6].capture, 'final-thumbnail');
   const brushSettings = commands[4].operations.find((operation) => operation.action === 'set-brush');
+  assert.deepEqual(brushSettings.settings, {
+    ...readyState.availableBrushPresets[0].artworkProfile.baseSettings,
+    colorCycleSpeed: readyState.availableBrushPresets[0].artworkProfile.preparation.colorCycleSpeed,
+    colorCycleStampDitherPixelSize:
+      readyState.availableBrushPresets[0].artworkProfile.preparation.stampDitherPixelSize,
+  });
   assert.equal(brushSettings.settings.ditherAlgorithm, 'sierra-lite');
-  assert.equal(brushSettings.settings.fillResolution, 3);
-  assert.equal(brushSettings.settings.ditherPaletteSpread, 100);
+  assert.equal(brushSettings.settings.colorCycleStampDitherPixelSize, 3);
+  assert.equal(brushSettings.settings.ccGradientRangeContrast, 100);
+  assert.equal(brushSettings.settings.colorCycleSpeed, 0.01);
+  assert.equal(brushSettings.settings.gradientBands, 64);
   assert.equal(brushSettings.settings.ccSampledSoftSeamEnabled, false);
 });
 

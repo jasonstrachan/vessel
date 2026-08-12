@@ -355,6 +355,44 @@ describe('brush history coalescing', () => {
     expect(Array.from(current!.data)).toEqual(Array.from(afterFull.data));
   });
 
+  it('records ROI-sized before and after snapshots from a framebuffer-only layer', async () => {
+    const beforeFull = createImage([
+      0, 0, 255, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    const afterFull = cloneImage(beforeFull);
+    setPixel(afterFull, 1, 1, [255, 0, 0, 255]);
+    const layer = createLayer('layer-roi-framebuffer', cloneImage(afterFull));
+    layer.imageData = null;
+    installLayer(layer);
+
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: createImageOfSize(1, 1, [0, 0, 0, 0]),
+      afterImage: createImageOfSize(1, 1, [255, 0, 0, 255]),
+      beforeColorState: null,
+      actionType: 'brush',
+      description: 'Framebuffer ROI stroke',
+      tool: 'brush',
+      bitmapRoi: { x: 1, y: 1, width: 1, height: 1 },
+      bitmapSize: CANVAS_SIZE,
+    });
+
+    await historyManager.undo();
+    let current = useAppStore.getState().layers.find((entry) => entry.id === layer.id)?.imageData;
+    expect(current).toBeDefined();
+    expect(getPixel(current!, 0, 0)).toEqual([0, 0, 255, 255]);
+    expect(getPixel(current!, 1, 1)).toEqual([0, 0, 0, 0]);
+
+    await historyManager.redo();
+    current = useAppStore.getState().layers.find((entry) => entry.id === layer.id)?.imageData;
+    expect(current).toBeDefined();
+    expect(getPixel(current!, 0, 0)).toEqual([0, 0, 255, 255]);
+    expect(getPixel(current!, 1, 1)).toEqual([255, 0, 0, 255]);
+  });
+
   it('normalizes before-image dimensions when generating bitmap deltas', async () => {
     const beforeSmall = createImageOfSize(
       2,

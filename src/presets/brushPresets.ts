@@ -1,4 +1,11 @@
-import { BrushPreset, BrushComponent, ComponentType, BrushSettings, BrushShape } from '../types';
+import {
+  BrushPreset,
+  BrushComponent,
+  ComponentType,
+  BrushSettings,
+  BrushShape,
+  type BrushArtworkProfile,
+} from '../types';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 
@@ -532,6 +539,62 @@ export const colorCycleStrokeBrushComponents: BrushComponent[] = [
   }
 ];
 
+export const colorCycleStrokeArtworkProfile: BrushArtworkProfile = {
+  schemaVersion: 1,
+  markType: 'stroke',
+  gradientSource: 'sampled',
+  baseSettings: {
+    size: 4,
+    opacity: 1,
+    spacing: 4,
+    gradientBands: 64,
+    ccGradientRangeContrast: 100,
+    ccSampledSoftSeamEnabled: false,
+    colorCycleStampShape: 'square',
+    colorCycleStampDitherEnabled: true,
+    ditherAlgorithm: 'sierra-lite',
+    colorCycleStampDitherPressureLinked: false,
+    colorCycleStampDitherBgFill: true,
+    pressureEnabled: false,
+    rotationEnabled: false,
+    lostEdge: 0,
+    dashedEnabled: false,
+    gridSnapEnabled: false,
+    gridSnapSize: 16,
+    shapeEnabled: false,
+  },
+  preparation: {
+    colorCycleSpeed: 0.01,
+    stampDitherPixelSize: 3,
+  },
+  speed: {
+    absoluteMaximum: 0.08,
+    tiers: {
+      quiet: { min: 0.005, max: 0.01, values: [0.005, 0.01] },
+      secondary: { min: 0.015, max: 0.02, values: [0.015, 0.02] },
+      foreground: { min: 0.03, max: 0.045, values: [0.03, 0.035, 0.04, 0.045] },
+      focal: { min: 0.055, max: 0.06, values: [0.055, 0.06] },
+    },
+    phaseTier: {
+      establish: 'quiet',
+      develop: 'secondary',
+      deepen: 'foreground',
+    },
+  },
+  detail: {
+    stampDitherPixelSizeByPhase: {
+      establish: 3,
+      develop: 2,
+      deepen: 1,
+    },
+  },
+  strokeSize: {
+    pixels: 4,
+    canvasShortEdge: 512,
+    consistentWithinArtwork: true,
+  },
+};
+
 export const colorCycleStrokeBrushPreset: BrushPreset = {
   id: 'color-cycle-stroke',
   name: 'Color Cycle Stroke',
@@ -542,6 +605,7 @@ export const colorCycleStrokeBrushPreset: BrushPreset = {
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
+  artworkProfile: colorCycleStrokeArtworkProfile,
   preferredSettings: {
     size: 20,
     opacity: 1,
@@ -787,6 +851,92 @@ export const colorCycleFlatDitherBrushComponents: BrushComponent[] = [
 // Always-dithered CC gradient variant: the dither texture stays at a constant
 // 50/50 mix while the ink pair slides with the smooth gradient position, so
 // color cycling flows through a fixed pattern (like dither-off, but textured).
+export const colorCycleFlatDitherArtworkProfile: BrushArtworkProfile = {
+  schemaVersion: 1,
+  markType: 'shape',
+  gradientSource: 'sampled',
+  baseSettings: {
+    size: 8,
+    opacity: 1,
+    ditherEnabled: true,
+    ccFlatCycleDither: true,
+    ditherAlgorithm: 'sierra-lite',
+    pressureLinkedFillResolution: false,
+    ditherBackgroundFill: true,
+    ditherPaletteSpread: 100,
+    ditherPatternDiversity: 100,
+    ditherPhaseJitter: 0,
+    pxlEdge: true,
+    ccGradientRangeContrast: 100,
+    ccFlatCycleBands: 0,
+    colorCycleFillMode: 'linear',
+    ccGradientDrawingShape: 'freehand',
+    ccSampledSoftSeamEnabled: false,
+  },
+  preparation: {
+    colorCycleSpeed: 0.01,
+    fillResolution: 3,
+  },
+  speed: {
+    absoluteMaximum: 0.08,
+    tiers: {
+      quiet: { min: 0.005, max: 0.01, values: [0.005, 0.01] },
+      secondary: { min: 0.015, max: 0.02, values: [0.015, 0.02] },
+      foreground: {
+        min: 0.05,
+        max: 0.075,
+        values: [0.05, 0.055, 0.06, 0.065, 0.07, 0.075],
+      },
+      focal: {
+        min: 0.055,
+        max: 0.08,
+        values: [0.055, 0.06, 0.065, 0.07, 0.075, 0.08],
+      },
+    },
+    phaseTier: {
+      establish: 'quiet',
+      develop: 'secondary',
+      deepen: 'foreground',
+    },
+  },
+  detail: {
+    fillResolutionByPhase: {
+      establish: 3,
+      develop: 2,
+      deepen: 1,
+    },
+    finalPeripheralCluster: {
+      fillResolution: 8,
+      shapeCount: { min: 3, max: 5 },
+      physicalScale: 'medium',
+      placement: 'connected-cluster',
+      speedTier: 'secondary',
+    },
+  },
+  construction: {
+    contourMethod: 'curvature-weighted-anchors-with-restrained-corner-cutting',
+    drawingShape: 'freehand',
+    boundaryAnchors: { min: 20, max: 60 },
+    gesturePoints: { min: 40, max: 120 },
+    gradientDirection: {
+      strategy: 'farthest-boundary-pair',
+      startPoint: 'mass-centroid',
+      minimumSpanRatio: 4,
+      maximumSpanRatio: 8,
+      endpointMayLeaveCanvas: true,
+    },
+  },
+  inventory: {
+    defaultMassCount: 300,
+    permanentPreparationMasses: 1,
+    phaseRatios: {
+      establish: 0.05,
+      develop: 0.15,
+      deepen: 0.8,
+    },
+  },
+};
+
 export const colorCycleFlatDitherBrushPreset: BrushPreset = {
   id: 'color-cycle-flat-dither',
   name: 'Color Cycle Flat Dither',
@@ -797,6 +947,7 @@ export const colorCycleFlatDitherBrushPreset: BrushPreset = {
   isDefault: false,
   createdAt: new Date(),
   modifiedAt: new Date(),
+  artworkProfile: colorCycleFlatDitherArtworkProfile,
   preferredSettings: {
     size: 20,
     opacity: 1,

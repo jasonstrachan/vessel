@@ -37,6 +37,11 @@ export const DrawingCanvasOverlays = ({
   const aiCursor = multiplayer.aiCursor;
   const showSession = multiplayer.status !== 'idle';
   const canStop = multiplayer.status === 'active' || multiplayer.status === 'stopping';
+  const multiplayerStateLabel = multiplayer.status === 'active'
+    ? multiplayer.bridgeStatus === 'connected'
+      ? multiplayer.aiState
+      : multiplayer.bridgeStatus
+    : multiplayer.status;
 
   return (
     <>
@@ -89,11 +94,15 @@ export const DrawingCanvasOverlays = ({
         <div
           className="pointer-events-auto absolute left-4 top-4 flex items-center gap-2 bg-black/85 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white"
           data-testid="multiplayer-status"
+          aria-live="polite"
+          title={multiplayer.error ?? multiplayer.bridgeError ?? undefined}
         >
           <span className="text-[#52e5ff]">Jason</span>
           <span className="text-[#7d7d7d]">+</span>
           <span className="text-[#ff4fd8]">AI</span>
-          <span className="text-[#b5b5b5]">{multiplayer.status}</span>
+          <span className="text-[#b5b5b5]">
+            {multiplayerStateLabel}
+          </span>
           {canStop && multiplayer.sessionId ? (
             <button
               type="button"

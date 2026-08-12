@@ -6,6 +6,8 @@ import { BrushShape } from '@/types';
 const mockUseCanvasEventHandlers = jest.fn();
 const mockUseDrawingCanvasPointerHandlers = jest.fn();
 const mockUseDrawingCanvasEventBindings = jest.fn();
+const mockIsVesselMultiplayerHumanPointerRelevant = jest.fn();
+const mockRecordVesselMultiplayerHumanPointer = jest.fn();
 
 jest.mock('@/hooks/canvas/useCanvasEventHandlers', () => ({
   useCanvasEventHandlers: (...args: unknown[]) => mockUseCanvasEventHandlers(...args),
@@ -17,6 +19,13 @@ jest.mock('@/components/canvas/useDrawingCanvasPointerHandlers', () => ({
 
 jest.mock('@/components/canvas/useDrawingCanvasEventBindings', () => ({
   useDrawingCanvasEventBindings: (...args: unknown[]) => mockUseDrawingCanvasEventBindings(...args),
+}));
+
+jest.mock('@/collaboration/vesselMultiplayerHumanInput', () => ({
+  isVesselMultiplayerHumanPointerRelevant: (...args: unknown[]) =>
+    mockIsVesselMultiplayerHumanPointerRelevant(...args),
+  recordVesselMultiplayerHumanPointer: (...args: unknown[]) =>
+    mockRecordVesselMultiplayerHumanPointer(...args),
 }));
 
 type InputHandlerOptions = Parameters<typeof useDrawingCanvasInputHandlers>[0];
@@ -68,6 +77,8 @@ describe('useDrawingCanvasInputHandlers', () => {
     mockUseCanvasEventHandlers.mockReset();
     mockUseDrawingCanvasPointerHandlers.mockReset();
     mockUseDrawingCanvasEventBindings.mockReset();
+    mockIsVesselMultiplayerHumanPointerRelevant.mockReset().mockReturnValue(true);
+    mockRecordVesselMultiplayerHumanPointer.mockReset();
 
     mockUseCanvasEventHandlers.mockReturnValue({
       handlePointerDown: jest.fn(),
@@ -193,5 +204,54 @@ describe('useDrawingCanvasInputHandlers', () => {
     expect(
       mockUseDrawingCanvasPointerHandlers.mock.calls.at(-1)?.[0]?.allowPointerDownOutsideCanvasShape
     ).toBe(false);
+  });
+
+  it('reports brush pointer activity to an active multiplayer session seam', () => {
+    const basePointerDown = jest.fn();
+    mockUseDrawingCanvasPointerHandlers.mockReturnValue({
+      handlePointerDown: basePointerDown,
+      handlePointerMove: jest.fn(),
+      handlePointerUp: jest.fn(),
+      handlePointerEnter: jest.fn(),
+      handlePointerLeave: jest.fn(),
+      handlePointerCancel: jest.fn(),
+    });
+    const { result } = renderHook(() => useDrawingCanvasInputHandlers(buildOptions()));
+    const event = {
+      button: 0,
+      pointerId: 9,
+      pointerType: 'pen',
+      pressure: 0.75,
+    } as React.PointerEvent<Element>;
+
+    result.current.handlePointerDown(event);
+
+    expect(basePointerDown).toHaveBeenCalledWith(event);
+    expect(mockRecordVesselMultiplayerHumanPointer).toHaveBeenCalledWith({
+      phase: 'start',
+      pointerId: 9,
+      pointerType: 'pen',
+      point: { x: 10, y: 10, pressure: 0.75 },
+      tool: 'brush',
+      shapeMode: false,
+      occurredAt: expect.any(Number),
+    });
+  });
+
+  it('does not report panning or non-paint tools as human marks', () => {
+    const options = buildOptions({
+      tools: buildTools({ currentTool: 'selection' }),
+    });
+    const { result } = renderHook(() => useDrawingCanvasInputHandlers(options));
+    const event = {
+      button: 0,
+      pointerId: 3,
+      pointerType: 'mouse',
+      pressure: 0,
+    } as React.PointerEvent<Element>;
+
+    result.current.handlePointerDown(event);
+
+    expect(mockRecordVesselMultiplayerHumanPointer).not.toHaveBeenCalled();
   });
 });

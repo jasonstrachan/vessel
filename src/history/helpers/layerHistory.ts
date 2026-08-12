@@ -162,6 +162,7 @@ export interface LayerHistoryPayload {
     width: number;
     height: number;
   } | null;
+  bitmapSize?: { width: number; height: number };
   actionType: CanvasSnapshot['actionType'];
   description: string;
   tool: string;
@@ -192,6 +193,7 @@ export const commitLayerHistory = async ({
   selectionBefore,
   skipBitmapDelta,
   bitmapRoi,
+  bitmapSize,
 }: LayerHistoryPayload): Promise<void> => {
     const probeMeta = {
       layerId,
@@ -302,6 +304,7 @@ export const commitLayerHistory = async ({
             before: beforeImage,
             after: afterImage,
             roi: bitmapRoi ?? undefined,
+            bitmapSize,
           }),
           {
             ...probeMeta,

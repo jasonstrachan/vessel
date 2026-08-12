@@ -43,6 +43,23 @@ describe('Interlace Sierra Lite playback', () => {
     expect(Array.from(written, (value) => value === 200 ? 1 : 0)).toEqual(Array.from(field));
   });
 
+  it('uses per-cell mix values without moving the Sierra Lite lattice', () => {
+    const mixField = new Float32Array([
+      0, 1, 0, 1,
+      1, 0, 1, 0,
+    ]);
+    const field = resolveSierraLiteBinaryField({
+      width: 4,
+      height: 2,
+      mix: 0.5,
+      seed: 8128,
+      diversity: 1,
+      mixField,
+    });
+
+    expect(field).toEqual(new Uint8Array(mixField));
+  });
+
   it('turns dominance into pulse width while keeping the lattice anchored', () => {
     const neighbourSlits = resolveInterlaceMaskRectangles({
       width: 64,

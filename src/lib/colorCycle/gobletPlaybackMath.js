@@ -215,6 +215,7 @@ const resolveSierraLiteInitialError = (x, y, identityKey, seed, variant, pattern
  *   highKey?: number,
  *   diversity?: number,
  *   activeMask?: Uint8Array | null,
+ *   mixField?: Float32Array | null,
  * }} options
  * @returns {Uint8Array}
  */
@@ -230,6 +231,7 @@ export const resolveSierraLiteBinaryField = ({
   highKey = 1,
   diversity = 1,
   activeMask = null,
+  mixField = null,
 }) => {
   const gridWidth = Math.max(0, Math.round(Number(width) || 0));
   const gridHeight = Math.max(0, Math.round(Number(height) || 0));
@@ -289,7 +291,10 @@ export const resolveSierraLiteBinaryField = ({
       const amplitude = [0.03, 0.045, 0.035, 0.05, 0.04, 0.055, 0.038, 0.048][variant];
       const threshold = 0.5 + (noise - 0.5) * amplitude;
       const blendedThreshold = 0.5 + (threshold - 0.5) * diversity01;
-      const value = clamp01(baseMix + initialError * diversity01 + errors[index]);
+      const cellMix = mixField && Number.isFinite(mixField[index])
+        ? clamp01(mixField[index])
+        : baseMix;
+      const value = clamp01(cellMix + initialError * diversity01 + errors[index]);
       const bit = value >= blendedThreshold ? 1 : 0;
       output[index] = bit;
       const quantizationError = value - bit;

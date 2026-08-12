@@ -29,6 +29,7 @@ import {
   fetchVesselCollaborationJson as fetchJson,
 } from './vessel-collab-client.mjs';
 import { createStagedArtworkExpander } from './vessel-collab-staged-artwork.mjs';
+import { createVesselMultiplayerAiWorker } from './vessel-multiplayer-ai-worker.mjs';
 
 const DEFAULT_PORT = 4317;
 const DEFAULT_COMMAND_TIMEOUT_MS = 120000;
@@ -37,10 +38,12 @@ const MAX_PROJECT_FILE_BYTES = 18 * 1024 * 1024;
 const MAX_REFERENCE_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_RETAINED_COMMANDS = 32;
 const MAX_RETAINED_COMMAND_EVENTS = 512;
+const MAX_RETAINED_RUNTIME_EVENTS = 4096;
+const MAX_MULTIPLAYER_FRAME_BYTES = 1024 * 1024;
 const COMMAND_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REQUEST_ID_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const CLIENT_ID_HEADER = 'x-vessel-collab-client';
-const VESSEL_COLLABORATION_PROTOCOL_VERSION = 4;
+const VESSEL_COLLABORATION_PROTOCOL_VERSION = 6;
 const VESSEL_COLLABORATION_STATE_SCHEMA_VERSION = 1;
 const PAIRING_TTL_MS = 60_000;
 const stagedArtworkExpander = createStagedArtworkExpander();
@@ -85,6 +88,126 @@ const runtimeMatchesFence = (runtime, fence) => Boolean(
   runtime.leaseEpoch === fence.leaseEpoch
 );
 
+const readFinitePoint = (value, label) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !Number.isFinite(value.x) || !Number.isFinite(value.y) ||
+      (value.pressure !== undefined && !Number.isFinite(value.pressure))) {
+    throw new Error(`${label} must contain finite canvas coordinates`);
+  }
+  return {
+    x: value.x,
+    y: value.y,
+    ...(value.pressure === undefined ? {} : { pressure: value.pressure }),
+  };
+};
+
+const readHumanGestureRuntimeEvent = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      value.type !== 'human-gesture' || value.actor !== 'human' ||
+      !['start', 'move', 'end', 'cancel'].includes(value.phase)) {
+    throw new Error('Runtime event must be a human gesture event');
+  }
+  const eventId = requireSafeRequestId(value.eventId);
+  const gestureId = requireSafeRequestId(value.gestureId);
+  const sessionId = requireSafeSession(value.sessionId);
+  const projectId = requireSafeRequestId(value.projectId);
+  const humanLayerId = requireSafeRequestId(value.humanLayerId);
+  if (!['brush', 'eraser'].includes(value.tool) || typeof value.shapeMode !== 'boolean') {
+    throw new Error('Human gesture event has invalid tool state');
+  }
+  if (typeof value.pointerType !== 'string' || value.pointerType.length > 32) {
+    throw new Error('Human gesture event has an invalid pointer type');
+  }
+  if (!value.bounds || typeof value.bounds !== 'object' || Array.isArray(value.bounds) ||
+      !Number.isFinite(value.bounds.minX) || !Number.isFinite(value.bounds.minY) ||
+      !Number.isFinite(value.bounds.maxX) || !Number.isFinite(value.bounds.maxY) ||
+      value.bounds.maxX < value.bounds.minX || value.bounds.maxY < value.bounds.minY) {
+    throw new Error('Human gesture event has invalid bounds');
+  }
+  if (!Number.isInteger(value.pointCount) || value.pointCount < 1 || value.pointCount > 1_000_000 ||
+      !Number.isInteger(value.projectRevision) || value.projectRevision < 0 ||
+      typeof value.committed !== 'boolean' ||
+      (value.committedAt !== undefined && !Number.isFinite(value.committedAt)) ||
+      (value.phase === 'end' && (!value.committed || !Number.isFinite(value.committedAt))) ||
+      !Number.isFinite(value.occurredAt) || !Number.isFinite(value.elapsedMs) || value.elapsedMs < 0) {
+    throw new Error('Human gesture event has invalid timing or point count');
+  }
+  if (!Array.isArray(value.path) || value.path.length < 1 || value.path.length > 64) {
+    throw new Error('Human gesture event must contain a bounded sampled path');
+  }
+  return {
+    eventId,
+    type: 'human-gesture',
+    actor: 'human',
+    phase: value.phase,
+    sessionId,
+    projectId,
+    projectRevision: value.projectRevision,
+    gestureId,
+    humanLayerId,
+    tool: value.tool,
+    shapeMode: value.shapeMode,
+    pointerType: value.pointerType,
+    point: readFinitePoint(value.point, 'Human gesture point'),
+    path: value.path.map((point, index) => readFinitePoint(
+      point,
+      `Human gesture path point ${index + 1}`,
+    )),
+    bounds: {
+      minX: value.bounds.minX,
+      minY: value.bounds.minY,
+      maxX: value.bounds.maxX,
+      maxY: value.bounds.maxY,
+    },
+    pointCount: value.pointCount,
+    occurredAt: value.occurredAt,
+    committed: value.committed,
+    ...(value.committedAt === undefined ? {} : { committedAt: value.committedAt }),
+    elapsedMs: value.elapsedMs,
+  };
+};
+
+const readMultiplayerCanvasFrame = (value, imageBuffer) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Multiplayer canvas frame must be an object');
+  }
+  const frameId = requireSafeRequestId(value.frameId);
+  const sessionId = requireSafeSession(value.sessionId);
+  const projectId = requireSafeRequestId(value.projectId);
+  if (!Number.isInteger(value.projectRevision) || value.projectRevision < 0 ||
+      !Number.isFinite(value.capturedAt) ||
+      !Number.isInteger(value.width) || value.width < 1 || value.width > 1024 ||
+      !Number.isInteger(value.height) || value.height < 1 || value.height > 1024 ||
+      !Number.isInteger(value.sourceWidth) || value.sourceWidth < 1 || value.sourceWidth > 32768 ||
+      !Number.isInteger(value.sourceHeight) || value.sourceHeight < 1 || value.sourceHeight > 32768 ||
+      !['normal', 'color-cycle'].includes(value.aiLayerType) ||
+      !['image/png', 'image/webp'].includes(value.mimeType) ||
+      !['start', 'move', 'end', 'cancel', 'idle'].includes(value.gesturePhase) ||
+      (value.gestureId !== null && !REQUEST_ID_PATTERN.test(String(value.gestureId))) ||
+      !Number.isInteger(value.gesturePointCount) || value.gesturePointCount < 0 ||
+      !Buffer.isBuffer(imageBuffer) || imageBuffer.length < 1 ||
+      imageBuffer.length > MAX_MULTIPLAYER_FRAME_BYTES) {
+    throw new Error('Multiplayer canvas frame is invalid or exceeds its safety limit');
+  }
+  return {
+    frameId,
+    sessionId,
+    projectId,
+    projectRevision: value.projectRevision,
+    aiLayerType: value.aiLayerType,
+    capturedAt: value.capturedAt,
+    width: value.width,
+    height: value.height,
+    sourceWidth: value.sourceWidth,
+    sourceHeight: value.sourceHeight,
+    mimeType: value.mimeType,
+    gestureId: value.gestureId,
+    gesturePhase: value.gesturePhase,
+    gesturePointCount: value.gesturePointCount,
+    imageBuffer,
+  };
+};
+
 const parseArgs = (argv) => {
   const positional = [];
   const flags = new Map();
@@ -112,6 +235,60 @@ const requireSafeSession = (value) => {
     throw new Error('Session must use 1-64 letters, numbers, dashes, or underscores');
   }
   return session;
+};
+
+const requireMultiplayerModel = (value) => {
+  const model = String(value ?? '');
+  if (!/^[a-z0-9][a-z0-9._:/-]{0,127}$/i.test(model)) {
+    throw new Error('Multiplayer model must be a valid local Ollama model name');
+  }
+  return model;
+};
+
+const requireLocalOllamaUrl = (value) => {
+  const url = new URL(String(value));
+  if (url.protocol !== 'http:' ||
+      !['127.0.0.1', 'localhost'].includes(url.hostname) ||
+      url.username || url.password) {
+    throw new Error('--multiplayer-ollama-url must be an HTTP localhost URL');
+  }
+  return url.toString();
+};
+
+const readPersistedActiveClient = (value) => {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      typeof value.clientId !== 'string' || !REQUEST_ID_PATTERN.test(value.clientId) ||
+      value.protocolVersion !== VESSEL_COLLABORATION_PROTOCOL_VERSION ||
+      typeof value.runtimeBuildId !== 'string' || !value.runtimeBuildId ||
+      typeof value.runtimeInstanceId !== 'string' || !value.runtimeInstanceId ||
+      !Number.isInteger(value.leaseEpoch) || value.leaseEpoch < 1) {
+    throw new Error('--resume-state contains an invalid active collaboration runtime');
+  }
+  return {
+    clientId: value.clientId,
+    protocolVersion: value.protocolVersion,
+    runtimeBuildId: value.runtimeBuildId,
+    runtimeInstanceId: value.runtimeInstanceId,
+    leaseEpoch: value.leaseEpoch,
+  };
+};
+
+const readResumedBridgeState = async ({ flags, session, port }) => {
+  if (!flags.has('resume-state')) return null;
+  const resumePath = path.resolve(String(flags.get('resume-state')));
+  const resumed = JSON.parse(await fs.readFile(resumePath, 'utf8'));
+  const resumedUrl = requireLocalVesselUrl(resumed?.url);
+  if (resumed?.schemaVersion !== VESSEL_COLLABORATION_STATE_SCHEMA_VERSION ||
+      resumed?.session !== session ||
+      resumedUrl.origin !== `http://127.0.0.1:${port}` ||
+      typeof resumed?.token !== 'string' || !/^[0-9a-f]{48}$/i.test(resumed.token)) {
+    throw new Error('--resume-state does not match this bridge session and port');
+  }
+  return {
+    token: resumed.token,
+    activeClient: readPersistedActiveClient(resumed.activeClient),
+  };
 };
 
 const requireSafeRequestId = (value) => {
@@ -172,6 +349,22 @@ const readJsonBody = (request) => new Promise((resolve, reject) => {
   request.on('error', reject);
 });
 
+const readBinaryBody = (request, maximumBytes) => new Promise((resolve, reject) => {
+  const chunks = [];
+  let bytes = 0;
+  request.on('data', (chunk) => {
+    bytes += chunk.length;
+    if (bytes > maximumBytes) {
+      reject(new Error('Request body exceeds the multiplayer frame limit'));
+      request.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+  request.on('end', () => resolve(Buffer.concat(chunks)));
+  request.on('error', reject);
+});
+
 const writeJson = (response, status, value, origin) => {
   const body = value === undefined ? '' : JSON.stringify(value);
   response.writeHead(status, {
@@ -215,6 +408,13 @@ const serve = async ({ flags }) => {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {
     throw new Error('Port must be an integer between 1024 and 65535');
   }
+  const multiplayerAiEnabled = !flags.has('no-multiplayer-ai');
+  let multiplayerModel = requireMultiplayerModel(
+    flags.get('multiplayer-model') ?? 'qwen2.5vl:3b',
+  );
+  const multiplayerOllamaUrl = flags.has('multiplayer-ollama-url')
+    ? requireLocalOllamaUrl(flags.get('multiplayer-ollama-url'))
+    : undefined;
   const recoveredJournal = await readVesselCollaborationJournal(session);
   const recoveredCommandsByRequestId = new Map(
     recoveredJournal.commands
@@ -222,7 +422,8 @@ const serve = async ({ flags }) => {
       .map((command) => [command.requestId, command]),
   );
 
-  const token = crypto.randomBytes(24).toString('hex');
+  const resumedBridgeState = await readResumedBridgeState({ flags, session, port });
+  const token = resumedBridgeState?.token ?? crypto.randomBytes(24).toString('hex');
   const queue = [];
   const commandRecords = new Map();
   const commandIdsByRequestId = new Map();
@@ -248,10 +449,143 @@ const serve = async ({ flags }) => {
   }
   const completedCommandIds = [];
   const waiters = [];
+  const runtimeEvents = [];
+  const runtimeEventWaiters = [];
   const pairings = new Map();
-  let activeClient = null;
-  let nextLeaseEpoch = 1;
+  let activeClient = resumedBridgeState?.activeClient ?? null;
+  let nextLeaseEpoch = activeClient ? activeClient.leaseEpoch + 1 : 1;
+  let nextRuntimeEventSequence = 1;
   let delivering = false;
+  let latestMultiplayerFrame = null;
+  let multiplayerAiWorker = null;
+  let multiplayerAiSwapInProgress = false;
+  const statePath = getStatePath(session);
+  const state = {
+    schemaVersion: VESSEL_COLLABORATION_STATE_SCHEMA_VERSION,
+    session,
+    url: `http://127.0.0.1:${port}`,
+    token,
+    pid: process.pid,
+  };
+  const persistBridgeState = () => fs.writeFile(
+    statePath,
+    `${JSON.stringify({ ...state, activeClient }, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+
+  const recoverActiveClient = async (clientId, runtime) => {
+    if (activeClient || !clientId || !runtime || typeof runtime !== 'object' ||
+        Array.isArray(runtime) ||
+        runtime.protocolVersion !== VESSEL_COLLABORATION_PROTOCOL_VERSION ||
+        typeof runtime.runtimeBuildId !== 'string' || !runtime.runtimeBuildId ||
+        typeof runtime.runtimeInstanceId !== 'string' || !runtime.runtimeInstanceId ||
+        !Number.isInteger(runtime.leaseEpoch) || runtime.leaseEpoch < 1) {
+      return false;
+    }
+    activeClient = {
+      clientId,
+      protocolVersion: runtime.protocolVersion,
+      runtimeBuildId: runtime.runtimeBuildId,
+      runtimeInstanceId: runtime.runtimeInstanceId,
+      leaseEpoch: runtime.leaseEpoch,
+    };
+    nextLeaseEpoch = Math.max(nextLeaseEpoch, runtime.leaseEpoch + 1);
+    await appendVesselCollaborationJournal(session, {
+      type: 'lease-claimed',
+      runtimeBuildId: activeClient.runtimeBuildId,
+      runtimeInstanceId: activeClient.runtimeInstanceId,
+      leaseEpoch: activeClient.leaseEpoch,
+    });
+    await persistBridgeState();
+    return true;
+  };
+
+  const createMultiplayerAiWorker = (model) => createVesselMultiplayerAiWorker({
+    client: createBridgeClient(state),
+    model,
+    ...(multiplayerOllamaUrl ? { url: multiplayerOllamaUrl } : {}),
+  });
+
+  const swapMultiplayerAiModel = async (requestedModel) => {
+    const model = requireMultiplayerModel(requestedModel);
+    if (!multiplayerAiEnabled) {
+      return { status: 409, value: { error: 'Multiplayer AI is disabled' } };
+    }
+    if (multiplayerAiSwapInProgress) {
+      return { status: 409, value: { error: 'A multiplayer model change is already in progress' } };
+    }
+    const currentStatus = multiplayerAiWorker?.getStatus();
+    if (currentStatus?.model === model) {
+      return { status: 200, value: { changed: false, multiplayerAi: currentStatus } };
+    }
+    if (currentStatus && !['watching', 'error'].includes(currentStatus.state)) {
+      return {
+        status: 409,
+        value: { error: 'Wait for the current multiplayer AI response before changing models' },
+      };
+    }
+
+    multiplayerAiSwapInProgress = true;
+    const previousWorker = multiplayerAiWorker;
+    let candidateWorker = null;
+    try {
+      candidateWorker = createMultiplayerAiWorker(model);
+      await candidateWorker.warm();
+      const candidateStatus = candidateWorker.getStatus();
+      if (candidateStatus.state !== 'watching') {
+        return {
+          status: 502,
+          value: {
+            error: candidateStatus.lastError ?? 'The requested multiplayer model did not start',
+            multiplayerAi: previousWorker?.getStatus() ?? null,
+          },
+        };
+      }
+      if (multiplayerAiWorker !== previousWorker) {
+        return { status: 409, value: { error: 'The active multiplayer AI worker changed' } };
+      }
+      const latestPreviousStatus = previousWorker?.getStatus();
+      if (latestPreviousStatus && !['watching', 'error'].includes(latestPreviousStatus.state)) {
+        return {
+          status: 409,
+          value: { error: 'A multiplayer AI response began during the model change' },
+        };
+      }
+
+      multiplayerAiWorker = candidateWorker;
+      candidateWorker = null;
+      multiplayerModel = model;
+      previousWorker?.stop();
+      return {
+        status: 200,
+        value: { changed: true, multiplayerAi: multiplayerAiWorker.getStatus() },
+      };
+    } finally {
+      candidateWorker?.stop();
+      multiplayerAiSwapInProgress = false;
+    }
+  };
+
+  const runtimeEventBatchAfter = (after) => {
+    const events = runtimeEvents.filter((event) => event.sequence > after);
+    return {
+      events,
+      next: events.at(-1)?.sequence ?? after,
+      latest: nextRuntimeEventSequence - 1,
+      reset: runtimeEvents.length > 0 && after < runtimeEvents[0].sequence - 1,
+    };
+  };
+
+  const deliverRuntimeEvents = () => {
+    for (let index = runtimeEventWaiters.length - 1; index >= 0; index -= 1) {
+      const waiter = runtimeEventWaiters[index];
+      const batch = runtimeEventBatchAfter(waiter.after);
+      if (batch.events.length === 0) continue;
+      runtimeEventWaiters.splice(index, 1);
+      clearTimeout(waiter.timeout);
+      writeJson(waiter.response, 200, batch, waiter.origin);
+    }
+  };
 
   const pruneCompletedCommands = () => {
     while (completedCommandIds.length > MAX_RETAINED_COMMANDS) {
@@ -372,6 +706,13 @@ const serve = async ({ flags }) => {
           session,
           queued: queue.length,
           clientReady: activeClient !== null,
+          latestRuntimeEventSequence: nextRuntimeEventSequence - 1,
+          multiplayerAi: multiplayerAiWorker?.getStatus() ?? {
+            enabled: multiplayerAiEnabled,
+            model: multiplayerModel,
+            state: multiplayerAiEnabled ? 'starting' : 'disabled',
+          },
+          latestMultiplayerFrameAt: latestMultiplayerFrame?.capturedAt ?? null,
           activeRuntime: activeClient ? {
             protocolVersion: activeClient.protocolVersion,
             runtimeBuildId: activeClient.runtimeBuildId,
@@ -380,6 +721,125 @@ const serve = async ({ flags }) => {
           } : null,
           recovery: journal.commands,
         }, origin);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/multiplayer-ai/model') {
+        const body = await readJsonBody(request);
+        const result = await swapMultiplayerAiModel(body?.model);
+        writeJson(response, result.status, result.value, origin);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/multiplayer-frame') {
+        const clientId = readClientId(request);
+        if (activeClient && clientId !== activeClient.clientId) {
+          request.resume();
+          writeJson(response, 409, { error: 'Canvas frame came from an inactive client' }, origin);
+          return;
+        }
+        let metadata;
+        try {
+          metadata = JSON.parse(url.searchParams.get('metadata') ?? 'null');
+        } catch {
+          throw new Error('Multiplayer frame metadata must be valid JSON');
+        }
+        const imageBuffer = await readBinaryBody(request, MAX_MULTIPLAYER_FRAME_BYTES);
+        const frame = readMultiplayerCanvasFrame(metadata, imageBuffer);
+        if (!activeClient) await recoverActiveClient(clientId, metadata?.runtime);
+        if (!activeClient || clientId !== activeClient.clientId) {
+          writeJson(response, 409, { error: 'Canvas frame came from an inactive client' }, origin);
+          return;
+        }
+        if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) ||
+            !runtimeMatchesFence(metadata.runtime, activeClient)) {
+          request.resume();
+          writeJson(response, 409, { error: 'Canvas frame came from a stale collaboration runtime' }, origin);
+          return;
+        }
+        latestMultiplayerFrame = frame;
+        multiplayerAiWorker?.handleCanvasFrame(frame);
+        writeJson(response, 202, { ok: true, capturedAt: frame.capturedAt }, origin);
+        return;
+      }
+
+      if (request.method === 'POST' && url.pathname === '/v1/runtime-events') {
+        const clientId = readClientId(request);
+        const body = await readJsonBody(request);
+        const event = readHumanGestureRuntimeEvent(body?.event);
+        if (!activeClient) await recoverActiveClient(clientId, body?.runtime);
+        if (!activeClient || clientId !== activeClient.clientId) {
+          writeJson(response, 409, { error: 'Runtime event came from an inactive client' }, origin);
+          return;
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body) ||
+            !runtimeMatchesFence(body.runtime, activeClient)) {
+          writeJson(response, 409, { error: 'Runtime event came from a stale collaboration runtime' }, origin);
+          return;
+        }
+        const existing = runtimeEvents.find((candidate) => candidate.eventId === event.eventId);
+        if (existing) {
+          const {
+            sequence: _sequence,
+            receivedAt: _receivedAt,
+            ...existingEvent
+          } = existing;
+          if (signatureHash(existingEvent) !== signatureHash(event)) {
+            throw new Error('Runtime event ID was already used for different data');
+          }
+          writeJson(response, 202, { ok: true, reused: true, sequence: existing.sequence }, origin);
+          return;
+        }
+        const storedEvent = {
+          ...event,
+          sequence: nextRuntimeEventSequence++,
+          receivedAt: Date.now(),
+        };
+        runtimeEvents.push(storedEvent);
+        if (runtimeEvents.length > MAX_RETAINED_RUNTIME_EVENTS) runtimeEvents.shift();
+        multiplayerAiWorker?.handleRuntimeEvent(storedEvent);
+        deliverRuntimeEvents();
+        writeJson(response, 202, {
+          ok: true,
+          reused: false,
+          sequence: storedEvent.sequence,
+        }, origin);
+        return;
+      }
+
+      if (request.method === 'GET' && url.pathname === '/v1/runtime-events') {
+        const after = Number(url.searchParams.get('after') ?? 0);
+        if (!Number.isInteger(after) || after < 0 || after >= nextRuntimeEventSequence) {
+          throw new Error('Runtime event cursor is invalid');
+        }
+        const batch = runtimeEventBatchAfter(after);
+        if (batch.events.length > 0) {
+          writeJson(response, 200, batch, origin);
+          return;
+        }
+        const requestedWait = Number(url.searchParams.get('wait') ?? 25000);
+        const wait = Math.min(30000, Math.max(
+          0,
+          Number.isFinite(requestedWait) ? requestedWait : 25000,
+        ));
+        if (wait === 0) {
+          writeJson(response, 200, batch, origin);
+          return;
+        }
+        const waiter = { response, origin, after, timeout: undefined };
+        waiter.timeout = setTimeout(() => {
+          const index = runtimeEventWaiters.indexOf(waiter);
+          if (index >= 0) runtimeEventWaiters.splice(index, 1);
+          writeJson(response, 200, runtimeEventBatchAfter(after), origin);
+        }, wait);
+        runtimeEventWaiters.push(waiter);
+        request.on('close', () => {
+          const index = runtimeEventWaiters.indexOf(waiter);
+          if (index >= 0) {
+            runtimeEventWaiters.splice(index, 1);
+            clearTimeout(waiter.timeout);
+          }
+        });
         return;
       }
 
@@ -424,6 +884,7 @@ const serve = async ({ flags }) => {
             runtimeInstanceId: activeClient.runtimeInstanceId,
             leaseEpoch: activeClient.leaseEpoch,
           });
+          await persistBridgeState();
           for (let index = waiters.length - 1; index >= 0; index -= 1) {
             const waiter = waiters[index];
             if (waiter.clientId === clientId) continue;
@@ -432,7 +893,15 @@ const serve = async ({ flags }) => {
             writeJson(waiter.response, 409, { error: 'Collaboration client was superseded' }, waiter.origin);
           }
         }
-        writeJson(response, 200, { ok: true, leaseEpoch: activeClient.leaseEpoch }, origin);
+        writeJson(response, 200, {
+          ok: true,
+          leaseEpoch: activeClient.leaseEpoch,
+          multiplayerAi: multiplayerAiWorker?.getStatus() ?? {
+            enabled: multiplayerAiEnabled,
+            model: multiplayerModel,
+            state: multiplayerAiEnabled ? 'starting' : 'disabled',
+          },
+        }, origin);
         return;
       }
 
@@ -808,15 +1277,15 @@ const serve = async ({ flags }) => {
     server.listen(port, '127.0.0.1', resolve);
   });
 
-  const statePath = getStatePath(session);
-  const state = {
-    schemaVersion: VESSEL_COLLABORATION_STATE_SCHEMA_VERSION,
-    session,
-    url: `http://127.0.0.1:${port}`,
-    token,
-    pid: process.pid,
-  };
-  await fs.writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  await persistBridgeState();
+
+  if (multiplayerAiEnabled) {
+    multiplayerAiWorker = createMultiplayerAiWorker(multiplayerModel);
+    if (latestMultiplayerFrame) {
+      multiplayerAiWorker.handleCanvasFrame(latestMultiplayerFrame);
+    }
+    void multiplayerAiWorker.warm();
+  }
 
   if (flags.has('quiet')) {
     process.stdout.write(`Vessel collaboration bridge ready: ${session}\n`);
@@ -826,12 +1295,23 @@ const serve = async ({ flags }) => {
       url: state.url,
       pid: state.pid,
       statePath,
+      multiplayerAi: {
+        enabled: multiplayerAiEnabled,
+        provider: 'ollama-local',
+        model: multiplayerModel,
+      },
     }, null, 2)}\n`);
   }
 
   const shutdown = async () => {
+    multiplayerAiWorker?.stop();
     while (waiters.length > 0) {
       const waiter = waiters.shift();
+      clearTimeout(waiter.timeout);
+      writeJson(waiter.response, 503, { error: 'Bridge is shutting down' }, waiter.origin);
+    }
+    while (runtimeEventWaiters.length > 0) {
+      const waiter = runtimeEventWaiters.shift();
       clearTimeout(waiter.timeout);
       writeJson(waiter.response, 503, { error: 'Bridge is shutting down' }, waiter.origin);
     }
@@ -1196,6 +1676,34 @@ const cancelCommand = async ({ flags }) => {
   process.stdout.write(`${JSON.stringify({ commandId, ...result }, null, 2)}\n`);
 };
 
+const watchRuntimeEvents = async ({ flags }) => {
+  const session = requireSafeSession(flags.get('session'));
+  const state = await readSessionState(session);
+  const client = createBridgeClient(state);
+  let after;
+  if (flags.has('after')) {
+    after = Number(flags.get('after'));
+  } else {
+    const health = await fetchJson(`${state.url}/v1/health`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    after = Number(health.value.latestRuntimeEventSequence ?? 0);
+  }
+  if (!Number.isInteger(after) || after < 0) {
+    throw new Error('--after must be a non-negative runtime event cursor');
+  }
+  const waitMs = Number(flags.get('wait') ?? 25000);
+  if (!Number.isInteger(waitMs) || waitMs < 0 || waitMs > 30000) {
+    throw new Error('--wait must be between 0 and 30000 milliseconds');
+  }
+  const once = flags.has('once');
+  do {
+    const batch = await client.getRuntimeEvents(after, waitMs);
+    for (const event of batch.events) process.stdout.write(`${JSON.stringify(event)}\n`);
+    after = batch.next;
+  } while (!once);
+};
+
 const waitForBridgeClient = async ({ state, deadline }) => {
   const headers = {
     Authorization: `Bearer ${state.token}`,
@@ -1212,21 +1720,22 @@ const waitForBridgeClient = async ({ state, deadline }) => {
   throw new Error('The reused Vessel tab did not claim the collaboration session before the deadline');
 };
 
-const readReferenceGate = async ({ gatePath, width, height }) => {
+const readReferenceGate = async ({ gatePath, width, height, markType }) => {
   if (!gatePath) throw new Error('prepare-reference requires --gate-file /path/to/gate.json');
   const gate = JSON.parse(await fs.readFile(path.resolve(String(gatePath)), 'utf8'));
-  if (!gate || typeof gate !== 'object' || Array.isArray(gate) || gate.action !== 'shape') {
-    throw new Error('Reference gate must be one shape operation');
+  if (!gate || typeof gate !== 'object' || Array.isArray(gate) || gate.action !== markType) {
+    throw new Error(`Reference gate must be one ${markType} operation`);
   }
-  if (!Array.isArray(gate.points) || gate.points.length < 3) {
-    throw new Error('Reference gate shape requires at least three points');
+  const minimumPoints = markType === 'shape' ? 3 : 2;
+  if (!Array.isArray(gate.points) || gate.points.length < minimumPoints) {
+    throw new Error(`Reference gate ${markType} requires at least ${minimumPoints} points`);
   }
   const firstPoint = gate.points[0];
   if (!Number.isFinite(firstPoint?.x) || !Number.isFinite(firstPoint?.y) ||
       firstPoint.x < 0 || firstPoint.x >= width || firstPoint.y < 0 || firstPoint.y >= height) {
-    throw new Error('Reference gate shape must start inside the project canvas');
+    throw new Error(`Reference gate ${markType} must start inside the project canvas`);
   }
-  if (!Array.isArray(gate.direction) || gate.direction.length < 2) {
+  if (markType === 'shape' && (!Array.isArray(gate.direction) || gate.direction.length < 2)) {
     throw new Error('Reference gate shape requires a two-point sample direction');
   }
   return gate;
@@ -1287,12 +1796,85 @@ const buildReferenceTransform = ({
   };
 };
 
+const readBrushArtworkProfile = ({ state, presetId }) => {
+  const preset = state?.availableBrushPresets?.find((candidate) => candidate.id === presetId);
+  const profile = preset?.artworkProfile;
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile) ||
+      profile.schemaVersion !== 1 || !['shape', 'stroke'].includes(profile.markType)) {
+    throw new Error(`Brush preset ${presetId} has no supported artwork profile`);
+  }
+  const baseSettings = profile.baseSettings;
+  const preparation = profile.preparation;
+  if (!baseSettings || typeof baseSettings !== 'object' || Array.isArray(baseSettings) ||
+      Object.hasOwn(baseSettings, 'colorCycleSpeed') ||
+      Object.hasOwn(baseSettings, 'fillResolution') ||
+      Object.hasOwn(baseSettings, 'colorCycleStampDitherPixelSize')) {
+    throw new Error(`Brush preset ${presetId} has invalid artwork profile base settings`);
+  }
+  const fillResolutionValid = preparation?.fillResolution === undefined ||
+    (Number.isInteger(preparation.fillResolution) && preparation.fillResolution >= 1);
+  const stampResolutionValid = preparation?.stampDitherPixelSize === undefined ||
+    (Number.isInteger(preparation.stampDitherPixelSize) && preparation.stampDitherPixelSize >= 1);
+  if (!preparation || typeof preparation !== 'object' || Array.isArray(preparation) ||
+      !Number.isFinite(preparation.colorCycleSpeed) || preparation.colorCycleSpeed < 0 ||
+      !fillResolutionValid || !stampResolutionValid ||
+      (preparation.fillResolution !== undefined && preparation.stampDitherPixelSize !== undefined)) {
+    throw new Error(`Brush preset ${presetId} has invalid artwork preparation settings`);
+  }
+  const speed = profile.speed;
+  const tierNames = ['quiet', 'secondary', 'foreground', 'focal'];
+  const phases = ['establish', 'develop', 'deepen'];
+  const tiersValid = tierNames.every((tierName) => {
+    const tier = speed?.tiers?.[tierName];
+    return Number.isFinite(tier?.min) && Number.isFinite(tier?.max) &&
+      tier.min >= 0 && tier.max >= tier.min && tier.max <= speed.absoluteMaximum &&
+      Array.isArray(tier.values) && tier.values.length > 0 &&
+      tier.values.every((value) => Number.isFinite(value) && value >= tier.min && value <= tier.max);
+  });
+  const phaseTiersValid = phases.every((phase) =>
+    tierNames.includes(speed?.phaseTier?.[phase]));
+  if (!speed || typeof speed !== 'object' || Array.isArray(speed) ||
+      !Number.isFinite(speed.absoluteMaximum) || speed.absoluteMaximum <= 0 ||
+      preparation.colorCycleSpeed > speed.absoluteMaximum || !tiersValid || !phaseTiersValid) {
+    throw new Error(`Brush preset ${presetId} has invalid artwork speed settings`);
+  }
+  if (profile.markType === 'stroke' &&
+      (!profile.strokeSize || !Number.isFinite(profile.strokeSize.pixels) ||
+       profile.strokeSize.pixels <= 0 || !Number.isFinite(profile.strokeSize.canvasShortEdge) ||
+       profile.strokeSize.canvasShortEdge <= 0 ||
+       profile.strokeSize.consistentWithinArtwork !== true)) {
+    throw new Error(`Brush preset ${presetId} has invalid artwork stroke size settings`);
+  }
+  return profile;
+};
+
+const buildArtworkPreparationSettings = (artworkProfile, { width, height }) => ({
+  ...artworkProfile.baseSettings,
+  ...(artworkProfile.strokeSize === undefined
+    ? {}
+    : {
+        size: Math.max(1, Math.round(
+          artworkProfile.strokeSize.pixels *
+          Math.min(width, height) / artworkProfile.strokeSize.canvasShortEdge,
+        )),
+      }),
+  colorCycleSpeed: artworkProfile.preparation.colorCycleSpeed,
+  ...(artworkProfile.preparation.fillResolution === undefined
+    ? {}
+    : { fillResolution: artworkProfile.preparation.fillResolution }),
+  ...(artworkProfile.preparation.stampDitherPixelSize === undefined
+    ? {}
+    : { colorCycleStampDitherPixelSize: artworkProfile.preparation.stampDitherPixelSize }),
+});
+
 const assertReferenceReadyState = ({
   state,
   width,
   height,
   activeLayerId,
   referenceLayerId,
+  brushPresetId,
+  artworkProfile,
 }) => {
   if (state?.project?.width !== width || state?.project?.height !== height) {
     throw new Error('Prepared project dimensions do not match the requested reference canvas');
@@ -1307,18 +1889,16 @@ const assertReferenceReadyState = ({
     throw new Error('Prepared reference layer must be a hidden normal layer');
   }
   const colorCycle = state.colorCycle;
-  if (!state.preferReferenceSampling || state.gradient?.source !== 'sampled' ||
+  if (!state.preferReferenceSampling || state.gradient?.source !== artworkProfile.gradientSource ||
       !colorCycle?.hasContent || colorCycle.sampledGradientDefinitionCount < 1 ||
       colorCycle.sampledPaintedPixelCount < 1 ||
       colorCycle.latestSampledGradient?.stopCount < 2 ||
       colorCycle.latestSampledGradient?.uniqueColorCount < 2) {
     throw new Error('Sampled gate did not commit canonical reference-sampled Color Cycle paint');
   }
-  if (state.currentBrushPresetId !== 'color-cycle-flat-dither' ||
-      state.brush?.ditherAlgorithm !== 'sierra-lite' ||
-      state.brush?.ditherPaletteSpread !== 100 ||
-      state.brush?.fillResolution !== 3 ||
-      state.brush?.ccSampledSoftSeamEnabled !== false) {
+  const expectedBrushSettings = buildArtworkPreparationSettings(artworkProfile, { width, height });
+  if (state.currentBrushPresetId !== brushPresetId ||
+      Object.entries(expectedBrushSettings).some(([key, value]) => state.brush?.[key] !== value)) {
     throw new Error('Prepared brush state does not match the reference collaboration contract');
   }
 };
@@ -1339,11 +1919,6 @@ const prepareReference = async ({ flags }) => {
     flags,
   });
   const { width, height, sourceWidth, sourceHeight } = referenceGeometry;
-  const gate = await readReferenceGate({
-    gatePath: flags.get('gate-file'),
-    width,
-    height,
-  });
   const fit = String(flags.get('fit') ?? 'contain');
   if (!['contain', 'cover', 'stretch'].includes(fit)) {
     throw new Error('--fit must be contain, cover, or stretch');
@@ -1386,7 +1961,24 @@ const prepareReference = async ({ flags }) => {
 
   const tab = 'already-connected';
   await waitForBridgeClient({ state, deadline });
-  await runPhase('attach', { action: 'observe', capture: 'none' });
+  const attachResult = await runPhase('attach', { action: 'observe', capture: 'none' });
+  const brushPresetId = String(flags.get('brush-preset') ?? 'color-cycle-flat-dither');
+  if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(brushPresetId)) {
+    throw new Error('--brush-preset must be a canonical brush preset ID');
+  }
+  const artworkProfile = readBrushArtworkProfile({
+    state: attachResult.state,
+    presetId: brushPresetId,
+  });
+  if (artworkProfile.gradientSource !== 'sampled') {
+    throw new Error(`Reference preparation requires a sampled artwork profile: ${brushPresetId}`);
+  }
+  const gate = await readReferenceGate({
+    gatePath: flags.get('gate-file'),
+    width,
+    height,
+    markType: artworkProfile.markType,
+  });
   await runPhase('project', {
     action: 'new-project',
     width,
@@ -1415,29 +2007,12 @@ const prepareReference = async ({ flags }) => {
     capture: 'none',
     operations: [
       { action: 'set-tool', tool: 'brush' },
-      { action: 'set-brush-preset', presetId: 'color-cycle-flat-dither' },
-      { action: 'set-gradient-source', source: 'sampled' },
+      { action: 'set-brush-preset', presetId: brushPresetId },
+      { action: 'set-gradient-source', source: artworkProfile.gradientSource },
       { action: 'set-gradient', resetSample: true },
       {
         action: 'set-brush',
-        settings: {
-          size: 8,
-          opacity: 1,
-          ditherEnabled: true,
-          ditherAlgorithm: 'sierra-lite',
-          fillResolution: 3,
-          pressureLinkedFillResolution: false,
-          ditherBackgroundFill: true,
-          ditherPaletteSpread: 100,
-          ditherPatternDiversity: 100,
-          ditherPhaseJitter: 4,
-          pxlEdge: true,
-          colorCycleSpeed: 0.18,
-          gradientBands: 6,
-          colorCycleFillMode: 'linear',
-          ccGradientDrawingShape: 'freehand',
-          ccSampledSoftSeamEnabled: false,
-        },
+        settings: buildArtworkPreparationSettings(artworkProfile, { width, height }),
       },
     ],
   });
@@ -1467,6 +2042,8 @@ const prepareReference = async ({ flags }) => {
     height,
     activeLayerId,
     referenceLayerId,
+    brushPresetId,
+    artworkProfile,
   });
   const resultPath = await writeResultArtifact(frameResult, {
     session,
@@ -1511,6 +2088,15 @@ const status = async ({ flags }) => {
   process.stdout.write(`${JSON.stringify({ ...health.value, session, url: state.url, pid: state.pid }, null, 2)}\n`);
 };
 
+const setMultiplayerModel = async ({ flags }) => {
+  const session = requireSafeSession(flags.get('session'));
+  const model = requireMultiplayerModel(flags.get('model'));
+  const state = await readSessionState(session);
+  const client = createBridgeClient(state);
+  const result = await client.setMultiplayerModel(model);
+  process.stdout.write(`${JSON.stringify({ session, ...result }, null, 2)}\n`);
+};
+
 const pair = async ({ flags }) => {
   const session = requireSafeSession(flags.get('session'));
   const state = await readSessionState(session);
@@ -1537,11 +2123,13 @@ const main = async () => {
   if (operation === 'client') return persistentClient(args);
   if (operation === 'result') return readResult(args);
   if (operation === 'cancel') return cancelCommand(args);
+  if (operation === 'events') return watchRuntimeEvents(args);
   if (operation === 'status') return status(args);
+  if (operation === 'multiplayer-model') return setMultiplayerModel(args);
   if (operation === 'pair') return pair(args);
   if (operation === 'prepare-reference') return prepareReference(args);
   throw new Error(
-    'Usage: vessel-collab.mjs <serve|pair|call|client|result|cancel|status|prepare-reference> [options]',
+    'Usage: vessel-collab.mjs <serve|pair|call|client|events|result|cancel|status|multiplayer-model|prepare-reference> [options]',
   );
 };
 

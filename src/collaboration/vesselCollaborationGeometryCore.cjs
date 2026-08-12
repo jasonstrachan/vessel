@@ -76,7 +76,13 @@ const pointInPolygon = (point, polygon) => {
   return inside;
 };
 
-const resolvePointGroupError = ({ points, canvasWidth, canvasHeight, label }) => {
+const resolvePointGroupError = ({
+  points,
+  canvasWidth,
+  canvasHeight,
+  label,
+  allowOutsideAfterFirst = false,
+}) => {
   if (!Array.isArray(points) || points.length === 0) {
     return `${label} must contain at least one point`;
   }
@@ -90,8 +96,11 @@ const resolvePointGroupError = ({ points, canvasWidth, canvasHeight, label }) =>
       return `${label}[${index}].pressure must be between 0 and 1`;
     }
     if (
-      point.x < 0 || point.x >= canvasWidth ||
-      point.y < 0 || point.y >= canvasHeight
+      !(allowOutsideAfterFirst && index > 0) &&
+      (
+        point.x < 0 || point.x >= canvasWidth ||
+        point.y < 0 || point.y >= canvasHeight
+      )
     ) {
       return `${label}[${index}] must be inside the project canvas`;
     }
@@ -129,6 +138,7 @@ const resolveGestureGeometryError = ({
       canvasWidth,
       canvasHeight,
       label: `${label}.direction`,
+      allowOutsideAfterFirst: true,
     });
     if (directionError) return directionError;
   }

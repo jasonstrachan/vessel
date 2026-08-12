@@ -85,8 +85,17 @@ export interface VesselCollaborationRuntime {
     points: StrokeOperation['points'],
     options: { pointsPerFrame: number; framePacing?: 'per-move' | 'finalize-only' },
   ) => Promise<void>;
-  rebuildStaticComposite: () => boolean | Promise<boolean>;
+  rebuildStaticComposite: VesselMultiplayerRuntime['rebuildStaticComposite'];
   requestRedraw: () => void;
+  presentFrame?: () => Promise<void> | void;
+  createMultiplayerCanvasSource?: (
+    targetCanvas: HTMLCanvasElement,
+    options: { tool: 'brush' | 'eraser' | null },
+  ) => {
+    canvas: HTMLCanvasElement;
+    projectId: string;
+    projectRevision: number;
+  } | null;
   scheduleHistoryCommit?: VesselMultiplayerRuntime['scheduleHistoryCommit'];
 }
 
@@ -582,6 +591,7 @@ const readState = () => {
       name: preset.name,
       category: preset.category,
       isCustomBrush: preset.isCustomBrush === true,
+      artworkProfile: preset.artworkProfile ?? null,
     })),
     palette: {
       foreground: palette.foregroundColor,
@@ -625,6 +635,7 @@ const readState = () => {
       pxlEdge: brush.pxlEdge === true,
       colorCycleSpeed: brush.colorCycleSpeed ?? null,
       gradientBands: brush.gradientBands ?? null,
+      ccFlatCycleBands: brush.ccFlatCycleBands ?? 0,
       colorCycleFillMode: brush.colorCycleFillMode ?? null,
       ccGradientDrawingShape: brush.ccGradientDrawingShape ?? null,
       colorCycleStampDitherEnabled: brush.colorCycleStampDitherEnabled === true,
@@ -634,6 +645,11 @@ const readState = () => {
         ? brush.colorCycleStampDitherBgFill
         : brush.colorCycleStampDitherClears !== true,
       colorCycleStampShape: brush.colorCycleStampShape ?? null,
+      pressureEnabled: brush.pressureEnabled === true,
+      rotationEnabled: brush.rotationEnabled === true,
+      dashedEnabled: brush.dashedEnabled === true,
+      gridSnapEnabled: brush.gridSnapEnabled === true,
+      gridSnapSize: brush.gridSnapSize ?? null,
     },
     eraser: {
       size: eraser.linkSizeToBrush === false ? eraser.size : brush.size,
@@ -1137,12 +1153,17 @@ const executeMutation = async (
         gestureId: operation.gestureId,
         actor: operation.actor,
         kind: operation.kind,
+        ...(operation.brushPresetId ? { brushPresetId: operation.brushPresetId } : {}),
         points: operation.points,
         ...(operation.direction ? { direction: operation.direction } : {}),
         ...(operation.pointsPerFrame ? { pointsPerFrame: operation.pointsPerFrame } : {}),
         ...(operation.settings
           ? { settings: operation.settings as Partial<BrushSettings> }
           : {}),
+        observedProjectId: operation.observedProjectId,
+        observedProjectRevision: operation.observedProjectRevision,
+        observationId: operation.observationId,
+        respondingToGestureId: operation.respondingToGestureId,
       }, getRuntime(), signal);
       return;
     case 'multiplayer-stop':
@@ -1216,7 +1237,8 @@ const presentAndCapture = async (
   await nextPaint();
   await runtime.rebuildStaticComposite();
   runtime.requestRedraw();
-  await nextPaint();
+  if (runtime.presentFrame) await runtime.presentFrame();
+  else await nextPaint();
   const presentationMs = roundMs(performance.now() - presentationStartedAt);
 
   if (capturePolicy === 'none') {
@@ -1365,7 +1387,9 @@ export const createVesselCollaborationExecutor = (
     };
 
     try {
-      await executorOptions.waitForCanonicalIdle?.();
+      if (command.action !== 'multiplayer-gesture') {
+        await executorOptions.waitForCanonicalIdle?.();
+      }
       syncExternalRevision();
       const runtimeIdentity = executorOptions.getRuntimeIdentity?.();
       if (executorOptions.requireRuntimeFence) {
@@ -1379,7 +1403,7 @@ export const createVesselCollaborationExecutor = (
           projectRevision: revision,
           checkpointId,
           allowConcurrentProjectRevision:
-            command.action === 'multiplayer-gesture' || command.action === 'multiplayer-stop',
+            command.action === 'multiplayer-stop',
         });
       }
       coverageTracker = command.action === 'artwork-job'

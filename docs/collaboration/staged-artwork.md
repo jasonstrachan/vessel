@@ -6,6 +6,18 @@ canonical gestures, technical geometry validation, Color Cycle finalization,
 checkpoint capture, and the returned revision fence. The caller owns looking,
 remembering, mass selection, and artistic signoff.
 
+## Run preflight
+
+Before every fresh run, ask exactly:
+
+- **Canvas resolution:** exact width × height, or “match reference aspect”?
+- **Reference:** which attached image or file?
+- **Brush(es):** which brush, and what role/layer for each if multiple?
+- **Run type:** full one-shot or pause at checkpoints?
+
+Do not repeat settings already owned by the selected brush profile unless Jason
+asks for an override.
+
 ## Artistic contract
 
 The workflow repeats:
@@ -26,7 +38,7 @@ artistic mark and not an aesthetic rejection.
 
 ## Three conceptual passes
 
-Workflows use the protocol-v4 phase vocabulary:
+Workflows use the collaboration phase vocabulary:
 
 1. `establish` — approximately 5% of planned shapes;
 2. `develop` — approximately 15%; and
@@ -41,6 +53,42 @@ Those checkpoints are pauses inside the pass, not extra passes. After looking
 at the returned frame, the caller records `advance`, `continue-current`, or
 `blocked`. `continue-current` keeps the current pass open without undoing or
 removing committed work.
+
+## Brush profiles and pass speed
+
+The selected preset owns its collaboration settings and ranges through
+`artworkProfile`. Profiled options currently include:
+
+- `color-cycle-flat-dither` for observed filled masses; and
+- `color-cycle-stroke` for genuinely linear contours, seams, signals, and links.
+
+Flat Dither speed is selected from the range assigned to the current conceptual
+pass, not held constant for the whole run:
+
+| Pass | Speed tier | Range |
+| --- | --- | --- |
+| `establish` | quiet | `0.005–0.010` |
+| `develop` | secondary | `0.015–0.020` |
+| `deepen` | foreground | `0.050–0.075` |
+
+Very selective Flat Dither focal accents may use `0.055–0.080`. Its absolute
+authored ceiling is `0.08`. Color Cycle Stroke keeps its separately owned
+foreground range of `0.030–0.045` and focal range of `0.055–0.060`.
+Each brush also separately owns its dither Res control: Flat Dither uses
+`fillResolution`; Color Cycle Stroke uses `colorCycleStampDitherPixelSize`.
+
+For Flat Dither shapes, the sampled linear-gradient starts at the mass centroid
+and targets 4–8 times the farthest boundary span. Its endpoint may leave the
+canvas. This keeps the colour passage broad enough to read across the whole mass
+instead of compressing into a short internal band.
+
+Flat Dither's final mid-periphery response is a connected cluster of 3–5
+overlapping, medium-sized Res 8 masses at secondary speed (`0.015–0.020`). It
+is not a set of oversized shapes scattered around the canvas.
+
+Color Cycle Stroke uses one consistent line weight across the artwork: nominally
+4 px at a 512 px canvas short edge, scaled proportionally for other canvas sizes.
+Pass changes affect Speed and stamp-dither Res, not stroke Size.
 
 ## Workflow cache
 

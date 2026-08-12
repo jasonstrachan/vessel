@@ -744,6 +744,43 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument();
   });
 
+  it('exposes a hard seam toggle for sampled color cycle strokes', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        ccGradientSource: 'sampled',
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle' as BrushSettings['brushShape'],
+          ccSampledSoftSeamEnabled: true,
+        },
+      },
+      currentBrushPreset: {
+        id: 'color-cycle-stroke',
+        name: 'CC Stroke',
+      } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+
+    const hardSeamToggle = screen.getByRole('checkbox', {
+      name: 'Sampled gradient hard seam',
+    });
+    expect(hardSeamToggle).not.toBeChecked();
+    expect(screen.queryByText('Soft seam')).not.toBeInTheDocument();
+    expect(screen.getByText('Contrast')).toBeInTheDocument();
+
+    await user.click(hardSeamToggle);
+    fireEvent.change(screen.getByLabelText('Gradient Contrast'), {
+      target: { value: '42' },
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.ccSampledSoftSeamEnabled).toBe(false);
+    expect(useAppStore.getState().tools.brushSettings.ccGradientRangeContrast).toBe(42);
+  });
+
   it('does not flush gradient on unmount when there are no pending edits', () => {
     const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
     const { unmount } = render(<BrushControls />);
@@ -1215,7 +1252,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(screen.getByLabelText('Dither Pattern Diversity')).toBeInTheDocument();
     expect(screen.getByText('Variety')).toBeInTheDocument();
     expect(screen.getByText('Ink Spd')).toBeInTheDocument();
-    expect(screen.getByText('Grd Contrast')).toBeInTheDocument();
+    expect(screen.getByText('Contrast')).toBeInTheDocument();
   });
 
   it('shows gradient contrast without ink spread when CC gradient dithering is off', () => {
@@ -1306,6 +1343,8 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
     expect(screen.getByLabelText('Ink Spread')).toBeInTheDocument();
     expect(screen.getByLabelText('Flat Cycle Banding')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sampled gradient soft seam')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Sampled gradient hard seam')).not.toBeInTheDocument();
   });
 
   it('updates dither pattern diversity from the CC gradient controls', () => {

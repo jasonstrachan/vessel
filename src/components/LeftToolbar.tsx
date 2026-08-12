@@ -120,7 +120,7 @@ const LeftToolbar = () => {
           ? `vessel-${crypto.randomUUID()}`
           : `vessel-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
         await startVesselMultiplayerSession({ sessionId });
-        showAppFeedback('Multiplayer active — AI can join');
+        showAppFeedback(`Multiplayer active — AI ${multiplayer.aiState}`);
       } catch (error) {
         showAppFeedback(
           `Multiplayer unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`,

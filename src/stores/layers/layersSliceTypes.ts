@@ -24,6 +24,11 @@ export type { CompositeSegment } from '@/stores/layers/layerCompositeRenderer';
 
 export type CompositeLayersToCanvasOptions = {
   dirtyBatches?: ColorCycleLayerDirtyBatch[];
+  liveLayerOverlay?: {
+    layerId: string;
+    canvas: HTMLCanvasElement;
+    mode: 'over' | 'replace';
+  };
 };
 
 export type RenderStaticCompositeOptions = {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { autosaveService as mockAutosaveService } from '@/utils/autosave';
 import type { DisplayFilterConfig } from '@/types';
 import Home from '../HomeClient';
@@ -237,6 +237,19 @@ describe('Home page client rendering', () => {
   it('hydrates custom brushes on mount', () => {
     render(<Home />);
     expect(mockStore.ensureCustomBrushHydrated).toHaveBeenCalled();
+  });
+
+  it('creates a 512 by 512 project on startup', async () => {
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mockStore.newProject).toHaveBeenCalledWith(
+        512,
+        512,
+        'Untitled',
+        { preserveRecoverySession: true },
+      );
+    });
   });
 
   it('renders FPS meter after settings hydration when enabled', () => {

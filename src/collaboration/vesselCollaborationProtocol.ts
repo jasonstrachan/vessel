@@ -1,3 +1,5 @@
+import type { BrushArtworkProfile } from '@/types';
+
 import type {
   VesselCollaborationRuntimeFence,
   VesselCollaborationRuntimeIdentity,
@@ -120,6 +122,8 @@ interface VesselCollaborationSetBrushOperation {
     pxlEdge?: boolean;
     colorCycleSpeed?: number;
     gradientBands?: number;
+    ccFlatCycleDither?: boolean;
+    ccFlatCycleBands?: number;
     colorCycleFillMode?: 'concentric' | 'linear' | 'stroke';
     ccGradientDrawingShape?:
       | 'freehand'
@@ -142,6 +146,11 @@ interface VesselCollaborationSetBrushOperation {
       | 'diamond7'
       | 'diamond9'
       | 'checkered';
+    pressureEnabled?: boolean;
+    rotationEnabled?: boolean;
+    dashedEnabled?: boolean;
+    gridSnapEnabled?: boolean;
+    gridSnapSize?: number;
   };
 }
 
@@ -291,10 +300,15 @@ export type VesselCollaborationCommand =
       gestureId: string;
       actor: 'ai';
       kind: 'stroke' | 'shape';
+      brushPresetId?: string;
       points: VesselCollaborationPoint[];
       direction?: VesselCollaborationPoint[];
       pointsPerFrame?: number;
       settings?: VesselCollaborationSetBrushOperation['settings'];
+      observedProjectId: string;
+      observedProjectRevision: number;
+      observationId: string;
+      respondingToGestureId: string;
     }>
   | WithCaptureOptions<{
       id: string;
@@ -432,6 +446,7 @@ export interface VesselCollaborationResult {
       name: string;
       category: string;
       isCustomBrush: boolean;
+      artworkProfile: BrushArtworkProfile | null;
     }>;
     palette: {
       foreground: string;
@@ -485,6 +500,7 @@ export interface VesselCollaborationResult {
       pxlEdge: boolean;
       colorCycleSpeed: number | null;
       gradientBands: number | null;
+      ccFlatCycleBands: number;
       colorCycleFillMode: string | null;
       ccGradientDrawingShape: string | null;
       colorCycleStampDitherEnabled: boolean;
@@ -492,6 +508,11 @@ export interface VesselCollaborationResult {
       colorCycleStampDitherPressureLinked: boolean;
       colorCycleStampDitherBgFill: boolean;
       colorCycleStampShape: string | null;
+      pressureEnabled: boolean;
+      rotationEnabled: boolean;
+      dashedEnabled: boolean;
+      gridSnapEnabled: boolean;
+      gridSnapSize: number | null;
     };
     eraser: {
       size: number;
@@ -510,6 +531,7 @@ export interface VesselCollaborationResult {
     }>;
     multiplayer: {
       sessionId: string | null;
+      projectId: string | null;
       status: 'idle' | 'active' | 'stopping' | 'stopped' | 'error';
       humanLayerId: string | null;
       aiLayerId: string | null;
@@ -522,6 +544,11 @@ export interface VesselCollaborationResult {
       } | null;
       stopReason: string | null;
       error: string | null;
+      bridgeStatus: 'disconnected' | 'connecting' | 'connected';
+      aiState: string;
+      aiModel: string | null;
+      lastObservationAt: number | null;
+      bridgeError: string | null;
     };
   };
   frame?: VesselCollaborationFrame;
@@ -784,6 +811,21 @@ const readMultiplayerKind = (value: unknown): 'stroke' | 'shape' => {
   return value;
 };
 
+const MULTIPLAYER_BRUSH_PRESETS = new Set([
+  'color-cycle-stroke',
+  'color-cycle-shape',
+  'color-cycle-flat-dither',
+]);
+
+const readMultiplayerBrushPreset = (value: unknown): string | undefined => {
+  if (value === undefined) return undefined;
+  const presetId = requireString(value, 'brushPresetId');
+  if (!MULTIPLAYER_BRUSH_PRESETS.has(presetId)) {
+    throw new Error('brushPresetId is not available to multiplayer AI');
+  }
+  return presetId;
+};
+
 const readMultiplayerIdentifier = (value: unknown, field: string): string => {
   const identifier = requireString(value, field);
   if (identifier.length > 128) throw new Error(`${field} cannot exceed 128 characters`);
@@ -826,6 +868,8 @@ const readBrushSettings = (value: unknown) => {
     'pxlEdge',
     'colorCycleSpeed',
     'gradientBands',
+    'ccFlatCycleDither',
+    'ccFlatCycleBands',
     'colorCycleFillMode',
     'ccGradientDrawingShape',
     'colorCycleStampDitherEnabled',
@@ -833,6 +877,11 @@ const readBrushSettings = (value: unknown) => {
     'colorCycleStampDitherPressureLinked',
     'colorCycleStampDitherBgFill',
     'colorCycleStampShape',
+    'pressureEnabled',
+    'rotationEnabled',
+    'dashedEnabled',
+    'gridSnapEnabled',
+    'gridSnapSize',
   ]);
   const unsupportedKey = Object.keys(value).find((key) => !supportedKeys.has(key));
   if (unsupportedKey) {
@@ -939,6 +988,26 @@ const readBrushSettings = (value: unknown) => {
       'settings.colorCycleStampDitherBgFill',
     );
   }
+  if (value.pressureEnabled !== undefined) {
+    settings.pressureEnabled = requireBoolean(value.pressureEnabled, 'settings.pressureEnabled');
+  }
+  if (value.rotationEnabled !== undefined) {
+    settings.rotationEnabled = requireBoolean(value.rotationEnabled, 'settings.rotationEnabled');
+  }
+  if (value.dashedEnabled !== undefined) {
+    settings.dashedEnabled = requireBoolean(value.dashedEnabled, 'settings.dashedEnabled');
+  }
+  if (value.gridSnapEnabled !== undefined) {
+    settings.gridSnapEnabled = requireBoolean(value.gridSnapEnabled, 'settings.gridSnapEnabled');
+  }
+  if (value.gridSnapSize !== undefined) {
+    settings.gridSnapSize = requireIntegerInRange(
+      value.gridSnapSize,
+      'settings.gridSnapSize',
+      1,
+      1024,
+    );
+  }
   if (value.ditherPaletteSpread !== undefined) {
     settings.ditherPaletteSpread = requireNumberInRange(
       value.ditherPaletteSpread,
@@ -988,6 +1057,20 @@ const readBrushSettings = (value: unknown) => {
       'settings.gradientBands',
       1,
       128,
+    );
+  }
+  if (value.ccFlatCycleBands !== undefined) {
+    settings.ccFlatCycleBands = requireIntegerInRange(
+      value.ccFlatCycleBands,
+      'settings.ccFlatCycleBands',
+      0,
+      32,
+    );
+  }
+  if (value.ccFlatCycleDither !== undefined) {
+    settings.ccFlatCycleDither = requireBoolean(
+      value.ccFlatCycleDither,
+      'settings.ccFlatCycleDither',
     );
   }
   if (value.colorCycleStampDitherPixelSize !== undefined) {
@@ -1683,7 +1766,21 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
     case 'multiplayer-gesture': {
       const sessionId = readMultiplayerIdentifier(value.sessionId, 'sessionId');
       const gestureId = readMultiplayerIdentifier(value.gestureId, 'gestureId');
+      const observedProjectRevision = requireInteger(
+        value.observedProjectRevision,
+        'observedProjectRevision',
+      );
+      if (observedProjectRevision < 0) {
+        throw new Error('observedProjectRevision must be non-negative');
+      }
       const kind = readMultiplayerKind(value.kind);
+      const brushPresetId = readMultiplayerBrushPreset(value.brushPresetId);
+      if (brushPresetId) {
+        const presetKind = brushPresetId === 'color-cycle-stroke' ? 'stroke' : 'shape';
+        if (kind !== presetKind) {
+          throw new Error(`brushPresetId ${brushPresetId} requires multiplayer kind ${presetKind}`);
+        }
+      }
       if (kind === 'stroke' && value.direction !== undefined) {
         throw new Error('direction is only supported for multiplayer shapes');
       }
@@ -1697,12 +1794,20 @@ export const parseVesselCollaborationCommand = (value: unknown): VesselCollabora
         gestureId,
         actor: readMultiplayerActor(value.actor),
         kind,
+        ...(brushPresetId ? { brushPresetId } : {}),
         points,
         direction: value.direction === undefined
           ? undefined
           : readDirectionPoints(value.direction, 'direction'),
         pointsPerFrame: readMultiplayerPointsPerFrame(value.pointsPerFrame),
         settings: value.settings === undefined ? undefined : readBrushSettings(value.settings),
+        observedProjectId: readMultiplayerIdentifier(value.observedProjectId, 'observedProjectId'),
+        observedProjectRevision,
+        observationId: readMultiplayerIdentifier(value.observationId, 'observationId'),
+        respondingToGestureId: readMultiplayerIdentifier(
+          value.respondingToGestureId,
+          'respondingToGestureId',
+        ),
         ...captureOptions,
       };
     }

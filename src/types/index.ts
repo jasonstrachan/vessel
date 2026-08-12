@@ -689,6 +689,70 @@ export interface Layer {
   version?: number;
 }
 
+export type BrushArtworkImportance = 'quiet' | 'secondary' | 'foreground' | 'focal';
+export type BrushArtworkPhase = 'establish' | 'develop' | 'deepen';
+export type BrushArtworkMarkType = 'shape' | 'stroke';
+
+export interface BrushArtworkSpeedTier {
+  min: number;
+  max: number;
+  values: number[];
+}
+
+export interface BrushArtworkProfile {
+  schemaVersion: 1;
+  markType: BrushArtworkMarkType;
+  gradientSource: 'manual' | 'fg' | 'sampled';
+  baseSettings: Omit<
+    Partial<BrushSettings>,
+    'colorCycleSpeed' | 'fillResolution' | 'colorCycleStampDitherPixelSize'
+  >;
+  preparation: {
+    colorCycleSpeed: number;
+    fillResolution?: number;
+    stampDitherPixelSize?: number;
+  };
+  speed: {
+    absoluteMaximum: number;
+    tiers: Record<BrushArtworkImportance, BrushArtworkSpeedTier>;
+    phaseTier: Record<BrushArtworkPhase, BrushArtworkImportance>;
+  };
+  detail: {
+    fillResolutionByPhase?: Record<BrushArtworkPhase, number>;
+    stampDitherPixelSizeByPhase?: Record<BrushArtworkPhase, number>;
+    finalPeripheralCluster?: {
+      fillResolution: number;
+      shapeCount: { min: number; max: number };
+      physicalScale: 'medium';
+      placement: 'connected-cluster';
+      speedTier: BrushArtworkImportance;
+    };
+  };
+  strokeSize?: {
+    pixels: number;
+    canvasShortEdge: number;
+    consistentWithinArtwork: boolean;
+  };
+  construction?: {
+    contourMethod: string;
+    drawingShape: 'freehand' | 'rectangle' | 'ellipse' | 'polygon' | 'line';
+    boundaryAnchors: { min: number; max: number };
+    gesturePoints: { min: number; max: number };
+    gradientDirection: {
+      strategy: 'farthest-boundary-pair';
+      startPoint: 'mass-centroid';
+      minimumSpanRatio: number;
+      maximumSpanRatio: number;
+      endpointMayLeaveCanvas: boolean;
+    };
+  };
+  inventory?: {
+    defaultMassCount: number;
+    permanentPreparationMasses: number;
+    phaseRatios: Record<BrushArtworkPhase, number>;
+  };
+}
+
 export interface BrushPreset {
   id: string;
   name: string;
@@ -713,6 +777,8 @@ export interface BrushPreset {
   };
   // Preferred settings for this brush
   preferredSettings?: Partial<BrushSettings>;
+  // Brush-owned rules for coded artwork collaboration and construction.
+  artworkProfile?: BrushArtworkProfile;
 }
 
 export interface BrushComponent {

@@ -59,5 +59,29 @@ palette spread around 35, and Flat Cycle Banding at 0.
 - **Chromatic weather:** BG Fill off, larger Res, moderate Lostedge, slow smooth
   cycle.
 
+## Collaboration profile
+
+Reference-driven collaboration uses Sample, Sierra Lite, linear fill, Flat
+Cycle Banding 0, Phase Jitter 0, Contrast 100, Ink Spread 100, and Soft seam
+off. The brush owns these pass-speed ranges:
+
+- quiet background: `0.005–0.010`;
+- secondary and mid-context masses: `0.015–0.020`;
+- foreground masses: `0.050–0.075`; and
+- focal accents: `0.055–0.080`, with an absolute ceiling of `0.08`.
+
+Sampled gradient directions target 4–8 times the mass's farthest boundary span.
+Start the direction gesture at the mass centroid and let its endpoint extend
+outside the canvas when necessary; do not shorten the gradient to fit the
+canvas. This keeps the visible gradient at least as long as the complete shape
+instead of compressing several sampled transitions inside it. Res remains
+independent of physical size: use Res 3–4 for quiet, peripheral, or
+intentionally unresolved masses.
+
+For the final mid-periphery response, place 3–5 overlapping medium-sized
+masses as one connected cluster at Res 8. Keep their speed in the secondary
+`0.015–0.020` tier. Do not enlarge them to broad fields or scatter them as
+isolated accents around the canvas.
+
 The brush is already complex. Keep its geometry and palette disciplined so the
 stable texture remains legible beneath the motion.

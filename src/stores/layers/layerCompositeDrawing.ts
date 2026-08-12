@@ -112,7 +112,12 @@ export const createLayerCompositeDrawing = ({
       sortedLayers: Layer[],
       project: Project,
       manager: ColorCycleBrushManager | null,
-      frameIndex: number
+      frameIndex: number,
+      liveLayerOverlay?: {
+        layerId: string;
+        canvas: HTMLCanvasElement;
+        mode: 'over' | 'replace';
+      },
     ): void => {
       ctx.clearRect(0, 0, project.width, project.height);
       if (project.backgroundColor && project.backgroundColor !== 'transparent') {
@@ -268,13 +273,19 @@ export const createLayerCompositeDrawing = ({
           source = layerCanvas as CanvasImageSource;
         }
 
-        if (!source) {
+        const liveOverlay = liveLayerOverlay?.layerId === layer.id
+          ? liveLayerOverlay.canvas
+          : null;
+        if (!source && !liveOverlay) {
           continue;
         }
 
         ctx.globalCompositeOperation = layer.blendMode;
         ctx.globalAlpha = layer.opacity;
-        ctx.drawImage(source, 0, 0);
+        if (source && (!liveOverlay || liveLayerOverlay?.mode !== 'replace')) {
+          ctx.drawImage(source, 0, 0);
+        }
+        if (liveOverlay) ctx.drawImage(liveOverlay, 0, 0);
       }
 
       ctx.globalCompositeOperation = 'source-over';
