@@ -287,6 +287,8 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   dashGap: settings.dashGap,
   gridSnapEnabled: settings.gridSnapEnabled,
   gridSnapSize: settings.gridSnapSize,
+  roundedCornersEnabled: settings.roundedCornersEnabled,
+  cornerRadiusPx: settings.cornerRadiusPx,
   shapeEnabled: settings.shapeEnabled,
   customBrushSnapEnabled: settings.customBrushSnapEnabled,
   customBrushColorCycle: settings.customBrushColorCycle,
@@ -997,6 +999,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.dashGap !== undefined) settingsToSave.dashGap = newSettings.dashGap;
       if (settings.gridSnapEnabled !== undefined) settingsToSave.gridSnapEnabled = newSettings.gridSnapEnabled;
       if (settings.gridSnapSize !== undefined) settingsToSave.gridSnapSize = newSettings.gridSnapSize;
+      if (settings.roundedCornersEnabled !== undefined) {
+        settingsToSave.roundedCornersEnabled = newSettings.roundedCornersEnabled;
+      }
+      if (settings.cornerRadiusPx !== undefined) {
+        settingsToSave.cornerRadiusPx = newSettings.cornerRadiusPx;
+      }
       if (settings.customBrushSnapEnabled !== undefined) {
         settingsToSave.customBrushSnapEnabled = newSettings.customBrushSnapEnabled;
       }

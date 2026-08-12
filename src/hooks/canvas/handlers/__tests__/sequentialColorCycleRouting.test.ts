@@ -197,6 +197,7 @@ const createColorCycleBatchHarness = (options?: {
   lastDrawTimestampMs?: number | null;
   spacing?: number;
   shouldDrawStamp?: ProcessBatchedStrokesDeps['shouldDrawStamp'];
+  gridSnapSize?: number;
 }) => {
   createSequentialState();
   const spacing = options?.spacing ?? 8;
@@ -267,9 +268,12 @@ const createColorCycleBatchHarness = (options?: {
     alignPointToPixel: (point) => point,
     clipLineSegment: (start, end) => [start, end],
     shouldDrawStamp: options?.shouldDrawStamp ?? (() => true),
-    shouldApplyGridSnapPure: () => false,
-    calculateGridSpacing: () => 1,
-    snapToGridPure: (x, y) => ({ x, y }),
+    shouldApplyGridSnapPure: () => options?.gridSnapSize !== undefined,
+    calculateGridSpacing: () => options?.gridSnapSize ?? 1,
+    snapToGridPure: (x, y, gridSpacing) => ({
+      x: Math.round(x / gridSpacing) * gridSpacing,
+      y: Math.round(y / gridSpacing) * gridSpacing,
+    }),
     resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
     captureBrushFromCanvas: jest.fn(() => null),
     isEraserV2: false,
@@ -859,7 +863,7 @@ describe('sequential color-cycle routing', () => {
     expect(deps.scheduleRecompose).not.toHaveBeenCalled();
   });
 
-  it('deduplicates snapped color-cycle stamps that land in the same grid cell', () => {
+  it('leaves snapped color-cycle deduplication to the routing owner', () => {
     const state = createColorCycleState();
     const layer = state.layers.find((entry) => entry.id === state.activeLayerId);
     const targetCtx = layer?.colorCycleData?.canvas?.getContext('2d');
@@ -937,12 +941,41 @@ describe('sequential color-cycle routing', () => {
 
     const stampedCells = drawColorCycle.mock.calls.map((call) => ({ x: call[1], y: call[2] }));
     expect(stampedCells).toEqual([
-      { x: 0, y: 0 },
-      { x: 8, y: 0 },
+      { x: 7, y: 0 },
     ]);
   });
 
-  it('freezes snapped color-cycle grid spacing for the full stroke', () => {
+  it('routes snapped color-cycle anchors independently of brush spacing', () => {
+    const batch = [
+      { pos: { x: 8, y: 0 }, pressure: 1, timestampMs: 1010 },
+      { pos: { x: 8, y: 8 }, pressure: 1, timestampMs: 1020 },
+    ];
+    const lowSpacing = createColorCycleBatchHarness({
+      batch,
+      spacing: 1,
+      gridSnapSize: 8,
+    });
+    processBatchedStrokes(lowSpacing.args, lowSpacing.deps);
+
+    const highSpacing = createColorCycleBatchHarness({
+      batch,
+      spacing: 64,
+      gridSnapSize: 8,
+    });
+    processBatchedStrokes(highSpacing.args, highSpacing.deps);
+
+    const readAnchors = (drawColorCycle: jest.Mock) =>
+      drawColorCycle.mock.calls.map((call) => ({ x: call[1], y: call[2] }));
+    expect(readAnchors(lowSpacing.drawColorCycle)).toEqual([
+      { x: 8, y: 0 },
+      { x: 8, y: 8 },
+    ]);
+    expect(readAnchors(highSpacing.drawColorCycle)).toEqual(
+      readAnchors(lowSpacing.drawColorCycle),
+    );
+  });
+
+  it('forwards raw color-cycle positions to the grid routing owner', () => {
     const state = createColorCycleState();
     const layer = state.layers.find((entry) => entry.id === state.activeLayerId);
     const targetCtx = layer?.colorCycleData?.canvas?.getContext('2d');
@@ -955,13 +988,13 @@ describe('sequential color-cycle routing', () => {
     const args: ProcessBatchedStrokesArgs = {
       strokeBatchRef: {
         current: [
-          { pos: { x: 16, y: 16 }, pressure: 0 },
-          { pos: { x: 32, y: 32 }, pressure: 0 },
+          { pos: { x: 18, y: 18 }, pressure: 0 },
+          { pos: { x: 34, y: 34 }, pressure: 0 },
         ],
       },
       strokeBatchTimerRef: { current: 1 },
       drawingCtxRef: { current: targetCtx },
-      lastDrawPosRef: { current: { x: 16, y: 16 } },
+      lastDrawPosRef: { current: { x: 0, y: 0 } },
       lastDrawTimestampRef: { current: null },
       brushSamplingPreviewActiveRef: { current: false },
       autoSamplePointsRef: { current: [] },
@@ -970,7 +1003,7 @@ describe('sequential color-cycle routing', () => {
       stampCounterRef: { current: 0 },
       colorCyclePixelQueueRef: { current: createPixelQueue() },
       colorCycleDistanceRef: { current: 16 },
-      colorCycleLastPosRef: { current: { x: 16, y: 16 } },
+      colorCycleLastPosRef: { current: { x: 0, y: 0 } },
       colorCycleLastRotationRef: { current: 0 },
       colorCycleGridSnapSpacingRef,
       ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
@@ -1021,9 +1054,8 @@ describe('sequential color-cycle routing', () => {
     processBatchedStrokes(args, deps);
 
     expect(drawColorCycle.mock.calls.map((call) => ({ x: call[1], y: call[2] }))).toEqual([
-      { x: 0, y: 0 },
-      { x: 16, y: 16 },
-      { x: 32, y: 32 },
+      { x: 18, y: 18 },
+      { x: 34, y: 34 },
     ]);
     expect(deps.calculateGridSpacing).not.toHaveBeenCalled();
   });

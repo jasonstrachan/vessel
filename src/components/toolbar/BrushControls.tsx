@@ -2428,7 +2428,7 @@ const BrushControls = () => {
                 px
               </span>
             </div>
-            {activeSettings.gridSnapEnabled && (
+            {activeSettings.gridSnapEnabled && isColorCycleStrokePreset && (
               <div className="mt-2">
                 <div className="flex items-center gap-2">
                   <label

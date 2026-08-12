@@ -183,6 +183,8 @@ export const defaultBrushSettings: BrushSettings = {
   dashGap: 2,
   gridSnapEnabled: false,
   gridSnapSize: 16,
+  roundedCornersEnabled: false,
+  cornerRadiusPx: 8,
   shapeEnabled: false,
   useSwatchColor: false,
   hueShift: 0,

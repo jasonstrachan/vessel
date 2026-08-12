@@ -967,6 +967,30 @@ describe('BrushControls – Custom brush captured data mode', () => {
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {
+  it('does not expose rounded corner controls', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          gridSnapEnabled: true,
+        },
+      },
+      currentBrushPreset: {
+        id: 'color-cycle-gradient',
+        name: 'CC Gradient',
+      } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: /rounded/i })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Rounded corner radius in pixels')).not.toBeInTheDocument();
+  });
+
   it('shows drawing shape toggle only for the color cycle gradient preset', () => {
     useAppStore.setState((state) => ({
       ...state,

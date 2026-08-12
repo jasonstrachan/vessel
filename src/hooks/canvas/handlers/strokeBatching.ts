@@ -403,7 +403,6 @@ export const processBatchedStrokes = (
               args.colorCyclePixelQueueRef.current = queue;
               return queue;
             })();
-            const stampedGridPositions = pixelQueue.stampedGridPositions;
             const stampCmds: Array<{
               x: number;
               y: number;
@@ -436,46 +435,22 @@ export const processBatchedStrokes = (
               let roiMaxX = Number.NEGATIVE_INFINITY;
               let roiMaxY = Number.NEGATIVE_INFINITY;
 
-              while (distance > 0 && args.colorCycleDistanceRef.current >= spacingScreenPx) {
-                const t = 1 - (args.colorCycleDistanceRef.current - spacingScreenPx) / distance;
-                let stampX = previousPos.x + dx * t;
-                let stampY = previousPos.y + dy * t;
-
-                if (doSnap) {
-                  const frozenGridSpacingRef = args.colorCycleGridSnapSpacingRef;
-                  const gridSpacing = frozenGridSpacingRef?.current
-                    ?? deps.calculateGridSpacing(pressure);
-                  if (frozenGridSpacingRef && frozenGridSpacingRef.current == null) {
-                    frozenGridSpacingRef.current = gridSpacing;
-                  }
-                  const snapped = deps.snapToGridPure(stampX, stampY, gridSpacing);
-                  stampX = snapped.x;
-                  stampY = snapped.y;
-                }
-
-                if (doSnap) {
-                  const gridKey = `${stampX},${stampY}`;
-                  if (stampedGridPositions.has(gridKey)) {
-                    args.colorCycleDistanceRef.current -= spacingScreenPx;
-                    if (stampCmds.length >= MAX_STAMPS_PER_BATCH) {
-                      break;
-                    }
-                    continue;
-                  }
-                  stampedGridPositions.add(gridKey);
-                }
-
+              const enqueueStamp = (
+                stampX: number,
+                stampY: number,
+                phaseAdvancePx: number,
+                isGridSnapping: boolean,
+                dirtyPoint = { x: stampX, y: stampY },
+              ): void => {
                 const dashAllows = deps.shouldDrawStamp(
                   brushSettings,
                   pixelQueue,
                   brushSize,
-                  false,
+                  isGridSnapping,
                   velocityPxPerMs,
-                  spacingScreenPx
+                  phaseAdvancePx,
                 );
-                const allowStamp = dashAllows;
-
-                if (allowStamp) {
+                if (dashAllows) {
                   const sx = stampX;
                   const sy = stampY;
                   const sRotation = rotation;
@@ -490,15 +465,34 @@ export const processBatchedStrokes = (
                   });
 
                   enqueuedStamps = true;
-                  roiMinX = Math.min(roiMinX, sx);
-                  roiMinY = Math.min(roiMinY, sy);
-                  roiMaxX = Math.max(roiMaxX, sx);
-                  roiMaxY = Math.max(roiMaxY, sy);
+                  roiMinX = Math.min(roiMinX, dirtyPoint.x);
+                  roiMinY = Math.min(roiMinY, dirtyPoint.y);
+                  roiMaxX = Math.max(roiMaxX, dirtyPoint.x);
+                  roiMaxY = Math.max(roiMaxY, dirtyPoint.y);
                 }
+              };
 
-                args.colorCycleDistanceRef.current -= spacingScreenPx;
-                if (stampCmds.length >= MAX_STAMPS_PER_BATCH) {
-                  break;
+              if (doSnap && distance > 0) {
+                const gridSpacing = Math.max(1, Math.round(brushSettings.gridSnapSize ?? 16));
+                const snappedCurrent = deps.snapToGridPure(
+                  clippedEnd.x,
+                  clippedEnd.y,
+                  gridSpacing,
+                );
+                enqueueStamp(clippedEnd.x, clippedEnd.y, distance, true, snappedCurrent);
+                args.colorCycleDistanceRef.current = 0;
+              } else {
+                while (distance > 0 && args.colorCycleDistanceRef.current >= spacingScreenPx) {
+                  const t = 1 - (args.colorCycleDistanceRef.current - spacingScreenPx) / distance;
+                  const stampX = previousPos.x + dx * t;
+                  const stampY = previousPos.y + dy * t;
+
+                  enqueueStamp(stampX, stampY, spacingScreenPx, false);
+
+                  args.colorCycleDistanceRef.current -= spacingScreenPx;
+                  if (stampCmds.length >= MAX_STAMPS_PER_BATCH) {
+                    break;
+                  }
                 }
               }
 

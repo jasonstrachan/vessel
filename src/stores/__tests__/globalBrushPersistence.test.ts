@@ -492,6 +492,19 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('defaults color cycle stroke grid snap and rounded corners off', async () => {
+    loadMock.mockReturnValue(null);
+
+    const { colorCycleStrokeBrushPreset } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    useAppStore.getState().setBrushPreset(colorCycleStrokeBrushPreset);
+
+    const active = useAppStore.getState().tools.brushSettings;
+    expect(active.gridSnapEnabled).toBe(false);
+    expect(active.roundedCornersEnabled).toBe(false);
+    expect(active.cornerRadiusPx).toBe(8);
+  });
+
   it('hydrates and persists the full color cycle stroke controls bundle', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {
@@ -511,6 +524,8 @@ describe('global brush persistence', () => {
           dashGap: 3,
           gridSnapEnabled: true,
           gridSnapSize: 12,
+          roundedCornersEnabled: true,
+          cornerRadiusPx: 13,
         },
       },
       ccBrushDitherSelection: {
@@ -544,6 +559,8 @@ describe('global brush persistence', () => {
     expect(active.dashGap).toBe(3);
     expect(active.gridSnapEnabled).toBe(true);
     expect(active.gridSnapSize).toBe(12);
+    expect(active.roundedCornersEnabled).toBe(true);
+    expect(active.cornerRadiusPx).toBe(13);
 
     store.setBrushSettings({
       gradientBands: 64,
@@ -565,6 +582,8 @@ describe('global brush persistence', () => {
       dashGap: 4,
       gridSnapEnabled: true,
       gridSnapSize: 16,
+      roundedCornersEnabled: false,
+      cornerRadiusPx: 21,
     });
 
     jest.advanceTimersByTime(300);
@@ -590,6 +609,8 @@ describe('global brush persistence', () => {
         dashGap: 4,
         gridSnapEnabled: true,
         gridSnapSize: 16,
+        roundedCornersEnabled: false,
+        cornerRadiusPx: 21,
       })
     );
     expect(payload?.brushSpecificSettings?.['color-cycle-stroke']?.ditherAlgorithm).toBeUndefined();
