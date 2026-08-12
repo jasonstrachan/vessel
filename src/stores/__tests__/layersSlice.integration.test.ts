@@ -425,6 +425,7 @@ describe('layers slice integration', () => {
 
     const updatedLayer = useAppStore.getState().layers.find((candidate) => candidate.id === newLayerId);
     expect(updatedLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
+    expect(updatedLayer?.colorCycleData?.eraseMask).toBeUndefined();
     expect(mockManager.getSurfaceBrush).toHaveBeenCalledWith(newLayerId);
     expect(mockManager.initColorCycleForLayer).not.toHaveBeenCalled();
   });

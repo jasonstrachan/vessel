@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
 
-import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
+import { useBrushEngine } from '@/hooks/BrushEngineProvider';
 import { useUserBrushEngine } from '@/hooks/useUserBrushEngine';
 import type { UseDrawingHandlersRuntimeSetupBridgeOptions } from '@/hooks/canvas/useDrawingHandlersRuntimeSetupBridge.types';
 
 export const useDrawingHandlersEngineRuntimes = () => {
-  const brushRuntime = useBrushEngineSimplified();
+  const brushRuntime = useBrushEngine();
   const userBrushEngine = useUserBrushEngine();
   const brushRuntimeAdapters = useMemo(() => {
     const updateConfig = brushRuntime.updateConfig;

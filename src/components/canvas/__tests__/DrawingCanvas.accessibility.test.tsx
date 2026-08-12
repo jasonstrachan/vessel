@@ -171,6 +171,9 @@ const brushEngineStub = {
 jest.mock('@/hooks/useBrushEngineSimplified', () => ({
   useBrushEngineSimplified: () => brushEngineStub,
 }));
+jest.mock('@/hooks/BrushEngineProvider', () => ({
+  useBrushEngine: () => brushEngineStub,
+}));
 
 const interactionStub = {
   dispatch: jest.fn(),

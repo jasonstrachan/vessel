@@ -287,12 +287,6 @@ export const createLayerColorCycleLifecycleActions = ({
                 ? l.colorCycleData.eraseMaskVersion + 1
                 : 1;
           }
-        } else {
-          const maskCanvas = document.createElement('canvas');
-          maskCanvas.width = safeWidth;
-          maskCanvas.height = safeHeight;
-          eraseMask = maskCanvas;
-          eraseMaskVersion = 0;
         }
       }
 

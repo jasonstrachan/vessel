@@ -1,8 +1,11 @@
 'use client';
 
 import React from 'react';
+
 import { preloadHistoryRehydrationModule } from '@/history/historyManager';
+import { BrushEngineProvider } from '@/hooks/BrushEngineProvider';
 import { initializeAppStoreRuntime } from '@/stores/useAppStore';
+
 import HomeClient from './HomeClient';
 
 export default function HomeClientMount() {
@@ -18,5 +21,9 @@ export default function HomeClientMount() {
     return null;
   }
 
-  return <HomeClient />;
+  return (
+    <BrushEngineProvider>
+      <HomeClient />
+    </BrushEngineProvider>
+  );
 }

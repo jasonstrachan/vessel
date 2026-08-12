@@ -105,6 +105,17 @@ jest.mock('@/hooks/useBrushEngineSimplified', () => ({
     isBusy: false,
   }),
 }));
+jest.mock('@/hooks/BrushEngineProvider', () => ({
+  useBrushEngine: () => ({
+    beginStroke: jest.fn(),
+    samplePoint: jest.fn(),
+    finalizeStroke: jest.fn(),
+    cancelStroke: jest.fn(),
+    drawBrush: jest.fn(),
+    resetColorCycle: jest.fn(),
+    isBusy: false,
+  }),
+}));
 
 jest.mock('@/hooks/useUserBrushEngine', () => ({ useUserBrushEngine: () => null }));
 jest.mock('@/hooks/canvas/utils/colorCycleMarkSession', () => ({

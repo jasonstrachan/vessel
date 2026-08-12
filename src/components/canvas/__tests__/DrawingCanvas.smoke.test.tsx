@@ -168,6 +168,7 @@ const brushEngineStub = {
 };
 
 jest.mock('@/hooks/useBrushEngineSimplified', () => ({ refreshLayerCCSurface: jest.fn(), useBrushEngineSimplified: () => brushEngineStub }));
+jest.mock('@/hooks/BrushEngineProvider', () => ({ useBrushEngine: () => brushEngineStub }));
 jest.mock('@/hooks/useCropState', () => ({ useCropState: () => ({ isCropping: false }) }));
 jest.mock('@/hooks/canvas/useCanvasEventHandlers', () => ({ useCanvasEventHandlers: () => handlers }));
 

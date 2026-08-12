@@ -57,6 +57,48 @@ describe('ColorCyclePresenter', () => {
     target.remove();
   });
 
+  it('preserves disjoint dirty rects marked before the scheduled render flushes', () => {
+    const target = makeCanvas(16, 16);
+    document.body.appendChild(target);
+    const requestAnimationFrameSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 1);
+    const presenter = new ColorCyclePresenter(target);
+    const forceLayerRender = jest.fn();
+    const render = jest.fn();
+
+    presenter.markLayerDirty('dirty-layer', {
+      layerId: 'dirty-layer',
+      version: 7,
+      rects: [{ x: 1, y: 1, width: 2, height: 2 }],
+    });
+    presenter.markLayerDirty('dirty-layer', {
+      layerId: 'dirty-layer',
+      version: 8,
+      rects: [{ x: 10, y: 10, width: 2, height: 2 }],
+    });
+    presenter.scheduleDirtyRender({
+      isAnimating: false,
+      forceLayerRender,
+      render,
+    });
+    presenter.flushScheduledRender({ forceLayerRender, render });
+
+    const mergedBatch = {
+      layerId: 'dirty-layer',
+      version: 8,
+      rects: [
+        { x: 1, y: 1, width: 2, height: 2 },
+        { x: 10, y: 10, width: 2, height: 2 },
+      ],
+    };
+    expect(forceLayerRender).toHaveBeenCalledWith('dirty-layer', mergedBatch);
+    expect(render).toHaveBeenCalledWith([mergedBatch]);
+
+    requestAnimationFrameSpy.mockRestore();
+    target.remove();
+  });
+
   it('caches static tier renders by document version and redraws animated overlays every frame', () => {
     const target = makeCanvas();
     document.body.appendChild(target);

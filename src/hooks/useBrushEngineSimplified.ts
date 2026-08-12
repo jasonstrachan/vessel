@@ -6,6 +6,7 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn, logError } from '@/utils/debug';
 import { useCallback, useMemo, useRef, useEffect } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import {
   selectEffectiveColorCyclePlaying,
   selectPlaybackSpeedScale,
@@ -240,7 +241,13 @@ export type { StrokeBounds } from './brushEngine/engineShared';
 export { refreshLayerCCSurface } from './brushEngine/colorCycleSurface';
 
 export const useBrushEngineSimplified = () => {
-  const { tools, project, activeLayerId } = useAppStore();
+  const { tools, project, activeLayerId } = useAppStore(
+    useShallow((state) => ({
+      tools: state.tools,
+      project: state.project,
+      activeLayerId: state.activeLayerId,
+    })),
+  );
   const layers = useAppStore((state) => state.layers);
   const playbackSpeedScale = useAppStore(selectPlaybackSpeedScale);
   const activeLayerBaseSpeed = useAppStore((state) => {

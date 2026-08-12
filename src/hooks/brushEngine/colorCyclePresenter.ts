@@ -1,5 +1,9 @@
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
-import { type ColorCycleLayerDirtyBatch, type ColorCycleLayerDocumentRead } from '@/lib/colorCycle/document';
+import {
+  coalesceColorCycleDirtyRects,
+  type ColorCycleLayerDirtyBatch,
+  type ColorCycleLayerDocumentRead,
+} from '@/lib/colorCycle/document';
 import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
 
 import {
@@ -126,7 +130,25 @@ export class ColorCyclePresenter {
   }
 
   markLayerDirty(layerId: string, dirtyBatch?: ColorCycleLayerDirtyBatch | null): void {
-    this.dirtyLayers.set(layerId, dirtyBatch ?? undefined);
+    if (!this.dirtyLayers.has(layerId)) {
+      this.dirtyLayers.set(layerId, dirtyBatch ?? undefined);
+      return;
+    }
+
+    const pendingBatch = this.dirtyLayers.get(layerId);
+    if (!pendingBatch || !dirtyBatch) {
+      this.dirtyLayers.set(layerId, undefined);
+      return;
+    }
+
+    this.dirtyLayers.set(layerId, {
+      layerId,
+      version: Math.max(pendingBatch.version, dirtyBatch.version),
+      rects: coalesceColorCycleDirtyRects([
+        ...pendingBatch.rects,
+        ...dirtyBatch.rects,
+      ]),
+    });
   }
 
   clearDirtyLayers(): void {

@@ -1,4 +1,4 @@
-import { useBrushEngineSimplified } from '@/hooks/useBrushEngineSimplified';
+import { useBrushEngine } from '@/hooks/BrushEngineProvider';
 import type { DrawingCanvasRuntimeStateBundle } from './useDrawingCanvasRuntimeStateBundle';
 import { useDrawingCanvasColorCycleRuntime } from './useDrawingCanvasColorCycleRuntime';
 import { useDrawingCanvasVisualRuntimeSetup } from './useDrawingCanvasVisualRuntimeSetup';
@@ -38,7 +38,7 @@ export const useDrawingCanvasRuntimeVisualStage = ({
     },
   });
 
-  const brushEngine = useBrushEngineSimplified();
+  const brushEngine = useBrushEngine();
 
   const { updateColorCycleGradientRef, setColorCycleFlowModeRef, colorCycleManagerRef } =
     useDrawingCanvasColorCycleRuntime({

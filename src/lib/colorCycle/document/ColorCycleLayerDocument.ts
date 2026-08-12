@@ -169,10 +169,15 @@ class ColorCycleLayerDocumentDirtyTracker {
       return;
     }
 
+    const pendingBatch = this.pendingBatch;
+    const compatiblePendingBatch = pendingBatch?.layerId === layerId ? pendingBatch : null;
     this.pendingBatch = {
       layerId,
-      version,
-      rects: coalesceColorCycleDirtyRects(sanitizedRects),
+      version: Math.max(compatiblePendingBatch?.version ?? version, version),
+      rects: coalesceColorCycleDirtyRects([
+        ...(compatiblePendingBatch?.rects ?? []),
+        ...sanitizedRects,
+      ]),
     };
   }
 

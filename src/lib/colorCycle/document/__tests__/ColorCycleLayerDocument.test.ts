@@ -354,6 +354,26 @@ describe('ColorCycleLayerDocument', () => {
     });
   });
 
+  it('preserves disjoint dirty rects from commits made before the batch is consumed', () => {
+    const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 1 });
+
+    document.replaceState(makeState({ paintSlot: 3 }), 'first-shape', {
+      dirtyRects: [{ x: 1, y: 1, width: 2, height: 2 }],
+    });
+    document.replaceState(makeState({ paintSlot: 4 }), 'second-shape', {
+      dirtyRects: [{ x: 8, y: 8, width: 2, height: 2 }],
+    });
+
+    expect(document.consumeDirtyBatch()).toEqual({
+      layerId: 'cc-layer',
+      version: 3,
+      rects: [
+        { x: 1, y: 1, width: 2, height: 2 },
+        { x: 8, y: 8, width: 2, height: 2 },
+      ],
+    });
+  });
+
   it('rolls back without changing state, version, or audit log', () => {
     const document = new ColorCycleLayerDocument(makeState(), { initialVersion: 5 });
     const transaction = document.beginTransaction('discarded-edit');
