@@ -18,6 +18,7 @@ import {
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { resolveCustomStampIndex } from '@/hooks/brushEngine/colorCycleCustomStampRuntime';
+import { ColorCyclePresenter } from '@/hooks/brushEngine/colorCyclePresenter';
 import { resolveCapturedCustomBrushPaletteIndex } from '@/utils/customBrushColorCycle';
 import { prepareBrushSpeedExport } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import type { WebGLSerializedBrushState } from '@/utils/export/goblet/gobletTypes';
@@ -822,6 +823,53 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
       pixelVersion: 60,
     }));
     expect(surface.builtFromVersion).toBe(document.read().version);
+  });
+
+  it('preserves document dirty coverage through the presentation batch', () => {
+    const layerDocument = new ColorCycleLayerDocument(makeHistoryReplayDocumentState(), {
+      initialVersion: 1,
+    });
+    const target = document.createElement('canvas');
+    document.body.appendChild(target);
+    const presenter = new ColorCyclePresenter(target);
+    const requestAnimationFrameSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 1);
+    const forceLayerRender = jest.fn();
+    const render = jest.fn();
+
+    try {
+      layerDocument.replaceState(
+        { ...makeHistoryReplayDocumentState(), paintSlot: 2 },
+        'first-dirty-region',
+        { dirtyRects: [{ x: 0, y: 0, width: 1, height: 1 }] },
+      );
+      presenter.markLayerDirty(layerDocument.layerId, layerDocument.consumeDirtyBatch());
+      layerDocument.replaceState(
+        { ...makeHistoryReplayDocumentState(), paintSlot: 3 },
+        'second-dirty-region',
+        { dirtyRects: [{ x: 1, y: 1, width: 1, height: 1 }] },
+      );
+      presenter.markLayerDirty(layerDocument.layerId, layerDocument.consumeDirtyBatch());
+
+      presenter.scheduleDirtyRender({
+        isAnimating: false,
+        forceLayerRender,
+        render,
+      });
+      presenter.flushScheduledRender({ forceLayerRender, render });
+
+      const mergedBatch = {
+        layerId: layerDocument.layerId,
+        version: 3,
+        rects: [{ x: 0, y: 0, width: 2, height: 2 }],
+      };
+      expect(forceLayerRender).toHaveBeenCalledWith(layerDocument.layerId, mergedBatch);
+      expect(render).toHaveBeenCalledWith([mergedBatch]);
+    } finally {
+      requestAnimationFrameSpy.mockRestore();
+      target.remove();
+    }
   });
 
   it('keeps the Problem 2 playback semantic coverage matrix explicit', () => {
