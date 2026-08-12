@@ -105,6 +105,10 @@ export interface LayersSlice {
   updateInterlaceGroup: (
     groupId: string,
     updates: Partial<NonNullable<LayerGroup['interlace']>>,
+    options?: {
+      recordHistory?: boolean;
+      previousSettings?: NonNullable<LayerGroup['interlace']>;
+    },
   ) => void;
   moveLayersToGroup: (
     layerIds: string[],

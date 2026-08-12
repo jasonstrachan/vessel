@@ -1,7 +1,9 @@
-import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { useCallback, useEffect, useRef } from 'react';
+
+import { CANVAS_FRAME_UPDATE_EVENT } from '@/hooks/canvas/handlers/animation/animationRuntime';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 
 interface UseDrawingCanvasUiEffectsOptions {
   selectionStart: unknown;
@@ -150,5 +152,20 @@ export const useDrawingCanvasUiEffects = ({
     needsRedraw,
     viewTransformRef,
   ]);
+
+  useEffect(() => {
+    const redrawInterlaceFrame = () => {
+      if (mode === 'PANNING') return;
+      const ctx = getDrawContext();
+      if (ctx) {
+        draw(ctx, viewTransformRef.current);
+      }
+    };
+
+    window.addEventListener(CANVAS_FRAME_UPDATE_EVENT, redrawInterlaceFrame);
+    return () => {
+      window.removeEventListener(CANVAS_FRAME_UPDATE_EVENT, redrawInterlaceFrame);
+    };
+  }, [draw, getDrawContext, mode, viewTransformRef]);
 
 };

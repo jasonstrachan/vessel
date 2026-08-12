@@ -1,5 +1,8 @@
 import {
   resolveInterlaceFrame,
+  resolveInterlaceMaskRectangles,
+  resolveInterlaceTileMetrics,
+  resolveSierraTravelFrame,
   rollSierraLiteBinaryField,
   resolveSierraLiteBinaryField,
 } from '@/lib/colorCycle/gobletPlaybackMath';
@@ -40,12 +43,322 @@ describe('Interlace Sierra Lite playback', () => {
     expect(Array.from(written, (value) => value === 200 ? 1 : 0)).toEqual(Array.from(field));
   });
 
-  it('is deterministic and changes only when an input changes', () => {
-    const options = { width: 12, height: 9, mix: 0.41, seed: 44, phaseX: 2 };
-    expect(resolveSierraLiteBinaryField(options)).toEqual(resolveSierraLiteBinaryField(options));
-    expect(resolveSierraLiteBinaryField(options)).not.toEqual(
-      resolveSierraLiteBinaryField({ ...options, phaseX: 3 }),
-    );
+  it('turns dominance into pulse width while keeping the lattice anchored', () => {
+    const neighbourSlits = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 16,
+      cellSize: 16,
+      mix: 0.14,
+    });
+    const dominantPose = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 16,
+      cellSize: 16,
+      mix: 0.86,
+    });
+
+    expect(neighbourSlits[0]).toMatchObject({ x: 0, y: 0, width: 4.48, height: 16 });
+    expect(dominantPose[0]).toMatchObject({ x: 0, y: 0, width: 27.52, height: 16 });
+    expect(neighbourSlits[1].x).toBe(32);
+    expect(dominantPose[1].x).toBe(32);
+  });
+
+  it('forms square checker cells with alternate rows offset by one cell at the midpoint', () => {
+    const rectangles = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 32,
+      cellSize: 16,
+      mix: 0.5,
+    });
+
+    expect(rectangles).toEqual([
+      { x: 0, y: 0, width: 16, height: 16 },
+      { x: 32, y: 0, width: 16, height: 16 },
+      { x: 16, y: 16, width: 16, height: 16 },
+      { x: 48, y: 16, width: 16, height: 16 },
+    ]);
+  });
+
+  it('repeats five square rows followed by one four-times-taller row', () => {
+    const rectangles = resolveInterlaceMaskRectangles({
+      width: 256,
+      height: 144,
+      cellSize: 16,
+      mix: 0.5,
+    });
+    const firstByY = new Map<number, (typeof rectangles)[number]>();
+    for (const rectangle of rectangles) {
+      if (!firstByY.has(rectangle.y)) firstByY.set(rectangle.y, rectangle);
+    }
+
+    expect(Array.from(firstByY.values())).toEqual([
+      { x: 0, y: 0, width: 16, height: 16 },
+      { x: 16, y: 16, width: 16, height: 16 },
+      { x: 0, y: 32, width: 16, height: 16 },
+      { x: 16, y: 48, width: 16, height: 16 },
+      { x: 0, y: 64, width: 16, height: 16 },
+      { x: 16, y: 80, width: 16, height: 64 },
+    ]);
+  });
+
+  it('reverses the horizontal phase without moving the cell lattice vertically', () => {
+    const right = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 16,
+      cellSize: 16,
+      mix: 0.5,
+      motionPixels: 8,
+    });
+    const left = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 16,
+      cellSize: 16,
+      mix: 0.5,
+      motionPixels: -8,
+    });
+
+    expect(right[0]).toEqual({ x: 8, y: 0, width: 16, height: 16 });
+    expect(left[0]).toEqual({ x: 0, y: 0, width: 8, height: 16 });
+    expect(left[1]).toEqual({ x: 24, y: 0, width: 16, height: 16 });
+  });
+
+  it('mirrors fixed-mask direction without translating the registered pattern', () => {
+    const right = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 16,
+      cellSize: 16,
+      mix: 0.25,
+    });
+    const left = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 16,
+      cellSize: 16,
+      mix: 0.25,
+      mirrorX: true,
+    });
+
+    expect(right).toEqual([
+      { x: 0, y: 0, width: 8, height: 16 },
+      { x: 32, y: 0, width: 8, height: 16 },
+    ]);
+    expect(left).toEqual([
+      { x: 56, y: 0, width: 8, height: 16 },
+      { x: 24, y: 0, width: 8, height: 16 },
+    ]);
+  });
+
+  it('hands the dominant pose to the next pair without a spatial jump', () => {
+    const outgoingHighPose = resolveInterlaceMaskRectangles({
+      width: 32,
+      height: 16,
+      cellSize: 16,
+      mix: 0.86,
+      phaseCycles: 0.14,
+    });
+    const incomingHighMask = resolveInterlaceMaskRectangles({
+      width: 32,
+      height: 16,
+      cellSize: 16,
+      mix: 0.14,
+      phaseCycles: 0,
+    });
+
+    expect(outgoingHighPose).toHaveLength(1);
+    expect(outgoingHighPose[0].x).toBeCloseTo(4.48);
+    expect(outgoingHighPose[0].width).toBeCloseTo(27.52);
+    expect(incomingHighMask).toEqual([{ x: 0, y: 0, width: 4.48, height: 16 }]);
+  });
+
+  it('ripples pose coverage through successive rows during a transition', () => {
+    const rectangles = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 144,
+      cellSize: 16,
+      mix: 0.5,
+      patternPreset: 'ripple',
+      transitionProgress: 0.5,
+    });
+    const firstByY = new Map<number, (typeof rectangles)[number]>();
+    rectangles.forEach((rectangle) => {
+      if (!firstByY.has(rectangle.y)) firstByY.set(rectangle.y, rectangle);
+    });
+    const bands = Array.from(firstByY.values());
+
+    expect(bands[0].width).toBeCloseTo(16);
+    expect(bands[1].width).toBeLessThan(bands[0].width);
+    expect(bands[4].width).toBeGreaterThan(bands[0].width);
+  });
+
+  it('moves alternating rows in opposite directions for Counterflow', () => {
+    const rectangles = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 32,
+      cellSize: 16,
+      mix: 0.5,
+      patternPreset: 'counterflow',
+      transitionProgress: 0.5,
+    });
+    const firstByY = new Map<number, (typeof rectangles)[number]>();
+    rectangles.forEach((rectangle) => {
+      if (!firstByY.has(rectangle.y)) firstByY.set(rectangle.y, rectangle);
+    });
+    const bands = Array.from(firstByY.values());
+
+    expect(bands[0].x).not.toBe(bands[1].x);
+    expect(bands[0].x).toBeGreaterThan(0);
+    expect(bands[1].x).toBeGreaterThan(0);
+  });
+
+  it('combines coverage breathing and row motion in Hypnotic', () => {
+    const hypnotic = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 32,
+      cellSize: 16,
+      mix: 0.5,
+      patternPreset: 'hypnotic',
+      transitionProgress: 0.5,
+    });
+    const classic = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 32,
+      cellSize: 16,
+      mix: 0.5,
+      transitionProgress: 0.5,
+    });
+
+    expect(hypnotic).not.toEqual(classic);
+    expect(hypnotic.some((rectangle) => Math.abs(rectangle.width - 16) > 0.1)).toBe(true);
+    expect(hypnotic.some((rectangle) => Math.abs(rectangle.x % 16) > 0.1)).toBe(true);
+  });
+
+  it('sizes one Sierra plate to the artwork plus a full period of side overscan', () => {
+    const metrics = resolveInterlaceTileMetrics({
+      documentWidth: 384,
+      documentHeight: 432,
+      cellSize: 16,
+      patternPreset: 'sierra-travel',
+    });
+    expect(metrics).toMatchObject({
+      tileWidth: 768,
+      tileHeight: 432,
+      cellWidth: 16,
+      cellHeight: 16,
+      columnCount: 48,
+      rowCount: 20,
+      travelPeriodPixels: 192,
+      overscanPixels: 192,
+    });
+  });
+
+  it('applies export scaling once when sizing the full Sierra plate', () => {
+    const metrics = resolveInterlaceTileMetrics({
+      documentWidth: 160,
+      documentHeight: 96,
+      cellSize: 16,
+      scaleX: 2,
+      scaleY: 0.5,
+      patternPreset: 'sierra-travel',
+    });
+
+    expect(metrics).toMatchObject({
+      tileWidth: 1088,
+      tileHeight: 48,
+      cellWidth: 32,
+      cellHeight: 8,
+      travelPeriodPixels: 384,
+      overscanPixels: 384,
+    });
+  });
+
+  it('returns one complete immutable Sierra plate independent of animation state', () => {
+    const options = {
+      width: 128,
+      height: 48,
+      cellSize: 16,
+      cellHeight: 16,
+      mix: 0.5,
+      patternPreset: 'sierra-travel' as const,
+      seed: 0,
+    };
+
+    const registered = resolveInterlaceMaskRectangles(options);
+    const duringTravel = resolveInterlaceMaskRectangles({
+      ...options,
+      motionPixels: 71.25,
+      mirrorX: true,
+      transitionProgress: 0.63,
+    });
+
+    expect(registered).toEqual([
+      { x: 32, y: 0, width: 32, height: 32 },
+      { x: 96, y: 0, width: 32, height: 32 },
+      { x: 0, y: 32, width: 16, height: 16 },
+      { x: 32, y: 32, width: 16, height: 16 },
+      { x: 64, y: 32, width: 16, height: 16 },
+      { x: 96, y: 32, width: 16, height: 16 },
+    ]);
+    expect(duringTravel).toEqual(registered);
+  });
+
+  it('moves the whole Sierra sheet fractionally in the selected horizontal direction', () => {
+    const right = resolveSierraTravelFrame({
+      elapsedSeconds: 2.5,
+      traversalDurationSeconds: 10,
+      travelPeriodPixels: 192,
+      direction: 'right',
+    });
+    const left = resolveSierraTravelFrame({
+      elapsedSeconds: 2.5,
+      traversalDurationSeconds: 10,
+      travelPeriodPixels: 192,
+      direction: 'left',
+    });
+    const nextPixelFraction = resolveSierraTravelFrame({
+      elapsedSeconds: 2.501,
+      traversalDurationSeconds: 10,
+      travelPeriodPixels: 192,
+      direction: 'right',
+    });
+
+    expect(right).toMatchObject({ baseIndex: 0, revealIndex: 1, sheetOffsetPixels: 48 });
+    expect(left.sheetOffsetPixels).toBe(-48);
+    expect(nextPixelFraction.sheetOffsetPixels - right.sheetOffsetPixels).toBeCloseTo(0.0192);
+  });
+
+  it('returns to the identical registered sheet and source pair at the loop boundary', () => {
+    const options = {
+      traversalDurationSeconds: 10,
+      travelPeriodPixels: 192,
+      travelCycles: 1,
+      direction: 'right' as const,
+    };
+    const start = resolveSierraTravelFrame({ ...options, elapsedSeconds: 0 });
+    const wrapped = resolveSierraTravelFrame({ ...options, elapsedSeconds: 10 });
+
+    expect(wrapped).toEqual({
+      ...start,
+      traversalIndex: 1,
+    });
+    expect(start.sheetOffsetPixels).toBe(0);
+  });
+
+  it.each(['ripple', 'counterflow', 'hypnotic'] as const)('%s returns to Classic geometry at pose handoffs', (patternPreset) => {
+    const classic = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 144,
+      cellSize: 16,
+      mix: 0.14,
+    });
+    const atHandoff = resolveInterlaceMaskRectangles({
+      width: 64,
+      height: 144,
+      cellSize: 16,
+      mix: 0.14,
+      patternPreset,
+      transitionProgress: 0,
+    });
+
+    expect(atHandoff).toEqual(classic);
   });
 
   it('returns to the identical source pair, mix, and pattern phase at the loop boundary', () => {
@@ -69,7 +382,12 @@ describe('Interlace Sierra Lite playback', () => {
     });
 
     expect(atBoundary).toEqual(atStart);
-    expect(atStart).toMatchObject({ currentIndex: 0, nextIndex: 1, motionCells: 0 });
+    expect(atStart).toMatchObject({
+      currentIndex: 0,
+      nextIndex: 1,
+      motionCells: 0,
+      pairProgress: 0,
+    });
     expect(atStart.mix).toBeCloseTo(0.08);
   });
 
@@ -78,5 +396,19 @@ describe('Interlace Sierra Lite playback', () => {
     expect(Array.from(rollSierraLiteBinaryField(row, 4, 1, 1))).toEqual([1, 1, 0, 0]);
     expect(Array.from(rollSierraLiteBinaryField(row, 4, 1, -1))).toEqual([0, 0, 1, 1]);
     expect(rollSierraLiteBinaryField(row, 4, 1, 4)).toBe(row);
+  });
+
+  it('reports fractional cell travel so the renderer can move without block jumps', () => {
+    const frame = resolveInterlaceFrame({
+      elapsedSeconds: 0.25,
+      sourceCount: 3,
+      loopDurationSeconds: 10,
+      dominance: 0.92,
+      direction: 'right',
+      travelCycles: 1,
+      gridWidth: 64,
+    });
+
+    expect(frame.motionCells).toBeCloseTo(1.6);
   });
 });

@@ -1,5 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { useDrawingCanvasUiEffects } from '@/components/canvas/useDrawingCanvasUiEffects';
+import { CANVAS_FRAME_UPDATE_EVENT } from '@/hooks/canvas/handlers/animation/animationRuntime';
 
 const setSequentialPointerDown = jest.fn();
 
@@ -178,5 +179,43 @@ describe('useDrawingCanvasUiEffects', () => {
     window.dispatchEvent(new CustomEvent('colorCycleFrameUpdate'));
 
     expect(draw).not.toHaveBeenCalled();
+  });
+
+  it('draws Interlace frames directly without a React redraw state update', () => {
+    const canvas = document.createElement('canvas');
+    const wrapper = document.createElement('div');
+    const ctx = {} as CanvasRenderingContext2D;
+    const draw = jest.fn();
+
+    getContextMock.mockReturnValue(ctx);
+    canvas.getContext = getContextMock as typeof canvas.getContext;
+
+    renderHook(() =>
+      useDrawingCanvasUiEffects({
+        selectionStart: null,
+        selectionEnd: null,
+        floatingPaste: null,
+        setMarchingAntsOffset: jest.fn(),
+        canvasRef: { current: canvas },
+        draw,
+        viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+        defaultCursorStyle: 'default',
+        isPointerInsideCanvas: () => true,
+        setCursorStyle: jest.fn(),
+        setShowBrushCursor: jest.fn(),
+        wrapperRef: { current: wrapper },
+        mode: 'IDLE',
+        canvasZoom: 1,
+        canvasOffsetX: 0,
+        canvasOffsetY: 0,
+        needsRedraw: 0,
+      })
+    );
+    draw.mockClear();
+
+    window.dispatchEvent(new CustomEvent(CANVAS_FRAME_UPDATE_EVENT));
+
+    expect(draw).toHaveBeenCalledTimes(1);
+    expect(draw).toHaveBeenCalledWith(ctx, { scale: 1, offsetX: 0, offsetY: 0 });
   });
 });

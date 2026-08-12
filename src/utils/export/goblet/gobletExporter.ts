@@ -922,15 +922,21 @@ export const exportProjectAsWebGL = async (
     layers: metadataLayers,
     interlaceGroups: (options.project.layerGroups ?? [])
       .filter(isInterlaceGroup)
-      .map((group) => ({
-        id: group.id,
-        layerIds: metadataLayers
-          .filter((layer) => layer.visible !== false && options.layers.find(
-            (sourceLayer) => sourceLayer.id === layer.id,
-          )?.groupId === group.id)
-          .map((layer) => layer.id),
-        settings: sanitizeInterlaceSettings(group.interlace),
-      }))
+      .map((group) => {
+        const settings = sanitizeInterlaceSettings(group.interlace);
+        return {
+          id: group.id,
+          layerIds: metadataLayers
+            .filter((layer) => layer.visible !== false && options.layers.find(
+              (sourceLayer) => sourceLayer.id === layer.id,
+            )?.groupId === group.id)
+            .map((layer) => layer.id),
+          settings: {
+            ...settings,
+            loopDurationSeconds: settings.loopDurationSeconds / exportLayerSpeedScale,
+          },
+        };
+      })
       .filter((group) => group.layerIds.length >= 2),
   };
 

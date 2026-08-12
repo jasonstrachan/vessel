@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 
 import { dispatchColorCycleFrameReady } from '@/hooks/brushEngine/colorCycleFrameEvents';
+import { CANVAS_FRAME_UPDATE_EVENT } from '@/hooks/canvas/handlers/animation/animationRuntime';
 import { useDrawingCanvasRedrawEffects } from '../useDrawingCanvasRedrawEffects';
 
 describe('useDrawingCanvasRedrawEffects', () => {
@@ -39,6 +40,8 @@ describe('useDrawingCanvasRedrawEffects', () => {
 
   it('passes frame dirty batches into color-cycle refresh and static composite rebuild', () => {
     const options = baseOptions();
+    const frameUpdate = jest.fn();
+    window.addEventListener(CANVAS_FRAME_UPDATE_EVENT, frameUpdate);
     const dirtyBatches = [{
       layerId: 'static-layer',
       version: 3,
@@ -58,13 +61,16 @@ describe('useDrawingCanvasRedrawEffects', () => {
       sourceLayerIds: ['cc-layer'],
     });
     expect(options.rebuildStaticComposite).toHaveBeenCalledWith({ dirtyBatches });
-    expect(options.setNeedsRedraw).toHaveBeenCalledWith(expect.any(Function));
+    expect(frameUpdate).toHaveBeenCalledTimes(1);
 
     unmount();
+    window.removeEventListener(CANVAS_FRAME_UPDATE_EVENT, frameUpdate);
   });
 
   it('does not rebuild the static composite for non-static dirty batches', () => {
     const options = baseOptions();
+    const frameUpdate = jest.fn();
+    window.addEventListener(CANVAS_FRAME_UPDATE_EVENT, frameUpdate);
     const dirtyBatches = [{
       layerId: 'cc-layer',
       version: 5,
@@ -84,13 +90,16 @@ describe('useDrawingCanvasRedrawEffects', () => {
       sourceLayerIds: ['cc-layer'],
     });
     expect(options.rebuildStaticComposite).not.toHaveBeenCalled();
-    expect(options.setNeedsRedraw).toHaveBeenCalledWith(expect.any(Function));
+    expect(frameUpdate).toHaveBeenCalledTimes(1);
 
     unmount();
+    window.removeEventListener(CANVAS_FRAME_UPDATE_EVENT, frameUpdate);
   });
 
   it('coalesces legacy and layer frame events into one main redraw', () => {
     const options = baseOptions();
+    const frameUpdate = jest.fn();
+    window.addEventListener(CANVAS_FRAME_UPDATE_EVENT, frameUpdate);
     const { unmount } = renderHook(() => useDrawingCanvasRedrawEffects(options));
     options.setNeedsRedraw.mockClear();
 
@@ -106,8 +115,10 @@ describe('useDrawingCanvasRedrawEffects', () => {
     });
 
     expect(options.refreshColorCycleSegments).toHaveBeenCalledTimes(1);
-    expect(options.setNeedsRedraw).toHaveBeenCalledTimes(1);
+    expect(frameUpdate).toHaveBeenCalledTimes(1);
+    expect(options.setNeedsRedraw).not.toHaveBeenCalled();
 
     unmount();
+    window.removeEventListener(CANVAS_FRAME_UPDATE_EVENT, frameUpdate);
   });
 });

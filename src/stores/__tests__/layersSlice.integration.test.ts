@@ -1332,16 +1332,62 @@ describe('layers slice integration', () => {
     });
     expect(historyManager.entries()).toHaveLength(1);
 
-    useAppStore.getState().updateInterlaceGroup(groupId as string, { cellSize: 18, direction: 'left' });
+    useAppStore.getState().updateInterlaceGroup(groupId as string, {
+      cellSize: 18,
+      direction: 'left',
+      motionMode: 'travel',
+      patternPreset: 'sierra-travel',
+    });
     expect(useAppStore.getState().layerGroups[0].interlace).toMatchObject({
       cellSize: 18,
       direction: 'left',
+      motionMode: 'travel',
+      patternPreset: 'sierra-travel',
     });
     expect(historyManager.entries()).toHaveLength(2);
 
     await historyManager.undo();
     nextState = useAppStore.getState();
-    expect(nextState.layerGroups[0].interlace).toMatchObject({ cellSize: 10, direction: 'right' });
+    expect(nextState.layerGroups[0].interlace).toMatchObject({
+      cellSize: 10,
+      direction: 'right',
+      motionMode: 'fixed',
+      patternPreset: 'classic',
+    });
+  });
+
+  it('previews Interlace settings live and commits the drag as one undo entry', async () => {
+    const store = useAppStore.getState();
+    const layerA = store.addLayer(createNormalLayerInput('Pose A'));
+    const layerB = store.addLayer(createNormalLayerInput('Pose B'));
+    const groupId = store.createInterlaceGroupFromSelection([layerA, layerB]) as string;
+    const initialSettings = useAppStore.getState().layerGroups[0].interlace;
+    expect(initialSettings).toBeDefined();
+
+    historyManager.clear();
+    useAppStore.getState().updateInterlaceGroup(
+      groupId,
+      { cellSize: 14 },
+      { recordHistory: false },
+    );
+    useAppStore.getState().updateInterlaceGroup(
+      groupId,
+      { cellSize: 18 },
+      { recordHistory: false },
+    );
+
+    expect(useAppStore.getState().layerGroups[0].interlace?.cellSize).toBe(18);
+    expect(historyManager.entries()).toHaveLength(0);
+
+    useAppStore.getState().updateInterlaceGroup(
+      groupId,
+      { cellSize: 18 },
+      { previousSettings: initialSettings },
+    );
+    expect(historyManager.entries()).toHaveLength(1);
+
+    await historyManager.undo();
+    expect(useAppStore.getState().layerGroups[0].interlace?.cellSize).toBe(10);
   });
 
   it('rejects sequential layers and selections with fewer than two Interlace sources', () => {

@@ -220,7 +220,10 @@ const buildInlineGobletPlaybackMathRuntime = (playbackMathJs) => {
     'hasVisibleGobletAlpha',
     'resolveSierraLiteBinaryField',
     'rollSierraLiteBinaryField',
+    'resolveInterlaceMaskRectangles',
+    'resolveInterlaceTileMetrics',
     'resolveInterlaceFrame',
+    'resolveSierraTravelFrame',
   ];
   const exportList = exports.join(', ');
   return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;

@@ -174,6 +174,10 @@ export const updateInterlaceGroupAction = (
   groupId: string,
   updates: Partial<InterlaceGroupSettings>,
   deps: LayerGroupActionDeps,
+  options: {
+    recordHistory?: boolean;
+    previousSettings?: InterlaceGroupSettings;
+  } = {},
 ): void => {
   const { set, get, captureLayerStructureSnapshot, commitLayerStructureHistory } = deps;
   const stateBeforeChange = get();
@@ -183,20 +187,48 @@ export const updateInterlaceGroupAction = (
   if (!target) {
     return;
   }
-  const nextSettings = sanitizeInterlaceSettings({ ...target.interlace, ...updates });
-  if (JSON.stringify(nextSettings) === JSON.stringify(sanitizeInterlaceSettings(target.interlace))) {
+  const currentSettings = sanitizeInterlaceSettings(target.interlace);
+  const nextSettings = sanitizeInterlaceSettings({ ...currentSettings, ...updates });
+  const previousSettings = options.previousSettings
+    ? sanitizeInterlaceSettings(options.previousSettings)
+    : currentSettings;
+  const didSettingsChange = JSON.stringify(nextSettings) !== JSON.stringify(currentSettings);
+  const shouldRecordHistory = options.recordHistory !== false
+    && JSON.stringify(nextSettings) !== JSON.stringify(previousSettings);
+  if (!didSettingsChange && !shouldRecordHistory) {
     return;
   }
-  const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeChange, {
-    actionType: 'layers',
-    description: 'Update interlace group',
-  });
-  set((state) => ({
-    layerGroups: state.layerGroups.map((group) => (
-      group.id === groupId ? { ...group, interlace: nextSettings } : group
-    )),
-    layersNeedRecomposition: true,
-  }));
+
+  const stateAtHistoryStart = options.previousSettings
+    ? {
+      ...stateBeforeChange,
+      layerGroups: stateBeforeChange.layerGroups.map((group) => (
+        group.id === groupId ? { ...group, interlace: previousSettings } : group
+      )),
+    }
+    : stateBeforeChange;
+  const beforeSnapshot = shouldRecordHistory
+    ? captureLayerStructureSnapshot(stateAtHistoryStart, {
+      actionType: 'layers',
+      description: 'Update interlace group',
+    })
+    : null;
+
+  if (didSettingsChange) {
+    set((state) => ({
+      layerGroups: state.layerGroups.map((group) => (
+        group.id === groupId ? { ...group, interlace: nextSettings } : group
+      )),
+      layersNeedRecomposition: true,
+    }));
+    if (options.recordHistory !== false) {
+      get().markAllCompositeSegmentsDirty();
+    }
+  }
+
+  if (!beforeSnapshot) {
+    return;
+  }
   const afterSnapshot = captureLayerStructureSnapshot(get(), {
     actionType: 'layers',
     description: 'Update interlace group',
@@ -209,7 +241,6 @@ export const updateInterlaceGroupAction = (
     label: 'Update interlace group',
     metadata: { operation: 'update-interlace-group', groupId },
   });
-  get().markAllCompositeSegmentsDirty();
 };
 
 export const removeLayerGroupAction = (

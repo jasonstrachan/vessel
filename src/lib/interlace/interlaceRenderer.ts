@@ -1,7 +1,8 @@
 import {
   resolveInterlaceFrame,
-  rollSierraLiteBinaryField,
-  resolveSierraLiteBinaryField,
+  resolveInterlaceMaskRectangles,
+  resolveInterlaceTileMetrics,
+  resolveSierraTravelFrame,
 } from '@/lib/colorCycle/gobletPlaybackMath';
 import { sanitizeInterlaceSettings } from '@/lib/interlace/interlaceSettings';
 import type { InterlaceGroupSettings } from '@/types';
@@ -22,34 +23,48 @@ interface Rect {
 interface InterlaceScratch {
   mask: HTMLCanvasElement;
   maskContext: CanvasRenderingContext2D;
+  tile: HTMLCanvasElement;
+  tileContext: CanvasRenderingContext2D;
   layer: HTMLCanvasElement;
   layerContext: CanvasRenderingContext2D;
-  maskImageData: ImageData | null;
+  tileKey: string | null;
 }
 
 const scratchByKey = new Map<string, InterlaceScratch>();
 
-const getScratch = (width: number, height: number, gridWidth: number, gridHeight: number): InterlaceScratch | null => {
+const getScratch = (width: number, height: number): InterlaceScratch | null => {
   if (typeof document === 'undefined') {
     return null;
   }
-  const key = `${width}x${height}:${gridWidth}x${gridHeight}`;
+  const key = `${width}x${height}`;
   const cached = scratchByKey.get(key);
   if (cached) {
     return cached;
   }
   const mask = document.createElement('canvas');
-  mask.width = gridWidth;
-  mask.height = gridHeight;
+  mask.width = width;
+  mask.height = height;
   const maskContext = mask.getContext('2d');
+  const tile = document.createElement('canvas');
+  tile.width = 1;
+  tile.height = 1;
+  const tileContext = tile.getContext('2d');
   const layer = document.createElement('canvas');
   layer.width = width;
   layer.height = height;
   const layerContext = layer.getContext('2d');
-  if (!maskContext || !layerContext) {
+  if (!maskContext || !tileContext || !layerContext) {
     return null;
   }
-  const scratch = { mask, maskContext, layer, layerContext, maskImageData: null };
+  const scratch = {
+    mask,
+    maskContext,
+    tile,
+    tileContext,
+    layer,
+    layerContext,
+    tileKey: null,
+  };
   scratchByKey.set(key, scratch);
   if (scratchByKey.size > 8) {
     const oldest = scratchByKey.keys().next().value;
@@ -83,9 +98,8 @@ const drawMaskedSource = ({
   layerContext.globalCompositeOperation = 'source-over';
   layerContext.clearRect(0, 0, width, height);
   layerContext.drawImage(source.source, 0, 0);
-  layerContext.imageSmoothingEnabled = false;
   layerContext.globalCompositeOperation = keepHighBits ? 'destination-in' : 'destination-out';
-  layerContext.drawImage(scratch.mask, 0, 0, width, height);
+  layerContext.drawImage(scratch.mask, 0, 0);
   layerContext.globalCompositeOperation = 'source-over';
 
   targetContext.save();
@@ -129,53 +143,123 @@ export const drawSierraLiteInterlace = ({
   }
   const settings = sanitizeInterlaceSettings(unsafeSettings);
   const gridWidth = Math.ceil(width / settings.cellSize);
-  const gridHeight = Math.ceil(height / settings.cellSize);
-  const scratch = getScratch(width, height, gridWidth, gridHeight);
+  const periodCells = Math.ceil(gridWidth / 8) * 8;
+  const isSierraTravel = settings.patternPreset === 'sierra-travel';
+  const scratch = getScratch(width, height);
   if (!scratch) {
     return false;
   }
-  const frame = resolveInterlaceFrame({
+  const pulseFrame = resolveInterlaceFrame({
     elapsedSeconds,
     sourceCount: sources.length,
     loopDurationSeconds: settings.loopDurationSeconds,
     dominance: settings.dominance,
     direction: settings.direction,
     travelCycles: settings.travelCycles,
-    gridWidth,
+    gridWidth: periodCells,
   });
-  const baseBits = resolveSierraLiteBinaryField({
-    width: gridWidth,
-    height: gridHeight,
-    mix: frame.mix,
-    seed: settings.seed,
-    phaseX: 0,
-    phaseY: 0,
-    identityKey: frame.currentIndex,
-    lowKey: frame.currentIndex,
-    highKey: frame.nextIndex,
-    diversity: 1,
+  const tileMetrics = resolveInterlaceTileMetrics({
+    documentWidth: width,
+    documentHeight: height,
+    cellSize: settings.cellSize,
+    patternPreset: settings.patternPreset,
   });
-  const bits = rollSierraLiteBinaryField(
-    baseBits,
-    gridWidth,
-    gridHeight,
-    frame.motionCells,
-  );
-  const imageData = scratch.maskImageData?.width === gridWidth
-    && scratch.maskImageData.height === gridHeight
-    ? scratch.maskImageData
-    : scratch.maskContext.createImageData(gridWidth, gridHeight);
-  for (let index = 0, offset = 0; index < bits.length; index += 1, offset += 4) {
-    imageData.data[offset] = 255;
-    imageData.data[offset + 1] = 255;
-    imageData.data[offset + 2] = 255;
-    imageData.data[offset + 3] = bits[index] ? 255 : 0;
+  const { tileWidth, tileHeight } = tileMetrics;
+  const sierraFrame = resolveSierraTravelFrame({
+    elapsedSeconds,
+    traversalDurationSeconds: settings.loopDurationSeconds,
+    travelPeriodPixels: tileMetrics.travelPeriodPixels,
+    travelCycles: settings.travelCycles,
+    direction: settings.direction,
+  });
+  scratch.maskContext.setTransform(1, 0, 0, 1, 0, 0);
+  scratch.maskContext.clearRect(0, 0, width, height);
+  if (isSierraTravel) {
+    if (scratch.tile.width !== tileWidth || scratch.tile.height !== tileHeight) {
+      scratch.tile.width = tileWidth;
+      scratch.tile.height = tileHeight;
+      scratch.tileKey = null;
+    }
+    const plateKey = [
+      tileWidth,
+      tileHeight,
+      tileMetrics.cellWidth,
+      tileMetrics.cellHeight,
+      settings.seed,
+    ].join(':');
+    if (scratch.tileKey !== plateKey) {
+      const rectangles = resolveInterlaceMaskRectangles({
+        width: tileWidth,
+        height: tileHeight,
+        cellSize: tileMetrics.cellWidth,
+        cellHeight: tileMetrics.cellHeight,
+        mix: 0.5,
+        patternPreset: 'sierra-travel',
+        seed: settings.seed,
+      });
+      scratch.tileContext.setTransform(1, 0, 0, 1, 0, 0);
+      scratch.tileContext.clearRect(0, 0, tileWidth, tileHeight);
+      scratch.tileContext.fillStyle = '#fff';
+      for (const rectangle of rectangles) {
+        const left = rectangle.x;
+        const top = Math.round(rectangle.y);
+        const right = rectangle.x + rectangle.width;
+        const bottom = Math.round(rectangle.y + rectangle.height);
+        if (right > left && bottom > top) {
+          scratch.tileContext.fillRect(left, top, right - left, bottom - top);
+        }
+      }
+      scratch.tileKey = plateKey;
+    }
+    scratch.maskContext.imageSmoothingEnabled = true;
+    scratch.maskContext.drawImage(
+      scratch.tile,
+      -tileMetrics.overscanPixels + sierraFrame.sheetOffsetPixels,
+      0,
+    );
+  } else {
+    if (scratch.tile.width !== tileWidth || scratch.tile.height !== tileHeight) {
+      scratch.tile.width = tileWidth;
+      scratch.tile.height = tileHeight;
+      scratch.tileKey = null;
+    }
+    const rectangles = resolveInterlaceMaskRectangles({
+      width: tileWidth,
+      height: tileHeight,
+      cellSize: tileMetrics.cellWidth,
+      cellHeight: tileMetrics.cellHeight,
+      mix: pulseFrame.mix,
+      motionPixels: settings.motionMode === 'travel'
+        ? pulseFrame.motionCells * tileMetrics.cellWidth
+        : 0,
+      phaseCycles: pulseFrame.pairPhaseCycles,
+      mirrorX: settings.motionMode === 'fixed' && settings.direction === 'left',
+      patternPreset: settings.patternPreset,
+      transitionProgress: pulseFrame.pairProgress,
+      seed: settings.seed,
+    });
+    scratch.tileContext.setTransform(1, 0, 0, 1, 0, 0);
+    scratch.tileContext.clearRect(0, 0, tileWidth, tileHeight);
+    scratch.tileContext.fillStyle = '#fff';
+    for (const rectangle of rectangles) {
+      const left = rectangle.x;
+      const top = Math.round(rectangle.y);
+      const right = rectangle.x + rectangle.width;
+      const bottom = Math.round(rectangle.y + rectangle.height);
+      if (right > left && bottom > top) {
+        scratch.tileContext.fillRect(left, top, right - left, bottom - top);
+      }
+    }
+    const maskPattern = scratch.maskContext.createPattern(scratch.tile, 'repeat');
+    if (!maskPattern) {
+      return false;
+    }
+    scratch.maskContext.fillStyle = maskPattern;
+    scratch.maskContext.fillRect(0, 0, width, height);
   }
-  scratch.maskImageData = imageData;
-  scratch.maskContext.putImageData(imageData, 0, 0);
   drawMaskedSource({
     targetContext: context,
-    source: sources[frame.currentIndex],
+    source: sources[isSierraTravel ? sierraFrame.baseIndex : pulseFrame.currentIndex],
     scratch,
     width,
     height,
@@ -185,7 +269,7 @@ export const drawSierraLiteInterlace = ({
   });
   drawMaskedSource({
     targetContext: context,
-    source: sources[frame.nextIndex],
+    source: sources[isSierraTravel ? sierraFrame.revealIndex : pulseFrame.nextIndex],
     scratch,
     width,
     height,

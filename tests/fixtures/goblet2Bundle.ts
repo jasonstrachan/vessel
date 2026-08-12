@@ -6,6 +6,11 @@ type Goblet2Layer = {
   documentBoundsPx: { x: number; y: number; width: number; height: number };
   documentBoundsPercent: { x: number; y: number; width: number; height: number };
   alignment: { fit: string; horizontal: string; vertical: string; positioning: string };
+  assets?: { texture?: string };
+  visible?: boolean;
+  opacity?: number;
+  blendMode?: string;
+  stackIndex?: number;
   colorCycle?: Record<string, unknown>;
 };
 

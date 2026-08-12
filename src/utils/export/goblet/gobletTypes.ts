@@ -4,6 +4,7 @@ import type {
   ContentBounds,
   DisplayFilterConfig,
   ExportContainerLayout,
+  InterlacePatternPreset,
   Layer,
   LayerAlignmentSettings,
   Project,
@@ -287,6 +288,8 @@ export interface WebGLSerializedInterlaceGroup {
   settings: {
     cellSize: number;
     dominance: number;
+    patternPreset: InterlacePatternPreset;
+    motionMode: 'fixed' | 'travel';
     direction: 'left' | 'right';
     travelCycles: number;
     loopDurationSeconds: number;

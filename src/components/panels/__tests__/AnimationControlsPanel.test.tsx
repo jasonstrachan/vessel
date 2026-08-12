@@ -355,7 +355,7 @@ describe('AnimationControlsPanel', () => {
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeDisabled();
     expect(screen.getByRole('spinbutton', { name: /frames/i })).toBeDisabled();
     expect(screen.getByRole('slider', { name: /time-smear/i })).toBeDisabled();
-    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeDisabled();
+    expect(screen.getByRole('slider', { name: /cc and interlace playback rate/i })).toBeDisabled();
     expect(screen.queryByText(/capture active\. changes apply next take\./i)).not.toBeInTheDocument();
   });
 
@@ -377,8 +377,8 @@ describe('AnimationControlsPanel', () => {
     expect(sequenceSection).toContainElement(screen.getByRole('spinbutton', { name: /fps/i }));
     expect(sequenceSection).toContainElement(screen.getByRole('spinbutton', { name: /frames/i }));
     expect(sequenceSection).toContainElement(screen.getByRole('slider', { name: /time-smear/i }));
-    expect(sequenceSection).not.toContainElement(screen.getByRole('slider', { name: /global cc playback rate/i }));
-    expect(speedSection).toContainElement(screen.getByRole('slider', { name: /global cc playback rate/i }));
+    expect(sequenceSection).not.toContainElement(screen.getByRole('slider', { name: /cc and interlace playback rate/i }));
+    expect(speedSection).toContainElement(screen.getByRole('slider', { name: /cc and interlace playback rate/i }));
     expect(speedSection).not.toContainElement(screen.getByRole('slider', { name: /time-smear/i }));
   });
 
@@ -459,7 +459,7 @@ describe('AnimationControlsPanel', () => {
     fireEvent.change(screen.getByRole('slider', { name: /time-smear/i }), {
       target: { value: '2.5' },
     });
-    fireEvent.change(screen.getByRole('slider', { name: /global cc playback rate/i }), {
+    fireEvent.change(screen.getByRole('slider', { name: /cc and interlace playback rate/i }), {
       target: { value: '0.6' },
     });
 
@@ -474,7 +474,7 @@ describe('AnimationControlsPanel', () => {
   it('clamps playback speed to the supported minimum', () => {
     render(<AnimationControlsPanel />);
 
-    fireEvent.change(screen.getByRole('slider', { name: /global cc playback rate/i }), {
+    fireEvent.change(screen.getByRole('slider', { name: /cc and interlace playback rate/i }), {
       target: { value: '0.001' },
     });
 
@@ -580,19 +580,19 @@ describe('AnimationControlsPanel', () => {
 
     expect(screen.queryByRole('spinbutton', { name: /fps/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sequence/i })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: /cc and interlace playback rate/i })).toBeInTheDocument();
   });
 
   it('allows minimizing speed controls without hiding sequence controls', () => {
     render(<AnimationControlsPanel />);
 
     const toggleButton = screen.getByRole('button', { name: /Speed/i });
-    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: /cc and interlace playback rate/i })).toBeInTheDocument();
     fireEvent.click(toggleButton);
-    expect(screen.queryByRole('slider', { name: /global cc playback rate/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: /cc and interlace playback rate/i })).not.toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
     fireEvent.click(toggleButton);
-    expect(screen.getByRole('slider', { name: /global cc playback rate/i })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: /cc and interlace playback rate/i })).toBeInTheDocument();
   });
 
   it('restores speed panel collapsed state from storage', () => {
@@ -600,7 +600,7 @@ describe('AnimationControlsPanel', () => {
 
     render(<AnimationControlsPanel />);
 
-    expect(screen.queryByRole('slider', { name: /global cc playback rate/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: /cc and interlace playback rate/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Speed/i })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('spinbutton', { name: /fps/i })).toBeInTheDocument();
   });

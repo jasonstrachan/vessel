@@ -9,7 +9,8 @@ interface CommittedProgressSliderProps {
   min: number;
   max: number;
   step?: number;
-  onChange: (value: number) => void;
+  onChange: (value: number, previousValue: number) => void;
+  onPreview?: (value: number) => void;
   onCommit?: () => void;
   formatValue?: (value: number) => string;
   'aria-label'?: string;
@@ -23,6 +24,7 @@ const CommittedProgressSlider: React.FC<CommittedProgressSliderProps> = ({
   max,
   step = 1,
   onChange,
+  onPreview,
   onCommit,
   formatValue,
   'aria-label': ariaLabel,
@@ -32,6 +34,7 @@ const CommittedProgressSlider: React.FC<CommittedProgressSliderProps> = ({
   const [localValue, setLocalValue] = React.useState(value);
   const isEditingRef = React.useRef(false);
   const latestRef = React.useRef(value);
+  const initialRef = React.useRef(value);
 
   React.useEffect(() => {
     latestRef.current = localValue;
@@ -49,11 +52,12 @@ const CommittedProgressSlider: React.FC<CommittedProgressSliderProps> = ({
     }
     isEditingRef.current = false;
     const next = latestRef.current;
-    if (next !== value) {
-      onChange(next);
+    const previous = initialRef.current;
+    if (next !== previous) {
+      onChange(next, previous);
     }
     onCommit?.();
-  }, [onChange, onCommit, value]);
+  }, [onChange, onCommit]);
 
   return (
     <ProgressSlider
@@ -62,8 +66,12 @@ const CommittedProgressSlider: React.FC<CommittedProgressSliderProps> = ({
       max={max}
       step={step}
       onChange={(next) => {
+        if (!isEditingRef.current) {
+          initialRef.current = value;
+        }
         isEditingRef.current = true;
         setLocalValue(next);
+        onPreview?.(next);
       }}
       onCommit={handleCommit}
       formatValue={formatValue}

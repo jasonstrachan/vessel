@@ -68,6 +68,8 @@ class AnimationRuntime {
 
 const sharedAnimationRuntime = new AnimationRuntime();
 
+export const CANVAS_FRAME_UPDATE_EVENT = 'vessel:canvasFrameUpdate';
+
 export const getSharedAnimationRuntime = (): AnimationRuntime => sharedAnimationRuntime;
 
 export const dispatchGlobalAnimationFrameUpdate = (): void => {
@@ -76,6 +78,15 @@ export const dispatchGlobalAnimationFrameUpdate = (): void => {
   }
   window.dispatchEvent(new CustomEvent('vessel:animationFrameUpdate'));
 };
+
+export const dispatchCanvasFrameUpdate = (): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(CANVAS_FRAME_UPDATE_EVENT));
+};
+
+export const dispatchInterlaceFrameUpdate = dispatchCanvasFrameUpdate;
 
 export interface SequentialAnimationFrameUpdateDetail {
   frameIndex: number;

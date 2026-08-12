@@ -329,6 +329,264 @@ export const rollSierraLiteBinaryField = (field, width, height, motionCells) => 
   return output;
 };
 
+const INTERLACE_PATTERN_RHYTHM = [1, 1, 1, 1, 1, 4];
+const INTERLACE_RHYTHM_HEIGHT = INTERLACE_PATTERN_RHYTHM.reduce(
+  (total, scale) => total + scale,
+  0,
+);
+const SIERRA_TRAVEL_ROW_RHYTHM = [
+  2, 1, 1, 1, 1, 1, 1, 1,
+  2, 1, 1, 1, 2, 3, 1, 1,
+  2, 1,
+];
+// All Sierra band widths repeat after the least common multiple of the
+// 2x, 4x, and 6x checker periods produced by the 1, 2, and 3 scale bands.
+const SIERRA_TRAVEL_PERIOD_UNITS = 12;
+
+const positiveModulo = (value, divisor) => ((value % divisor) + divisor) % divisor;
+
+export const resolveSierraTravelFrame = ({
+  elapsedSeconds,
+  traversalDurationSeconds,
+  travelPeriodPixels,
+  travelCycles = 1,
+  direction = 'right',
+}) => {
+  const duration = Math.max(0.001, Number(traversalDurationSeconds) || 10);
+  const elapsed = Math.max(0, Number(elapsedSeconds) || 0);
+  const period = Math.max(0.0001, Number(travelPeriodPixels) || 1);
+  const cycles = Math.max(1, Math.round(Number(travelCycles) || 1));
+  const traversalPosition = elapsed / duration;
+  const traversalIndex = Math.floor(traversalPosition);
+  const traversalProgress = traversalPosition - traversalIndex;
+  const phasePixels = positiveModulo(traversalProgress * period * cycles, period);
+  return {
+    baseIndex: 0,
+    revealIndex: 1,
+    traversalIndex,
+    traversalProgress,
+    sheetOffsetPixels: phasePixels * (direction === 'left' ? -1 : 1),
+  };
+};
+
+/**
+ * Resolves Interlace mask dimensions. Sierra Travel owns one immutable
+ * full-document plate plus one horizontal period of overscan on each side;
+ * pulse presets retain their compact repeating tile.
+ * @param {{
+ *   documentWidth: number,
+ *   documentHeight: number,
+ *   cellSize: number,
+ *   scaleX?: number,
+ *   scaleY?: number,
+ *   patternPreset?: 'classic' | 'ripple' | 'counterflow' | 'hypnotic' | 'sierra-travel',
+ * }} options
+ */
+export const resolveInterlaceTileMetrics = ({
+  documentWidth,
+  documentHeight,
+  cellSize,
+  scaleX = 1,
+  scaleY = 1,
+  patternPreset = 'classic',
+}) => {
+  const resolvedCellSize = Math.max(1, Number(cellSize) || 1);
+  const isSierraTravel = patternPreset === 'sierra-travel';
+  const resolvedScaleX = Math.max(0.0001, Number(scaleX) || 1);
+  const resolvedScaleY = Math.max(0.0001, Number(scaleY) || 1);
+  const cellWidth = resolvedCellSize * resolvedScaleX;
+  const cellHeight = resolvedCellSize * resolvedScaleY;
+  const documentWidthPixels = Math.max(
+    1,
+    Math.round((Number(documentWidth) || 1) * resolvedScaleX),
+  );
+  const travelPeriodPixels = isSierraTravel
+    ? cellWidth * SIERRA_TRAVEL_PERIOD_UNITS
+    : cellWidth * 2;
+  const overscanPixels = isSierraTravel ? travelPeriodPixels : 0;
+  const tileWidth = isSierraTravel
+    ? Math.max(1, Math.ceil(documentWidthPixels + overscanPixels * 2))
+    : Math.max(2, Math.round(cellWidth * 2));
+  const visibleColumnCount = Math.max(
+    1,
+    Math.ceil(tileWidth / cellWidth),
+  );
+  const columnCount = isSierraTravel ? visibleColumnCount : 2;
+  const rawDocumentHeight = Math.max(1, Number(documentHeight) || 1);
+  const documentHeightPixels = isSierraTravel
+    ? Math.max(1, Math.round(rawDocumentHeight * resolvedScaleY))
+    : rawDocumentHeight;
+  let rowCount = 0;
+  let heightUnits = 0;
+  if (isSierraTravel) {
+    let y = 0;
+    while (y < documentHeightPixels) {
+      const bandScale = SIERRA_TRAVEL_ROW_RHYTHM[
+        rowCount % SIERRA_TRAVEL_ROW_RHYTHM.length
+      ];
+      y += cellHeight * bandScale;
+      rowCount += 1;
+    }
+    heightUnits = documentHeightPixels / Math.max(cellHeight, 0.0001);
+  } else {
+    rowCount = INTERLACE_PATTERN_RHYTHM.length;
+    heightUnits = INTERLACE_RHYTHM_HEIGHT;
+  }
+  const tileHeight = isSierraTravel
+    ? documentHeightPixels
+    : Math.max(heightUnits, Math.round(resolvedCellSize * resolvedScaleY * heightUnits));
+  return {
+    tileWidth,
+    tileHeight,
+    cellWidth,
+    cellHeight,
+    columnCount,
+    rowCount,
+    travelPeriodPixels,
+    overscanPixels,
+  };
+};
+
+/**
+ * Fixed-lattice Interlace reveal geometry shared by Vessel and Goblet playback.
+ * Sierra Travel returns the single immutable plate at its registered origin;
+ * the renderer translates that plate horizontally without changing its cells.
+ * Pulse presets vary the high-source width while retaining the
+ * 1,1,1,1,1,4 row rhythm.
+ * @param {{
+ *   width: number,
+ *   height: number,
+ *   cellSize: number,
+ *   cellHeight?: number,
+ *   mix: number,
+ *   motionPixels?: number,
+ *   phaseCycles?: number,
+ *   mirrorX?: boolean,
+ *   patternPreset?: 'classic' | 'ripple' | 'counterflow' | 'hypnotic' | 'sierra-travel',
+ *   transitionProgress?: number,
+ *   seed?: number,
+ * }} options
+ * @returns {Array<{ x: number, y: number, width: number, height: number }>}
+ */
+export const resolveInterlaceMaskRectangles = ({
+  width,
+  height,
+  cellSize,
+  cellHeight = cellSize,
+  mix,
+  motionPixels = 0,
+  phaseCycles = 0,
+  mirrorX = false,
+  patternPreset = 'classic',
+  transitionProgress = 0,
+  seed = 0,
+}) => {
+  const canvasWidth = Math.max(0, Number(width) || 0);
+  const canvasHeight = Math.max(0, Number(height) || 0);
+  const baseCellSize = Math.max(1, Number(cellSize) || 1);
+  const baseCellHeight = Math.max(1, Number(cellHeight) || baseCellSize);
+  const mix01 = clamp01(Number.isFinite(mix) ? mix : 0.5);
+  const resolvedMotion = Number.isFinite(motionPixels) ? motionPixels : 0;
+  const resolvedPhaseCycles = Number.isFinite(phaseCycles) ? phaseCycles : 0;
+  const resolvedTransitionProgress = clamp01(
+    Number.isFinite(transitionProgress) ? transitionProgress : 0,
+  );
+  const modulationEnvelope = Math.sin(Math.PI * resolvedTransitionProgress);
+  const rectangles = [];
+  if (canvasWidth === 0 || canvasHeight === 0) return rectangles;
+
+  if (patternPreset === 'sierra-travel') {
+    const horizontalPhase = (Number(seed) >>> 0) & 1;
+    let y = 0;
+    let band = 0;
+    while (y < canvasHeight) {
+      const bandScale = SIERRA_TRAVEL_ROW_RHYTHM[
+        band % SIERRA_TRAVEL_ROW_RHYTHM.length
+      ];
+      const bandCellWidth = baseCellSize * bandScale;
+      const bandColumnCount = Math.max(1, Math.ceil(canvasWidth / bandCellWidth));
+      const firstColumn = ((band + horizontalPhase) & 1) === 0 ? 1 : 0;
+      const bandCellCount = firstColumn < bandColumnCount
+        ? Math.ceil((bandColumnCount - firstColumn) / 2)
+        : 0;
+      const rowHeight = Math.min(
+        baseCellHeight * bandScale,
+        canvasHeight - y,
+      );
+      for (let index = 0; index < bandCellCount; index += 1) {
+        const column = firstColumn + index * 2;
+        const cellX = column * bandCellWidth;
+        const cellWidth = Math.min(bandCellWidth, canvasWidth - cellX);
+        if (cellWidth > 1e-9) {
+          rectangles.push({
+            x: cellX,
+            y,
+            width: cellWidth,
+            height: rowHeight,
+          });
+        }
+      }
+      y += baseCellHeight * bandScale;
+      band += 1;
+    }
+    return rectangles;
+  }
+
+  if (mix01 === 0) return rectangles;
+
+  let y = 0;
+  let row = 0;
+  while (y < canvasHeight) {
+    const scale = INTERLACE_PATTERN_RHYTHM[
+      positiveModulo(row, INTERLACE_PATTERN_RHYTHM.length)
+    ];
+    const period = baseCellSize * 2;
+    const rowPhase = resolvedTransitionProgress + row / INTERLACE_PATTERN_RHYTHM.length;
+    const rowWave = Math.sin(Math.PI * 2 * rowPhase);
+    const counterWave = Math.cos(
+      Math.PI * 2 * (resolvedTransitionProgress * 2 + row / 2),
+    );
+    const mixHeadroom = Math.min(mix01, 1 - mix01);
+    const mixModulation = patternPreset === 'ripple'
+      ? mixHeadroom * 0.25 * modulationEnvelope * rowWave
+      : patternPreset === 'hypnotic'
+        ? mixHeadroom * 0.4 * modulationEnvelope
+          * (rowWave * 0.72 + counterWave * 0.28)
+        : 0;
+    const rowMix = clamp01(mix01 + mixModulation);
+    const revealWidth = period * rowMix;
+    const rowOffset = (row & 1) * baseCellSize;
+    const counterflowOffset = patternPreset === 'counterflow'
+      ? baseCellSize * 0.72 * modulationEnvelope * counterWave
+      : patternPreset === 'hypnotic'
+        ? baseCellSize * 0.52 * modulationEnvelope
+          * Math.sin(Math.PI * 2 * (resolvedTransitionProgress + row / 3))
+        : 0;
+    const firstX = positiveModulo(
+      resolvedMotion + resolvedPhaseCycles * period + counterflowOffset - rowOffset,
+      period,
+    ) - period;
+    const bandHeight = Math.min(baseCellHeight * scale, canvasHeight - y);
+
+    for (let x = firstX; x < canvasWidth; x += period) {
+      const left = Math.max(0, x);
+      const right = Math.min(canvasWidth, x + revealWidth);
+      if (right - left > 1e-9) {
+        rectangles.push({
+          x: mirrorX ? canvasWidth - right : left,
+          y,
+          width: right - left,
+          height: bandHeight,
+        });
+      }
+    }
+
+    y += baseCellHeight * scale;
+    row += 1;
+  }
+  return rectangles;
+};
+
 export const resolveInterlaceFrame = ({
   elapsedSeconds,
   sourceCount,
@@ -348,16 +606,17 @@ export const resolveInterlaceFrame = ({
   const lowMix = 1 - resolvedDominance;
   const mix = lowMix + localProgress * (resolvedDominance - lowMix);
   const directionSign = direction === 'left' ? -1 : 1;
-  const motionCells = Math.floor(
-    loopProgress
+  const motionCells = loopProgress
     * Math.max(1, Math.round(Number(travelCycles) || 1))
-    * Math.max(1, Math.round(Number(gridWidth) || 1)),
-  ) * directionSign;
+    * Math.max(1, Math.round(Number(gridWidth) || 1))
+    * directionSign;
   return {
     currentIndex,
     nextIndex: (currentIndex + 1) % count,
     mix,
     motionCells,
+    pairPhaseCycles: localProgress * lowMix,
+    pairProgress: localProgress,
     loopProgress,
   };
 };

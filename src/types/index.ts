@@ -267,10 +267,19 @@ export interface CanvasFreehandShape {
 export type CanvasShape = CanvasRectangleShape | CanvasCircleShape | CanvasFreehandShape;
 
 export type InterlaceDirection = 'left' | 'right';
+export type InterlaceMotionMode = 'fixed' | 'travel';
+export type InterlacePatternPreset =
+  | 'classic'
+  | 'ripple'
+  | 'counterflow'
+  | 'hypnotic'
+  | 'sierra-travel';
 
 export interface InterlaceGroupSettings {
   cellSize: number;
   dominance: number;
+  patternPreset: InterlacePatternPreset;
+  motionMode: InterlaceMotionMode;
   direction: InterlaceDirection;
   travelCycles: number;
   loopDurationSeconds: number;

@@ -237,8 +237,8 @@ export const createLayersSlice = (
         createLayerGroupFromSelectionAction(layerIds, layerGroupActionDeps),
       createInterlaceGroupFromSelection: (layerIds) =>
         createInterlaceGroupFromSelectionAction(layerIds, layerGroupActionDeps),
-      updateInterlaceGroup: (groupId, updates) => {
-        updateInterlaceGroupAction(groupId, updates, layerGroupActionDeps);
+      updateInterlaceGroup: (groupId, updates, options) => {
+        updateInterlaceGroupAction(groupId, updates, layerGroupActionDeps, options);
       },
       moveLayersToGroup: (layerIds, groupId, destinationIndex) => {
         moveLayersToGroupAction(layerIds, groupId, destinationIndex, layerGroupActionDeps);

@@ -44,7 +44,7 @@ describe('layerGroupService', () => {
     ).toEqual(['group-a', 'group-c']);
   });
 
-  it('preserves and clamps persisted Interlace settings', () => {
+  it('preserves, clamps, and migrates persisted Interlace settings', () => {
     expect(sanitizeLayerGroups(
       [{ groupId: 'interlace' }],
       [{
@@ -54,6 +54,8 @@ describe('layerGroupService', () => {
         interlace: {
           cellSize: 0,
           dominance: 2,
+          patternPreset: 'cascade' as never,
+          motionMode: 'travel',
           direction: 'left',
           travelCycles: 1,
           loopDurationSeconds: 10,
@@ -67,6 +69,8 @@ describe('layerGroupService', () => {
       interlace: {
         cellSize: 2,
         dominance: 1,
+        patternPreset: 'sierra-travel',
+        motionMode: 'travel',
         direction: 'left',
         travelCycles: 1,
         loopDurationSeconds: 10,

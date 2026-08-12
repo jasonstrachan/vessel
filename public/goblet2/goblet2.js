@@ -33,8 +33,9 @@ import {
   sampleGobletGradient,
   hasVisibleGobletAlpha,
   resolveInterlaceFrame,
-  rollSierraLiteBinaryField,
-  resolveSierraLiteBinaryField,
+  resolveInterlaceMaskRectangles,
+  resolveInterlaceTileMetrics,
+  resolveSierraTravelFrame,
   wrapGobletPhase01,
 } from './gobletPlaybackMath.js';
 import {
@@ -6016,66 +6017,143 @@ class VesselGoblet {
     const documentHeight = Math.max(1, Math.round(renderOptions.documentSize.height));
     const cellSize = Math.max(2, Math.min(128, Math.round(Number(settings.cellSize) || 10)));
     const gridWidth = Math.ceil(documentWidth / cellSize);
-    const gridHeight = Math.ceil(documentHeight / cellSize);
-    const frame = resolveInterlaceFrame({
+    const periodCells = Math.ceil(gridWidth / 8) * 8;
+    const isSierraTravel = settings.patternPreset === 'sierra-travel';
+    const pulseFrame = resolveInterlaceFrame({
       elapsedSeconds: this.interlaceElapsedSeconds,
       sourceCount: group.entries.length,
       loopDurationSeconds: Number(settings.loopDurationSeconds) || 10,
       dominance: Number(settings.dominance) || 0.92,
       direction: settings.direction === 'left' ? 'left' : 'right',
       travelCycles: Number(settings.travelCycles) || 1,
-      gridWidth,
+      gridWidth: periodCells,
     });
-    const baseBits = resolveSierraLiteBinaryField({
-      width: gridWidth,
-      height: gridHeight,
-      mix: frame.mix,
-      seed: Number(settings.seed) || 0,
-      phaseX: 0,
-      phaseY: 0,
-      identityKey: frame.currentIndex,
-      lowKey: frame.currentIndex,
-      highKey: frame.nextIndex,
-      diversity: 1,
-    });
-    const bits = rollSierraLiteBinaryField(
-      baseBits,
-      gridWidth,
-      gridHeight,
-      frame.motionCells,
-    );
     const renderWidth = Math.max(1, Math.round(renderOptions.renderWidth));
     const renderHeight = Math.max(1, Math.round(renderOptions.renderHeight));
-    const scratchKey = `${group.id}:${renderWidth}x${renderHeight}:${gridWidth}x${gridHeight}`;
+    const scratchKey = `${renderWidth}x${renderHeight}`;
     let scratch = this.interlaceScratch.get(scratchKey);
     if (!scratch) {
       const mask = document.createElement('canvas');
-      mask.width = gridWidth;
-      mask.height = gridHeight;
+      mask.width = renderWidth;
+      mask.height = renderHeight;
+      const tile = document.createElement('canvas');
+      tile.width = 1;
+      tile.height = 1;
       const layer = document.createElement('canvas');
       layer.width = renderWidth;
       layer.height = renderHeight;
       scratch = {
         mask,
         maskCtx: mask.getContext('2d'),
+        tile,
+        tileCtx: tile.getContext('2d'),
         layer,
         layerCtx: layer.getContext('2d'),
-        imageData: null,
+        tileKey: null,
       };
-      if (!scratch.maskCtx || !scratch.layerCtx) return false;
+      if (!scratch.maskCtx || !scratch.tileCtx || !scratch.layerCtx) return false;
       this.interlaceScratch.clear();
       this.interlaceScratch.set(scratchKey, scratch);
     }
-    const imageData = scratch.imageData
-      ?? scratch.maskCtx.createImageData(gridWidth, gridHeight);
-    for (let index = 0, offset = 0; index < bits.length; index += 1, offset += 4) {
-      imageData.data[offset] = 255;
-      imageData.data[offset + 1] = 255;
-      imageData.data[offset + 2] = 255;
-      imageData.data[offset + 3] = bits[index] ? 255 : 0;
+    const scaleX = renderWidth / documentWidth;
+    const scaleY = renderHeight / documentHeight;
+    const tileMetrics = resolveInterlaceTileMetrics({
+      documentWidth,
+      documentHeight,
+      cellSize,
+      scaleX,
+      scaleY,
+      patternPreset: settings.patternPreset,
+    });
+    const { tileWidth, tileHeight } = tileMetrics;
+    const sierraFrame = resolveSierraTravelFrame({
+      elapsedSeconds: this.interlaceElapsedSeconds,
+      traversalDurationSeconds: Number(settings.loopDurationSeconds) || 10,
+      travelPeriodPixels: tileMetrics.travelPeriodPixels,
+      travelCycles: settings.travelCycles,
+      direction: settings.direction,
+    });
+    scratch.maskCtx.setTransform(1, 0, 0, 1, 0, 0);
+    scratch.maskCtx.clearRect(0, 0, renderWidth, renderHeight);
+    if (isSierraTravel) {
+      if (scratch.tile.width !== tileWidth || scratch.tile.height !== tileHeight) {
+        scratch.tile.width = tileWidth;
+        scratch.tile.height = tileHeight;
+        scratch.tileKey = null;
+      }
+      const plateKey = [
+        tileWidth,
+        tileHeight,
+        tileMetrics.cellWidth,
+        tileMetrics.cellHeight,
+        settings.seed,
+      ].join(':');
+      if (scratch.tileKey !== plateKey) {
+        const rectangles = resolveInterlaceMaskRectangles({
+          width: tileWidth,
+          height: tileHeight,
+          cellSize: tileMetrics.cellWidth,
+          cellHeight: tileMetrics.cellHeight,
+          mix: 0.5,
+          patternPreset: 'sierra-travel',
+          seed: settings.seed,
+        });
+        scratch.tileCtx.setTransform(1, 0, 0, 1, 0, 0);
+        scratch.tileCtx.clearRect(0, 0, tileWidth, tileHeight);
+        scratch.tileCtx.fillStyle = '#fff';
+        for (const rectangle of rectangles) {
+          const left = rectangle.x;
+          const top = Math.round(rectangle.y);
+          const right = rectangle.x + rectangle.width;
+          const bottom = Math.round(rectangle.y + rectangle.height);
+          if (right > left && bottom > top) {
+            scratch.tileCtx.fillRect(left, top, right - left, bottom - top);
+          }
+        }
+        scratch.tileKey = plateKey;
+      }
+      scratch.maskCtx.imageSmoothingEnabled = true;
+      scratch.maskCtx.drawImage(
+        scratch.tile,
+        -tileMetrics.overscanPixels + sierraFrame.sheetOffsetPixels,
+        0,
+      );
+    } else {
+      if (scratch.tile.width !== tileWidth || scratch.tile.height !== tileHeight) {
+        scratch.tile.width = tileWidth;
+        scratch.tile.height = tileHeight;
+        scratch.tileKey = null;
+      }
+      const rectangles = resolveInterlaceMaskRectangles({
+        width: tileWidth,
+        height: tileHeight,
+        cellSize: tileMetrics.cellWidth,
+        cellHeight: tileMetrics.cellHeight,
+        mix: pulseFrame.mix,
+        motionPixels: settings.motionMode === 'travel' ? pulseFrame.motionCells * tileMetrics.cellWidth : 0,
+        phaseCycles: pulseFrame.pairPhaseCycles,
+        mirrorX: settings.motionMode !== 'travel' && settings.direction === 'left',
+        patternPreset: settings.patternPreset,
+        transitionProgress: pulseFrame.pairProgress,
+        seed: settings.seed,
+      });
+      scratch.tileCtx.setTransform(1, 0, 0, 1, 0, 0);
+      scratch.tileCtx.clearRect(0, 0, tileWidth, tileHeight);
+      scratch.tileCtx.fillStyle = '#fff';
+      for (const rectangle of rectangles) {
+        const left = rectangle.x;
+        const top = Math.round(rectangle.y);
+        const right = rectangle.x + rectangle.width;
+        const bottom = Math.round(rectangle.y + rectangle.height);
+        if (right > left && bottom > top) {
+          scratch.tileCtx.fillRect(left, top, right - left, bottom - top);
+        }
+      }
+      const maskPattern = scratch.maskCtx.createPattern(scratch.tile, 'repeat');
+      if (!maskPattern) return false;
+      scratch.maskCtx.fillStyle = maskPattern;
+      scratch.maskCtx.fillRect(0, 0, renderWidth, renderHeight);
     }
-    scratch.imageData = imageData;
-    scratch.maskCtx.putImageData(imageData, 0, 0);
 
     const drawEntry = (entry, keepHighBits) => {
       const originalBlendMode = entry.layer.blendMode;
@@ -6094,9 +6172,8 @@ class VesselGoblet {
         entry.layer.opacity = originalOpacity;
       }
       if (!painted) return false;
-      scratch.layerCtx.imageSmoothingEnabled = false;
       scratch.layerCtx.globalCompositeOperation = keepHighBits ? 'destination-in' : 'destination-out';
-      scratch.layerCtx.drawImage(scratch.mask, 0, 0, renderWidth, renderHeight);
+      scratch.layerCtx.drawImage(scratch.mask, 0, 0);
       scratch.layerCtx.globalCompositeOperation = 'source-over';
       renderCtx.save();
       renderCtx.globalAlpha = Number.isFinite(originalOpacity) ? clamp(originalOpacity, 0, 1) : 1;
@@ -6106,8 +6183,14 @@ class VesselGoblet {
       return true;
     };
 
-    const currentPainted = drawEntry(group.entries[frame.currentIndex], false);
-    const nextPainted = drawEntry(group.entries[frame.nextIndex], true);
+    const currentPainted = drawEntry(
+      group.entries[isSierraTravel ? sierraFrame.baseIndex : pulseFrame.currentIndex],
+      false,
+    );
+    const nextPainted = drawEntry(
+      group.entries[isSierraTravel ? sierraFrame.revealIndex : pulseFrame.nextIndex],
+      true,
+    );
     return currentPainted || nextPainted;
   }
 

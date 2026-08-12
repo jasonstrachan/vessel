@@ -6,9 +6,42 @@ import ButtonGroup from '@/components/ui/ButtonGroup';
 import CommittedProgressSlider from '@/components/ui/CommittedProgressSlider';
 import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import { useAppStore } from '@/stores/useAppStore';
+import type { InterlacePatternPreset } from '@/types';
 
 const BUTTON_CLASS =
   'border border-[#545454] bg-[#262626] px-2 py-1 text-[11px] text-[#D9D9D9] hover:bg-[#343434] disabled:cursor-not-allowed disabled:opacity-40';
+
+const PATTERN_PRESETS: Array<{
+  value: InterlacePatternPreset;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'classic',
+    label: 'Classic pulse',
+    description: 'The original registered Sierra rhythm.',
+  },
+  {
+    value: 'ripple',
+    label: 'Ripple',
+    description: 'Pose coverage breathes through successive horizontal bands.',
+  },
+  {
+    value: 'counterflow',
+    label: 'Counterflow',
+    description: 'Alternating bands oscillate against one another.',
+  },
+  {
+    value: 'hypnotic',
+    label: 'Hypnotic',
+    description: 'Layered breathing and counter-motion create a denser pulse.',
+  },
+  {
+    value: 'sierra-travel',
+    label: 'Sierra travel',
+    description: 'One full Sierra sheet crosses the stationary poses as a rigid horizontal plate.',
+  },
+];
 
 export const InterlaceSettingsPanel: React.FC = () => {
   const layers = useAppStore((state) => state.layers);
@@ -50,6 +83,10 @@ export const InterlaceSettingsPanel: React.FC = () => {
         ))
       : []
   ), [interlaceGroup, layers]);
+  const selectedPatternPreset = PATTERN_PRESETS.find(
+    (preset) => preset.value === interlaceGroup?.interlace.patternPreset,
+  ) ?? PATTERN_PRESETS[0];
+  const isSierraTravel = interlaceGroup?.interlace.patternPreset === 'sierra-travel';
 
   React.useEffect(() => {
     if (!addableLayers.some((layer) => layer.id === addLayerId)) {
@@ -95,7 +132,7 @@ export const InterlaceSettingsPanel: React.FC = () => {
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">{interlaceGroup.name}</h2>
-          <p className="text-[10px] text-[#8F98A4]">Sierra Lite · hard cells · 10 second loop</p>
+          <p className="text-[10px] text-[#8F98A4]">Hard-edged Interlace animation · fixed source artwork</p>
         </div>
         <button className={BUTTON_CLASS} onClick={() => removeLayerGroup(interlaceGroup.id)} type="button">
           Release
@@ -170,25 +207,106 @@ export const InterlaceSettingsPanel: React.FC = () => {
       </div>
 
       <label className="block space-y-1 text-[11px]">
-        <span>Cell size · {interlaceGroup.interlace.cellSize}px</span>
+        <span>Pattern size · {interlaceGroup.interlace.cellSize}px</span>
         <CommittedProgressSlider
-          aria-label="Interlace cell size"
+          aria-label="Interlace pattern size"
           max={64}
           min={2}
-          onChange={(cellSize) => updateInterlaceGroup(interlaceGroup.id, { cellSize })}
+          onChange={(cellSize, previousCellSize) => updateInterlaceGroup(
+            interlaceGroup.id,
+            { cellSize },
+            {
+              previousSettings: {
+                ...interlaceGroup.interlace,
+                cellSize: previousCellSize,
+              },
+            },
+          )}
+          onPreview={(cellSize) => updateInterlaceGroup(
+            interlaceGroup.id,
+            { cellSize },
+            { recordHistory: false },
+          )}
           value={interlaceGroup.interlace.cellSize}
         />
       </label>
       <label className="block space-y-1 text-[11px]">
-        <span>Pose dominance · {Math.round(interlaceGroup.interlace.dominance * 100)}%</span>
-        <CommittedProgressSlider
-          aria-label="Interlace pose dominance"
-          max={100}
-          min={50}
-          onChange={(dominance) => updateInterlaceGroup(interlaceGroup.id, { dominance: dominance / 100 })}
-          value={interlaceGroup.interlace.dominance * 100}
-        />
+        <span>Pattern animation</span>
+        <select
+          aria-label="Interlace pattern animation"
+          className="w-full border border-[#545454] bg-[#202024] px-2 py-1.5 text-[11px] text-[#D9D9D9]"
+          onChange={(event) => updateInterlaceGroup(interlaceGroup.id, {
+            patternPreset: event.target.value as InterlacePatternPreset,
+          })}
+          value={selectedPatternPreset.value}
+        >
+          {PATTERN_PRESETS.map((preset) => (
+            <option key={preset.value} value={preset.value}>{preset.label}</option>
+          ))}
+        </select>
+        <span className="block text-[10px] text-[#8F98A4]">
+          {selectedPatternPreset.description}
+        </span>
       </label>
+      {isSierraTravel ? (
+        <div className="space-y-1">
+          <div className="text-[11px] text-[#D9D9D9]">Window action · Leading edge B → trailing edge A</div>
+          <p className="text-[10px] text-[#8F98A4]">
+            Every aperture moves with the same unchanged sheet; the paintings remain fixed.
+          </p>
+        </div>
+      ) : (
+        <label className="block space-y-1 text-[11px]">
+          <span>Pose dominance · {Math.round(interlaceGroup.interlace.dominance * 100)}%</span>
+          <CommittedProgressSlider
+            aria-label="Interlace pose dominance"
+            max={100}
+            min={50}
+            onChange={(dominance, previousDominance) => updateInterlaceGroup(
+              interlaceGroup.id,
+              { dominance: dominance / 100 },
+              {
+                previousSettings: {
+                  ...interlaceGroup.interlace,
+                  dominance: previousDominance / 100,
+                },
+              },
+            )}
+            onPreview={(dominance) => updateInterlaceGroup(
+              interlaceGroup.id,
+              { dominance: dominance / 100 },
+              { recordHistory: false },
+            )}
+            value={interlaceGroup.interlace.dominance * 100}
+          />
+          <span className="block text-[10px] text-[#8F98A4]">
+            Maximum pose coverage; its neighbour remains {Math.round((1 - interlaceGroup.interlace.dominance) * 100)}% visible.
+          </span>
+        </label>
+      )}
+      {isSierraTravel ? (
+        <div className="space-y-1">
+          <div className="text-[11px] text-[#D9D9D9]">Pattern motion · Rigid horizontal sheet</div>
+          <p className="text-[10px] text-[#8F98A4]">
+            The full-canvas Sierra pattern translates left or right without regenerating or deforming.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <div className="text-[11px] text-[#D9D9D9]">Pattern motion</div>
+          <ButtonGroup
+            onChange={(motionMode) => updateInterlaceGroup(interlaceGroup.id, {
+              motionMode: motionMode === 'travel' ? 'travel' : 'fixed',
+            })}
+            options={[{ label: 'Fixed', value: 'fixed' }, { label: 'Travel', value: 'travel' }]}
+            size="sm"
+            value={interlaceGroup.interlace.motionMode === 'travel' ? 'travel' : 'fixed'}
+          />
+          <p className="text-[10px] text-[#8F98A4]">
+            Fixed keeps the cell field registered while the reveal moves inside it.
+          </p>
+        </div>
+      )}
       <div className="space-y-1">
         <div className="text-[11px] text-[#D9D9D9]">Direction</div>
         <ButtonGroup

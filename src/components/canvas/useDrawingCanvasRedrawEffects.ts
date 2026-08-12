@@ -2,10 +2,15 @@ import type React from 'react';
 import { useEffect } from 'react';
 import type { RenderStaticCompositeOptions } from '@/stores/slices/layersSlice';
 import {
+  dispatchCanvasFrameUpdate,
+} from '@/hooks/canvas/handlers/animation/animationRuntime';
+import {
   COLOR_CYCLE_FRAME_READY_EVENT,
   getColorCycleFrameReadyDirtyBatches,
   getColorCycleFrameReadySourceLayerId,
 } from '@/hooks/brushEngine/colorCycleFrameEvents';
+import { isInterlacePlaybackActive } from '@/hooks/canvas/useInterlaceAnimationRuntimeEffect';
+import { useAppStore } from '@/stores/useAppStore';
 import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
 
 import { createColorCycleFrameCoalescer } from './colorCycleFrameCoalescer';
@@ -50,7 +55,7 @@ export const useDrawingCanvasRedrawEffects = ({
   useEffect(() => {
     const requestRedraw = () => {
       recordColorCycleRuntimePerf('mainRedrawRequest');
-      setNeedsRedraw((prev) => prev + 1);
+      dispatchCanvasFrameUpdate();
     };
 
     const queue = createColorCycleFrameCoalescer((flush) => {
@@ -70,6 +75,21 @@ export const useDrawingCanvasRedrawEffects = ({
     const handleColorCycleFrameReady = (event: Event) => {
       const dirtyBatches = getColorCycleFrameReadyDirtyBatches(event);
       const sourceLayerId = getColorCycleFrameReadySourceLayerId(event);
+      const state = useAppStore.getState();
+      const sourceLayer = sourceLayerId
+        ? state.layers.find((layer) => layer.id === sourceLayerId)
+        : undefined;
+      if (
+        sourceLayer
+        && !dirtyBatches?.length
+        && isInterlacePlaybackActive(state)
+        && Boolean(sourceLayer.groupId)
+        && state.layerGroups.some((group) => (
+          group.id === sourceLayer.groupId && group.kind === 'interlace'
+        ))
+      ) {
+        return;
+      }
       if (!sourceLayerId) {
         queue.enqueueRedraw();
         return;
@@ -78,6 +98,9 @@ export const useDrawingCanvasRedrawEffects = ({
     };
 
     const handleAnimationFrameUpdate = () => {
+      if (isInterlacePlaybackActive(useAppStore.getState())) {
+        return;
+      }
       queue.enqueueRedraw();
     };
 
@@ -97,6 +120,6 @@ export const useDrawingCanvasRedrawEffects = ({
       window.removeEventListener('vessel:sequentialFrameUpdate', handleSequentialFrameUpdate);
       queue.cancel();
     };
-  }, [rebuildStaticComposite, refreshColorCycleSegments, setNeedsRedraw]);
+  }, [rebuildStaticComposite, refreshColorCycleSegments]);
 
 };

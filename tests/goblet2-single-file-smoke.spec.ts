@@ -20,6 +20,77 @@ const createWebGlFallbackBundle = () => {
   return bundle;
 };
 
+const createSolidTexture = (color: string, width: number, height: number) => (
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="${color}"/></svg>`,
+  )}`
+);
+
+const createSierraTravelBundle = (revealTexture?: string) => {
+  const width = 160;
+  const height = 48;
+  const createLayer = (id: string, texture: string, stackIndex: number) => ({
+    id,
+    name: id,
+    type: 'normal',
+    source: { width, height },
+    documentBoundsPx: { x: 0, y: 0, width, height },
+    documentBoundsPercent: { x: 0, y: 0, width: 1, height: 1 },
+    alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+    assets: { texture },
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    stackIndex,
+  });
+  const bundle = createGoblet2Bundle({
+    layers: [
+      createLayer('pose-a', createSolidTexture('#000000', width, height), 0),
+      createLayer(
+        'pose-b',
+        revealTexture ?? createSolidTexture('#ff0000', width, height),
+        1,
+      ),
+    ],
+  });
+  bundle.project.width = width;
+  bundle.project.height = height;
+  bundle.project.backgroundColor = '#777777';
+  bundle.viewport.designWidth = width;
+  bundle.viewport.designHeight = height;
+  const interlaceBundle = bundle as typeof bundle & {
+    interlaceGroups: Array<{
+      id: string;
+      layerIds: string[];
+      settings: {
+        cellSize: number;
+        dominance: number;
+        patternPreset: string;
+        motionMode: string;
+        direction: string;
+        travelCycles: number;
+        loopDurationSeconds: number;
+        seed: number;
+      };
+    }>;
+  };
+  interlaceBundle.interlaceGroups = [{
+    id: 'sierra-rigid-sheet',
+    layerIds: ['pose-a', 'pose-b'],
+    settings: {
+      cellSize: 16,
+      dominance: 0.92,
+      patternPreset: 'sierra-travel',
+      motionMode: 'fixed',
+      direction: 'right',
+      travelCycles: 1,
+      loopDurationSeconds: 12,
+      seed: 0,
+    },
+  }];
+  return interlaceBundle;
+};
+
 const buildSingleFileGoblet2Html = (bundle: Goblet2Bundle = createGoblet2Bundle()) => {
   const runtime = read('public/goblet2/goblet2-inline.js');
   const metadata = JSON.stringify(bundle);
@@ -186,6 +257,32 @@ const waitForSmokeReady = async (page: import('playwright/test').Page) => {
   }).__gobletSmoke?.ready), undefined, { timeout: 5000 });
 };
 
+const renderGobletInterlaceAt = async (
+  page: import('playwright/test').Page,
+  elapsedSeconds: number,
+) => page.evaluate((elapsed) => {
+  const canvas = document.querySelector('canvas');
+  if (!canvas) return false;
+  type InterlaceViewer = {
+    interlaceElapsedSeconds: number;
+    renderOnce: () => void;
+  };
+  const values = Object.getOwnPropertySymbols(canvas).map((symbol) => (
+    (canvas as unknown as Record<symbol, unknown>)[symbol]
+  ));
+  const viewer = values.find((value): value is InterlaceViewer => (
+    typeof value === 'object'
+    && value !== null
+    && 'interlaceElapsedSeconds' in value
+    && 'renderOnce' in value
+    && typeof (value as { renderOnce?: unknown }).renderOnce === 'function'
+  ));
+  if (!viewer) return false;
+  viewer.interlaceElapsedSeconds = elapsed;
+  viewer.renderOnce();
+  return true;
+}, elapsedSeconds);
+
 const readProfile = async (page: import('playwright/test').Page) => page.evaluate(() => {
   const dumpProfile = (window as Window & {
     __VESSEL_DUMP_GOBLET_PROFILE__?: () => unknown[];
@@ -253,6 +350,127 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     });
     expect((smoke as { nonZeroAlpha: number }).nonZeroAlpha).toBeGreaterThan(0);
     expect((smoke as { nonZeroRgba: number }).nonZeroRgba).toBeGreaterThan(0);
+  });
+
+  test('translates one unchanged Sierra plate rigidly across every band', async ({ browser }) => {
+    const context = await browser.newContext({
+      deviceScaleFactor: 1,
+      viewport: { width: 320, height: 160 },
+    });
+    await installControlledBrowserState(context, { useManualAnimationFrames: true });
+    const page = await context.newPage();
+    const smokeUrl = 'http://goblet-smoke.test/sierra-rigid-sheet';
+
+    const readRedSpans = async (y: number) => page.evaluate((sampleY) => {
+      const canvas = document.querySelector('canvas');
+      const context2d = canvas?.getContext('2d', { willReadFrequently: true });
+      if (!canvas || !context2d) return [];
+      const data = context2d.getImageData(0, sampleY, canvas.width, 1).data;
+      const spans: Array<[number, number]> = [];
+      let start = -1;
+      for (let x = 0; x < canvas.width; x += 1) {
+        const offset = x * 4;
+        const isRed = data[offset] > 240 && data[offset + 1] < 16 && data[offset + 2] < 16;
+        if (isRed && start < 0) start = x;
+        if (!isRed && start >= 0) {
+          spans.push([start, x]);
+          start = -1;
+        }
+      }
+      if (start >= 0) spans.push([start, canvas.width]);
+      return spans;
+    }, y);
+
+    try {
+      await page.route(smokeUrl, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: buildSingleFileGoblet2Html(createSierraTravelBundle()),
+        });
+      });
+      await page.goto(smokeUrl, { waitUntil: 'load' });
+      await waitForSmokeReady(page);
+
+      expect(await renderGobletInterlaceAt(page, 2)).toBe(true);
+      expect(await readRedSpans(8)).toEqual([
+        [0, 32],
+        [64, 96],
+        [128, 160],
+      ]);
+      expect(await readRedSpans(40)).toEqual([
+        [0, 16],
+        [32, 48],
+        [64, 80],
+        [96, 112],
+        [128, 144],
+      ]);
+
+      expect(await renderGobletInterlaceAt(page, 2.5)).toBe(true);
+      expect(await readRedSpans(8)).toEqual([
+        [8, 40],
+        [72, 104],
+        [136, 160],
+      ]);
+      expect(await readRedSpans(40)).toEqual([
+        [8, 24],
+        [40, 56],
+        [72, 88],
+        [104, 120],
+        [136, 152],
+      ]);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('replaces A with B transparency inside each active Sierra cell', async ({ browser }) => {
+    const context = await browser.newContext({
+      deviceScaleFactor: 1,
+      viewport: { width: 320, height: 160 },
+    });
+    await installControlledBrowserState(context, { useManualAnimationFrames: true });
+    const page = await context.newPage();
+    const smokeUrl = 'http://goblet-smoke.test/sierra-transparency';
+    const revealTexture = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="48"><rect x="40" y="0" width="8" height="32" fill="#ff0000"/></svg>',
+    )}`;
+
+    try {
+      await page.route(smokeUrl, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html',
+          body: buildSingleFileGoblet2Html(createSierraTravelBundle(revealTexture)),
+        });
+      });
+      await page.goto(smokeUrl, { waitUntil: 'load' });
+      await waitForSmokeReady(page);
+      expect(await renderGobletInterlaceAt(page, 0)).toBe(true);
+
+      const pixels = await page.evaluate(() => {
+        const canvas = document.querySelector('canvas');
+        const context2d = canvas?.getContext('2d', { willReadFrequently: true });
+        if (!context2d) return null;
+        const read = (x: number, y: number) => (
+          Array.from(context2d.getImageData(x, y, 1, 1).data)
+        );
+        return {
+          outsideCell: read(20, 8),
+          transparentB: read(36, 8),
+          paintedB: read(44, 8),
+          betweenCells: read(80, 8),
+        };
+      });
+      expect(pixels).toEqual({
+        outsideCell: [0, 0, 0, 255],
+        transparentB: [119, 119, 119, 255],
+        paintedB: [255, 0, 0, 255],
+        betweenCells: [0, 0, 0, 255],
+      });
+    } finally {
+      await context.close();
+    }
   });
 
   test('caps fixed mobile DPR and keeps lifecycle pause state authoritative', async ({ browser }) => {

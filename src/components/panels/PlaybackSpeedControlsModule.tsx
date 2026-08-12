@@ -87,7 +87,7 @@ const PlaybackSpeedControlsModule: React.FC<PlaybackSpeedControlsModuleProps> = 
           </span>
           {isExpanded ? (
             <span className="text-[11px] leading-4 text-[#88888A]">
-              Color-cycle playback
+              CC and Interlace playback
             </span>
           ) : null}
         </div>
@@ -100,7 +100,7 @@ const PlaybackSpeedControlsModule: React.FC<PlaybackSpeedControlsModuleProps> = 
       {isExpanded && (
         <div className="mt-1.5 space-y-2">
           <label className="block text-[10px] text-[#BDBDBD]">
-            Global CC playback rate
+            CC + Interlace playback rate
             <div className="mt-1 flex items-center gap-2">
               <input
                 type="range"
@@ -111,7 +111,7 @@ const PlaybackSpeedControlsModule: React.FC<PlaybackSpeedControlsModuleProps> = 
                 onChange={onPlaybackSpeedScaleChange}
                 disabled={controlsDisabled}
                 className="w-full accent-[#D9D9D9] disabled:opacity-50"
-                aria-label="Global CC playback rate"
+                aria-label="CC and Interlace playback rate"
               />
               <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
                 {playbackScaleLabel}

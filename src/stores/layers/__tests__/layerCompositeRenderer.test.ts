@@ -139,6 +139,8 @@ describe('layerCompositeRenderer', () => {
       interlace: {
         cellSize: 10,
         dominance: 0.92,
+        patternPreset: 'classic',
+        motionMode: 'fixed',
         direction: 'right',
         travelCycles: 1,
         loopDurationSeconds: 10,
@@ -166,6 +168,57 @@ describe('layerCompositeRenderer', () => {
         orderRange: { start: 3, end: 3 },
       },
     ]);
+  });
+
+  it('publishes updated Interlace settings when the segment structure is unchanged', () => {
+    const previousSettings = {
+      cellSize: 10,
+      dominance: 0.92,
+      patternPreset: 'classic' as const,
+      motionMode: 'fixed' as const,
+      direction: 'right' as const,
+      travelCycles: 1,
+      loopDurationSeconds: 10,
+      seed: 17,
+    };
+    const layers = [
+      makeLayer({ id: 'pose-a', order: 0, groupId: 'interlace-1' }),
+      makeLayer({ id: 'pose-b', order: 1, groupId: 'interlace-1' }),
+    ];
+    const previousSegments: CompositeSegment[] = [{
+      kind: 'interlace',
+      id: 'interlace-interlace-1-0',
+      groupId: 'interlace-1',
+      layerIds: ['pose-a', 'pose-b'],
+      settings: previousSettings,
+    }];
+    const project = makeProject(layers);
+    project.layerGroups = [{
+      id: 'interlace-1',
+      name: 'Interlace 1',
+      kind: 'interlace',
+      interlace: {
+        ...previousSettings,
+        cellSize: 32,
+      },
+    }];
+
+    const result = realizeCompositeSegments({
+      sortedLayers: layers,
+      project,
+      previousSegments,
+      width: 2,
+      height: 2,
+      createStaticCanvas: createCanvas,
+      createLayerTransferCanvas: createCanvas,
+    });
+
+    expect(result.anySegmentUpdated).toBe(true);
+    expect(result.fullStaticRedrawNeeded).toBe(false);
+    expect(result.segments[0]).toMatchObject({
+      kind: 'interlace',
+      settings: { cellSize: 32 },
+    });
   });
 
   it('repaints dirty static segments and preserves clean structure versions', () => {

@@ -347,6 +347,8 @@ describe('webglExporter bundle contracts', () => {
       interlace: {
         cellSize: 10,
         dominance: 0.92,
+        patternPreset: 'sierra-travel',
+        motionMode: 'fixed',
         direction: 'right',
         travelCycles: 1,
         loopDurationSeconds: 10,
@@ -359,12 +361,16 @@ describe('webglExporter bundle contracts', () => {
       project,
       layers,
       bundleFormat: 'json',
+      colorCyclePlaybackSpeedScale: 2,
     });
 
     expect(metadata.interlaceGroups).toEqual([{
       id: 'interlace-1',
       layerIds: ['pose-a', 'pose-b'],
-      settings: project.layerGroups[0].interlace,
+      settings: {
+        ...project.layerGroups[0].interlace,
+        loopDurationSeconds: 5,
+      },
     }]);
   });
 

@@ -273,6 +273,38 @@ export const compositeSegmentStructureMatches = (
     return false;
   });
 
+const interlaceSettingsMatch = (
+  current: InterlaceGroupSettings,
+  next: InterlaceGroupSettings,
+): boolean =>
+  current.cellSize === next.cellSize &&
+  current.dominance === next.dominance &&
+  current.patternPreset === next.patternPreset &&
+  current.motionMode === next.motionMode &&
+  current.direction === next.direction &&
+  current.travelCycles === next.travelCycles &&
+  current.loopDurationSeconds === next.loopDurationSeconds &&
+  current.seed === next.seed;
+
+const compositeSegmentPresentationMatches = (
+  segment: CompositeSegment,
+  descriptor: SegmentDescriptor,
+): boolean => {
+  if (segment.kind !== descriptor.kind) {
+    return false;
+  }
+  if (segment.kind === 'interlace' && descriptor.kind === 'interlace') {
+    return interlaceSettingsMatch(segment.settings, descriptor.settings);
+  }
+  if (segment.kind === 'color-cycle' && descriptor.kind === 'color-cycle') {
+    return segment.blendMode === descriptor.blendMode && segment.opacity === descriptor.opacity;
+  }
+  if (segment.kind === 'sequential' && descriptor.kind === 'sequential') {
+    return segment.blendMode === descriptor.blendMode && segment.opacity === descriptor.opacity;
+  }
+  return true;
+};
+
 const makeStaticSegment = (
   descriptor: StaticSegmentDescriptor,
   index: number,
@@ -517,7 +549,10 @@ export const realizeCompositeSegments = ({
   });
   const layerLookup = new Map(sortedLayers.map((layer) => [layer.id, layer]));
 
-  let anySegmentUpdated = !structuresMatch;
+  const presentationChanged = structuresMatch && previousSegments.some((segment, index) => (
+    !compositeSegmentPresentationMatches(segment, descriptors[index])
+  ));
+  let anySegmentUpdated = !structuresMatch || presentationChanged;
   let fullStaticRedrawNeeded = !structuresMatch;
   const staticDirtyRects: ColorCycleDirtyRect[] = [];
   const segments = nextSegments.map((segment) => {
