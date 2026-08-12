@@ -304,7 +304,10 @@ export const updateAutoSampledGradient = ({
         }
       } catch {}
     } else {
-      setSharedColorCycleGradient(stops, { fork: autoSampleForkRef.current });
+      setSharedColorCycleGradient(stops, {
+        fork: autoSampleForkRef.current,
+        preserveAutoSampleState: true,
+      });
     }
     autoSampleForkRef.current = false;
   } catch {

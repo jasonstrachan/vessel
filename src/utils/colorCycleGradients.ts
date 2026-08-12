@@ -371,7 +371,7 @@ export function setLayerColorCycleGradient(
  */
 export function setSharedColorCycleGradient(
   gradient: Array<{ position: number; color: string; opacity?: number }>,
-  options?: { fork?: boolean }
+  options?: { fork?: boolean; preserveAutoSampleState?: boolean }
 ): void {
   const state = useAppStore.getState();
   const setBrushSettings = state.setBrushSettings;
@@ -383,8 +383,12 @@ export function setSharedColorCycleGradient(
     colorCycleGradient: gradient,
     ccGradientSource: 'manual',
     colorCycleUseForegroundGradient: false,
-    autoSampleGradient: false,
-    autoSampleGradientRealtime: false,
+    ...(options?.preserveAutoSampleState
+      ? {}
+      : {
+          autoSampleGradient: false,
+          autoSampleGradientRealtime: false,
+        }),
   });
 
   // Also update eraser settings if using color cycle

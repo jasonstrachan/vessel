@@ -74,6 +74,8 @@ export const finalizeColorCycleBrush = async (
   }
 
   try {
+    const wasSamplingPreviewActive = brushSamplingPreviewActiveRef.current;
+
     // If auto-sampling is enabled, compute final gradient across full stroke path now (single-pass)
     try {
       const pts = autoSamplePointsRef.current;
@@ -133,11 +135,23 @@ export const finalizeColorCycleBrush = async (
         autoSamplePointsRef.current = [];
         autoSampleLastUpdateRef.current = 0;
         drawingCanvasHasContent.current = false;
-        if (brushSamplingPreviewActiveRef.current) {
+        if (wasSamplingPreviewActive) {
           return { shouldReturn: true };
         }
       }
     } catch {}
+
+    // One-shot sampling is a palette gesture, never a paint gesture. The shared
+    // gradient update can disable autoSampleGradient before pointer-up, so retain
+    // the gesture state captured at entry rather than re-reading the flag.
+    if (wasSamplingPreviewActive) {
+      clearBrushSamplingPreview();
+      brushSamplingPreviewActiveRef.current = false;
+      autoSamplePointsRef.current = [];
+      autoSampleLastUpdateRef.current = 0;
+      drawingCanvasHasContent.current = false;
+      return { shouldReturn: true };
+    }
 
     // Stop animation loop
     if (colorCycleAnimationRef.current) {

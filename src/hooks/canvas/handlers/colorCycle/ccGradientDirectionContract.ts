@@ -24,5 +24,6 @@ export const shouldEnterCcGradientDirectionStage = (
   isCcGradientPreset(brushPresetId) &&
   tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   tools.brushSettings.colorCycleFillMode === 'linear' &&
+  !tools.brushSettings.autoSampleGradient &&
   getVisibleCcGradientColorCount(tools.brushSettings) > 1
 );

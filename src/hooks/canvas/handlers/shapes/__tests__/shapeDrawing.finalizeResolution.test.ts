@@ -21,6 +21,7 @@ import {
   clearSampledCcShapePreviewStops,
   rememberSampledCcShapePreviewStops,
 } from '@/hooks/canvas/utils/sampledCcShapePreviewStops';
+import { shouldEnterCcGradientDirectionStage } from '@/hooks/canvas/handlers/colorCycle/ccGradientDirectionContract';
 
 const storeState = {
   activeLayerId: 'layer-1',
@@ -330,6 +331,140 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
       ])
     );
     expect(options).toEqual({ layerId: 'layer-1', markKind: 'shape' });
+  });
+
+  it('finishes a one-shot manual gradient sample without committing the sampled shape', async () => {
+    storeState.tools.ccGradientSource = 'manual';
+    storeState.tools.brushSettings.autoSampleGradient = false;
+    storeState.tools.brushSettings.autoSampleGradientRealtime = false;
+
+    const refs = makeShapeRefs();
+    refs.isDrawingShapeRef.current = true;
+    refs.shapeInteractionPhaseRef.current = 'drawing';
+    refs.shapePointsRef.current = [
+      { x: 4, y: 4 },
+      { x: 28, y: 4 },
+      { x: 28, y: 12 },
+    ];
+    refs.autoSamplePointsRef.current = [
+      { x: 4, y: 4 },
+      { x: 28, y: 12 },
+    ];
+    refs.autoSampleForkRef.current = false;
+    refs.finalizeQueueRef.current = {
+      isBusy: jest.fn(() => false),
+      enqueue: jest.fn(async (task: () => Promise<void>) => task()),
+    };
+
+    const sampledStops = [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ];
+    const deps = makeShapeDeps() as Parameters<typeof finalizeShapeDrawing>[1];
+    deps.drawingCanvasRef.current = document.createElement('canvas');
+    deps.drawingCtxRef.current = makeContext();
+    deps.computeAutoSampleStops = jest.fn(() => sampledStops);
+
+    await finalizeShapeDrawing(
+      {
+        shapeMode: true,
+        refs: refs as unknown as Parameters<typeof finalizeShapeDrawing>[0]['refs'],
+        toolsRef: ref(storeState.tools),
+      },
+      deps
+    );
+
+    expect(deps.setSharedColorCycleGradient).toHaveBeenCalledWith(sampledStops, { fork: false });
+    expect(deps.runColorCycleShapeFill).not.toHaveBeenCalled();
+    expect(deps.commitRasterShapeFill).not.toHaveBeenCalled();
+    expect(deps.finalizeDrawing).not.toHaveBeenCalled();
+    expect(deps.resetAutoSampleState).toHaveBeenCalledWith(true);
+    expect(refs.isDrawingShapeRef.current).toBe(false);
+    expect(refs.shapePointsRef.current).toEqual([]);
+  });
+
+  it('keeps sampling the full shape gesture if the UI flag changes mid-gesture', () => {
+    storeState.tools.ccGradientSource = 'manual';
+    storeState.tools.brushSettings.autoSampleGradient = true;
+    storeState.tools.brushSettings.autoSampleGradientRealtime = false;
+    storeState.tools.brushSettings.ccGradientDrawingShape = 'rectangle';
+    (storeState as unknown as { currentBrushPreset: { id: string } }).currentBrushPreset = {
+      id: 'color-cycle-gradient',
+    };
+
+    const refs = makeShapeRefs();
+    const deps = makeShapeDeps() as Parameters<typeof continueShapeDrawing>[1];
+
+    startShapeDrawing(
+      {
+        worldPos: { x: 4, y: 5 },
+        pressure: 0.5,
+        timestamp: 1,
+        shapeMode: true,
+        refs: refs as unknown as Parameters<typeof startShapeDrawing>[0]['refs'],
+        renderPreview: false,
+      },
+      deps
+    );
+
+    continueShapeDrawing(
+      {
+        worldPos: { x: 24, y: 15 },
+        pressure: 0.5,
+        timestamp: 2,
+        rawPressure: 0.5,
+        shapeMode: true,
+        refs: refs as unknown as Parameters<typeof continueShapeDrawing>[0]['refs'],
+        renderPreview: false,
+      },
+      deps
+    );
+
+    storeState.tools.brushSettings.autoSampleGradient = false;
+
+    continueShapeDrawing(
+      {
+        worldPos: { x: 40, y: 25 },
+        pressure: 0.5,
+        timestamp: 3,
+        rawPressure: 0.5,
+        shapeMode: true,
+        refs: refs as unknown as Parameters<typeof continueShapeDrawing>[0]['refs'],
+        renderPreview: false,
+      },
+      deps
+    );
+
+    expect(deps.updateAutoSampledGradient).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ x: 4, y: 5 }),
+        expect.objectContaining({ x: 40, y: 25 }),
+      ])
+    );
+  });
+
+  it('bypasses CC Gradient direction selection for a one-shot sample gesture', () => {
+    const tools = {
+      ...storeState.tools,
+      currentTool: 'brush',
+      shapeMode: true,
+      brushSettings: {
+        ...storeState.tools.brushSettings,
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        colorCycleFillMode: 'linear',
+        gradientBands: 8,
+        autoSampleGradient: true,
+      },
+    } as AppState['tools'];
+
+    expect(shouldEnterCcGradientDirectionStage(tools, 'color-cycle-gradient')).toBe(false);
+    expect(shouldEnterCcGradientDirectionStage({
+      ...tools,
+      brushSettings: {
+        ...tools.brushSettings,
+        autoSampleGradient: false,
+      },
+    }, 'color-cycle-gradient')).toBe(true);
   });
 
   it('reuses an active sampled mark session when preparing sampled shape finalize stops', async () => {

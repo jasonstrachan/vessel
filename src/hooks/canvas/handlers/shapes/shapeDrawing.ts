@@ -197,6 +197,13 @@ const isSampledCcShapeDrag = (state: AppState): boolean =>
 const cloneShapePoints = (points: Array<{ x: number; y: number }>): ShapePoint[] =>
   points.map(({ x, y }) => ({ x, y }));
 
+const isAutoSampleGestureActive = (
+  refs: Pick<ShapeDrawingRefs, 'autoSamplePointsRef'>,
+  settings: BrushSettings
+): boolean =>
+  refs.autoSamplePointsRef.current.length > 0 ||
+  Boolean(settings.autoSampleGradient || settings.autoSampleGradientRealtime);
+
 const resolveLiveSampledShapeSourcePoints = (
   refs: Pick<
     ShapeDrawingRefs,
@@ -889,7 +896,7 @@ type ShapeDrawingDeps = {
     project: { width: number; height: number } | null;
     roiPadding: number;
     computeAutoSampleStops: ShapeDrawingDeps['computeAutoSampleStops'];
-    setSharedColorCycleGradient: (stops: AutoSampleStops | null) => void;
+    setSharedColorCycleGradient: (stops: AutoSampleStops) => void;
     computeShapePixelSize: ShapeDrawingDeps['computeShapePixelSize'];
     hadValidShapePressureRef: React.MutableRefObject<boolean>;
     lastStablePressureRef: React.MutableRefObject<number>;
@@ -1016,7 +1023,10 @@ type ShapeDrawingDeps = {
   bindBrushToCanvas: (brush: ShapeDrawingColorCycleBrush | null | undefined, canvas: HTMLCanvasElement | null | undefined) => void;
   captureColorCycleBrushState: (layerId: string) => ColorCycleSerializedState;
   isColorCycleLayerWithData: (layer: Layer) => boolean;
-  setSharedColorCycleGradient: (stops: AutoSampleStops | null) => void;
+  setSharedColorCycleGradient: (
+    stops: AutoSampleStops,
+    options?: { fork?: boolean }
+  ) => void;
   logError: (message: string, error?: unknown) => void;
   feedbackMessageRef?: React.MutableRefObject<((message: string) => void) | null>;
   withTiming: <T>(label: string, task: () => Promise<T> | T) => Promise<T>;
@@ -1508,9 +1518,10 @@ export const continueShapeDrawing = (
           deps.capturePendingShapeSnapshot();
           deps.triggerSimpleShapePreview();
         }
-        const autoSampleEnabled =
-          store.tools.brushSettings.autoSampleGradient ||
-          store.tools.brushSettings.autoSampleGradientRealtime;
+        const autoSampleEnabled = isAutoSampleGestureActive(
+          refs,
+          store.tools.brushSettings
+        );
         if (autoSampleEnabled && !isSampledCcShapeDrag(store)) {
           refs.autoSamplePointsRef.current = refs.ccStrokeSamplesRef.current.map(({ x, y }) => ({ x, y }));
           refs.autoSampleForkRef.current = true;
@@ -1541,9 +1552,10 @@ export const continueShapeDrawing = (
           deps.capturePendingShapeSnapshot();
           deps.triggerSimpleShapePreview();
         }
-        const autoSampleEnabled =
-          store.tools.brushSettings.autoSampleGradient ||
-          store.tools.brushSettings.autoSampleGradientRealtime;
+        const autoSampleEnabled = isAutoSampleGestureActive(
+          refs,
+          store.tools.brushSettings
+        );
         if (autoSampleEnabled && !isSampledCcShapeDrag(store)) {
           refs.autoSamplePointsRef.current =
             refs.ccGradientDrawingGeometryRef.current?.sampleSourcePoints.map(point => ({ ...point })) ??
@@ -1584,9 +1596,10 @@ export const continueShapeDrawing = (
         try {
           const isCCShape = store.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
           const sampledSource = isSampledCcShapeDrag(store);
-          const autoSampleEnabled =
-            store.tools.brushSettings.autoSampleGradient ||
-            store.tools.brushSettings.autoSampleGradientRealtime;
+          const autoSampleEnabled = isAutoSampleGestureActive(
+            refs,
+            store.tools.brushSettings
+          );
           if (isCCShape && autoSampleEnabled && !sampledSource) {
             refs.autoSamplePointsRef.current = [...refs.shapePointsRef.current];
             refs.autoSampleForkRef.current = true;
@@ -1723,6 +1736,66 @@ export const finalizeShapeDrawing = async (
 
     let shapeLayerId: string | null = null;
     let shapeBeforeColorState: ColorCycleSerializedState | null = null;
+
+    const currentAutoSampleSettings = deps.storeRef.current.tools.brushSettings;
+    const isOneShotGradientSample =
+      currentAutoSampleSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+      args.refs.autoSamplePointsRef.current.length > 0 &&
+      !currentAutoSampleSettings.autoSampleGradientRealtime;
+
+    if (isOneShotGradientSample) {
+      const samplePoints = cloneShapePoints(args.refs.autoSamplePointsRef.current);
+      const sampledStops = deps.computeAutoSampleStops(samplePoints, { allowTiny: true });
+      let didApplySample = false;
+
+      if (sampledStops && sampledStops.length >= 2) {
+        try {
+          deps.setSharedColorCycleGradient(sampledStops, {
+            fork: args.refs.autoSampleForkRef.current,
+          });
+          const refreshedState = deps.storeRef.current;
+          const gradientBands = refreshedState.tools.brushSettings.gradientBands ?? 0;
+          if (gradientBands < sampledStops.length) {
+            refreshedState.setBrushSettings({ gradientBands: sampledStops.length });
+          }
+          deps.shapeBrushRuntime?.updateColorCycleGradient?.(sampledStops);
+          didApplySample = true;
+        } catch (error) {
+          deps.logError('CC gradient one-shot sample failed', error);
+        }
+      }
+
+      const overlayCanvas = deps.drawingCanvasRef.current;
+      const overlayCtx = deps.drawingCtxRef.current;
+      if (overlayCanvas && overlayCtx) {
+        overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      }
+      deps.drawingCanvasHasContent.current = false;
+      args.refs.isSelectingDirectionRef.current = false;
+      args.refs.directionPreviewRef.current = null;
+      args.refs.shapePointsRef.current = [];
+      args.refs.ccStrokeSamplesRef.current = [];
+      args.refs.ccStrokeDirectionRef.current = null;
+      args.refs.ccGradientDrawingGeometryRef.current = null;
+      args.refs.isDrawingShapeRef.current = false;
+      args.refs.shapeInteractionPhaseRef.current = 'idle';
+      getAppStoreState().setShapeDrawing(false);
+      deps.resetShapeDragRefs();
+      deps.resetAutoSampleState(didApplySample);
+      if (finalizeTargetLayerId) {
+        cancelMarkGradientSession(finalizeTargetLayerId);
+      }
+      args.refs.ccShapePreviewPauseStartedRef.current = false;
+      deps.resetCcGradientSample();
+      await deps.resumeColorCycleAfterInteraction();
+      deps.resetPolygonState();
+      if (deps.isBusyRef) deps.isBusyRef.current = false;
+      deps.ccLog('shape: finalize end', {
+        kind: 'gradient-sample',
+        handled: didApplySample,
+      });
+      return;
+    }
 
     if (ditherGradientFinalizeBrushSettings) {
       const points =
