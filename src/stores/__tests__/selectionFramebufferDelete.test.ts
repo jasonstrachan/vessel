@@ -595,7 +595,87 @@ describe('selection delete updates framebuffer', () => {
     ]);
   });
 
-  it('blocks keyboard delete when set-bounds selection would clear all CC paint', () => {
+  it('deletes all CC paint inside a current same-layer marquee without requiring a move first', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+
+    const layerId = 'layer-cc-direct-marquee-delete';
+    const ccLayer: Layer = {
+      id: layerId,
+      name: 'CC Direct Marquee Delete',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas,
+        hasContent: true,
+      },
+    } as Layer;
+    const paint = new Uint8Array(16);
+    const gradientId = new Uint8Array(16);
+    const gradientDefId = new Uint16Array(16);
+    const speed = new Uint8Array(16);
+    const flow = new Uint8Array(16);
+    const phase = new Uint8Array(16);
+    [0, 1, 4, 5].forEach((index) => {
+      paint[index] = 9;
+      gradientId[index] = 1;
+      gradientDefId[index] = 2;
+      speed[index] = 3;
+      flow[index] = 4;
+      phase[index] = 5;
+    });
+
+    useAppStore.setState((state) => ({
+      ...state,
+      project: state.project!,
+      layers: [ccLayer],
+      activeLayerId: layerId,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'selection-marquee-final',
+        ownerKind: 'direct-marquee',
+        t: Date.now(),
+        activeLayerId: layerId,
+        bounds: { x: 0, y: 0, width: 2, height: 2 },
+      },
+    }));
+
+    useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+    const brush = getColorCycleBrushManager().getBrush(layerId);
+    if (brush) applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: gradientId.buffer,
+      gradientDefIdBuffer: gradientDefId.buffer,
+      speedBuffer: speed.buffer,
+      flowBuffer: flow.buffer,
+      phaseBuffer: phase.buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+
+    expect(readTestColorCycleBrushLayerSnapshot(brush, layerId)?.hasContent).toBe(false);
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    expect(getPersistedCCMutationLog()).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'color-cycle-keyboard-delete-full-content-blocked',
+        layerId,
+      }),
+    ]));
+  });
+
+  it('blocks keyboard delete when an unowned set-bounds selection would clear all CC paint', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 4;

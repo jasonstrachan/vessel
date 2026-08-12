@@ -395,6 +395,35 @@ describe('selection paste commit', () => {
     await Promise.all([firstCommit, secondCommit]);
   });
 
+  it('does not race floating Delete against an in-flight paste commit', async () => {
+    let resolveHistoryCommit: (() => void) | undefined;
+    commitLayerHistory.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        resolveHistoryCommit = resolve;
+      }),
+    );
+    const { helpers, state } = setupHelpers({
+      position: { x: 10, y: 12 },
+      displayWidth: 20,
+      displayHeight: 16,
+      width: 20,
+      height: 16,
+    });
+
+    const commitPromise = helpers.commitFloatingPaste();
+    const deletePromise = helpers.deleteFloatingPaste();
+    await Promise.resolve();
+
+    expect(state.floatingPaste).not.toBeNull();
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+
+    resolveHistoryCommit?.();
+    await Promise.all([commitPromise, deletePromise]);
+
+    expect(state.floatingPaste).toBeNull();
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+  });
+
   it('commits the same bitmap pixels produced by the preview raster helper', async () => {
     const imageData = new ImageData(4, 1);
     imageData.data.set([
@@ -523,6 +552,58 @@ describe('selection paste commit', () => {
       start: { x: 2, y: 2 },
       end: { x: 4, y: 4 },
     });
+  });
+
+  it('records an undoable source delete when an extracted floating selection is deleted', async () => {
+    const { helpers, state } = setupHelpers({
+      position: { x: 10, y: 10 },
+      originalPosition: { x: 2, y: 2 },
+      width: 2,
+      height: 2,
+      displayWidth: 2,
+      displayHeight: 2,
+      sourceLayerId: 'layer-1',
+    });
+    const beforeImage = new ImageData(64, 64);
+    state.floatingPasteHistoryContext = {
+      sourceLayerId: 'layer-1',
+      sourceBounds: { x: 2, y: 2, width: 2, height: 2 },
+      beforeImage,
+      beforeColorState: null,
+      selectionBefore: {
+        start: { x: 2, y: 2 },
+        end: { x: 4, y: 4 },
+      },
+    };
+
+    await helpers.deleteFloatingPaste();
+
+    expect(commitLayerHistory).toHaveBeenCalledWith({
+      layerId: 'layer-1',
+      beforeImage,
+      beforeColorState: null,
+      bitmapRoi: { x: 2, y: 2, width: 2, height: 2 },
+      actionType: 'delete',
+      description: 'Delete selected pixels',
+      tool: 'selection',
+      selectionBefore: {
+        start: { x: 2, y: 2 },
+        end: { x: 4, y: 4 },
+      },
+    });
+    expect(state.floatingPaste).toBeNull();
+    expect(state.floatingPasteHistoryContext).toBeNull();
+  });
+
+  it('discards a copied floating selection without creating layer history', async () => {
+    const { helpers, state } = setupHelpers({
+      sourceLayerId: null,
+    });
+
+    await helpers.deleteFloatingPaste();
+
+    expect(commitLayerHistory).not.toHaveBeenCalled();
+    expect(state.floatingPaste).toBeNull();
   });
 
   it('rebuilds move beforeImage when history context is missing a full-layer snapshot', async () => {

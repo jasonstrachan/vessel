@@ -532,6 +532,7 @@ export interface AppState {
   flipFloatingPasteHorizontal: () => void;
   flipFloatingPasteVertical: () => void;
   commitFloatingPaste: () => Promise<void>;
+  deleteFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
 
   // Tool State

@@ -172,7 +172,49 @@ describe('selectionDeleteAuthorization', () => {
     });
   });
 
-  it('blocks normal CC keyboard deletes that would clear all paint', () => {
+  it.each(['direct-marquee', 'selection-handle'] as const)(
+    'allows a current same-layer %s selection to delete all selected CC paint',
+    (ownerKind) => {
+      const authorization = authorizeSelectionDelete({
+        source: 'keyboard-delete',
+        activeLayer: createLayer({ id: 'active', layerType: 'color-cycle' }),
+        activeLayerId: 'active',
+        project: createProject(),
+        selectionStart: { x: 0, y: 0 },
+        selectionEnd: { x: 4, y: 4 },
+        selectionMask: null,
+        selectionMaskBounds: null,
+        selectionMaskLayerId: null,
+        selectionLastAction: {
+          action: 'set-bounds',
+          source: ownerKind === 'direct-marquee' ? 'selection-marquee-final' : 'selection-handle',
+          ownerKind,
+          t: 1,
+          activeLayerId: 'active',
+          bounds: { x: 0, y: 0, width: 4, height: 4 },
+        },
+        colorCyclePaint: {
+          buffer: new Uint8Array(16).fill(1),
+          width: 4,
+          height: 4,
+          hasFullCanonicalPayload: true,
+        },
+      });
+
+      expect(authorization).toMatchObject({
+        ok: true,
+        allowFullContentClear: true,
+        destructiveIntent: 'explicit-full-clear',
+        colorCyclePaintSummary: expect.objectContaining({
+          totalNonZeroPaint: 16,
+          selectedNonZeroPaint: 16,
+          wouldClearAllPaint: true,
+        }),
+      });
+    },
+  );
+
+  it('keeps blocking unowned programmatic CC keyboard deletes that would clear all paint', () => {
     const authorization = authorizeSelectionDelete({
       source: 'keyboard-delete',
       activeLayer: createLayer({ id: 'active', layerType: 'color-cycle' }),
@@ -185,8 +227,8 @@ describe('selectionDeleteAuthorization', () => {
       selectionMaskLayerId: null,
       selectionLastAction: {
         action: 'set-bounds',
-        source: 'selection-marquee-final',
-        ownerKind: 'direct-marquee',
+        source: 'setSelectionBounds',
+        ownerKind: 'unknown',
         t: 1,
         activeLayerId: 'active',
         bounds: { x: 0, y: 0, width: 4, height: 4 },
@@ -203,11 +245,6 @@ describe('selectionDeleteAuthorization', () => {
       ok: false,
       reason: 'keyboard-full-content-clear-blocked',
       clearSelection: false,
-      colorCyclePaintSummary: expect.objectContaining({
-        totalNonZeroPaint: 16,
-        selectedNonZeroPaint: 16,
-        wouldClearAllPaint: true,
-      }),
     });
   });
 

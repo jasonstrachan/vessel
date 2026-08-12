@@ -1137,6 +1137,50 @@ export const createSelectionPasteHelpers = ({
     return trackedCommit;
   };
 
+  const deleteFloatingPaste = async (): Promise<void> => {
+    if (floatingPasteCommitPromise) {
+      await floatingPasteCommitPromise;
+      return;
+    }
+
+    const state = get();
+    const floatingPaste = state.floatingPaste;
+    const historyContext = state.floatingPasteHistoryContext;
+    if (!floatingPaste) {
+      return;
+    }
+
+    set({ floatingPaste: null, floatingPasteHistoryContext: null });
+
+    if (
+      !floatingPaste.sourceLayerId ||
+      !historyContext ||
+      historyContext.sourceLayerId !== floatingPaste.sourceLayerId
+    ) {
+      return;
+    }
+
+    const sourceLayer = state.layers.find((layer) => layer.id === historyContext.sourceLayerId);
+    if (!sourceLayer) {
+      return;
+    }
+
+    try {
+      await commitLayerHistory({
+        layerId: sourceLayer.id,
+        beforeImage: historyContext.beforeImage,
+        beforeColorState: historyContext.beforeColorState,
+        bitmapRoi: historyContext.sourceBounds,
+        actionType: 'delete',
+        description: 'Delete selected pixels',
+        tool: 'selection',
+        selectionBefore: historyContext.selectionBefore,
+      });
+    } catch (error) {
+      logError('[floatingPaste] Failed to record extracted selection delete', error);
+    }
+  };
+
   const cancelFloatingPaste = (): void => {
     const state = get();
     const floatingPaste = state.floatingPaste;
@@ -1389,6 +1433,7 @@ export const createSelectionPasteHelpers = ({
 
   return {
     commitFloatingPaste,
+    deleteFloatingPaste,
     cancelFloatingPaste,
   };
 };

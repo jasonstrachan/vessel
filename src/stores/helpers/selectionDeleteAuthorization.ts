@@ -172,6 +172,11 @@ export const authorizeSelectionDelete = (
 
   const selectionOwnerKind = request.selectionLastAction?.ownerKind ?? 'unknown';
   const isHistoryRestored = selectionOwnerKind === 'history-restored' || request.selectionLastAction?.restoredFromHistory === true;
+  const isExplicitSelectAll =
+    request.selectionLastAction?.action === 'select-all' && selectionOwnerKind === 'select-all';
+  const isCurrentMarqueeSelection =
+    selectionOwnerKind === 'direct-marquee' ||
+    selectionOwnerKind === 'selection-handle';
   if (activeLayer.layerType === 'color-cycle' && source === 'keyboard-delete' && isHistoryRestored) {
     return reject('history-restored-keyboard-delete', false, {
       source,
@@ -209,8 +214,12 @@ export const authorizeSelectionDelete = (
       selectionMaskBounds: request.selectionMaskBounds,
     });
 
-    const isExplicitSelectAll = request.selectionLastAction?.action === 'select-all' && selectionOwnerKind === 'select-all';
-    if (source === 'keyboard-delete' && !isExplicitSelectAll && colorCyclePaintSummary.wouldClearAllPaint) {
+    if (
+      source === 'keyboard-delete' &&
+      !isExplicitSelectAll &&
+      !isCurrentMarqueeSelection &&
+      colorCyclePaintSummary.wouldClearAllPaint
+    ) {
       return reject('keyboard-full-content-clear-blocked', false, {
         source,
         activeLayerId,
@@ -219,7 +228,9 @@ export const authorizeSelectionDelete = (
     }
   }
 
-  const allowFullContentClear = request.selectionLastAction?.action === 'select-all' && selectionOwnerKind === 'select-all';
+  const allowFullContentClear =
+    (isExplicitSelectAll || isCurrentMarqueeSelection) &&
+    colorCyclePaintSummary?.wouldClearAllPaint === true;
   return {
     ok: true,
     layerId: activeLayerId,

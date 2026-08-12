@@ -312,8 +312,9 @@ describe('CC layer wipe/data-loss scenario matrix', () => {
       },
     });
     expect(fullKeyboardSelection).toMatchObject({
-      ok: false,
-      reason: 'keyboard-full-content-clear-blocked',
+      ok: true,
+      allowFullContentClear: true,
+      destructiveIntent: 'explicit-full-clear',
     });
 
     const goblet = await serializeColorCycleData(layer, project);

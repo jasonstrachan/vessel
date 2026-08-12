@@ -463,6 +463,40 @@ describe('useComprehensiveKeyboard – brush size shortcuts', () => {
     keyboard.unmount();
   });
 
+  it('routes Delete through the undoable floating-selection delete action', async () => {
+    const deleteFloatingPaste = jest.fn().mockResolvedValue(undefined);
+    const originalDeleteFloatingPaste = useAppStore.getState().deleteFloatingPaste;
+
+    act(() => {
+      useAppStore.setState({ deleteFloatingPaste });
+      useAppStore.getState().setFloatingPaste({
+        imageData: new ImageData(2, 2),
+        position: { x: 1, y: 1 },
+        originalPosition: { x: 1, y: 1 },
+        width: 2,
+        height: 2,
+        displayWidth: 2,
+        displayHeight: 2,
+        rotation: 0,
+        sourceLayerId: 'layer-1',
+      });
+    });
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Delete', code: 'Delete' });
+      await Promise.resolve();
+    });
+
+    expect(deleteFloatingPaste).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useAppStore.setState({ deleteFloatingPaste: originalDeleteFloatingPaste });
+      useAppStore.getState().setFloatingPaste(null);
+    });
+    keyboard.unmount();
+  });
+
   it('switches to color-adjust tool on U', async () => {
     const keyboard = render(React.createElement(KeyboardHarness));
 

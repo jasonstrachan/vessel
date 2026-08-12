@@ -221,7 +221,7 @@ describe('colorCycleSelectionTransaction preflight', () => {
     });
   });
 
-  it('blocks non-explicit keyboard full delete', () => {
+  it('allows a current same-layer marquee keyboard full delete', () => {
     const result = preflightCcSelectionTransaction({
       ...baseRequest(),
       operation: 'delete-selected',
@@ -229,6 +229,28 @@ describe('colorCycleSelectionTransaction preflight', () => {
       selectionEnd: { x: 4, y: 4 },
       selectionLastAction: {
         ...baseRequest().selectionLastAction,
+        bounds: { x: 0, y: 0, width: 4, height: 4 },
+      },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      kind: 'explicit-full-delete',
+      operation: 'delete-selected',
+      requiresPayload: false,
+    });
+  });
+
+  it('blocks an unowned programmatic keyboard full delete', () => {
+    const result = preflightCcSelectionTransaction({
+      ...baseRequest(),
+      operation: 'delete-selected',
+      source: 'keyboard-delete',
+      selectionEnd: { x: 4, y: 4 },
+      selectionLastAction: {
+        ...baseRequest().selectionLastAction,
+        source: 'setSelectionBounds',
+        ownerKind: 'unknown',
         bounds: { x: 0, y: 0, width: 4, height: 4 },
       },
     });

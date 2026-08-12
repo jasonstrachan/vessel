@@ -187,6 +187,7 @@ export interface SelectionSlice {
   flipFloatingPasteHorizontal: () => void;
   flipFloatingPasteVertical: () => void;
   commitFloatingPaste: () => Promise<void>;
+  deleteFloatingPaste: () => Promise<void>;
   cancelFloatingPaste: () => void;
   copySelectionToClipboard: (options?: { mode?: 'copy' | 'cut' }) => Promise<boolean>;
   clearSelectionClipboard: () => void;
@@ -2508,6 +2509,7 @@ export const createSelectionSlice = ({
         };
       }),
     commitFloatingPaste: () => selectionPasteHelpers.commitFloatingPaste(),
+    deleteFloatingPaste: () => selectionPasteHelpers.deleteFloatingPaste(),
     cancelFloatingPaste: () => selectionPasteHelpers.cancelFloatingPaste(),
     copySelectionToClipboard: async (options) => {
       const mode = options?.mode ?? 'copy';
