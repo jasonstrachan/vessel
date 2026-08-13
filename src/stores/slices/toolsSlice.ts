@@ -240,6 +240,8 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ccGradientRangeContrast: settings.ccGradientRangeContrast,
   ditherPatternDiversity: settings.ditherPatternDiversity,
   ccSampledSoftSeamEnabled: settings.ccSampledSoftSeamEnabled,
+  colorCycleGradientSeamProfile: settings.colorCycleGradientSeamProfile,
+  colorCycleGradientIsRuntimePalette: settings.colorCycleGradientIsRuntimePalette,
   ccFlatCycleDither: settings.ccFlatCycleDither,
   ccFlatCycleBands: settings.ccFlatCycleBands,
   ditherAlgorithm: settings.ditherAlgorithm,
@@ -803,6 +805,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       minPressure: nextPressure.min,
       maxPressure: nextPressure.max,
     };
+    if (
+      settings.colorCycleGradient !== undefined &&
+      settings.colorCycleGradientIsRuntimePalette === undefined
+    ) {
+      newSettings.colorCycleGradientIsRuntimePalette = false;
+    }
     const explicitGradientVersion = settings.colorCycleGradientVersion;
     if (settings.colorCycleGradient !== undefined && explicitGradientVersion === undefined) {
       const gradientChanged = !gradientsEqual(
@@ -1044,6 +1052,16 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.resampleInterval !== undefined) settingsToSave.resampleInterval = newSettings.resampleInterval;
       if (settings.colorCycleGradient !== undefined) {
         settingsToSave.colorCycleGradient = newSettings.colorCycleGradient;
+      }
+      if (settings.colorCycleGradientSeamProfile !== undefined) {
+        settingsToSave.colorCycleGradientSeamProfile = newSettings.colorCycleGradientSeamProfile;
+      }
+      if (
+        settings.colorCycleGradient !== undefined ||
+        settings.colorCycleGradientIsRuntimePalette !== undefined
+      ) {
+        settingsToSave.colorCycleGradientIsRuntimePalette =
+          newSettings.colorCycleGradientIsRuntimePalette;
       }
       if (settings.colorCycleUseForegroundGradient !== undefined) {
         settingsToSave.colorCycleUseForegroundGradient = newSettings.colorCycleUseForegroundGradient;
@@ -1372,10 +1390,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
   },
   setColorCycleGradientDraft: (stops) => {
-    get().setBrushSettings({ colorCycleGradient: cloneGradientStops(stops) });
+    get().setBrushSettings({
+      colorCycleGradient: cloneGradientStops(stops),
+      colorCycleGradientSeamProfile: 'hard',
+      colorCycleGradientIsRuntimePalette: false,
+    });
   },
   commitColorCycleGradientDraft: (stops) => {
-    get().setBrushSettings({ colorCycleGradient: cloneGradientStops(stops) });
+    get().setBrushSettings({
+      colorCycleGradient: cloneGradientStops(stops),
+      colorCycleGradientSeamProfile: 'hard',
+      colorCycleGradientIsRuntimePalette: false,
+    });
   },
   setEraserSettings: (incomingSettings) => {
     let pendingPalette: PaletteState | null = null;

@@ -16,7 +16,7 @@ The app is a Next.js App Router project that runs as a client-mounted workspace.
 
 ### Drawing And Editing
 
-- Brush, custom brush, eraser, fill, selection, magic wand, eyedropper, color picker, crop, Hue/Sat, grid, save/load, and export tools.
+- Brush, custom brush, eraser, fill, selection, magic wand, eyedropper, crop, Hue/Sat, grid, save/load, and export tools.
 - Pressure-aware brush controls, spacing, dashed strokes, dither controls, shape mode, grid snapping, and custom brush capture.
 - Selection, crop, paste overlay, alignment, layer ordering, visibility, opacity, blend mode, layer groups, and sequential animation layers.
 - Display filters for the viewport/post-process stack, configured from the brush settings panel.

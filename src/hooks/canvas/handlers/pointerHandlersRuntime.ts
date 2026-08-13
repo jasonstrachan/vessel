@@ -266,6 +266,7 @@ import {
   handleRecolorSamplingPointerUp,
 } from './recolorSamplingHandler';
 import { cssColorToHex } from './utils/colorSampling';
+import { resolvePickedColorCycleGradientAtPosition } from './colorPickerGradientSampling';
 import type {
   ContourLinesBasis,
   ContourLinesStage,
@@ -275,6 +276,7 @@ import type {
   PointerHandlers,
 } from '../utils/types';
 import { BrushShape, type BrushSettings } from '../../../types';
+import { gradientsEqual } from '@/stores/helpers/toolsState';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
@@ -2341,8 +2343,40 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
   };
 
   const applyColorPickerSample = (worldPos: Point) => {
+    const dynamic = getDynamicDeps();
+    const { palette } = dynamic;
+    const activeLayer = dynamic.layers.find((layer) => layer.id === dynamic.activeLayerId);
+    if (activeLayer?.visible && activeLayer.layerType === 'color-cycle') {
+      const resolvePickedGradient =
+        deps.resolvePickedColorCycleGradientAtPosition ?? resolvePickedColorCycleGradientAtPosition;
+      const pickedGradient = resolvePickedGradient(
+        activeLayer.id,
+        worldPos.x,
+        worldPos.y,
+      );
+      if (pickedGradient) {
+        const currentSettings = dynamic.tools.brushSettings;
+        if (
+          dynamic.tools.brushSettings.ccGradientSource !== 'manual' ||
+          currentSettings.colorCycleGradientSeamProfile !== pickedGradient.seamProfile ||
+          currentSettings.colorCycleGradientIsRuntimePalette !== true ||
+          !gradientsEqual(currentSettings.colorCycleGradient, pickedGradient.stops)
+        ) {
+          deps.setBrushSettings({
+            colorCycleGradient: pickedGradient.stops,
+            colorCycleGradientSeamProfile: pickedGradient.seamProfile,
+            colorCycleGradientIsRuntimePalette: true,
+            ccGradientSource: 'manual',
+            colorCycleUseForegroundGradient: false,
+            autoSampleGradient: false,
+            autoSampleGradientRealtime: false,
+          });
+        }
+        return;
+      }
+    }
+
     const sampledHex = cssColorToHex(sampleColorAtPosition(worldPos.x, worldPos.y));
-    const { palette } = getDynamicDeps();
     const activeSlot = palette.activeSlot ?? 'foreground';
     const currentColor = activeSlot === 'background'
       ? palette.backgroundColor

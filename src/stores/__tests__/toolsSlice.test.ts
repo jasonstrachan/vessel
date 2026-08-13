@@ -124,6 +124,7 @@ describe('tools slice', () => {
       colorCycleSpeed: 0.42,
       colorCycleFPS: 48,
       colorCycleFillMode: 'concentric',
+      colorCycleGradientSeamProfile: 'soft',
       velocityAnimationSpeedEnabled: true,
       fillResolution: 9,
       pressureLinkedFillResolution: true,
@@ -137,11 +138,36 @@ describe('tools slice', () => {
         colorCycleSpeed: 0.42,
         colorCycleFPS: 48,
         colorCycleFillMode: 'concentric',
+        colorCycleGradientSeamProfile: 'soft',
         velocityAnimationSpeedEnabled: true,
         fillResolution: 9,
         pressureLinkedFillResolution: true,
         pressureLinkedFillMaxResolution: 21,
       })
+    );
+  });
+
+  it('returns an edited Manual gradient to the authored hard seam default', () => {
+    const store = useAppStore.getState();
+    store.setBrushSettings({
+      colorCycleGradientSeamProfile: 'soft',
+      colorCycleGradientIsRuntimePalette: true,
+    });
+
+    store.commitColorCycleGradientDraft([
+      { position: 0, color: '#123456' },
+      { position: 1, color: '#abcdef' },
+    ]);
+
+    expect(useAppStore.getState().tools.brushSettings).toEqual(
+      expect.objectContaining({
+        colorCycleGradient: [
+          { position: 0, color: '#123456' },
+          { position: 1, color: '#abcdef' },
+        ],
+        colorCycleGradientSeamProfile: 'hard',
+        colorCycleGradientIsRuntimePalette: false,
+      }),
     );
   });
 

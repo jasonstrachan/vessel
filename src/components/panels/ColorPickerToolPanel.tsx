@@ -43,7 +43,7 @@ const ColorPickerToolPanel: React.FC = () => {
 
   return (
     <div className="border-b border-[#242424] bg-[#1F1F1F] px-4 py-3 text-xs text-[#E2E8F0]">
-      <div className="uppercase text-[10px] tracking-[0.2em] text-[#8F9BAD] mb-2">Color Picker</div>
+      <div className="uppercase text-[10px] tracking-[0.2em] text-[#8F9BAD] mb-2">Eyedropper</div>
 
       <div className="flex items-center gap-3">
         <div
@@ -69,7 +69,7 @@ const ColorPickerToolPanel: React.FC = () => {
       </div>
 
       <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">
-        Click the canvas with the Color Picker to sample a pixel. Values update live while the tool is active.
+        Click to sample a color, or click a painted pixel on the active Color Cycle layer to reuse its complete gradient in Manual mode.
       </p>
 
       <div className="mt-3 flex items-center justify-between gap-3 rounded-sm border border-[#2A2A2A] bg-[#181818] px-3 py-2">

@@ -292,6 +292,43 @@ describe('colorCycleMarkSession rebuild', () => {
     finalizeMarkGradientSession(layer.id);
   });
 
+  it('preserves a picked soft seam when the reused gradient begins a Manual mark', () => {
+    const layer = createLayer();
+
+    useAppStore.setState((state) => ({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: true,
+          gradientBands: 16,
+          colorCycleGradientSeamProfile: 'soft',
+          colorCycleGradientIsRuntimePalette: true,
+        },
+      },
+      project: state.project
+        ? { ...state.project, width: 2, height: 2, layers: [layer] }
+        : state.project,
+    }));
+
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'shape',
+      gradientKind: 'linear',
+      source: 'manual',
+      stops,
+    });
+
+    expect(session?.seamProfile).toBe('soft');
+    expect(session?.frozenStopsStored).toEqual(stops);
+    expect(
+      useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore?.[0]?.seamProfile,
+    ).toBe('soft');
+    cancelMarkGradientSession(layer.id);
+  });
+
   it('freezes sampled dither render settings at mark start so later slider changes do not recolor the mark', () => {
     const layer = createLayer();
 

@@ -776,6 +776,96 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
   });
 
+  it('loads an exact CC pixel gradient into Manual mode instead of sampling one color', () => {
+    const layer = {
+      id: 'cc-layer',
+      visible: true,
+      layerType: 'color-cycle',
+    } as any;
+    const { deps, dynamicDepsRef } = createDeps({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'color-picker',
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          ccGradientSource: 'sampled',
+        } as any,
+      },
+    });
+    const stops = [
+      { position: 0, color: '#ff0000' },
+      { position: 0.5, color: '#00ff00', opacity: 0.75 },
+      { position: 1, color: '#0000ff' },
+    ];
+    deps.resolvePickedColorCycleGradientAtPosition = jest.fn(() => ({
+      stops,
+      seamProfile: 'soft',
+    }));
+    dynamicDepsRef.current.tools.currentTool = 'color-picker';
+    deps.tools = dynamicDepsRef.current.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 5, clientY: 6 }));
+
+    expect(deps.resolvePickedColorCycleGradientAtPosition).toHaveBeenCalledWith(
+      layer.id,
+      5,
+      6,
+    );
+    expect(deps.setBrushSettings).toHaveBeenCalledWith({
+      colorCycleGradient: stops,
+      colorCycleGradientSeamProfile: 'soft',
+      colorCycleGradientIsRuntimePalette: true,
+      ccGradientSource: 'manual',
+      colorCycleUseForegroundGradient: false,
+      autoSampleGradient: false,
+      autoSampleGradientRealtime: false,
+    });
+    expect(deps.setActiveColor).not.toHaveBeenCalled();
+    expect(deps.sampleColorAtPosition).not.toHaveBeenCalled();
+  });
+
+  it('does not rewrite the Manual draft while dragging across the same CC gradient', () => {
+    const stops = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ddeeff' },
+    ];
+    const layer = {
+      id: 'cc-layer',
+      visible: true,
+      layerType: 'color-cycle',
+    } as any;
+    const { deps, dynamicDepsRef } = createDeps({
+      layers: [layer],
+      activeLayerId: layer.id,
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'color-picker',
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          ccGradientSource: 'manual',
+          colorCycleGradient: stops,
+          colorCycleGradientSeamProfile: 'hard',
+          colorCycleGradientIsRuntimePalette: true,
+        } as any,
+      },
+    });
+    deps.resolvePickedColorCycleGradientAtPosition = jest.fn(() => ({
+      stops: stops.map((stop) => ({ ...stop })),
+      seamProfile: 'hard',
+    }));
+    dynamicDepsRef.current.tools.currentTool = 'color-picker';
+    deps.tools = dynamicDepsRef.current.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 5, clientY: 6 }));
+
+    expect(deps.setBrushSettings).not.toHaveBeenCalled();
+    expect(deps.setActiveColor).not.toHaveBeenCalled();
+  });
+
   it('shows brush-size cursor for dither-stroke stroke (non-shape)', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {

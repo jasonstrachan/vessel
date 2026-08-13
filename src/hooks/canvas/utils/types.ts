@@ -4,7 +4,14 @@ import type {
   CompositeLayersToCanvasOptions,
   UpdateLayerOptions,
 } from '@/stores/slices/layersSlice';
-import type { BrushSettings, PaletteState, PolygonGradientState, Project, Layer } from '../../../types';
+import type {
+  BrushSettings,
+  GradientSeamProfile,
+  PaletteState,
+  PolygonGradientState,
+  Project,
+  Layer,
+} from '../../../types';
 import type { InteractionAction, InteractionState } from '../../useCanvasInteraction';
 import type { CanvasStateMachine } from '@/hooks/useCanvasStateMachine';
 import type { DrawingHandlers } from '@/hooks/useDrawingHandlers';
@@ -253,6 +260,14 @@ export interface EventHandlerDependencies {
   // Helper functions
   sampleColorAtPosition: (x: number, y: number) => string;
   sampleColorsAlongLine: (startX: number, startY: number, endX: number, endY: number, numSamples: number) => string[];
+  resolvePickedColorCycleGradientAtPosition?: (
+    layerId: string,
+    x: number,
+    y: number,
+  ) => {
+    stops: NonNullable<BrushSettings['colorCycleGradient']>;
+    seamProfile: GradientSeamProfile;
+  } | null;
   getMousePos: (
     event: React.MouseEvent<Element> | React.PointerEvent<Element> | React.WheelEvent<Element>
   ) => { x: number; y: number };

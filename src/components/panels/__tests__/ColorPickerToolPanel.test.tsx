@@ -29,7 +29,8 @@ describe('ColorPickerToolPanel', () => {
 
     expect(screen.getByText('#1A2B3C')).toBeInTheDocument();
     expect(screen.getByText('26, 43, 60')).toBeInTheDocument();
-    expect(screen.getByText(/^Color Picker$/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Eyedropper$/i)).toBeInTheDocument();
+    expect(screen.getByText(/reuse its complete gradient in Manual mode/i)).toBeInTheDocument();
   });
 
   it('is hidden when a different tool is active', () => {
@@ -42,6 +43,6 @@ describe('ColorPickerToolPanel', () => {
 
     render(<BrushSettingsPanel />);
 
-    expect(screen.queryByText(/color picker/i)).toBeNull();
+    expect(screen.queryByText(/eyedropper/i)).toBeNull();
   });
 });

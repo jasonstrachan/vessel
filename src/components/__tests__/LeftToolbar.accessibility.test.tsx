@@ -134,6 +134,20 @@ describe('LeftToolbar accessibility', () => {
     });
   });
 
+  it('exposes one Eyedropper button backed by the functional color picker tool', async () => {
+    render(<LeftToolbar />);
+
+    const eyedropperButtons = screen.getAllByRole('button', { name: /eyedropper/i });
+    expect(eyedropperButtons).toHaveLength(1);
+    expect(eyedropperButtons[0]).toHaveAttribute('data-shortcut', 'Hold P');
+
+    fireEvent.click(eyedropperButtons[0]);
+
+    await waitFor(() => {
+      expect(mockSwitchTool).toHaveBeenCalledWith('color-picker');
+    });
+  });
+
   it('renders and switches to magic wand via toolbar button', async () => {
     render(<LeftToolbar />);
 

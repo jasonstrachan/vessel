@@ -20,6 +20,7 @@ import {
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import {
   type GradientSeamProfile,
+  normalizeGradientSeamProfile,
 } from '@/lib/colorCycle/gradientSeamProfile';
 
 export type MarkGradientSession = {
@@ -29,6 +30,7 @@ export type MarkGradientSession = {
   gradientKind: 'linear' | 'concentric';
   source: GradientDefSource;
   seamProfile?: GradientSeamProfile;
+  isRuntimePalette?: boolean;
   rawStopsStored?: StoredStop[];
   frozenStopsStored: StoredStop[];
   frozenHash: string;
@@ -149,7 +151,10 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
 };
 
 export const resolveMarkSessionRuntimeStops = (
-  session: Pick<MarkGradientSession, 'ditherRenderConfig' | 'source' | 'sampledRepresentativeColor'> | null | undefined,
+  session: Pick<
+    MarkGradientSession,
+    'ditherRenderConfig' | 'source' | 'sampledRepresentativeColor' | 'isRuntimePalette'
+  > | null | undefined,
   stops: StoredStop[],
   liveOverrides?: {
     enabled?: boolean;
@@ -162,6 +167,9 @@ export const resolveMarkSessionRuntimeStops = (
   },
 ): StoredStop[] => {
   const clonedStops = cloneStops(stops);
+  if (session?.isRuntimePalette) {
+    return clonedStops;
+  }
   const config = session?.ditherRenderConfig;
   const enabled = liveOverrides?.enabled ?? config?.enabled ?? false;
   const contrastStops = applyCcGradientContrast(
@@ -218,7 +226,14 @@ export const beginMarkGradientSession = (params: {
   }
   const sampledSoftSeamEnabled = state.tools.brushSettings.ccSampledSoftSeamEnabled !== false;
   const seamProfile: GradientSeamProfile =
-    params.source === 'sampled' && sampledSoftSeamEnabled ? 'soft' : 'hard';
+    params.source === 'sampled'
+      ? sampledSoftSeamEnabled ? 'soft' : 'hard'
+      : params.source === 'manual'
+        ? normalizeGradientSeamProfile(state.tools.brushSettings.colorCycleGradientSeamProfile)
+        : 'hard';
+  const isRuntimePalette =
+    params.source === 'manual' &&
+    state.tools.brushSettings.colorCycleGradientIsRuntimePalette === true;
   const frozenStops = cloneStops(params.stops);
   const ditherRenderConfig = captureFrozenCcDitherRenderConfig();
   if (params.source === 'sampled') {
@@ -229,6 +244,7 @@ export const beginMarkGradientSession = (params: {
       gradientKind: params.gradientKind,
       source: params.source,
       seamProfile,
+      isRuntimePalette,
       rawStopsStored: cloneStops(frozenStops),
       frozenStopsStored: frozenStops,
       frozenHash: '',
@@ -245,7 +261,7 @@ export const beginMarkGradientSession = (params: {
   }
 
   const runtimeStops = resolveMarkSessionRuntimeStops(
-    { ditherRenderConfig, source: params.source },
+    { ditherRenderConfig, source: params.source, isRuntimePalette },
     frozenStops,
   );
   const defResult = ensureGradientDefForStops({
@@ -268,6 +284,7 @@ export const beginMarkGradientSession = (params: {
     gradientKind: params.gradientKind,
     source: params.source,
     seamProfile,
+    isRuntimePalette,
     rawStopsStored: frozenStops,
     frozenStopsStored: runtimeStops,
     frozenHash: defResult.hash,

@@ -1327,6 +1327,8 @@ export interface BrushSettings {
   colorCycleSpeed?: number; // 0-2.64 (brush animation speed)
   colorCycleLayerSpeedScale?: number; // Global playback multiplier for CC brush-mode layers
   colorCycleGradient?: Array<{ position: number; color: string; opacity?: number }>; // Gradient stops
+  colorCycleGradientSeamProfile?: GradientSeamProfile; // Manual gradient loop seam, including gradients picked from CC pixels
+  colorCycleGradientIsRuntimePalette?: boolean; // Picked CC definitions are already contrast/dither palette resolved
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular' | 'stroke'; // Fill mode for Color Cycle Shape
