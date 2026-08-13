@@ -21,6 +21,7 @@ export interface ResolveColorCyclePresentationInput {
   activeLayerId: string | null;
   projectWidth: number;
   projectHeight: number;
+  allowHidden?: boolean;
 }
 
 const snapshotCanvasCache = new WeakMap<ImageData, HTMLCanvasElement | OffscreenCanvas>();
@@ -203,11 +204,12 @@ export const resolveColorCyclePresentation = ({
   activeLayerId,
   projectWidth,
   projectHeight,
+  allowHidden = false,
 }: ResolveColorCyclePresentationInput): ColorCyclePresentationSource => {
   if (!layer) {
     return { kind: 'none', reason: 'missing-layer' };
   }
-  if (!layer.visible) {
+  if (!allowHidden && !layer.visible) {
     return { kind: 'none', reason: 'hidden' };
   }
   if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
@@ -264,4 +266,37 @@ export const getColorCyclePresentationCanvas = (
   return layer?.layerType === 'color-cycle'
     ? getMaskedPresentationCanvas(canvas, layer)
     : canvas;
+};
+
+export const resolveLayerSamplingCanvas = (
+  layer: Layer | null | undefined,
+): HTMLCanvasElement | OffscreenCanvas | null => {
+  if (!layer) {
+    return null;
+  }
+  if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+    return layer.framebuffer ?? null;
+  }
+
+  const width =
+    layer.colorCycleData.canvas?.width ??
+    layer.colorCycleData.canvasImageData?.width ??
+    layer.framebuffer?.width ??
+    layer.imageData?.width ??
+    0;
+  const height =
+    layer.colorCycleData.canvas?.height ??
+    layer.colorCycleData.canvasImageData?.height ??
+    layer.framebuffer?.height ??
+    layer.imageData?.height ??
+    0;
+  const presentation = resolveColorCyclePresentation({
+    layer,
+    activeLayerId: layer.id,
+    projectWidth: width,
+    projectHeight: height,
+    allowHidden: true,
+  });
+
+  return getColorCyclePresentationCanvas(presentation, layer) ?? layer.framebuffer ?? null;
 };

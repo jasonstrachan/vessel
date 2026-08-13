@@ -6,6 +6,7 @@ jest.mock('../colorCycleFillWorkerFactory', () => ({
 import {
   runPerceptualDitherJob,
   runConcentricFillJob,
+  sampleShapeGradientFromCanvases,
   runShapeGradientSampleJob,
 } from '../colorCycleFillClient';
 
@@ -139,6 +140,37 @@ describe('colorCycleFillClient', () => {
     ]);
     expect(result.stats.outputColors).toBe(2);
     expect(result.dominantColor).toBe('#ff0000');
+  });
+
+  it('captures a shape sample from a canvas without a readable 2D context', async () => {
+    const compositeCanvas = document.createElement('canvas');
+    compositeCanvas.width = 2;
+    compositeCanvas.height = 2;
+    const referenceCanvas = document.createElement('canvas');
+    referenceCanvas.width = 2;
+    referenceCanvas.height = 2;
+    const referenceGetContext = jest
+      .spyOn(referenceCanvas, 'getContext')
+      .mockReturnValue(null);
+
+    const result = await sampleShapeGradientFromCanvases({
+      compositeCanvas,
+      referenceCanvas,
+      shapePoints: [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 2, y: 2 },
+        { x: 0, y: 2 },
+      ],
+      maxColors: 2,
+      mode: 'linear',
+    });
+
+    expect(referenceGetContext).toHaveBeenCalledWith('2d', { willReadFrequently: true });
+    expect(result?.stops).toEqual([
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ]);
   });
 
   it('rejects a concentric fill job when the worker never responds', async () => {

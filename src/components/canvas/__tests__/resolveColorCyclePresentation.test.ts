@@ -1,5 +1,6 @@
 import {
   getColorCyclePresentationCanvas,
+  resolveLayerSamplingCanvas,
   resolveColorCyclePresentation,
 } from '@/components/canvas/resolveColorCyclePresentation';
 import type { Layer } from '@/types';
@@ -256,5 +257,44 @@ describe('resolveColorCyclePresentation', () => {
     const presentation = resolve(layer);
 
     expect(getColorCyclePresentationCanvas(presentation, layer)).toBe(sourceCanvas);
+  });
+
+  it('uses a hidden CC runtime surface instead of its stale raster fallback for reference sampling', () => {
+    const runtimeCanvas = createCanvas(2, 1);
+    const staleFramebuffer = createCanvas(2, 1);
+    const layer = createLayer({
+      visible: false,
+      framebuffer: staleFramebuffer,
+      imageData: new ImageData(2, 1),
+      colorCycleData: {
+        canvas: runtimeCanvas,
+        runtimeHydrationState: 'warm',
+      },
+    });
+
+    expect(resolveLayerSamplingCanvas(layer)).toBe(runtimeCanvas);
+  });
+
+  it('uses a cold CC compatibility snapshot for reference sampling', () => {
+    const snapshot = new ImageData(2, 1);
+    snapshot.data.set([10, 20, 30, 255], 0);
+    const layer = createLayer({
+      visible: false,
+      colorCycleData: {
+        canvas: createCanvas(2, 1),
+        canvasImageData: snapshot,
+        runtimeHydrationState: 'cold',
+      },
+    });
+
+    const samplingCanvas = resolveLayerSamplingCanvas(layer);
+    const samplingContext = samplingCanvas?.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null | undefined;
+
+    expect(Array.from(samplingContext?.getImageData(0, 0, 1, 1).data ?? [])).toEqual([
+      10, 20, 30, 255,
+    ]);
   });
 });

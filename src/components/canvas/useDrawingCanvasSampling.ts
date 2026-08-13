@@ -1,5 +1,7 @@
 import type React from 'react';
-import { useCallback } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
+
+import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
 import type { Layer } from '@/types';
 
 type CompositeSampleOptions = {
@@ -20,6 +22,44 @@ const rgbToHex = (r: number, g: number, b: number): string => {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 };
 
+type SamplingCanvas = HTMLCanvasElement | OffscreenCanvas;
+
+const readCanvasPixel = (
+  source: SamplingCanvas,
+  x: number,
+  y: number,
+  scratchRef: React.MutableRefObject<HTMLCanvasElement | null>,
+): Uint8ClampedArray | null => {
+  const sourceContext = source.getContext(
+    '2d',
+    { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+  ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+  if (sourceContext) {
+    return sourceContext.getImageData(x, y, 1, 1).data;
+  }
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const scratch = scratchRef.current ?? document.createElement('canvas');
+  scratchRef.current = scratch;
+  if (scratch.width !== 1 || scratch.height !== 1) {
+    scratch.width = 1;
+    scratch.height = 1;
+  }
+  const scratchContext = scratch.getContext('2d', { willReadFrequently: true });
+  if (!scratchContext) {
+    return null;
+  }
+  scratchContext.clearRect(0, 0, 1, 1);
+  try {
+    scratchContext.drawImage(source as CanvasImageSource, x, y, 1, 1, 0, 0, 1, 1);
+  } catch {
+    return null;
+  }
+  return scratchContext.getImageData(0, 0, 1, 1).data;
+};
+
 export const useDrawingCanvasSampling = ({
   compositeCanvasRef,
   lastSampleRef,
@@ -27,6 +67,17 @@ export const useDrawingCanvasSampling = ({
   referenceLayerId,
   preferReferenceSampling,
 }: UseDrawingCanvasSamplingOptions) => {
+  const referenceSampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hasDynamicSamplingSource = useMemo(() => {
+    const referenceLayer = referenceLayerId
+      ? layers.find((layer) => layer.id === referenceLayerId)
+      : null;
+    return (
+      (preferReferenceSampling && referenceLayer?.layerType === 'color-cycle') ||
+      layers.some((layer) => layer.visible && layer.layerType === 'color-cycle')
+    );
+  }, [layers, preferReferenceSampling, referenceLayerId]);
+
   const sampleCompositeOpaque = useCallback(
     (x: number, y: number, options: CompositeSampleOptions = {}): string => {
       const { radius = 1, preferSolid = true } = options;
@@ -109,12 +160,13 @@ export const useDrawingCanvasSampling = ({
       }
 
       const layer = layers.find((candidate) => candidate.id === referenceLayerId);
-      if (!layer || !layer.framebuffer) {
+      const samplingCanvas = resolveLayerSamplingCanvas(layer);
+      if (!samplingCanvas) {
         return null;
       }
 
-      const width = layer.framebuffer.width;
-      const height = layer.framebuffer.height;
+      const width = samplingCanvas.width;
+      const height = samplingCanvas.height;
       if (width <= 0 || height <= 0) {
         return null;
       }
@@ -122,25 +174,15 @@ export const useDrawingCanvasSampling = ({
       const clampedX = Math.max(0, Math.min(width - 1, Math.floor(x)));
       const clampedY = Math.max(0, Math.min(height - 1, Math.floor(y)));
 
-      if (layer.imageData && layer.imageData.width === width && layer.imageData.height === height) {
-        const baseIndex = (clampedY * layer.imageData.width + clampedX) * 4;
-        const data = layer.imageData.data;
-        const alpha = data[baseIndex + 3];
-        if (alpha === 0) {
-          return null;
-        }
-        return rgbToHex(data[baseIndex], data[baseIndex + 1], data[baseIndex + 2]);
-      }
-
-      const ctx = layer.framebuffer.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings) as
-        | CanvasRenderingContext2D
-        | OffscreenCanvasRenderingContext2D
-        | null;
-      if (!ctx) {
+      const sample = readCanvasPixel(
+        samplingCanvas,
+        clampedX,
+        clampedY,
+        referenceSampleCanvasRef,
+      );
+      if (!sample) {
         return null;
       }
-
-      const sample = ctx.getImageData(clampedX, clampedY, 1, 1).data;
       if (sample[3] === 0) {
         return null;
       }
@@ -160,6 +202,7 @@ export const useDrawingCanvasSampling = ({
       const last = lastSampleRef.current;
       const cacheLayerId = preferReferenceSampling && referenceLayerId ? referenceLayerId : null;
       if (
+        !hasDynamicSamplingSource &&
         last.x === clampedX &&
         last.y === clampedY &&
         last.layerId === cacheLayerId &&
@@ -180,7 +223,15 @@ export const useDrawingCanvasSampling = ({
       lastSampleRef.current = { x: clampedX, y: clampedY, color, layerId: cacheLayerId, preferReference: preferReferenceSampling };
       return color;
     },
-    [compositeCanvasRef, lastSampleRef, preferReferenceSampling, referenceLayerId, sampleColorFromReferenceLayer, sampleCompositeOpaque]
+    [
+      compositeCanvasRef,
+      hasDynamicSamplingSource,
+      lastSampleRef,
+      preferReferenceSampling,
+      referenceLayerId,
+      sampleColorFromReferenceLayer,
+      sampleCompositeOpaque,
+    ]
   );
 
   const sampleColorsAlongLine = useCallback(

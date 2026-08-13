@@ -85,6 +85,7 @@ import {
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { discardAbandonedSampledShapeTempPixels } from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
 import { sampleShapeGradientFromCanvases } from '@/workers/colorCycleFillClient';
+import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
 
 let lastCcDirectionDebugAt = 0;
 const ccDirectionDebug = (label: string, payload?: Record<string, unknown>) => {
@@ -579,7 +580,7 @@ const prepareFinalSampledShapeSession = async (params: {
     try {
       const footprintResult = await sampleShapeGradientFromCanvases({
         compositeCanvas: params.state.currentOffscreenCanvas,
-        referenceCanvas: referenceLayer?.framebuffer ?? null,
+        referenceCanvas: resolveLayerSamplingCanvas(referenceLayer),
         shapePoints: params.shapePoints,
         direction: params.direction,
         maxColors: params.state.tools.brushSettings.gradientBands ?? 16,

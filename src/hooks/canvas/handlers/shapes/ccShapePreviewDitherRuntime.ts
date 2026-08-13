@@ -41,6 +41,7 @@ import {
   markDerivedSurfaceBuiltFromVersion,
 } from '@/lib/colorCycle/document';
 import { sampleShapeGradientFromCanvases } from '@/workers/colorCycleFillClient';
+import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
 
 export type PreparedPreviewGradient = {
   renderStops: StoredStop[];
@@ -1567,7 +1568,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           try {
             footprintResult = await sampleShapeGradientFromCanvases({
               compositeCanvas: currentState.currentOffscreenCanvas,
-              referenceCanvas: referenceLayer?.framebuffer ?? null,
+              referenceCanvas: resolveLayerSamplingCanvas(referenceLayer),
               shapePoints: sampledGeometry.previewPolygon,
               direction: sampledDirection,
               maxColors: sampledBrushSettings.gradientBands ?? 16,

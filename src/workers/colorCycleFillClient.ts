@@ -53,14 +53,11 @@ const captureScaledCanvasRegion = ({
   kind: 'composite' | 'reference';
 }): ImageData => {
   const sourceContext = getCanvas2dContext(source);
-  if (!sourceContext) {
-    throw new Error(`Unable to read ${kind} sampling canvas`);
-  }
-  if (scale === 1) {
+  if (sourceContext && scale === 1) {
     return sourceContext.getImageData(originX, originY, width, height);
   }
   if (typeof document === 'undefined') {
-    throw new Error('Scaled shape sampling canvas unavailable');
+    throw new Error(`${kind} shape sampling canvas unavailable`);
   }
   const scaledWidth = Math.max(1, Math.ceil(width / scale));
   const scaledHeight = Math.max(1, Math.ceil(height / scale));
