@@ -55,6 +55,7 @@ export const useDrawingCanvasStoreState = () => {
       getCompositeSegmentsSnapshot: state.getCompositeSegmentsSnapshot,
       setActiveColor: state.setActiveColor,
       setBrushSettings: state.setBrushSettings,
+      rememberColorCycleGradient: state.rememberColorCycleGradient,
       updateRecolorSampling: state.updateRecolorSampling,
       stopRecolorSampling: state.stopRecolorSampling,
       setRectangleBrushState: state.setRectangleBrushState,

@@ -54,9 +54,12 @@ export const resolveActiveColorCycleGradient = (
   activeStops: GradientStop[];
   needsBootstrap: boolean;
 } => {
+  const sharedStops = brushSettings.colorCycleGradient?.length
+    ? cloneStops(brushSettings.colorCycleGradient)
+    : null;
   const fallbackStops =
+    sharedStops ??
     layer.colorCycleData?.gradient ??
-    brushSettings.colorCycleGradient ??
     DEFAULT_CC_GRADIENT;
   const gradientDefs = layer.colorCycleData?.gradientDefs?.length
     ? layer.colorCycleData.gradientDefs.map((entry) => ({
@@ -95,7 +98,9 @@ export const resolveActiveColorCycleGradient = (
   const activeStops =
     derivedStops && derivedStops.length >= 2
       ? derivedStops
-      : (activePalette?.stops && activePalette.stops.length > 0
+      : (!useForegroundGradient && sharedStops
+        ? sharedStops
+        : activePalette?.stops && activePalette.stops.length > 0
         ? activePalette.stops
         : fallbackStops);
   const hasActiveId =

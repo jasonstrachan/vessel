@@ -160,7 +160,9 @@ export const createProjectLifecycle = ({
       paletteDirty: false,
       projectFilename: null,
       projectFileHandle: null,
-      tools: updateToolsWithPalette(nextPalette, state.tools),
+      tools: updateToolsWithPalette(nextPalette, state.tools, {
+        syncColorCycleGradient: true,
+      }),
     }));
 
     if (projectWithPalette.defaultCustomBrushId) {
@@ -248,7 +250,9 @@ export const createProjectLifecycle = ({
       palette: normalizedPalette,
     };
 
-    const toolsWithPalette = updateToolsWithPalette(normalizedPalette, state.tools);
+    const toolsWithPalette = updateToolsWithPalette(normalizedPalette, state.tools, {
+      syncColorCycleGradient: true,
+    });
     const normalizedLayers = dedupeLayerIds(normalizeLayers(finalLayers));
     const repairedLayerIdCount = normalizedLayers.reduce((count, layer, index) => {
       const previousId = finalLayers[index]?.id;
@@ -973,6 +977,9 @@ export const createProjectLifecycle = ({
       project: projectWithPalette,
       palette: normalizedPalette,
       paletteDirty: false,
+      tools: updateToolsWithPalette(normalizedPalette, get().tools, {
+        syncColorCycleGradient: true,
+      }),
       projectFilename: null,
       projectFileHandle: null,
       layers: syncedLayers,

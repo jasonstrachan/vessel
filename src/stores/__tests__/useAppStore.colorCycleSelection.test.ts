@@ -99,8 +99,12 @@ describe('useAppStore color cycle layer selection', () => {
     }));
   });
 
-  it('synchronizes brush gradient with the selected color cycle layer', () => {
+  it('preserves the shared brush gradient when selecting a color cycle layer', () => {
     const layer = makeColorCycleLayer('layer-cc');
+    const sharedGradient = [
+      { position: 0, color: '#123456' },
+      { position: 1, color: '#abcdef' },
+    ];
 
     useAppStore.setState(state => ({
       layers: [layer],
@@ -109,15 +113,21 @@ describe('useAppStore color cycle layer selection', () => {
             ...state.project,
             layers: [layer]
           }
-        : state.project
+        : state.project,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleGradient: cloneStops(sharedGradient),
+        },
+      },
     }));
 
     useAppStore.getState().setActiveLayer(layer.id);
 
     const gradient = useAppStore.getState().tools.brushSettings.colorCycleGradient;
-    expect(gradient).toEqual(layerGradient);
-    expect(gradient).not.toBe(layerGradient);
-    expect(gradient?.[0]).not.toBe(layerGradient[0]);
+    expect(gradient).toEqual(sharedGradient);
+    expect(gradient).not.toEqual(layerGradient);
   });
 
   it('forces forward-only flow when activating a color cycle layer', () => {

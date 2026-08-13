@@ -6,6 +6,7 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 export type PickedColorCycleGradient = {
   stops: NonNullable<BrushSettings['colorCycleGradient']>;
   seamProfile: GradientSeamProfile;
+  isRuntimePalette?: boolean;
 };
 
 const clonePickedStops = (
@@ -59,9 +60,13 @@ export const resolvePickedColorCycleGradientFromSnapshot = ({
   if (definitionId > 0) {
     const definition = snapshot.gradientDefStore?.find((entry) => entry.id === definitionId);
     if (definition?.stops.length) {
+      const sourceStops = definition.sourceStops?.length
+        ? definition.sourceStops
+        : definition.stops;
       return {
-        stops: clonePickedStops(definition.stops),
+        stops: clonePickedStops(sourceStops),
         seamProfile: normalizeGradientSeamProfile(definition.seamProfile),
+        isRuntimePalette: !definition.sourceStops?.length,
       };
     }
   }
@@ -86,6 +91,7 @@ export const resolvePickedColorCycleGradientFromSnapshot = ({
   return {
     stops: clonePickedStops(palette.stops),
     seamProfile: normalizeGradientSeamProfile(palette.seamProfile),
+    isRuntimePalette: true,
   };
 };
 

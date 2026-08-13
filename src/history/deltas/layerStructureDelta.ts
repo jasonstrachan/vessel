@@ -72,6 +72,7 @@ const cloneLayerForReplay = (layer: Layer): Layer => ({
           ? layer.colorCycleData.gradientDefStore.map((entry) => ({
               ...entry,
               stops: entry.stops.map((stop) => ({ ...stop })),
+              sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
             }))
           : undefined,
       }

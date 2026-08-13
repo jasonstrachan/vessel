@@ -1893,6 +1893,10 @@ describe('projectIO serialize/deserialize layering', () => {
             { position: 0, color: '#000000' },
             { position: 1, color: '#ffffff' },
           ],
+          sourceStops: [
+            { position: 0, color: '#123456', opacity: 0.5 },
+            { position: 1, color: '#abcdef' },
+          ],
           hash: 'def-11',
           source: 'manual',
           createdAtMs: 1,
@@ -2012,6 +2016,10 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(gradientDefIds));
       expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(flow));
       expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(phase));
+      expect(restoredLayer.colorCycleData?.gradientDefStore?.[0]?.sourceStops).toEqual([
+        { position: 0, color: '#123456', opacity: 0.5 },
+        { position: 1, color: '#abcdef' },
+      ]);
     } finally {
       if (contextProto) {
         contextProto.rect = originalRect;

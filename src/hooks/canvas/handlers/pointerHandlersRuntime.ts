@@ -276,7 +276,6 @@ import type {
   PointerHandlers,
 } from '../utils/types';
 import { BrushShape, type BrushSettings } from '../../../types';
-import { gradientsEqual } from '@/stores/helpers/toolsState';
 import { snapPointToAngle } from '../../../utils/angleSnap';
 import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
@@ -2355,23 +2354,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         worldPos.y,
       );
       if (pickedGradient) {
-        const currentSettings = dynamic.tools.brushSettings;
-        if (
-          dynamic.tools.brushSettings.ccGradientSource !== 'manual' ||
-          currentSettings.colorCycleGradientSeamProfile !== pickedGradient.seamProfile ||
-          currentSettings.colorCycleGradientIsRuntimePalette !== true ||
-          !gradientsEqual(currentSettings.colorCycleGradient, pickedGradient.stops)
-        ) {
-          deps.setBrushSettings({
-            colorCycleGradient: pickedGradient.stops,
-            colorCycleGradientSeamProfile: pickedGradient.seamProfile,
-            colorCycleGradientIsRuntimePalette: true,
-            ccGradientSource: 'manual',
-            colorCycleUseForegroundGradient: false,
-            autoSampleGradient: false,
-            autoSampleGradientRealtime: false,
-          });
-        }
+        const rememberGradient = deps.rememberColorCycleGradient
+          ?? getAppStoreState().rememberColorCycleGradient;
+        rememberGradient({
+          stops: pickedGradient.stops,
+          seamProfile: pickedGradient.seamProfile,
+          isRuntimePalette: pickedGradient.isRuntimePalette,
+        });
         return;
       }
     }

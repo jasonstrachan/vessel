@@ -1660,6 +1660,10 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.layers).toHaveLength(2);
     expect(nextState.layers.map((layer) => layer.name)).toEqual(['Layer 1', 'CC Layer 1']);
     expect(nextState.layers.map((layer) => layer.layerType)).toEqual(['normal', 'color-cycle']);
+    const activeGradient = nextState.palette.colorCycleGradients?.find(
+      (gradient) => gradient.id === nextState.palette.activeColorCycleGradientId,
+    );
+    expect(nextState.tools.brushSettings.colorCycleGradient).toEqual(activeGradient?.stops);
     expect(nextState.pendingColorCycleGradientHandoff).toBeNull();
     expect(nextState.autosave.hasUnsavedChanges).toBe(false);
     expect(nextState.autosave.dirtyRevision).toBe(nextState.autosave.savedRevision);

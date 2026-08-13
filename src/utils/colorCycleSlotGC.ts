@@ -2,10 +2,16 @@ import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { signatureForStops } from '@/hooks/brushEngine/ccGradientRuntime';
 import { getColorCycleLegacyLayerBuffer } from '@/lib/colorCycle/document';
-import type { Layer } from '@/types';
+import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
+import type {
+  ColorCycleSlotPalette,
+  GradientSeamProfile,
+  Layer,
+} from '@/types';
 
 const EDITOR_SLOT = 255;
 const DEFAULT_THROTTLE_MS = 750;
+type GradientStop = ColorCycleSlotPalette['stops'][number];
 
 export type GradientSlotRebuildScope = 'layer' | 'project';
 
@@ -102,35 +108,41 @@ const collectNonDefSlots = (data: Layer['colorCycleData'] | undefined | null): S
   return used;
 };
 
-const buildSlotPaletteMap = (slotPalettes: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>) => {
-  const map = new Map<number, Array<{ position: number; color: string }>>();
+const buildSlotPaletteMap = (slotPalettes: ColorCycleSlotPalette[]) => {
+  const map = new Map<number, ColorCycleSlotPalette>();
   slotPalettes.forEach((entry) => {
-    map.set(clampSlot(entry.slot), entry.stops);
+    map.set(clampSlot(entry.slot), entry);
   });
   return map;
 };
 
 const removeSlotPalette = (
-  slotPalettes: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>,
+  slotPalettes: ColorCycleSlotPalette[],
   slot: number
-): Array<{ slot: number; stops: Array<{ position: number; color: string }> }> =>
+): ColorCycleSlotPalette[] =>
   slotPalettes.filter((entry) => clampSlot(entry.slot) !== slot);
 
 const ensureSlotPalette = (
-  slotPalettes: Array<{ slot: number; stops: Array<{ position: number; color: string }> }>,
+  slotPalettes: ColorCycleSlotPalette[],
   slot: number,
-  stops: Array<{ position: number; color: string }>
-): Array<{ slot: number; stops: Array<{ position: number; color: string }> }> => {
+  stops: GradientStop[],
+  seamProfile?: GradientSeamProfile,
+): ColorCycleSlotPalette[] => {
   const existing = slotPalettes.find((entry) => clampSlot(entry.slot) === slot);
   if (existing) {
-    if (signatureForStops(existing.stops) === signatureForStops(stops)) {
+    if (
+      signatureForStops(existing.stops) === signatureForStops(stops) &&
+      normalizeGradientSeamProfile(existing.seamProfile) ===
+        normalizeGradientSeamProfile(seamProfile)
+    ) {
       return slotPalettes;
     }
     return slotPalettes.map((entry) =>
       clampSlot(entry.slot) === slot
         ? {
             slot: clampSlot(slot),
-            stops: stops.map((stop) => ({ position: stop.position, color: stop.color })),
+            stops: stops.map((stop) => ({ ...stop })),
+            seamProfile,
           }
         : entry
     );
@@ -139,7 +151,8 @@ const ensureSlotPalette = (
     ...slotPalettes,
     {
       slot: clampSlot(slot),
-      stops: stops.map((stop) => ({ position: stop.position, color: stop.color })),
+      stops: stops.map((stop) => ({ ...stop })),
+      seamProfile,
     },
   ];
 };
@@ -248,21 +261,25 @@ export const rebuildGradientSlotUsageAndGC = (args: {
       }
     };
 
-    const ensurePalette = (slot: number, stops: Array<{ position: number; color: string }>) => {
+    const ensurePalette = (
+      slot: number,
+      stops: GradientStop[],
+      seamProfile?: GradientSeamProfile,
+    ) => {
       if (!nextSlotPalettes) {
         nextSlotPalettes = slotPalettes.map((entry) => ({
-          slot: entry.slot,
-          stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+          ...entry,
+          stops: entry.stops.map((stop) => ({ ...stop })),
         }));
       }
-      nextSlotPalettes = ensureSlotPalette(nextSlotPalettes, slot, stops);
+      nextSlotPalettes = ensureSlotPalette(nextSlotPalettes, slot, stops, seamProfile);
     };
 
     const removePalette = (slot: number) => {
       if (!nextSlotPalettes) {
         nextSlotPalettes = slotPalettes.map((entry) => ({
-          slot: entry.slot,
-          stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+          ...entry,
+          stops: entry.stops.map((stop) => ({ ...stop })),
         }));
       }
       nextSlotPalettes = removeSlotPalette(nextSlotPalettes, slot);
@@ -276,9 +293,14 @@ export const rebuildGradientSlotUsageAndGC = (args: {
       if (typeof def.slot === 'number') {
         const slot = clampSlot(def.slot);
         usedDefSlots.add(slot);
-        const paletteStops = slotPaletteMap.get(slot);
-        if (!paletteStops || signatureForStops(paletteStops) !== signatureForStops(def.stops)) {
-          ensurePalette(slot, def.stops);
+        const palette = slotPaletteMap.get(slot);
+        if (
+          !palette ||
+          signatureForStops(palette.stops) !== signatureForStops(def.stops) ||
+          normalizeGradientSeamProfile(palette.seamProfile) !==
+            normalizeGradientSeamProfile(def.seamProfile)
+        ) {
+          ensurePalette(slot, def.stops, def.seamProfile);
         }
       } else {
         needsSlot.push(def);
@@ -299,8 +321,8 @@ export const rebuildGradientSlotUsageAndGC = (args: {
         freedSlotsCount += 1;
       }
       if (!nonDefSlots.has(slot)) {
-        const paletteStops = slotPaletteMap.get(slot);
-        if (paletteStops && signatureForStops(paletteStops) === signatureForStops(def.stops)) {
+        const palette = slotPaletteMap.get(slot);
+        if (palette && signatureForStops(palette.stops) === signatureForStops(def.stops)) {
           removePalette(slot);
         }
       }
@@ -320,9 +342,9 @@ export const rebuildGradientSlotUsageAndGC = (args: {
         if (blockedSlots.has(clamped)) {
           continue;
         }
-        const paletteStops = slotPaletteMap.get(clamped);
-        if (paletteStops) {
-          if (signatureForStops(paletteStops) !== signatureForStops(def.stops)) {
+        const palette = slotPaletteMap.get(clamped);
+        if (palette) {
+          if (signatureForStops(palette.stops) !== signatureForStops(def.stops)) {
             continue;
           }
         }
@@ -333,7 +355,7 @@ export const rebuildGradientSlotUsageAndGC = (args: {
         continue;
       }
       updateDefSlot(def.id, assigned);
-      ensurePalette(assigned, def.stops);
+      ensurePalette(assigned, def.stops, def.seamProfile);
       reassignedSlotsCount += 1;
       blockedSlots.add(assigned);
     }

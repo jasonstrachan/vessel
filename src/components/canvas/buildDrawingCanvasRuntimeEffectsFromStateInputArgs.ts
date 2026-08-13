@@ -79,6 +79,7 @@ export const buildDrawingCanvasRuntimeEffectsFromStateInputArgs = ({
     updateLayer: state.updateLayer,
     setActiveColor: state.setActiveColor,
     setBrushSettings: state.setBrushSettings,
+    rememberColorCycleGradient: state.rememberColorCycleGradient,
     updateRecolorSampling: state.updateRecolorSampling,
     stopRecolorSampling: state.stopRecolorSampling,
     setRectangleBrushState: state.setRectangleBrushState,

@@ -165,6 +165,7 @@ describe('brushPersistenceAdapter', () => {
         id: 9,
         kind: 'linear' as const,
         stops: [{ position: 0, color: '#ffffff' }],
+        sourceStops: [{ position: 0, color: '#123456', opacity: 0.5 }],
         hash: 'hash',
         source: 'manual' as const,
         createdAtMs: 1,
@@ -215,10 +216,15 @@ describe('brushPersistenceAdapter', () => {
     expect(Array.from(new Uint16Array(documentState.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual([9, 0, 0, 0]);
     expect(documentState.slotPalettes?.[0]?.stops).toEqual([{ position: 0, color: '#ffffff' }]);
     expect(documentState.gradientDefStore?.[0]?.stops).toEqual([{ position: 0, color: '#ffffff' }]);
+    expect(documentState.gradientDefStore?.[0]?.sourceStops).toEqual([
+      { position: 0, color: '#123456', opacity: 0.5 },
+    ]);
     buffers.paint[0] = 0;
     meta.slotPalettes[0].stops[0].color = '#000000';
+    meta.gradientDefStore[0].sourceStops[0].color = '#000000';
     expect(Array.from(new Uint8Array(documentState.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 0, 0, 0]);
     expect(documentState.slotPalettes?.[0]?.stops).toEqual([{ position: 0, color: '#ffffff' }]);
+    expect(documentState.gradientDefStore?.[0]?.sourceStops?.[0]?.color).toBe('#123456');
   });
 
   it('borrows exact runtime buffers until the document makes its one owned copy', () => {

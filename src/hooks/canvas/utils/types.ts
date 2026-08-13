@@ -210,6 +210,11 @@ export interface EventHandlerDependencies {
   compositeLayersToCanvas: (canvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => void;
   updateLayer: (layerId: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
+  rememberColorCycleGradient?: (gradient: {
+    stops: NonNullable<BrushSettings['colorCycleGradient']>;
+    seamProfile: GradientSeamProfile;
+    isRuntimePalette?: boolean;
+  }) => string | null;
   updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
   stopRecolorSampling: () => void;
   setRectangleBrushState: (partial: Partial<RectangleBrushState>) => void;
@@ -267,6 +272,7 @@ export interface EventHandlerDependencies {
   ) => {
     stops: NonNullable<BrushSettings['colorCycleGradient']>;
     seamProfile: GradientSeamProfile;
+    isRuntimePalette?: boolean;
   } | null;
   getMousePos: (
     event: React.MouseEvent<Element> | React.PointerEvent<Element> | React.WheelEvent<Element>

@@ -27,6 +27,7 @@ export type ColorCycleGradientDefStore = {
   id: number;
   kind: 'linear' | 'concentric';
   stops: StoredStop[];
+  sourceStops?: StoredStop[];
   hash: string;
   source: GradientDefSource;
   seamProfile?: GradientSeamProfile;
@@ -216,6 +217,7 @@ export const ensureGradientDefForStops = (params: {
   layerId: string;
   kind: 'linear' | 'concentric';
   stops: StoredStop[];
+  sourceStops?: StoredStop[];
   source: GradientDefSource;
   preferredSlot?: number;
   speedCps?: number;
@@ -241,6 +243,7 @@ export const ensureGradientDefForStops = (params: {
     }
     const colorCycleData = layer.colorCycleData ?? {};
     const frozenStops = cloneStops(params.stops);
+    const sourceStops = params.sourceStops?.length ? cloneStops(params.sourceStops) : undefined;
     const hash = hashStops(frozenStops, params.kind);
     const defStore = colorCycleData.gradientDefStore ?? [];
     const incomingSpeed = Number.isFinite(params.speedCps) ? params.speedCps : null;
@@ -258,8 +261,14 @@ export const ensureGradientDefForStops = (params: {
     };
     const matchesSeamProfile = (entry: ColorCycleGradientDefStore): boolean =>
       normalizeGradientSeamProfile(entry.seamProfile) === incomingSeamProfile;
+    const matchesSourceStops = (entry: ColorCycleGradientDefStore): boolean => (
+      sourceStops === undefined
+        ? entry.sourceStops === undefined
+        : Boolean(entry.sourceStops && haveMatchingStops(entry.sourceStops, sourceStops))
+    );
     const existing = defStore.find(
       (entry) => entry.hash === hash && matchesSpeed(entry) && matchesSeamProfile(entry)
+        && matchesSourceStops(entry)
     ) ?? null;
     const existingSlot = existing?.slot;
     const slotPalettes = colorCycleData.slotPalettes ?? [];
@@ -321,6 +330,7 @@ export const ensureGradientDefForStops = (params: {
         id: allocation.id,
         kind: params.kind,
         stops: frozenStops,
+        ...(sourceStops ? { sourceStops } : {}),
         hash,
         source: params.source,
         seamProfile: incomingSeamProfile,

@@ -8,10 +8,6 @@ import {
   updateLayerColorCycleHydrationState,
 } from '@/stores/layerHydration';
 import {
-  areGradientStopsEqual,
-  resolveActiveGradientStops,
-} from '@/stores/layers/layerColorCycleState';
-import {
   hasWarmableColorCycleRuntimeSource as hasWarmableRuntimeSource,
   isDocumentColdColorCycleLayer as isDocumentColdLayer,
 } from '@/stores/layers/layerColorCycleRuntimePolicy';
@@ -252,15 +248,9 @@ export const createLayerActivationActions = ({
       }
 
       const resolvedFlowMode = 'forward' as const;
-      const layerGradientStops = resolveActiveGradientStops(layer.colorCycleData);
-      const currentGradientStops = state.tools.brushSettings.colorCycleGradient;
-      const hasGradientChange =
-        Boolean(layerGradientStops) && !areGradientStopsEqual(currentGradientStops, layerGradientStops);
-
       const shouldUpdateBrushSettings =
         state.tools.brushSettings.customBrushColorCycle !== true ||
-        state.tools.brushSettings.colorCycleFlowMode !== resolvedFlowMode ||
-        hasGradientChange;
+        state.tools.brushSettings.colorCycleFlowMode !== resolvedFlowMode;
 
       let nextBrushSettings = state.tools.brushSettings;
       if (shouldUpdateBrushSettings) {
@@ -268,9 +258,6 @@ export const createLayerActivationActions = ({
           ...state.tools.brushSettings,
           customBrushColorCycle: true,
           colorCycleFlowMode: resolvedFlowMode,
-          ...(hasGradientChange && layerGradientStops
-            ? { colorCycleGradient: layerGradientStops.map(stop => ({ ...stop })) }
-            : {})
         };
       }
 

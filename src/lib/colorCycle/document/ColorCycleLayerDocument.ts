@@ -312,6 +312,7 @@ const cloneGradientDefStore = (
   gradientDefStore?.map((entry) => ({
     ...entry,
     stops: entry.stops.map((stop) => ({ ...stop })),
+    sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
   }))
 );
 
@@ -445,7 +446,12 @@ const gradientDefStoreEntriesEqual = (
   a.createdAtMs === b.createdAtMs &&
   a.slot === b.slot &&
   a.speedCps === b.speedCps &&
-  stopsEqual(a.stops, b.stops)
+  stopsEqual(a.stops, b.stops) &&
+  optionalArrayEqual(a.sourceStops, b.sourceStops, (left, right) => (
+    left.position === right.position &&
+    left.color === right.color &&
+    left.opacity === right.opacity
+  ))
 );
 
 const documentPixelBuffersEqual = (
@@ -494,6 +500,10 @@ const freezeDocumentSnapshot = (
   state.gradientDefStore?.forEach((entry) => {
     entry.stops.forEach(Object.freeze);
     Object.freeze(entry.stops);
+    if (entry.sourceStops) {
+      entry.sourceStops.forEach(Object.freeze);
+      Object.freeze(entry.sourceStops);
+    }
     Object.freeze(entry);
   });
   Object.freeze(state.gradientDefs);

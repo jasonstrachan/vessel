@@ -48,6 +48,7 @@ const cloneDocumentStateForPersistence = (
   gradientDefStore: state.gradientDefStore?.map((entry) => ({
     ...entry,
     stops: entry.stops.map((stop) => ({ ...stop })),
+    sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
   })),
   sources: { ...state.sources },
 });
@@ -64,6 +65,7 @@ const referenceDocumentStateForHistory = (
   gradientDefStore: state.gradientDefStore?.map((entry) => ({
     ...entry,
     stops: entry.stops.map((stop) => ({ ...stop })),
+    sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
   })),
   sources: { ...state.sources },
 });

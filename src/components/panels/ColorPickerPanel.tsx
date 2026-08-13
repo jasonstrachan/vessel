@@ -3,7 +3,9 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import ColorPicker from '../ui/ColorPicker';
 import ColorSwatches from '../toolbar/ColorSwatches';
+import { ColorCycleGradientSwatches } from '../toolbar/ColorCycleGradientSwatches';
 import PaletteSwatches from '../ui/PaletteSwatches';
+import { isColorCycleBrushShape } from '@/stores/helpers/toolsState';
 
 const ColorPickerPanel = React.memo(() => {
   // Use individual selectors to avoid unstable object references  
@@ -11,6 +13,16 @@ const ColorPickerPanel = React.memo(() => {
   const ditherEnabled = useAppStore(state => state.tools.brushSettings.ditherEnabled);
   const setActiveColor = useAppStore(state => state.setActiveColor);
   const setActivePaletteSlot = useAppStore(state => state.setActivePaletteSlot);
+  const activeLayerIsColorCycle = useAppStore((state) => (
+    state.layers.find((layer) => layer.id === state.activeLayerId)?.layerType === 'color-cycle'
+  ));
+  const brushShape = useAppStore((state) => state.tools.brushSettings.brushShape);
+  const customBrushColorCycle = useAppStore(
+    (state) => state.tools.brushSettings.customBrushColorCycle === true,
+  );
+  const showColorCycleGradients = activeLayerIsColorCycle
+    || isColorCycleBrushShape(brushShape)
+    || customBrushColorCycle;
   
   const { foregroundColor, backgroundColor, activeSlot } = palette;
   const activeColor = useMemo(
@@ -277,11 +289,14 @@ const ColorPickerPanel = React.memo(() => {
         </div>
       </div>
 
-      {/* Color Swatches - Full Width Section */}
-      <ColorSwatches
-        currentColor={activeColor}
-        onColorSelect={handleColorSelect}
-      />
+      {showColorCycleGradients ? (
+        <ColorCycleGradientSwatches />
+      ) : (
+        <ColorSwatches
+          currentColor={activeColor}
+          onColorSelect={handleColorSelect}
+        />
+      )}
     </div>
   );
 });

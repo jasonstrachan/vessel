@@ -54,6 +54,7 @@ const makeState = (
     id: 1,
     kind: 'linear',
     stops: [{ position: 0, color: '#000000' }],
+    sourceStops: [{ position: 0, color: '#123456', opacity: 0.5 }],
     hash: 'hash-a',
     source: 'manual',
     createdAtMs: 1,
@@ -100,6 +101,7 @@ describe('ColorCycleLayerDocument', () => {
     expect(Object.isFrozen(read.snapshot)).toBe(true);
     expect(Object.isFrozen(read.snapshot.sources)).toBe(true);
     expect(Object.isFrozen(read.snapshot.slotPalettes?.[0])).toBe(true);
+    expect(Object.isFrozen(read.snapshot.gradientDefStore?.[0]?.sourceStops)).toBe(true);
     expect(readBytes(read.snapshot.paintBuffer)).toEqual([1, 0, 0, 0]);
   });
 

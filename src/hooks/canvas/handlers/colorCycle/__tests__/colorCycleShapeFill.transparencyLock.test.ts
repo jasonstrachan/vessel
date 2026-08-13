@@ -896,6 +896,7 @@ describe('colorCycleShapeFill transparency lock', () => {
             id: 11,
             kind: 'linear',
             stops: renderStops,
+            sourceStops: baseStops,
             hash: renderHash,
             source: 'manual',
             createdAtMs: 0,

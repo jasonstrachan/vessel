@@ -1,5 +1,9 @@
 import type { Layer, Project } from '@/types';
-import { createDefaultLayerAlignment, dedupeLayerIds, normalizeProject } from '@/utils/layoutDefaults';
+import {
+  createDefaultLayerAlignment,
+  dedupeLayerIds,
+  normalizeProject,
+} from '@/utils/layoutDefaults';
 
 const makeLayer = (id: string, order: number): Layer => {
   const framebuffer = document.createElement('canvas');
@@ -65,5 +69,37 @@ describe('normalizeProject', () => {
 
     expect(ids).toEqual(['shared-layer-id', 'shared-layer-id-1', 'shared-layer-id-2']);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('normalizes persisted CC gradient swatches and retains the active selection', () => {
+    const project = makeProject([]);
+    project.palette = {
+      foregroundColor: '#111111',
+      backgroundColor: '#eeeeee',
+      activeSlot: 'foreground',
+      colorCycleGradients: [{
+        id: 'picked-gradient',
+        stops: [
+          { position: 1, color: '#ffffff', opacity: 2 },
+          { position: 0, color: '#000000', opacity: 0.5 },
+        ],
+        seamProfile: 'soft',
+        isRuntimePalette: true,
+      }],
+      activeColorCycleGradientId: 'picked-gradient',
+    };
+
+    const palette = normalizeProject(project).palette;
+
+    expect(palette?.activeColorCycleGradientId).toBe('picked-gradient');
+    expect(palette?.colorCycleGradients).toEqual([{
+      id: 'picked-gradient',
+      stops: [
+        { position: 0, color: '#000000', opacity: 0.5 },
+        { position: 1, color: '#ffffff', opacity: 1 },
+      ],
+      seamProfile: 'soft',
+      isRuntimePalette: true,
+    }]);
   });
 });

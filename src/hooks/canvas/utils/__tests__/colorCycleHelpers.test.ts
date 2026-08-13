@@ -146,13 +146,13 @@ const createLayer = (overrides?: Partial<Layer>): Layer =>
   }) as Layer;
 
 describe('resolveActiveColorCycleGradient', () => {
-  it('uses active slot palette stops when stored gradient is empty', () => {
+  it('uses the shared brush gradient instead of the active layer palette', () => {
     const result = resolveActiveColorCycleGradient(createLayer(), createBrushSettings());
 
     expect(result.activeSlot).toBe(7);
     expect(result.activeStops).toEqual([
-      { position: 0, color: '#6b7280' },
-      { position: 1, color: '#9aa3ad' },
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
     ]);
   });
 });

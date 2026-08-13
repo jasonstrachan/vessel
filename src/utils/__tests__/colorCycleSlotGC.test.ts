@@ -160,6 +160,43 @@ describe('colorCycleSlotGC', () => {
     expect(usedDef?.slot).toBeGreaterThan(5);
   });
 
+  it('preserves stop opacity and seam profile when rebuilding a def palette', () => {
+    const stops = [
+      { position: 0, color: '#111111', opacity: 0.25 },
+      { position: 1, color: '#eeeeee', opacity: 0.75 },
+    ];
+    const layer = createLayer({
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
+        gradientDefs: [],
+        slotPalettes: [{ slot: 4, stops }],
+        gradientDefStore: [{
+          id: 4,
+          kind: 'linear',
+          stops,
+          hash: 'linear:opacity-soft',
+          source: 'manual',
+          seamProfile: 'soft',
+          createdAtMs: 0,
+          slot: 4,
+        }],
+      }, {
+        gradientDefIdBuffer: new Uint16Array([4, 0, 0, 0]).buffer,
+      }),
+    });
+
+    const result = rebuildGradientSlotUsageAndGC({
+      layers: [layer],
+      scope: 'layer',
+      layerId: layer.id,
+    });
+    const rebuilt = result?.updates[0]?.colorCycleData?.slotPalettes?.find(
+      (palette) => palette.slot === 4,
+    );
+
+    expect(rebuilt?.stops).toEqual(stops);
+    expect(rebuilt?.seamProfile).toBe('soft');
+  });
+
   it('reassigns slots when a dead def is resurrected', () => {
     const stops = [
       { position: 0, color: '#222222' },

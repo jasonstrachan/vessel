@@ -165,6 +165,7 @@ export type ColorCycleBrushPersistenceLayerMeta = {
     id: number;
     kind: 'linear' | 'concentric';
     stops: GradientStop[];
+    sourceStops?: GradientStop[];
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
     seamProfile?: unknown;
@@ -250,6 +251,7 @@ export const cloneColorCycleBrushPersistenceLayerMeta = (
           id: entry.id,
           kind: entry.kind,
           stops: cloneGradientStops(entry.stops) ?? [],
+          sourceStops: cloneGradientStops(entry.sourceStops),
           hash: entry.hash,
           source: entry.source,
           seamProfile: entry.seamProfile,
@@ -417,6 +419,7 @@ export const createColorCycleBrushPersistenceLayerMetaFromLayerData = (
       id: entry.id,
       kind: entry.kind,
       stops: cloneGradientStops(entry.stops) ?? [],
+      sourceStops: cloneGradientStops(entry.sourceStops),
       hash: entry.hash,
       source: entry.source,
       seamProfile: entry.seamProfile,
@@ -1341,8 +1344,8 @@ export const createColorCycleHistoryLayerStrokeSnapshot = (
           : undefined,
         slotPalettes: layer.slotPalettes
           ? layer.slotPalettes.map((entry) => ({
-              slot: entry.slot,
-              stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+              ...entry,
+              stops: entry.stops.map((stop) => ({ ...stop })),
             }))
           : undefined,
         activeGradientId: layer.activeGradientId,
@@ -3168,6 +3171,7 @@ export const createColorCycleLayerDocumentStateFromStrokeState = ({
       ...entry,
       seamProfile: entry.seamProfile as ColorCycleGradientDefStoreEntry['seamProfile'],
       stops: cloneColorCycleDocumentStops(entry.stops) ?? [],
+      sourceStops: cloneColorCycleDocumentStops(entry.sourceStops),
     })),
     activeGradientId: clonedMeta?.activeGradientId,
     paintSlot: clonedMeta?.paintSlot ?? strokeState.flow?.activeSlot,

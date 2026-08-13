@@ -76,6 +76,7 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
     temporaryCustomBrush: storeState.temporaryCustomBrush,
     setActiveColor: storeState.setActiveColor,
     setBrushSettings: storeState.setBrushSettings,
+    rememberColorCycleGradient: storeState.rememberColorCycleGradient,
     updateRecolorSampling: storeState.updateRecolorSampling,
     stopRecolorSampling: storeState.stopRecolorSampling,
     setRectangleBrushState: storeState.setRectangleBrushState,

@@ -204,6 +204,7 @@ export const applyGradientEdit = (params: {
   const gradientDefStore = currentDefStore.map((entry) => ({
     ...entry,
     stops: cloneStops(entry.stops),
+    sourceStops: entry.sourceStops ? cloneStops(entry.sourceStops) : undefined,
   }));
   const existingDefHashes = new Set(gradientDefStore.map((entry) => entry.hash));
   let nextGradientDefId = normalizeNextColorCycleDefId(
@@ -230,6 +231,7 @@ export const applyGradientEdit = (params: {
       ...entry,
       id: allocation.id,
       stops: cloneStops(nextStops),
+      sourceStops: cloneStops(params.stops),
       hash: nextHash,
       createdAtMs: Date.now(),
     });

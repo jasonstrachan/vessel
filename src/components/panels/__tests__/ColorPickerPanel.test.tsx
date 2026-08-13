@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react';
+import { act, render, fireEvent, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+import { useAppStore } from '@/stores/useAppStore';
+import type { Layer } from '@/types';
+
 import ColorPickerPanel from '../ColorPickerPanel';
 
 // Minimal 2D context mock for canvas usage inside ColorPicker
@@ -24,6 +29,7 @@ const createCtx = () => {
 };
 
 describe('ColorPickerPanel', () => {
+  const initialState = useAppStore.getState();
   const originalGetContext = HTMLCanvasElement.prototype.getContext;
   const originalSetPointerCapture = HTMLElement.prototype.setPointerCapture;
   const originalReleasePointerCapture = HTMLElement.prototype.releasePointerCapture;
@@ -38,10 +44,36 @@ describe('ColorPickerPanel', () => {
   });
 
   afterEach(() => {
+    act(() => useAppStore.setState(initialState, true));
     HTMLCanvasElement.prototype.getContext = originalGetContext;
     HTMLElement.prototype.setPointerCapture = originalSetPointerCapture;
     HTMLElement.prototype.releasePointerCapture = originalReleasePointerCapture;
     jest.restoreAllMocks();
+  });
+
+  it('replaces recent colors with editable shared gradients for a CC layer', async () => {
+    const user = userEvent.setup();
+    const layer = {
+      id: 'cc-layer',
+      name: 'CC',
+      layerType: 'color-cycle',
+    } as Layer;
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    render(<ColorPickerPanel />);
+
+    expect(screen.getByTestId('cc-gradient-palette')).toBeInTheDocument();
+    const swatches = screen.getAllByRole('button', { name: /Use CC gradient/i });
+    expect(swatches.length).toBeGreaterThan(1);
+    await user.click(swatches[1]);
+
+    const state = useAppStore.getState();
+    const active = state.palette.colorCycleGradients?.find(
+      (gradient) => gradient.id === state.palette.activeColorCycleGradientId,
+    );
+    expect(state.tools.brushSettings.colorCycleGradient).toEqual(active?.stops);
+    expect(state.tools.brushSettings.ccGradientSource).toBe('manual');
+    expect(screen.getByText('Seam')).toBeInTheDocument();
   });
 
   it('dispatches dither warmup on color slider release', () => {

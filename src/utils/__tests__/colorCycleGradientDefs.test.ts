@@ -111,6 +111,30 @@ describe('colorCycleGradientDefs', () => {
     ]);
   });
 
+  it('retains authored source stops separately from frozen render stops', () => {
+    const layer = createLayer({
+      colorCycleData: {
+        slotPalettes: [],
+        gradientDefs: [],
+        gradientDefStore: [],
+        nextGradientDefId: 1,
+      },
+    });
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+
+    const result = ensureGradientDefForStops({
+      layerId: layer.id,
+      kind: 'linear',
+      stops: altStops,
+      sourceStops: baseStops,
+      source: 'manual',
+    });
+
+    expect(result?.def.stops).toEqual(altStops);
+    expect(result?.def.sourceStops).toEqual(baseStops);
+    expect(result?.def.sourceStops).not.toBe(baseStops);
+  });
+
   it('does not write back when an existing def and slot palette already match', () => {
     const defHash = hashStops(baseStops, 'linear');
     const layer = createLayer({

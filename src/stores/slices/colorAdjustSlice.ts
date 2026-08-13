@@ -211,6 +211,7 @@ const cloneColorCycleData = (
       ? data.gradientDefStore.map((entry) => ({
           ...entry,
           stops: cloneGradientStops(entry.stops),
+          sourceStops: entry.sourceStops ? cloneGradientStops(entry.sourceStops) : undefined,
         }))
       : data.gradientDefStore,
     recolorSettings: data.recolorSettings
@@ -333,9 +334,11 @@ const buildAdjustedColorCycleData = (
     gradientDefStore: original.gradientDefStore
       ? original.gradientDefStore.map((entry) => {
           const stops = adjustStops(entry.stops);
+          const sourceStops = entry.sourceStops ? adjustStops(entry.sourceStops) : undefined;
           return {
             ...entry,
             stops,
+            sourceStops,
             hash: hashColorCycleDefStops(stops, entry.kind),
           };
         })

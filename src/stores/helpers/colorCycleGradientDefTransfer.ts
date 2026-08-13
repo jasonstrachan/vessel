@@ -18,6 +18,14 @@ const cloneDef = (
 ): TransferredColorCycleGradientDef => ({
   ...def,
   stops: cloneStops(def.stops),
+  sourceStops: def.sourceStops ? cloneStops(def.sourceStops) : undefined,
+});
+
+const definitionIdentity = (def: TransferredColorCycleGradientDef): string => JSON.stringify({
+  hash: def.hash,
+  sourceStops: def.sourceStops ?? null,
+  seamProfile: def.seamProfile ?? 'hard',
+  speedCps: def.speedCps ?? null,
 });
 
 const cloneSlotPalette = (
@@ -298,10 +306,11 @@ export const mergeTransferredColorCycleGradientDefs = ({
   const existingStore = colorCycleData.gradientDefStore ?? [];
   const nextStore = existingStore.map((entry) => cloneDef(entry));
   const existingById = new Map(nextStore.map((entry) => [entry.id, entry]));
-  const existingByHash = new Map<string, TransferredColorCycleGradientDef>();
+  const existingByIdentity = new Map<string, TransferredColorCycleGradientDef>();
   nextStore.forEach((entry) => {
-    if (!existingByHash.has(entry.hash)) {
-      existingByHash.set(entry.hash, entry);
+    const identity = definitionIdentity(entry);
+    if (!existingByIdentity.has(identity)) {
+      existingByIdentity.set(identity, entry);
     }
   });
 
@@ -320,14 +329,14 @@ export const mergeTransferredColorCycleGradientDefs = ({
     }
 
     const exactById = existingById.get(sourceId);
-    if (exactById?.hash === sourceDef.hash) {
+    if (exactById && definitionIdentity(exactById) === definitionIdentity(sourceDef)) {
       remap.set(sourceId, sourceId);
       continue;
     }
 
-    const exactByHash = existingByHash.get(sourceDef.hash);
-    if (exactByHash) {
-      remap.set(sourceId, exactByHash.id);
+    const exactByIdentity = existingByIdentity.get(definitionIdentity(sourceDef));
+    if (exactByIdentity) {
+      remap.set(sourceId, exactByIdentity.id);
       continue;
     }
 
@@ -353,7 +362,7 @@ export const mergeTransferredColorCycleGradientDefs = ({
     });
     nextStore.push(nextDef);
     existingById.set(targetId, nextDef);
-    existingByHash.set(nextDef.hash, nextDef);
+    existingByIdentity.set(definitionIdentity(nextDef), nextDef);
     remap.set(sourceId, targetId);
     storeChanged = true;
   }

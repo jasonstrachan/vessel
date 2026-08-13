@@ -8,13 +8,33 @@ type StoreGet = StoreApi<AppState>['getState'];
 
 export const updateToolsWithPalette = (
   palette: PaletteState,
-  tools: AppState['tools']
+  tools: AppState['tools'],
+  options: { syncColorCycleGradient?: boolean } = {},
 ): AppState['tools'] => {
+  const activeColorCycleGradient = options.syncColorCycleGradient
+    ? palette.colorCycleGradients?.find(
+        (gradient) => gradient.id === palette.activeColorCycleGradientId,
+      )
+    : undefined;
   return {
     ...tools,
+    ...(activeColorCycleGradient ? { ccGradientSource: 'manual' as const } : {}),
     brushSettings: {
       ...tools.brushSettings,
       color: palette.foregroundColor,
+      ...(activeColorCycleGradient
+        ? {
+            colorCycleGradient: activeColorCycleGradient.stops.map((stop) => ({ ...stop })),
+            colorCycleGradientVersion:
+              (tools.brushSettings.colorCycleGradientVersion ?? 0) + 1,
+            colorCycleGradientSeamProfile: activeColorCycleGradient.seamProfile,
+            colorCycleGradientIsRuntimePalette: activeColorCycleGradient.isRuntimePalette === true,
+            ccGradientSource: 'manual' as const,
+            colorCycleUseForegroundGradient: false,
+            autoSampleGradient: false,
+            autoSampleGradientRealtime: false,
+          }
+        : {}),
     },
     eraserSettings:
       tools.currentTool === 'eraser'
@@ -25,6 +45,7 @@ export const updateToolsWithPalette = (
 
 export interface ApplyPaletteOptions {
   paletteDirty?: boolean;
+  syncColorCycleGradient?: boolean;
 }
 
 export const applyPaletteSnapshot = (
@@ -36,7 +57,9 @@ export const applyPaletteSnapshot = (
   set((state) => {
     const targetDirty =
       options.paletteDirty !== undefined ? options.paletteDirty : state.paletteDirty;
-    const nextTools = updateToolsWithPalette(palette, state.tools);
+    const nextTools = updateToolsWithPalette(palette, state.tools, {
+      syncColorCycleGradient: options.syncColorCycleGradient,
+    });
 
     const result: Partial<AppState> = {
       palette,

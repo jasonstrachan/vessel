@@ -152,6 +152,7 @@ const cloneState = (
             ? layer.gradientDefStore.map((entry) => ({
                 ...entry,
                 stops: cloneStoredStops(entry.stops),
+                sourceStops: entry.sourceStops ? cloneStoredStops(entry.sourceStops) : undefined,
               }))
             : undefined,
           nextGradientDefId: layer.nextGradientDefId,
@@ -659,8 +660,8 @@ class ColorCycleStrokeDelta implements HistoryDelta {
                     : undefined,
                   slotPalettes: layerSnapshot.slotPalettes
                     ? layerSnapshot.slotPalettes.map((entry) => ({
-                        slot: entry.slot,
-                        stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+                        ...entry,
+                        stops: entry.stops.map((stop) => ({ ...stop })),
                       }))
                     : undefined,
                   activeGradientId: layerSnapshot.activeGradientId,
@@ -790,6 +791,7 @@ class ColorCycleStrokeDelta implements HistoryDelta {
                 ...entry,
                 seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
                 stops: cloneStoredStops(entry.stops),
+                sourceStops: entry.sourceStops ? cloneStoredStops(entry.sourceStops) : undefined,
               }))
             : undefined;
           const nextColorCycleData = {

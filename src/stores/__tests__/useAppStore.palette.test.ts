@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
 import type { Project } from '@/types';
+import { normalizePalette } from '@/utils/layoutDefaults';
 
 const prepareStore = () => {
   const store = useAppStore.getState();
@@ -74,7 +75,17 @@ describe('useAppStore palette integration', () => {
     const paletteOverride = {
       foregroundColor: '#336699',
       backgroundColor: '#FFEEDD',
-      activeSlot: 'background' as const
+      activeSlot: 'background' as const,
+      colorCycleGradients: [{
+        id: 'loaded-gradient',
+        name: 'Loaded',
+        stops: [
+          { position: 0, color: '#123456' },
+          { position: 1, color: '#abcdef' },
+        ],
+        seamProfile: 'soft' as const,
+      }],
+      activeColorCycleGradientId: 'loaded-gradient',
     };
     const project: Project = {
       ...baseProject,
@@ -87,8 +98,13 @@ describe('useAppStore palette integration', () => {
     useAppStore.getState().setProject(project);
 
     const nextState = useAppStore.getState();
-    expect(nextState.palette).toEqual(paletteOverride);
+    expect(nextState.palette).toEqual(normalizePalette(paletteOverride));
     expect(nextState.tools.brushSettings.color).toBe(paletteOverride.foregroundColor);
+    expect(nextState.tools.brushSettings.colorCycleGradient).toEqual([
+      { position: 0, color: '#123456', opacity: 1 },
+      { position: 1, color: '#abcdef', opacity: 1 },
+    ]);
+    expect(nextState.tools.brushSettings.colorCycleGradientSeamProfile).toBe('soft');
   });
 
   it('marks palette dirty when palette slots change directly', () => {

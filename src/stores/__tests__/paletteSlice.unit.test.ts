@@ -105,4 +105,40 @@ describe('palette slice', () => {
     store.setColorPickerPreferReferenceLayer(false);
     expect(store.getState().colorPickerPreferReferenceLayer).toBe(false);
   });
+
+  it('selects a shared CC gradient and applies it as manual ink', () => {
+    const store = createTestStore();
+    const gradient = store.getState().palette.colorCycleGradients[1];
+
+    store.selectColorCycleGradient(gradient.id);
+
+    const next = store.getState();
+    expect(next.palette.activeColorCycleGradientId).toBe(gradient.id);
+    expect(next.tools.brushSettings.colorCycleGradient).toEqual(gradient.stops);
+    expect(next.tools.brushSettings.ccGradientSource).toBe('manual');
+    expect(next.tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(false);
+  });
+
+  it('retains legacy baked picks until the user edits them', () => {
+    const store = createTestStore();
+    const stops = [
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ddeeff' },
+    ];
+
+    const id = store.rememberColorCycleGradient({
+      stops,
+      seamProfile: 'hard',
+      isRuntimePalette: true,
+    });
+    expect(store.getState().tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(true);
+
+    store.updateActiveColorCycleGradient([
+      { position: 0, color: '#112233' },
+      { position: 1, color: '#ffffff' },
+    ]);
+    const active = store.getState().palette.colorCycleGradients.find((entry: any) => entry.id === id);
+    expect(active.isRuntimePalette).toBe(false);
+    expect(store.getState().tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(false);
+  });
 });

@@ -137,6 +137,7 @@ const gradientDefSignature = (
 ): string => JSON.stringify({
   kind: definition.kind,
   stops: stopsSignature(definition.stops),
+  sourceStops: definition.sourceStops ? stopsSignature(definition.sourceStops) : null,
   seamProfile: definition.seamProfile ?? 'hard',
   speedCps: definition.speedCps ?? null,
 });

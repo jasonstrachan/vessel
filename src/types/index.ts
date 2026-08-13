@@ -85,10 +85,20 @@ export interface WebGLExportSettings {
   designScalePercent: number;
 }
 
+export interface ColorCycleGradientSwatch {
+  id: string;
+  name?: string;
+  stops: Array<{ position: number; color: string; opacity?: number }>;
+  seamProfile: GradientSeamProfile;
+  isRuntimePalette?: boolean;
+}
+
 export interface PaletteState {
   foregroundColor: string;
   backgroundColor: string;
   activeSlot: 'foreground' | 'background';
+  colorCycleGradients?: ColorCycleGradientSwatch[];
+  activeColorCycleGradientId?: string;
 }
 
 export type DisplayFilterId =
@@ -496,6 +506,7 @@ export interface ColorCycleGradientDefStoreEntry {
   id: number;
   kind: 'linear' | 'concentric';
   stops: Array<{ position: number; color: string; opacity?: number }>;
+  sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
   hash: string;
   source: 'manual' | 'fg' | 'sampled';
   seamProfile?: GradientSeamProfile;

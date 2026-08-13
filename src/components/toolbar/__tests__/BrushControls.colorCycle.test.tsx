@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { create } from 'zustand';
 import userEvent from '@testing-library/user-event';
 
@@ -448,70 +448,13 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     jest.restoreAllMocks();
   });
 
-  it('shows gradient editor, speed, and bands for color cycle stroke', () => {
+  it('keeps gradient editing out of brush controls while retaining stroke controls', () => {
     render(<BrushControls />);
 
-    expect(screen.getByTestId('gradient-editor')).toBeInTheDocument();
+    expect(screen.queryByTestId('gradient-editor')).not.toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
-  });
-
-  it('carries an off-layer manual gradient edit into the next active CC layer', async () => {
-    const user = userEvent.setup();
-    const regularLayer = {
-      id: 'layer-regular',
-      name: 'Regular',
-      layerType: 'normal',
-    } as unknown as AppState['layers'][number];
-    const colorCycleLayer = {
-      id: 'layer-cc',
-      name: 'CC',
-      layerType: 'color-cycle',
-    } as unknown as AppState['layers'][number];
-    useAppStore.setState((state) => ({
-      ...state,
-      activeLayerId: regularLayer.id,
-      layers: [regularLayer, colorCycleLayer],
-    }));
-
-    const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
-    render(<BrushControls />);
-
-    await user.click(screen.getByRole('button', { name: 'Edit manual gradient' }));
-    const editedStops = [
-      { position: 0, color: '#ff0000' },
-      { position: 1, color: '#0000ff' },
-    ];
-    expect(setSharedSpy).toHaveBeenLastCalledWith(editedStops, { fork: true });
-    expect(useAppStore.getState().pendingColorCycleGradientHandoff).toEqual({
-      stops: editedStops,
-      presetId: 'color-cycle-stroke',
-    });
-
-    act(() => {
-      useAppStore.setState((state) => ({
-        ...state,
-        activeLayerId: colorCycleLayer.id,
-        layers: [regularLayer, colorCycleLayer],
-        tools: {
-          ...state.tools,
-          brushSettings: {
-            ...state.tools.brushSettings,
-            colorCycleGradient: [
-              { position: 0, color: '#000000' },
-              { position: 1, color: '#ffffff' },
-            ],
-          },
-        },
-      }));
-    });
-
-    await waitFor(() => {
-      expect(setSharedSpy).toHaveBeenCalledTimes(2);
-    });
-    expect(setSharedSpy).toHaveBeenLastCalledWith(editedStops, { fork: true });
-    expect(useAppStore.getState().pendingColorCycleGradientHandoff).toBeNull();
   });
 
   it('toggles grid snap for color cycle stroke', async () => {
@@ -714,7 +657,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
     render(<BrushControls />);
 
-    await user.click(screen.getByRole('button', { name: 'Man Grad' }));
+    await user.click(screen.getByRole('button', { name: 'Palette' }));
 
     expect(useAppStore.getState().tools.ccGradientSource).toBe('manual');
     const lastCall = setSharedSpy.mock.calls.at(-1);

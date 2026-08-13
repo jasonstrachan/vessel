@@ -1,5 +1,6 @@
 import { colorCycleShapeBrushPreset, colorCycleStrokeBrushPreset, defaultBrushPreset } from '@/presets/brushPresets';
 import { BrushShape, type BrushSettings } from '@/types';
+import { createDefaultPalette } from '@/utils/layoutDefaults';
 
 const mockManager = {
   validateColorCycleBrush: jest.fn(() => true),
@@ -36,6 +37,7 @@ describe('useAppStore color cycle brush presets', () => {
     useAppStore.setState(state => ({
       ...state,
       brushSpecificSettings: {},
+      palette: createDefaultPalette(),
       currentBrushPreset: colorCycleStrokeBrushPreset,
       activeBrushComponents: colorCycleStrokeBrushPreset.components,
       tools: {
@@ -53,7 +55,11 @@ describe('useAppStore color cycle brush presets', () => {
   it('reuses the active gradient when switching between color cycle presets', () => {
     const store = useAppStore.getState();
     store.setBrushPreset(colorCycleStrokeBrushPreset);
-    store.setBrushSettings({ colorCycleGradient: customGradient });
+    store.rememberColorCycleGradient({
+      stops: customGradient,
+      seamProfile: 'hard',
+      name: 'Custom',
+    });
 
     store.setBrushPreset(colorCycleShapeBrushPreset);
 
@@ -63,7 +69,11 @@ describe('useAppStore color cycle brush presets', () => {
   it('restores the saved gradient after visiting a non color cycle preset', () => {
     const store = useAppStore.getState();
     store.setBrushPreset(colorCycleStrokeBrushPreset);
-    store.setBrushSettings({ colorCycleGradient: customGradient });
+    store.rememberColorCycleGradient({
+      stops: customGradient,
+      seamProfile: 'hard',
+      name: 'Custom',
+    });
 
     store.setBrushPreset(defaultBrushPreset);
     store.setBrushPreset(colorCycleShapeBrushPreset);

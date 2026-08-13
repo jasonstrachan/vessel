@@ -9,7 +9,7 @@ type CcGradientSourceModeControlProps = {
 
 const CC_GRADIENT_SOURCE_OPTIONS = [
   { label: 'FG Grad', value: 'fg' },
-  { label: 'Man Grad', value: 'manual' },
+  { label: 'Palette', value: 'manual' },
   { label: 'Sample', value: 'sample' },
 ];
 

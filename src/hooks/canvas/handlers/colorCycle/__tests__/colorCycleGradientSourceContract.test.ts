@@ -100,8 +100,8 @@ describe('colorCycleGradientSourceContract', () => {
     expect(result.behavior.usesSampledStops).toBe(true);
     expect(result.activeSlot).toBe(3);
     expect(result.activeStops).toEqual([
-      { position: 0, color: '#112233' },
-      { position: 1, color: '#ddeeff' },
+      { position: 0, color: '#000000' },
+      { position: 1, color: '#ffffff' },
     ]);
   });
 
@@ -122,7 +122,7 @@ describe('colorCycleGradientSourceContract', () => {
         { position: 1, color: '#fedcba' },
       ],
     },
-  ])('preserves $source active stops for source/mode matrix coverage', ({ source, stops }) => {
+  ])('uses shared active stops for $source source/mode matrix coverage', ({ source, stops }) => {
     const result = resolveColorCycleGradientSourceState({
       layer: makeLayer({
         colorCycleData: {
@@ -138,7 +138,7 @@ describe('colorCycleGradientSourceContract', () => {
     });
 
     expect(result.source).toBe(source);
-    expect(result.activeStops).toEqual(stops);
+    expect(result.activeStops).toEqual(makeBrushSettings().colorCycleGradient);
     expect(result.behavior.usesSampledStops).toBe(source === 'sampled');
   });
 

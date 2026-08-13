@@ -873,7 +873,8 @@ interface SerializedBrushLayerSnapshot {
   gradientDefStore?: Array<{
     id: number;
     kind: 'linear' | 'concentric';
-    stops: Array<{ position: number; color: string }>;
+    stops: Array<{ position: number; color: string; opacity?: number }>;
+    sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
     seamProfile?: 'hard' | 'soft';
@@ -984,7 +985,8 @@ interface SerializedColorCycleLayerData {
   gradientDefStore?: Array<{
     id: number;
     kind: 'linear' | 'concentric';
-    stops: Array<{ position: number; color: string }>;
+    stops: Array<{ position: number; color: string; opacity?: number }>;
+    sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
     seamProfile?: 'hard' | 'soft';
@@ -1111,7 +1113,8 @@ interface ColorCycleBrushState {
     gradientDefStore?: Array<{
       id: number;
       kind: 'linear' | 'concentric';
-      stops: Array<{ position: number; color: string }>;
+      stops: Array<{ position: number; color: string; opacity?: number }>;
+      sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
       hash: string;
       source: 'manual' | 'fg' | 'sampled';
       seamProfile?: 'hard' | 'soft';
@@ -2588,14 +2591,15 @@ const buildSerializedColorCycleCanonicalState = (
     ? colorCycleData.slotPalettes.map((entry) => ({
         slot: entry.slot,
         seamProfile: entry.seamProfile,
-        stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+        stops: entry.stops.map((stop) => ({ ...stop })),
       }))
     : undefined,
   gradientDefStore: colorCycleData.gradientDefStore
     ? colorCycleData.gradientDefStore.map((entry) => ({
         id: entry.id,
         kind: entry.kind,
-        stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+        stops: entry.stops.map((stop) => ({ ...stop })),
+        sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
         hash: entry.hash,
         source: entry.source,
         seamProfile: entry.seamProfile,
@@ -3912,7 +3916,8 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
         ? serializedLayer.colorCycleData.gradientDefStore.map((entry) => ({
             id: entry.id,
             kind: entry.kind,
-            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+            stops: entry.stops.map((stop) => ({ ...stop })),
+            sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
             hash: entry.hash,
             source: entry.source,
             seamProfile: entry.seamProfile,

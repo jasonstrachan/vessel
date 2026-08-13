@@ -82,32 +82,13 @@ const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
   return Math.max(MIN_CC_LAYER_SPEED_SCALE, Math.min(MAX_CC_LAYER_SPEED_SCALE, scale));
 };
 
-const resolveActiveColorCycleLayerGradient = (state: AppState): BrushSettings['colorCycleGradient'] => {
-  const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
-  if (!activeLayer || activeLayer.layerType !== 'color-cycle' || !activeLayer.colorCycleData) {
-    return undefined;
-  }
-
-  const defs = activeLayer.colorCycleData.gradientDefs ?? [];
-  const activeDef =
-    defs.find((entry) => entry.id === activeLayer.colorCycleData?.activeGradientId) ?? defs[0];
-  const targetSlot = activeLayer.colorCycleData.paintSlot ?? activeDef?.currentSlot;
-  if (typeof targetSlot === 'number') {
-    const slotStops = activeLayer.colorCycleData.slotPalettes?.find(
-      (entry) => entry.slot === targetSlot
-    )?.stops;
-    if (slotStops && slotStops.length > 0) {
-      return cloneGradientStops(slotStops);
-    }
-  }
-
-  const legacyStops = activeLayer.colorCycleData.gradient;
-  if (legacyStops && legacyStops.length > 0) {
-    return cloneGradientStops(legacyStops);
-  }
-
-  return undefined;
-};
+const resolveActivePaletteColorCycleGradient = (
+  state: AppState,
+): NonNullable<PaletteState['colorCycleGradients']>[number] | undefined => (
+  state.palette.colorCycleGradients?.find(
+    (gradient) => gradient.id === state.palette.activeColorCycleGradientId,
+  )
+);
 
 export const defaultBrushSettingsForStore: BrushSettings = {
   ...defaultBrushSettings,
@@ -2046,13 +2027,19 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const shouldApplyColorCycleGradient = isColorCycleBrushShape(newBrushSettings.brushShape);
 
     if (shouldApplyColorCycleGradient) {
-      const activeLayerGradient = resolveActiveColorCycleLayerGradient(state);
-      const gradientSource = activeLayerGradient && activeLayerGradient.length > 0
-        ? activeLayerGradient
+      const activePaletteGradient = isColorCyclePresetId(preset.id)
+        ? resolveActivePaletteColorCycleGradient(state)
+        : undefined;
+      const gradientSource = activePaletteGradient?.stops?.length
+        ? activePaletteGradient.stops
         : previousGradient && previousGradient.length > 0
           ? previousGradient
           : storedGradientEntry?.gradient;
-      const gradientVersionSource = previousGradient && previousGradient.length > 0
+      const gradientVersionSource = activePaletteGradient
+        ? gradientsEqual(previousGradient, activePaletteGradient.stops)
+          ? previousGradientVersion
+          : (previousGradientVersion ?? 0) + 1
+        : previousGradient && previousGradient.length > 0
         ? previousGradientVersion
         : storedGradientEntry?.version;
 
@@ -2060,6 +2047,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         const gradientClone = cloneGradientStops(gradientSource);
         if (gradientClone && gradientClone.length > 0) {
           newBrushSettings.colorCycleGradient = gradientClone;
+          if (activePaletteGradient) {
+            newBrushSettings.colorCycleGradientSeamProfile = activePaletteGradient.seamProfile;
+            newBrushSettings.colorCycleGradientIsRuntimePalette =
+              activePaletteGradient.isRuntimePalette === true;
+            newBrushSettings.ccGradientSource = 'manual';
+            newBrushSettings.colorCycleUseForegroundGradient = false;
+            newBrushSettings.autoSampleGradient = false;
+            newBrushSettings.autoSampleGradientRealtime = false;
+          }
           if (typeof gradientVersionSource === 'number') {
             newBrushSettings.colorCycleGradientVersion = gradientVersionSource;
           }

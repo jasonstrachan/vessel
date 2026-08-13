@@ -204,8 +204,8 @@ const cloneLayerForHistory = (
         : undefined,
       slotPalettes: existingColorCycleData.slotPalettes
         ? existingColorCycleData.slotPalettes.map((entry) => ({
-            slot: entry.slot,
-            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+            ...entry,
+            stops: entry.stops.map((stop) => ({ ...stop })),
           }))
         : undefined,
       fgActiveSlot: existingColorCycleData.fgActiveSlot,
@@ -229,9 +229,11 @@ const cloneLayerForHistory = (
         ? existingColorCycleData.gradientDefStore.map((entry) => ({
             id: entry.id,
             kind: entry.kind,
-            stops: entry.stops.map((stop) => ({ position: stop.position, color: stop.color })),
+            stops: entry.stops.map((stop) => ({ ...stop })),
+            sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
             hash: entry.hash,
             source: entry.source,
+            seamProfile: entry.seamProfile,
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
             speedCps: entry.speedCps,

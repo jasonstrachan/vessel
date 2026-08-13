@@ -68,6 +68,7 @@ export interface BuildDrawingCanvasRuntimeEffectsInputHandlersOptionsArgs {
     | 'updateLayer'
     | 'setActiveColor'
     | 'setBrushSettings'
+    | 'rememberColorCycleGradient'
     | 'updateRecolorSampling'
     | 'stopRecolorSampling'
     | 'setRectangleBrushState'

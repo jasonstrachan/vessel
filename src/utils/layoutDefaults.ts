@@ -14,6 +14,67 @@ import type {
 import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 import { normalizeCanvasShape } from '@/utils/canvasShape';
 import { normalizeCcCustomTilePatternPack } from '@/utils/colorCycle/ccCustomTilePattern';
+import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
+import { DEFAULT_GRADIENT_ID, GRADIENT_PRESETS } from '@/utils/gradientPresets';
+
+const createDefaultColorCycleGradients = (): NonNullable<PaletteState['colorCycleGradients']> => (
+  GRADIENT_PRESETS.map((gradient) => ({
+    id: gradient.id,
+    name: gradient.name,
+    stops: gradient.stops.map((stop) => ({ ...stop, opacity: 1 })),
+    seamProfile: 'hard' as const,
+  }))
+);
+
+const normalizeColorCycleGradients = (
+  gradients: PaletteState['colorCycleGradients'],
+): NonNullable<PaletteState['colorCycleGradients']> => {
+  if (!Array.isArray(gradients)) {
+    return createDefaultColorCycleGradients();
+  }
+
+  const seen = new Set<string>();
+  const normalized = gradients.flatMap((gradient) => {
+    if (!gradient || typeof gradient !== 'object') return [];
+    const id = typeof gradient.id === 'string' ? gradient.id.trim() : '';
+    if (!id || seen.has(id) || !Array.isArray(gradient.stops)) return [];
+    const stops = gradient.stops
+      .flatMap((stop) => {
+        if (!stop || typeof stop !== 'object') return [];
+        const position = Number(stop.position);
+        const color = typeof stop.color === 'string' ? stop.color.trim() : '';
+        const opacity = stop.opacity === undefined ? 1 : Number(stop.opacity);
+        if (
+          !Number.isFinite(position) ||
+          position < 0 ||
+          position > 1 ||
+          !color ||
+          !Number.isFinite(opacity)
+        ) {
+          return [];
+        }
+        return [{
+          position,
+          color,
+          opacity: Math.max(0, Math.min(1, opacity)),
+        }];
+      })
+      .sort((left, right) => left.position - right.position);
+    if (stops.length < 2) return [];
+    seen.add(id);
+    return [{
+      id,
+      ...(typeof gradient.name === 'string' && gradient.name.trim()
+        ? { name: gradient.name.trim() }
+        : {}),
+      stops,
+      seamProfile: normalizeGradientSeamProfile(gradient.seamProfile),
+      ...(gradient.isRuntimePalette === true ? { isRuntimePalette: true } : {}),
+    }];
+  });
+
+  return normalized.length > 0 ? normalized : createDefaultColorCycleGradients();
+};
 
 const normalizeHorizontalAxis = (value?: string): LayerHorizontalAlignment => {
   switch (value) {
@@ -192,7 +253,9 @@ export const dedupeLayerIds = <T extends Layer>(layers: T[]): T[] => {
 export const createDefaultPalette = (): PaletteState => ({
   foregroundColor: '#000000',
   backgroundColor: '#FFFFFF',
-  activeSlot: 'foreground'
+  activeSlot: 'foreground',
+  colorCycleGradients: createDefaultColorCycleGradients(),
+  activeColorCycleGradientId: DEFAULT_GRADIENT_ID,
 });
 
 export const normalizePalette = (palette?: PaletteState | null): PaletteState => {
@@ -209,11 +272,19 @@ export const normalizePalette = (palette?: PaletteState | null): PaletteState =>
       ? palette.backgroundColor
       : '#FFFFFF';
   const activeSlot = palette.activeSlot === 'background' ? 'background' : 'foreground';
+  const colorCycleGradients = normalizeColorCycleGradients(palette.colorCycleGradients);
+  const activeColorCycleGradientId = colorCycleGradients.some(
+    (gradient) => gradient.id === palette.activeColorCycleGradientId,
+  )
+    ? palette.activeColorCycleGradientId
+    : colorCycleGradients[0]?.id;
 
   return {
     foregroundColor,
     backgroundColor,
-    activeSlot
+    activeSlot,
+    colorCycleGradients,
+    ...(activeColorCycleGradientId ? { activeColorCycleGradientId } : {}),
   };
 };
 

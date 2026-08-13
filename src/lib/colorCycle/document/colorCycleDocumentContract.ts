@@ -254,6 +254,7 @@ const cloneGradientDefStore = (
   gradientDefStore?.map((entry) => ({
     ...entry,
     stops: cloneStops(entry.stops),
+    sourceStops: entry.sourceStops ? cloneStops(entry.sourceStops) : undefined,
   }))
 );
 

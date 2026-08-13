@@ -381,12 +381,6 @@ const BrushControls = () => {
   const playColorCycle = useAppStore(state => state.playColorCycle);
   const pauseColorCycle = useAppStore(state => state.pauseColorCycle);
   const colorCycleRuntimeHandlers = useAppStore(state => state.colorCycleRuntimeHandlers);
-  const pendingColorCycleGradientHandoff = useAppStore(
-    state => state.pendingColorCycleGradientHandoff
-  );
-  const setPendingColorCycleGradientHandoff = useAppStore(
-    state => state.setPendingColorCycleGradientHandoff
-  );
   const activeLayer = React.useMemo(
     () => layers.find((layer) => layer.id === activeLayerId) ?? null,
     [layers, activeLayerId]
@@ -1129,14 +1123,6 @@ const BrushControls = () => {
     persistEditedSavedGradient(clonedStops);
     commitColorCycleGradientDraft(clonedStops, { fork: gradientForkRef.current });
     setSharedColorCycleGradient(clonedStops, { fork: gradientForkRef.current });
-    if (isColorCycleStrokePreset && activeLayer?.layerType !== 'color-cycle') {
-      setPendingColorCycleGradientHandoff({
-        stops: clonedStops.map(stop => ({ ...stop })),
-        presetId: currentBrushPresetId,
-      });
-    } else {
-      setPendingColorCycleGradientHandoff(null);
-    }
     gradientForkRef.current = false;
 
     colorCycleRuntimeHandlers?.updateGradient?.(clonedStops);
@@ -1145,11 +1131,7 @@ const BrushControls = () => {
   }, [
     colorCycleRuntimeHandlers,
     commitColorCycleGradientDraft,
-    activeLayer?.layerType,
-    currentBrushPresetId,
-    isColorCycleStrokePreset,
     persistEditedSavedGradient,
-    setPendingColorCycleGradientHandoff,
   ]);
 
   const flushGradientEditorDraft = React.useCallback(() => {
@@ -1213,33 +1195,6 @@ const BrushControls = () => {
     pendingGradientRef.current = currentStops.map(stop => ({ ...stop }));
     gradientDirtyRef.current = false;
   }, [activeSettings.colorCycleGradient]);
-
-  React.useEffect(() => {
-    const pending = pendingColorCycleGradientHandoff;
-    if (!pending || activeLayer?.layerType !== 'color-cycle') {
-      return;
-    }
-    setPendingColorCycleGradientHandoff(null);
-    if (
-      currentBrushPresetId !== pending.presetId ||
-      resolvedGradientSource !== 'manual'
-    ) {
-      return;
-    }
-
-    const stops = pending.stops.map(stop => ({ ...stop }));
-    pendingGradientRef.current = stops;
-    gradientDirtyRef.current = false;
-    gradientForkRef.current = false;
-    setSharedColorCycleGradient(stops, { fork: true });
-  }, [
-    activeLayer?.id,
-    activeLayer?.layerType,
-    currentBrushPresetId,
-    pendingColorCycleGradientHandoff,
-    resolvedGradientSource,
-    setPendingColorCycleGradientHandoff,
-  ]);
 
   React.useEffect(() => {
     const currentStops = activeSettings.colorCycleGradient || DEFAULT_GRADIENT_STOPS;
@@ -1557,7 +1512,18 @@ const BrushControls = () => {
           : 'tip';
       updates.customBrushUseCapturedAlphaMask =
         getCustomBrushColorCycleDefaultAlphaMaskEnabled(activeCustomBrushColorCycle);
-      if (!activeSettings.colorCycleGradient || activeSettings.colorCycleGradient.length === 0) {
+      const activePaletteGradient = palette?.colorCycleGradients?.find(
+        (gradient) => gradient.id === palette.activeColorCycleGradientId,
+      );
+      if (!hasCapturedColorCyclePayload && activePaletteGradient) {
+        updates.colorCycleGradient = activePaletteGradient.stops.map((stop) => ({ ...stop }));
+        updates.colorCycleGradientSeamProfile = activePaletteGradient.seamProfile;
+        updates.colorCycleGradientIsRuntimePalette = activePaletteGradient.isRuntimePalette === true;
+        updates.ccGradientSource = 'manual';
+        updates.colorCycleUseForegroundGradient = false;
+        updates.autoSampleGradient = false;
+        updates.autoSampleGradientRealtime = false;
+      } else if (!activeSettings.colorCycleGradient || activeSettings.colorCycleGradient.length === 0) {
         updates.colorCycleGradient = DEFAULT_GRADIENT_STOPS.map(stop => ({ ...stop }));
       }
       if (activeSettings.colorCycleSpeed === undefined || activeSettings.colorCycleSpeed === null) {
@@ -1580,6 +1546,8 @@ const BrushControls = () => {
     activeSettings.customBrushCcPhaseMode,
     activeCustomBrushColorCycle,
     hasCapturedColorCyclePayload,
+    palette?.activeColorCycleGradientId,
+    palette?.colorCycleGradients,
     setActiveSettings,
     showColorCycleLayerHint,
   ]);
@@ -1991,11 +1959,7 @@ const BrushControls = () => {
               </div>
             </>
           </div>
-        ) : (
-          <div className="mb-3">
-            {renderBrushGradientEditor({ syncBands: true })}
-          </div>
-        )}
+        ) : null}
 
         {(isColorCycleStrokePreset || isColorCycleGradientPreset) && (
           <div className="flex items-center gap-2 mt-2 mb-2">
@@ -4140,7 +4104,6 @@ const BrushControls = () => {
 
               {!isCapturedDataMode && (
                 <>
-                  {renderBrushGradientEditor()}
                   <div className="mt-2">
                     <div className="flex items-center gap-2">
                       <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>

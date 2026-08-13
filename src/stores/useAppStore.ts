@@ -364,6 +364,9 @@ export interface AppState {
   colorPickerPreferReferenceLayer: boolean;
   setColorPickerPreferReferenceLayer: (prefer: boolean) => void;
   syncPaletteFromTool: (color: string, slot?: 'foreground' | 'background') => void;
+  selectColorCycleGradient: import('./slices/paletteSlice').PaletteSlice['selectColorCycleGradient'];
+  rememberColorCycleGradient: import('./slices/paletteSlice').PaletteSlice['rememberColorCycleGradient'];
+  updateActiveColorCycleGradient: import('./slices/paletteSlice').PaletteSlice['updateActiveColorCycleGradient'];
 
   // Brush-specific settings storage
   brushSpecificSettings: Record<string, Partial<BrushSettings>>;

@@ -67,6 +67,7 @@ export function resolveColorCycleCapturedStampGradientBinding(
     layerId,
     kind: 'linear',
     stops,
+    sourceStops: stops,
     source: 'sampled',
     speedCps: colorCycle.speed,
     seamProfile: 'hard',
