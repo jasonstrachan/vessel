@@ -1240,9 +1240,11 @@ const LayersPanel: React.FC = () => {
                   const anchor = event.currentTarget as HTMLDivElement;
                   const placement = estimateLayerMenuPosition(anchor);
 
-                  if (!selectedLayerIds.includes(layer.id)) {
-                    setSelectedLayerIds([layer.id]);
+                  if (selectedLayerIds.includes(layer.id)) {
+                    setActiveLayer(layer.id, { preserveSelection: true });
+                  } else {
                     setActiveLayer(layer.id);
+                    setSelectedLayerIds([layer.id]);
                   }
 
                   setLayerMenuState({
@@ -1392,9 +1394,9 @@ const LayersPanel: React.FC = () => {
                       <button
                         onClick={event => {
                           event.stopPropagation();
-                          selectLayerAlpha(layer.id);
                           setActiveLayer(layer.id);
                           setSelectedLayerIds([layer.id]);
+                          selectLayerAlpha(layer.id);
                           setLayerMenuState(null);
                         }}
                         className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A] transition-colors"

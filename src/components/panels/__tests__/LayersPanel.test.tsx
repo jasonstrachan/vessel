@@ -338,6 +338,7 @@ const setupLayers = () => {
   state.convertColorCycleLayerToNormal.mockClear();
   state.setSelectedLayerIds.mockClear();
   state.setActiveLayer.mockClear();
+  state.selectLayerAlpha.mockClear();
   state.reorderLayerBlock.mockClear();
   groupVisibilityMemory.clear();
 };
@@ -1417,13 +1418,16 @@ describe('LayersPanel interactions', () => {
     expect(screen.getByTitle('Expand group: Foreground')).toBeInTheDocument();
   });
 
-  it('keeps selection on right-click for selected rows and collapses to row for unselected rows', () => {
+  it('focuses a right-clicked row while preserving an existing multi-selection', () => {
     state.selectedLayerIds = ['layer-a', 'layer-c'];
+    state.activeLayerId = 'layer-a';
     render(<LayersPanel />);
 
     openMenuForLayerC();
     expect(state.setSelectedLayerIds).not.toHaveBeenCalled();
-    expect(state.setActiveLayer).not.toHaveBeenCalled();
+    expect(state.setActiveLayer).toHaveBeenLastCalledWith('layer-c', { preserveSelection: true });
+    expect(state.selectedLayerIds).toEqual(['layer-a', 'layer-c']);
+    expect(state.activeLayerId).toBe('layer-c');
 
     openMenuForLayerB();
     expect(state.setSelectedLayerIds).toHaveBeenLastCalledWith(['layer-b']);
@@ -1431,6 +1435,22 @@ describe('LayersPanel interactions', () => {
     expect(screen.queryByText('Show selected')).toBeNull();
     expect(screen.queryByText('Hide selected')).toBeNull();
     expect(screen.queryByText('Toggle selected')).toBeNull();
+  });
+
+  it('focuses the right-clicked layer before selecting its alpha', () => {
+    state.selectedLayerIds = ['layer-a', 'layer-c'];
+    state.activeLayerId = 'layer-c';
+    render(<LayersPanel />);
+
+    openMenuForLayerB();
+    fireEvent.click(screen.getByText('Select alpha'));
+
+    expect(state.setActiveLayer).toHaveBeenLastCalledWith('layer-b');
+    expect(state.setSelectedLayerIds).toHaveBeenLastCalledWith(['layer-b']);
+    expect(state.selectLayerAlpha).toHaveBeenLastCalledWith('layer-b');
+    expect(state.setActiveLayer.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      state.selectLayerAlpha.mock.invocationCallOrder.at(-1) ?? Number.POSITIVE_INFINITY,
+    );
   });
 
   it('creates groups from selection and can ungroup via layer menu', () => {
