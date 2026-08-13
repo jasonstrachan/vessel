@@ -17,6 +17,7 @@ import {
 } from '@/lib/colorCycle/document';
 import {
   boundingBoxToCaptureRegion,
+  unionCaptureRegions,
   type BoundingBox,
   type CaptureRegion,
 } from '@/hooks/canvas/utils/captureRegions';
@@ -572,11 +573,14 @@ export const commitColorCycleLayerStroke = async (
     deps.perfMark('cc:roi:start');
     strokeCaptureRoi = strokeFinalizeProbeTimeSync(
       'commitColorCycleLayerStroke:roi',
-      () => boundingBoxToCaptureRegion(
-        args.strokeBoundingBox,
-        args.roiPadding + args.strokeCapturePadding,
-        args.project
-      ) ?? strokeCaptureRoi,
+      () => unionCaptureRegions(
+        strokeCaptureRoi,
+        boundingBoxToCaptureRegion(
+          args.strokeBoundingBox,
+          args.roiPadding + args.strokeCapturePadding,
+          args.project
+        )
+      ),
       {
         layerId: args.layer.id,
         layerType: args.layer.layerType,

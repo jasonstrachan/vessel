@@ -274,6 +274,56 @@ describe('commitRasterOverlay', () => {
     getStateSpy.mockRestore();
   });
 
+  it('preserves engine raster bounds when pointer bounds are narrower', async () => {
+    const layer = createLayer();
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 16;
+    layer.layerType = 'color-cycle';
+    layer.colorCycleData = {
+      canvas,
+      hasContent: true,
+      gradient: [],
+    } as Layer['colorCycleData'];
+
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [layer],
+      updateLayer: jest.fn(),
+      setCcGradientSampleCount: jest.fn(),
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+    (finalizeMarkGradientSession as jest.Mock).mockReturnValue(null);
+
+    const result = await commitColorCycleLayerStroke(
+      {
+        layer,
+        drawingCanvas: canvas,
+        brushSettings: { opacity: 1 } as never,
+        project: { width: 16, height: 16 },
+        strokeBoundingBox: { minX: 5, minY: 5, maxX: 7, maxY: 7 },
+        captureRoi: { x: 2, y: 3, width: 10, height: 9 },
+        strokeCapturePadding: 0,
+        roiPadding: 0,
+        enableCaptureRoi: true,
+        shouldBuildEraseMask: false,
+      },
+      {
+        getBrushForLayer: () => makeCommittedBrush(1) as never,
+        bindBrushToCanvas: jest.fn(),
+        markLayerHasContent: jest.fn(),
+        perfMark: jest.fn(),
+        perfMeasure: jest.fn(),
+        startFinalizeVisibleTimer: jest.fn(),
+        endFinalizeVisibleTimer: jest.fn(),
+        dispatchFrameUpdate: jest.fn(),
+      },
+    );
+
+    expect(result.strokeCaptureRoi).toEqual({ x: 2, y: 3, width: 10, height: 9 });
+    getStateSpy.mockRestore();
+  });
+
   it('allocates a new def id when commit binding collides with a different frozen hash', async () => {
     const layer = createLayer();
     const canvas = document.createElement('canvas');
