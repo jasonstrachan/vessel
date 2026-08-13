@@ -34,6 +34,148 @@ export const hasVisibleSelectionMask = (selectionMask: ImageData | null): boolea
   return false;
 };
 
+export interface AdjustedSelectionMask {
+  mask: ImageData;
+  bounds: Rectangle;
+}
+
+export const adjustSelectionMaskByPixels = (
+  selectionMask: ImageData,
+  selectionMaskBounds: Rectangle,
+  delta: number,
+  imageWidth: number,
+  imageHeight: number,
+): AdjustedSelectionMask | null => {
+  if (
+    !Number.isFinite(delta) ||
+    delta === 0 ||
+    selectionMask.width <= 0 ||
+    selectionMask.height <= 0 ||
+    imageWidth <= 0 ||
+    imageHeight <= 0
+  ) {
+    return null;
+  }
+
+  const amount = Math.floor(Math.abs(delta));
+  if (amount === 0) {
+    return null;
+  }
+
+  const sourceWidth = selectionMask.width;
+  const sourceHeight = selectionMask.height;
+  const integralStride = sourceWidth + 1;
+  const selectedIntegral = new Uint32Array((sourceWidth + 1) * (sourceHeight + 1));
+
+  for (let y = 1; y <= sourceHeight; y += 1) {
+    let selectedInRow = 0;
+    for (let x = 1; x <= sourceWidth; x += 1) {
+      const alphaIndex = ((y - 1) * sourceWidth + (x - 1)) * 4 + 3;
+      if ((selectionMask.data[alphaIndex] ?? 0) > 0) {
+        selectedInRow += 1;
+      }
+      selectedIntegral[y * integralStride + x] =
+        selectedIntegral[(y - 1) * integralStride + x] + selectedInRow;
+    }
+  }
+
+  const selectedCountInRect = (left: number, top: number, right: number, bottom: number): number =>
+    selectedIntegral[bottom * integralStride + right] -
+    selectedIntegral[top * integralStride + right] -
+    selectedIntegral[bottom * integralStride + left] +
+    selectedIntegral[top * integralStride + left];
+
+  const sourceX = Math.floor(selectionMaskBounds.x);
+  const sourceY = Math.floor(selectionMaskBounds.y);
+  const isExpand = delta > 0;
+  const candidateLeft = Math.max(0, sourceX - (isExpand ? amount : 0));
+  const candidateTop = Math.max(0, sourceY - (isExpand ? amount : 0));
+  const candidateRight = Math.min(imageWidth, sourceX + sourceWidth + (isExpand ? amount : 0));
+  const candidateBottom = Math.min(imageHeight, sourceY + sourceHeight + (isExpand ? amount : 0));
+  const candidateWidth = candidateRight - candidateLeft;
+  const candidateHeight = candidateBottom - candidateTop;
+
+  if (candidateWidth <= 0 || candidateHeight <= 0) {
+    return null;
+  }
+
+  const candidateMask = new ImageData(candidateWidth, candidateHeight);
+  let selectedMinX = candidateWidth;
+  let selectedMinY = candidateHeight;
+  let selectedMaxX = -1;
+  let selectedMaxY = -1;
+  const requiredInsetCount = (amount * 2 + 1) ** 2;
+
+  for (let y = 0; y < candidateHeight; y += 1) {
+    const sourceCenterY = candidateTop + y - sourceY;
+    for (let x = 0; x < candidateWidth; x += 1) {
+      const sourceCenterX = candidateLeft + x - sourceX;
+      const queryLeft = sourceCenterX - amount;
+      const queryTop = sourceCenterY - amount;
+      const queryRight = sourceCenterX + amount + 1;
+      const queryBottom = sourceCenterY + amount + 1;
+      const clippedLeft = Math.max(0, queryLeft);
+      const clippedTop = Math.max(0, queryTop);
+      const clippedRight = Math.min(sourceWidth, queryRight);
+      const clippedBottom = Math.min(sourceHeight, queryBottom);
+
+      let isSelected = false;
+      if (clippedLeft < clippedRight && clippedTop < clippedBottom) {
+        const selectedCount = selectedCountInRect(
+          clippedLeft,
+          clippedTop,
+          clippedRight,
+          clippedBottom,
+        );
+        isSelected = isExpand
+          ? selectedCount > 0
+          : queryLeft >= 0 &&
+            queryTop >= 0 &&
+            queryRight <= sourceWidth &&
+            queryBottom <= sourceHeight &&
+            selectedCount === requiredInsetCount;
+      }
+
+      if (!isSelected) {
+        continue;
+      }
+
+      const targetIndex = (y * candidateWidth + x) * 4;
+      candidateMask.data[targetIndex] = 255;
+      candidateMask.data[targetIndex + 1] = 255;
+      candidateMask.data[targetIndex + 2] = 255;
+      candidateMask.data[targetIndex + 3] = 255;
+      if (x < selectedMinX) selectedMinX = x;
+      if (y < selectedMinY) selectedMinY = y;
+      if (x > selectedMaxX) selectedMaxX = x;
+      if (y > selectedMaxY) selectedMaxY = y;
+    }
+  }
+
+  if (selectedMaxX < selectedMinX || selectedMaxY < selectedMinY) {
+    return null;
+  }
+
+  const width = selectedMaxX - selectedMinX + 1;
+  const height = selectedMaxY - selectedMinY + 1;
+  const mask = new ImageData(width, height);
+  for (let y = 0; y < height; y += 1) {
+    const sourceStart = ((selectedMinY + y) * candidateWidth + selectedMinX) * 4;
+    const sourceEnd = sourceStart + width * 4;
+    mask.data.set(candidateMask.data.subarray(sourceStart, sourceEnd), y * width * 4);
+  }
+
+  return {
+    mask,
+    bounds: {
+      x: candidateLeft + selectedMinX,
+      y: candidateTop + selectedMinY,
+      width,
+      height,
+    },
+  };
+};
+
 export const clampMarqueeDragRectToBounds = (
   start: { x: number; y: number } | null,
   end: { x: number; y: number } | null,

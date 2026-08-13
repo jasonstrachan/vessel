@@ -1,4 +1,5 @@
 import {
+  adjustSelectionMaskByPixels,
   clampMarqueeDragRectToBounds,
   clampSelectionBounds,
   copyRegionIntoTarget,
@@ -62,6 +63,65 @@ describe('hasVisibleSelectionMask', () => {
     mask.data[3] = 255;
 
     expect(hasVisibleSelectionMask(mask)).toBe(true);
+  });
+});
+
+describe('adjustSelectionMaskByPixels', () => {
+  const selectPixel = (mask: ImageData, x: number, y: number): void => {
+    const index = (y * mask.width + x) * 4;
+    mask.data[index] = 255;
+    mask.data[index + 1] = 255;
+    mask.data[index + 2] = 255;
+    mask.data[index + 3] = 255;
+  };
+
+  it('insets every edge of a mask and crops the result to selected pixels', () => {
+    const mask = createImageData(5, 5);
+    for (let y = 0; y < 5; y += 1) {
+      for (let x = 0; x < 5; x += 1) {
+        selectPixel(mask, x, y);
+      }
+    }
+
+    const result = adjustSelectionMaskByPixels(
+      mask,
+      { x: 3, y: 4, width: 5, height: 5 },
+      -1,
+      12,
+      12,
+    );
+
+    expect(result?.bounds).toEqual({ x: 4, y: 5, width: 3, height: 3 });
+    expect(Array.from(result?.mask.data ?? [])).toEqual(new Array(3 * 3 * 4).fill(255));
+  });
+
+  it('expands a mask contour and clamps it to the image bounds', () => {
+    const mask = createImageData(1, 1);
+    selectPixel(mask, 0, 0);
+
+    const result = adjustSelectionMaskByPixels(
+      mask,
+      { x: 0, y: 1, width: 1, height: 1 },
+      1,
+      3,
+      3,
+    );
+
+    expect(result?.bounds).toEqual({ x: 0, y: 0, width: 2, height: 3 });
+    expect(Array.from(result?.mask.data ?? [])).toEqual(new Array(2 * 3 * 4).fill(255));
+  });
+
+  it('returns null when an inset would remove every selected pixel', () => {
+    const mask = createImageData(3, 3);
+    selectPixel(mask, 1, 1);
+
+    expect(adjustSelectionMaskByPixels(
+      mask,
+      { x: 2, y: 2, width: 3, height: 3 },
+      -1,
+      8,
+      8,
+    )).toBeNull();
   });
 });
 

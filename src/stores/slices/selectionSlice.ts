@@ -46,6 +46,7 @@ import {
   type SelectionDeleteAuthorization,
   type SelectionOwnerKind,
 } from '@/stores/helpers/selectionDeleteAuthorization';
+import { adjustSelectionMaskByPixels } from '@/stores/helpers/selectionRoi';
 import {
   captureCcSelectionBefore,
   runCcSelectionTransaction,
@@ -1341,17 +1342,6 @@ export const createSelectionSlice = ({
           return state;
         }
 
-        if (!state.selectionStart || !state.selectionEnd || state.selectionMask || state.selectionMaskBounds) {
-          return state;
-        }
-
-        const currentBounds = normalizeSelectionRect(
-          computeBoundsFromSelection(state.selectionStart, state.selectionEnd),
-        );
-        if (!currentBounds) {
-          return state;
-        }
-
         const limits = resolveSelectionBoundsLimits(state);
         if (!limits) {
           return state;
@@ -1359,6 +1349,56 @@ export const createSelectionSlice = ({
 
         const amount = Math.floor(Math.abs(delta));
         if (amount === 0) {
+          return state;
+        }
+
+        if (state.selectionMask && state.selectionMaskBounds) {
+          const adjusted = adjustSelectionMaskByPixels(
+            state.selectionMask,
+            state.selectionMaskBounds,
+            delta,
+            limits.width,
+            limits.height,
+          );
+          if (!adjusted) {
+            return state;
+          }
+
+          const ownerLayerId =
+            state.selectionMaskLayerId ??
+            state.selectionLastAction?.maskLayerId ??
+            state.selectionLastAction?.activeLayerId ??
+            state.activeLayerId;
+
+          return {
+            selectionStart: { x: adjusted.bounds.x, y: adjusted.bounds.y },
+            selectionEnd: {
+              x: adjusted.bounds.x + adjusted.bounds.width,
+              y: adjusted.bounds.y + adjusted.bounds.height,
+            },
+            selectionVectorPath: null,
+            selectionMask: adjusted.mask,
+            selectionMaskBounds: adjusted.bounds,
+            selectionMaskLayerId: state.selectionMaskLayerId,
+            selectionLastAction: createSelectionProvenance({
+              action: 'set-bounds',
+              source: delta > 0 ? 'selection-mask-expand' : 'selection-mask-inset',
+              activeLayerId: ownerLayerId,
+              maskLayerId: ownerLayerId,
+              bounds: adjusted.bounds,
+              override: { ownerKind: 'mask-selection' },
+            }),
+          };
+        }
+
+        if (!state.selectionStart || !state.selectionEnd) {
+          return state;
+        }
+
+        const currentBounds = normalizeSelectionRect(
+          computeBoundsFromSelection(state.selectionStart, state.selectionEnd),
+        );
+        if (!currentBounds) {
           return state;
         }
 
@@ -1389,6 +1429,14 @@ export const createSelectionSlice = ({
           selectionMask: null,
           selectionMaskBounds: null,
           selectionMaskLayerId: null,
+          selectionLastAction: createSelectionProvenance({
+            action: 'set-bounds',
+            source: delta > 0 ? 'selection-marquee-expand' : 'selection-marquee-inset',
+            activeLayerId: state.selectionLastAction?.activeLayerId ?? state.activeLayerId,
+            maskLayerId: null,
+            bounds: nextBounds,
+            override: { ownerKind: 'direct-marquee' },
+          }),
         };
       }),
     selectAllActiveLayerPixels: (source = 'selectAllActiveLayerPixels') => {

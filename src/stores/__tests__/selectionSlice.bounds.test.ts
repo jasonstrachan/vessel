@@ -339,6 +339,12 @@ describe('selection slice bounds helpers', () => {
     expect(state.selectionEnd).toEqual({ x: 9, y: 8 });
     expect(state.selectionMask).toBeNull();
     expect(state.selectionMaskBounds).toBeNull();
+    expect(state.selectionLastAction).toEqual(expect.objectContaining({
+      source: 'selection-marquee-expand',
+      ownerKind: 'direct-marquee',
+      activeLayerId: layer.id,
+      bounds: { x: 0, y: 0, width: 9, height: 8 },
+    }));
   });
 
   it('adjustMarqueeSelection insets a rectangular selection when enough room remains', () => {

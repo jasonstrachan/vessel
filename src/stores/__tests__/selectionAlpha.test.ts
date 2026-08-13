@@ -112,4 +112,40 @@ describe('selectLayerAlpha', () => {
     expect(useAppStore.getState().selectionEnd).toBeNull();
     expect(useAppStore.getState().selectionMask).toBeNull();
   });
+
+  it('insets a select-alpha mask while preserving its layer ownership', () => {
+    const opaquePixels = Array.from({ length: 25 }, (_, index) => ({
+      x: (index % 5) + 1,
+      y: Math.floor(index / 5) + 1,
+    }));
+    const layer = createLayerWithAlpha('layer-inset-alpha', 7, 7, opaquePixels);
+    const project = createProject(layer);
+
+    useAppStore.setState({
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    useAppStore.getState().selectLayerAlpha(layer.id);
+    useAppStore.getState().adjustMarqueeSelection(-1);
+
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 2, y: 2 });
+    expect(state.selectionEnd).toEqual({ x: 5, y: 5 });
+    expect(state.selectionMaskBounds).toEqual({ x: 2, y: 2, width: 3, height: 3 });
+    expect(state.selectionMask).toEqual(expect.objectContaining({ width: 3, height: 3 }));
+    expect(state.selectionMaskLayerId).toBe(layer.id);
+    expect(state.selectionLastAction).toEqual(expect.objectContaining({
+      ownerKind: 'mask-selection',
+      activeLayerId: layer.id,
+      maskLayerId: layer.id,
+      bounds: { x: 2, y: 2, width: 3, height: 3 },
+    }));
+  });
 });
