@@ -11,6 +11,49 @@ const makeAnimator = (builtFromVersion = 1): ColorCycleAnimator => ({
 } as unknown as ColorCycleAnimator);
 
 describe('ColorCyclePlaybackController', () => {
+  it('keeps playback armed until the first animated pixels arrive', () => {
+    let hasAnimatedContent = false;
+    const scheduledFrames: FrameRequestCallback[] = [];
+    const requestAnimationFrameSpy = jest
+      .spyOn(globalThis, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        scheduledFrames.push(callback);
+        return scheduledFrames.length;
+      });
+    const animator = makeAnimator();
+    const render = jest.fn();
+    const controller = new ColorCyclePlaybackController({
+      initialFps: 30,
+      initialPlaybackSpeedScale: 1,
+      hasAnimatedContent: () => hasAnimatedContent,
+      getDocumentRead: () => undefined,
+      shouldUpdateAnimator: () => true,
+      render,
+      flushScheduledRender: jest.fn(),
+      stopAnimators: jest.fn(),
+    });
+    controller.setAnimator('cc-a', animator);
+
+    try {
+      controller.start();
+      scheduledFrames.shift()?.(0);
+
+      expect(controller.isPlaying()).toBe(true);
+      expect(animator.updateFrame).not.toHaveBeenCalled();
+      expect(render).not.toHaveBeenCalled();
+
+      hasAnimatedContent = true;
+      scheduledFrames.shift()?.(16);
+      scheduledFrames.shift()?.(50);
+
+      expect(animator.updateFrame).toHaveBeenCalledTimes(1);
+      expect(render).toHaveBeenCalledTimes(1);
+    } finally {
+      controller.stop();
+      requestAnimationFrameSpy.mockRestore();
+    }
+  });
+
   it('advances each eligible animator once and renders once per playback tick', () => {
     const render = jest.fn();
     const controller = new ColorCyclePlaybackController({

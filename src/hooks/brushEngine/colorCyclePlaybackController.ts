@@ -209,9 +209,7 @@ export class ColorCyclePlaybackController {
     }
 
     if (!this.options.hasAnimatedContent()) {
-      this.isAnimatingValue = false;
-      this.isPausedValue = false;
-      this.animationFrameId = null;
+      this.animationFrameId = requestAnimationFrame(this.handleAnimationTick);
       return;
     }
 
