@@ -8,6 +8,7 @@ import CustomSwitch from '@/components/ui/CustomSwitch';
 import HueRangeStrip from '@/components/ui/HueRangeStrip';
 import type { ColorAdjustParams, Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
+import { resolveColorAdjustTargetLayerIds } from '@/stores/helpers/colorAdjustSession';
 import {
   selectColorAdjustEligibleTargetSummary,
   selectPreviousTool,
@@ -15,6 +16,7 @@ import {
 
 type ParamKey = keyof ColorAdjustParams;
 type SliderParamKey = Exclude<ParamKey, 'hueRangeEnabled' | 'hueRangeStart' | 'hueRangeEnd'>;
+type RuntimePreparationStatus = 'idle' | 'preparing' | 'failed';
 
 const SLIDER_CONFIG: Array<{
   key: SliderParamKey;
@@ -41,9 +43,19 @@ const ColorAdjustToolPanel: React.FC = () => {
   const cancelColorAdjust = useAppStore((state) => state.cancelColorAdjust);
   const resetColorAdjustParams = useAppStore((state) => state.resetColorAdjustParams);
   const startColorAdjustSession = useAppStore((state) => state.startColorAdjustSession);
+  const ensureColorCycleLayerRuntime = useAppStore((state) => state.ensureColorCycleLayerRuntime);
+  const activeLayerId = useAppStore((state) => state.activeLayerId);
+  const colorCycleTargetIds = useAppStore(useShallow((state) => (
+    resolveColorAdjustTargetLayerIds(state.activeLayerId, state.selectedLayerIds)
+      .filter((layerId) => (
+        state.layers.find((layer) => layer.id === layerId)?.layerType === 'color-cycle'
+      ))
+  )));
   const previousTool = useAppStore(selectPreviousTool);
   const eligibleTargetSummary = useAppStore(useShallow(selectColorAdjustEligibleTargetSummary));
   const switchTool = useToolSwitcher();
+  const preparationTokenRef = React.useRef(0);
+  const [runtimePreparationStatus, setRuntimePreparationStatus] = React.useState<RuntimePreparationStatus>('idle');
   const hasValidLayer = eligibleTargetSummary.hasValidLayer;
   const layerName = eligibleTargetSummary.label;
   const targetCount = eligibleTargetSummary.count;
@@ -113,10 +125,55 @@ const ColorAdjustToolPanel: React.FC = () => {
     : (session.selectionBounds ? 'Selection' : 'Layer');
 
   useEffect(() => {
-    if (!session.active && hasValidLayer) {
-      startColorAdjustSession();
+    if (session.active || !hasValidLayer) {
+      setRuntimePreparationStatus('idle');
+      return;
     }
-  }, [session.active, hasValidLayer, startColorAdjustSession]);
+
+    const preparationToken = preparationTokenRef.current + 1;
+    preparationTokenRef.current = preparationToken;
+
+    if (colorCycleTargetIds.length === 0) {
+      startColorAdjustSession();
+      return;
+    }
+
+    setRuntimePreparationStatus('preparing');
+    void Promise.all(colorCycleTargetIds.map((layerId) => (
+      ensureColorCycleLayerRuntime(layerId, {
+        target: layerId === activeLayerId ? 'active' : 'warm',
+      })
+    )))
+      .then((results) => {
+        if (preparationTokenRef.current !== preparationToken) {
+          return;
+        }
+        if (results.every(Boolean)) {
+          startColorAdjustSession();
+          setRuntimePreparationStatus('idle');
+          return;
+        }
+        setRuntimePreparationStatus('failed');
+      })
+      .catch(() => {
+        if (preparationTokenRef.current === preparationToken) {
+          setRuntimePreparationStatus('failed');
+        }
+      });
+
+    return () => {
+      if (preparationTokenRef.current === preparationToken) {
+        preparationTokenRef.current += 1;
+      }
+    };
+  }, [
+    activeLayerId,
+    colorCycleTargetIds,
+    ensureColorCycleLayerRuntime,
+    hasValidLayer,
+    session.active,
+    startColorAdjustSession,
+  ]);
 
   if (!hasValidLayer) {
     return (
@@ -138,6 +195,17 @@ const ColorAdjustToolPanel: React.FC = () => {
         </div>
       </div>
 
+      {runtimePreparationStatus === 'preparing' ? (
+        <div role="status" className="text-xs text-[#9C9C9C]">
+          Preparing Color Cycle data…
+        </div>
+      ) : null}
+      {runtimePreparationStatus === 'failed' ? (
+        <div role="alert" className="text-xs text-[#FF9B9B]">
+          Color Cycle data could not be prepared. Re-select Hue/Sat to retry.
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs uppercase tracking-wider text-[#9C9C9C]">
@@ -147,13 +215,14 @@ const ColorAdjustToolPanel: React.FC = () => {
             checked={session.params.hueRangeEnabled}
             onChange={handleHueRangeToggle}
             aria-label="Enable hue range targeting"
+            disabled={!session.active}
           />
         </div>
 
         <HueRangeStrip
           value={[session.params.hueRangeStart, session.params.hueRangeEnd]}
           onValueChange={handleHueRangeChange}
-          disabled={!session.params.hueRangeEnabled}
+          disabled={!session.active || !session.params.hueRangeEnabled}
         />
 
         <div className="flex items-center justify-between text-[11px] text-[#9C9C9C]">
@@ -176,6 +245,7 @@ const ColorAdjustToolPanel: React.FC = () => {
               onChange={handleSliderChange(key)}
               aria-label={`${label} adjustment`}
               className="flex-1"
+              disabled={!session.active}
             />
           </div>
         ))}

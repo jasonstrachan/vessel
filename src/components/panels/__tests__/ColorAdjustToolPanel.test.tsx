@@ -144,6 +144,7 @@ describe('ColorAdjustToolPanel', () => {
 
   it('shows Selection for a single color-cycle target when a selection exists', async () => {
     const layer = createColorCycleLayer('cc-layer', 'CC Layer');
+    const ensureColorCycleLayerRuntime = jest.fn(async () => true);
 
     act(() => {
       useAppStore.setState((state) => ({
@@ -184,6 +185,7 @@ describe('ColorAdjustToolPanel', () => {
           targetLayerIds: [],
           selectionBounds: null,
         },
+        ensureColorCycleLayerRuntime,
       }));
     });
 
@@ -193,5 +195,77 @@ describe('ColorAdjustToolPanel', () => {
       expect(screen.getByText('CC Layer')).toBeInTheDocument();
       expect(screen.getByText('(Selection)')).toBeInTheDocument();
     });
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
+  });
+
+  it('waits for a color-cycle runtime before enabling Hue/Sat edits', async () => {
+    const layer = createColorCycleLayer('cc-cold-layer', 'Cold CC Layer');
+    let resolveRuntime: ((ready: boolean) => void) | null = null;
+    const runtimeReady = new Promise<boolean>((resolve) => {
+      resolveRuntime = resolve;
+    });
+    const ensureColorCycleLayerRuntime = jest.fn(() => runtimeReady);
+    const originalStartColorAdjustSession = useAppStore.getState().startColorAdjustSession;
+    const startColorAdjustSession = jest.fn(() => originalStartColorAdjustSession());
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        layers: [layer],
+        activeLayerId: layer.id,
+        selectedLayerIds: [layer.id],
+        project: state.project
+          ? {
+              ...state.project,
+              width: 2,
+              height: 2,
+              layers: [layer],
+            }
+          : {
+              id: 'test-project',
+              name: 'Test Project',
+              width: 2,
+              height: 2,
+              layers: [layer],
+              backgroundColor: '#000000',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              customBrushes: [],
+              palette: state.palette,
+            },
+        tools: {
+          ...state.tools,
+          currentTool: 'color-adjust',
+          previousTool: 'brush',
+        },
+        colorAdjust: {
+          ...state.colorAdjust,
+          active: false,
+          targetLayerId: null,
+          targetLayerIds: [],
+        },
+        ensureColorCycleLayerRuntime,
+        startColorAdjustSession,
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('Preparing Color Cycle data');
+    });
+    expect(screen.getByRole('slider', { name: 'Saturation adjustment' })).toBeDisabled();
+    expect(startColorAdjustSession).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveRuntime?.(true);
+      await runtimeReady;
+    });
+
+    await waitFor(() => {
+      expect(startColorAdjustSession).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('slider', { name: 'Saturation adjustment' })).toBeEnabled();
+    });
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
   });
 });
