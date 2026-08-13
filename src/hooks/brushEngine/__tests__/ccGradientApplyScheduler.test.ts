@@ -234,6 +234,7 @@ describe('applyRuntimeToBrush', () => {
       builtFromVersion: 2,
     }));
 
+    expect(brush.commitCurrentStroke).not.toHaveBeenCalled();
     expect(brush.setGradientSlotStops).toHaveBeenCalledWith(
       'versioned-layer',
       0,
@@ -285,6 +286,7 @@ describe('applyRuntimeToBrush', () => {
 
     brush.setGradientSlotStops.mockClear();
     brush.setActiveGradientSlot.mockClear();
+    brush.commitCurrentStroke.mockClear();
     flushGradientApply('flush-versioned-layer');
 
     expect(brush.setGradientSlotStops).not.toHaveBeenCalled();
@@ -293,6 +295,7 @@ describe('applyRuntimeToBrush', () => {
     documentVersion = 8;
     flushGradientApply('flush-versioned-layer');
 
+    expect(brush.commitCurrentStroke).not.toHaveBeenCalled();
     expect(brush.setGradientSlotStops).toHaveBeenCalledWith(
       'flush-versioned-layer',
       0,

@@ -89,13 +89,14 @@ export const applyRuntimeToBrush = (
 ): void => {
   const builtFromVersion = snapshot.builtFromVersion ?? null;
   const previousApplied = lastAppliedByLayer.get(layerId);
-  const previous = previousApplied?.builtFromVersion === builtFromVersion
-    ? previousApplied
-    : {
+  const previous = previousApplied ?? {
     activeSlot: -1,
     signatures: new Map<number, string>(),
     builtFromVersion,
   };
+  const sourceVersionChanged = Boolean(
+    previousApplied && previousApplied.builtFromVersion !== builtFromVersion,
+  );
   const nextSignatures = new Map(previous.signatures);
   let didChangePalette = false;
 
@@ -127,7 +128,7 @@ export const applyRuntimeToBrush = (
       signatureForStops(palette.stops),
       palette.seamProfile,
     );
-    if (previous.signatures.get(palette.slot) === signature) {
+    if (!sourceVersionChanged && previous.signatures.get(palette.slot) === signature) {
       continue;
     }
     try {
@@ -140,7 +141,7 @@ export const applyRuntimeToBrush = (
     } catch {}
   }
 
-  if (snapshot.paintSlot !== previous.activeSlot) {
+  if (sourceVersionChanged || snapshot.paintSlot !== previous.activeSlot) {
     try {
       brush.setActiveGradientSlot?.(layerId, snapshot.paintSlot);
     } catch {}

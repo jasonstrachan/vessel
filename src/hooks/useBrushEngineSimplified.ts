@@ -1730,6 +1730,7 @@ export const useBrushEngineSimplified = () => {
       activeLayerId,
       getLayers: () => getAppStoreState().layers,
       bindBrushToCanvas,
+      beforeStartStroke: () => flushGradientApply(activeLayerId ?? undefined),
       firstStampImmediateRef,
     });
   }, [

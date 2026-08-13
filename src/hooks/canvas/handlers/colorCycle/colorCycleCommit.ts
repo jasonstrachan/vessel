@@ -562,13 +562,15 @@ export const commitColorCycleLayerStroke = async (
   const beforeCommitSummary = summarizeColorCycleLayer(beforeCommitLayer);
   const layerCanvas = args.layer.colorCycleData?.canvas ?? null;
   if (!layerCanvas) {
-    return { deferredLayerCanvas: null };
+    throw new Error(`Color Cycle stroke commit requires a layer canvas for ${args.layer.id}`);
   }
 
   deps.startFinalizeVisibleTimer();
   let strokeCaptureRoi: CaptureRegion | undefined = args.captureRoi;
   let committedSession: ReturnType<typeof finalizeMarkGradientSession> | null = null;
   let eraseMaskPaintMask: ColorCyclePaintMask | null = null;
+  let didCommitFail = false;
+  let commitError: unknown;
   if (args.enableCaptureRoi && args.project) {
     deps.perfMark('cc:roi:start');
     strokeCaptureRoi = strokeFinalizeProbeTimeSync(
@@ -724,25 +726,23 @@ export const commitColorCycleLayerStroke = async (
         }
       }
 
-      try {
-        committedSession = strokeFinalizeProbeTimeSync(
-          'commitColorCycleLayerStroke:finalizeMarkGradientSession',
-          () => finalizeMarkGradientSession(targetLayerId),
-          {
-            layerId: targetLayerId,
-            layerType: args.layer.layerType,
-          }
-        );
-        if (committedSession && ccDebugVerboseOn()) {
-          ccLog('mark slot (commit)', {
-            layerId: targetLayerId,
-            markId: committedSession.markId,
-            defId: committedSession.binding?.defId ?? null,
-            slot: committedSession.binding?.slot ?? null,
-            phase: committedSession.binding ? 'bound' : 'sampling',
-          });
+      committedSession = strokeFinalizeProbeTimeSync(
+        'commitColorCycleLayerStroke:finalizeMarkGradientSession',
+        () => finalizeMarkGradientSession(targetLayerId),
+        {
+          layerId: targetLayerId,
+          layerType: args.layer.layerType,
         }
-      } catch {}
+      );
+      if (committedSession && ccDebugVerboseOn()) {
+        ccLog('mark slot (commit)', {
+          layerId: targetLayerId,
+          markId: committedSession.markId,
+          defId: committedSession.binding?.defId ?? null,
+          slot: committedSession.binding?.slot ?? null,
+          phase: committedSession.binding ? 'bound' : 'sampling',
+        });
+      }
 
       const gradientSessionForSlotStops = committedSession;
       if (gradientSessionForSlotStops?.binding && typeof brush.setGradientSlotStops === 'function') {
@@ -909,7 +909,11 @@ export const commitColorCycleLayerStroke = async (
         );
       }
 
-      if (snapshotAfterTransparencyLock?.hasContent !== false) {
+      const committedHasContent = snapshotAfterTransparencyLock?.hasContent
+        ?? getAppStoreState().layers.find((entry) => entry.id === targetLayerId)
+          ?.colorCycleData?.hasContent
+        ?? false;
+      if (committedHasContent) {
         strokeFinalizeProbeTimeSync(
           'commitColorCycleLayerStroke:markLayerHasContent',
           () => deps.markLayerHasContent(targetLayerId),
@@ -1043,19 +1047,13 @@ export const commitColorCycleLayerStroke = async (
           }
         );
       } catch {}
-    } else if (args.drawingCanvas) {
-      try {
-        const targetCtx = layerCanvas.getContext('2d', { willReadFrequently: true });
-        if (targetCtx) {
-          targetCtx.save();
-          targetCtx.globalCompositeOperation = args.brushSettings.blendMode || 'source-over';
-          targetCtx.globalAlpha = args.brushSettings.opacity ?? 1;
-          targetCtx.drawImage(args.drawingCanvas, 0, 0);
-          targetCtx.restore();
-        }
-      } catch {}
+    } else {
+      throw new Error(`Color Cycle stroke commit requires a brush runtime for ${targetLayerId}`);
     }
-  } catch {}
+  } catch (error) {
+    didCommitFail = true;
+    commitError = error;
+  }
 
   try {
     strokeFinalizeProbeTimeSync(
@@ -1068,6 +1066,10 @@ export const commitColorCycleLayerStroke = async (
     );
   } catch {}
   deps.endFinalizeVisibleTimer();
+
+  if (didCommitFail) {
+    throw commitError;
+  }
 
   const afterCommitLayer = getAppStoreState().layers.find(
     (entry) => entry.id === targetLayerId

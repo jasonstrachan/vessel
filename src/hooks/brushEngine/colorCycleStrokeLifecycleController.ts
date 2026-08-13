@@ -27,6 +27,7 @@ export const resetColorCycleStroke = ({
   activeLayerId,
   getLayers,
   bindBrushToCanvas,
+  beforeStartStroke,
   firstStampImmediateRef,
 }: {
   clearBuffer?: boolean;
@@ -38,6 +39,7 @@ export const resetColorCycleStroke = ({
     brush: ColorCycleSurfaceBrush | null | undefined,
     canvas: HTMLCanvasElement | null | undefined
   ) => void;
+  beforeStartStroke?: () => void;
   firstStampImmediateRef: { current: boolean };
 }): void => {
   try {
@@ -92,6 +94,8 @@ export const resetColorCycleStroke = ({
           brush.endStroke(layerId);
         }
       } catch {}
+
+      beforeStartStroke?.();
 
       if (typeof brush.startStroke === 'function') {
         brush.startStroke(layerId, clearBuffer);

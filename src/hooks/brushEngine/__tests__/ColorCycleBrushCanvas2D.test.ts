@@ -1126,7 +1126,10 @@ describe('ColorCycleBrushCanvas2D', () => {
 
   it('publishes painted stroke buffers to an attached color-cycle document on endStroke', () => {
     const canvas = makeCanvas();
-    const brush = new ColorCycleBrushCanvas2D(canvas);
+    const brush = new ColorCycleBrushCanvas2D(canvas, {
+      brushSize: 1,
+      forceCanvas2D: true,
+    });
     const layerId = 'layer-stroke-doc';
     const document = new ColorCycleLayerDocument(
       makeDocumentState(layerId, canvas.width, canvas.height),
@@ -1145,7 +1148,8 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(read.version).toBeGreaterThan(0);
     expect(read.snapshot.hasContent).toBe(true);
     const paint = new Uint8Array(read.snapshot.paintBuffer ?? new ArrayBuffer(0));
-    expect(paint.some((value) => value !== 0)).toBe(true);
+    expect(paint[2 + 2 * canvas.width]).not.toBe(0);
+    expect(paint[4 + 3 * canvas.width]).not.toBe(0);
     expect(document.getAuditLog().slice(-1)[0]).toEqual(expect.objectContaining({
       reason: 'brush-stroke-write',
     }));

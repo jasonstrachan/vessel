@@ -32,6 +32,7 @@ describe('colorCycleStrokeLifecycleController', () => {
   it('starts a new stroke and marks first stamp immediate', () => {
     const brush = createBrush();
     const firstStampImmediateRef = { current: false };
+    const beforeStartStroke = jest.fn();
 
     resetColorCycleStroke({
       clearBuffer: true,
@@ -43,9 +44,14 @@ describe('colorCycleStrokeLifecycleController', () => {
         colorCycleData: { canvas: document.createElement('canvas') },
       }],
       bindBrushToCanvas: jest.fn(),
+      beforeStartStroke,
       firstStampImmediateRef,
     });
 
+    expect(beforeStartStroke).toHaveBeenCalledTimes(1);
+    expect(beforeStartStroke.mock.invocationCallOrder[0]).toBeLessThan(
+      brush.startStroke.mock.invocationCallOrder[0],
+    );
     expect(brush.startStroke).toHaveBeenCalledWith('layer-1', true);
     expect(brush.clearPaintBuffer).not.toHaveBeenCalled();
     expect(firstStampImmediateRef.current).toBe(true);

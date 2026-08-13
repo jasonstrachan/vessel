@@ -28,28 +28,34 @@ const createLayer = (): Layer =>
     framebuffer: document.createElement('canvas'),
   }) as unknown as Layer;
 
-const makeCommittedLayerDocument = (slot: number) => ({
+const makeCommittedLayerDocument = (
+  slot: number,
+  options: { hasContent?: boolean } = {},
+) => ({
   read: () => ({
     snapshot: {
       width: 8,
       height: 8,
-      paintBuffer: new Uint8Array(64).fill(1).buffer,
+      paintBuffer: new Uint8Array(64).fill(options.hasContent === false ? 0 : 1).buffer,
       gradientIdBuffer: new Uint8Array(64).fill(slot).buffer,
       gradientDefIdBuffer: new Uint16Array(64).buffer,
-      hasContent: true,
+      hasContent: options.hasContent !== false,
     },
     version: 1,
   }),
 });
 
-const makeCommittedBrush = (slot: number) => ({
+const makeCommittedBrush = (
+  slot: number,
+  options: { hasContent?: boolean } = {},
+) => ({
   commitCurrentStroke: jest.fn(),
   finalizeCurrentStroke: jest.fn(),
   setGradientSlotStops: jest.fn(),
   bindGradientDefIdToSlot: jest.fn(),
   commitToLayer: jest.fn(),
   renderDirectToCanvas: jest.fn(),
-  getColorCycleLayerDocument: jest.fn(() => makeCommittedLayerDocument(slot)),
+  getColorCycleLayerDocument: jest.fn(() => makeCommittedLayerDocument(slot, options)),
 });
 
 describe('commitRasterOverlay', () => {
@@ -321,6 +327,160 @@ describe('commitRasterOverlay', () => {
     );
 
     expect(result.strokeCaptureRoi).toEqual({ x: 2, y: 3, width: 10, height: 9 });
+    getStateSpy.mockRestore();
+  });
+
+  it('does not mark an empty finalized stroke as layer content', async () => {
+    const layer = createLayer();
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    layer.layerType = 'color-cycle';
+    layer.colorCycleData = {
+      canvas,
+      hasContent: false,
+      gradient: [],
+    } as Layer['colorCycleData'];
+
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [layer],
+      updateLayer: jest.fn(),
+      setCcGradientSampleCount: jest.fn(),
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+    (finalizeMarkGradientSession as jest.Mock).mockReturnValue(null);
+    const markLayerHasContent = jest.fn();
+
+    await commitColorCycleLayerStroke(
+      {
+        layer,
+        drawingCanvas: canvas,
+        brushSettings: { opacity: 1 } as never,
+        project: { width: 8, height: 8 },
+        strokeBoundingBox: null,
+        strokeCapturePadding: 0,
+        roiPadding: 0,
+        enableCaptureRoi: true,
+        shouldBuildEraseMask: false,
+      },
+      {
+        getBrushForLayer: () => makeCommittedBrush(1, { hasContent: false }) as never,
+        bindBrushToCanvas: jest.fn(),
+        markLayerHasContent,
+        perfMark: jest.fn(),
+        perfMeasure: jest.fn(),
+        startFinalizeVisibleTimer: jest.fn(),
+        endFinalizeVisibleTimer: jest.fn(),
+        dispatchFrameUpdate: jest.fn(),
+      },
+    );
+
+    expect(markLayerHasContent).not.toHaveBeenCalled();
+    getStateSpy.mockRestore();
+  });
+
+  it('reports finalization failure after closing the visible timer', async () => {
+    const layer = createLayer();
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    layer.layerType = 'color-cycle';
+    layer.colorCycleData = {
+      canvas,
+      hasContent: false,
+      gradient: [],
+    } as Layer['colorCycleData'];
+
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [layer],
+      updateLayer: jest.fn(),
+      setCcGradientSampleCount: jest.fn(),
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+    const brush = makeCommittedBrush(1);
+    brush.finalizeCurrentStroke.mockImplementation(() => {
+      throw new Error('finalize failed');
+    });
+    const endFinalizeVisibleTimer = jest.fn();
+    const markLayerHasContent = jest.fn();
+
+    await expect(commitColorCycleLayerStroke(
+      {
+        layer,
+        drawingCanvas: canvas,
+        brushSettings: { opacity: 1 } as never,
+        project: { width: 8, height: 8 },
+        strokeBoundingBox: null,
+        strokeCapturePadding: 0,
+        roiPadding: 0,
+        enableCaptureRoi: true,
+        shouldBuildEraseMask: false,
+      },
+      {
+        getBrushForLayer: () => brush as never,
+        bindBrushToCanvas: jest.fn(),
+        markLayerHasContent,
+        perfMark: jest.fn(),
+        perfMeasure: jest.fn(),
+        startFinalizeVisibleTimer: jest.fn(),
+        endFinalizeVisibleTimer,
+        dispatchFrameUpdate: jest.fn(),
+      },
+    )).rejects.toThrow('finalize failed');
+
+    expect(endFinalizeVisibleTimer).toHaveBeenCalledTimes(1);
+    expect(markLayerHasContent).not.toHaveBeenCalled();
+    getStateSpy.mockRestore();
+  });
+
+  it('rejects a CC stroke when its canonical brush runtime is unavailable', async () => {
+    const layer = createLayer();
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    layer.layerType = 'color-cycle';
+    layer.colorCycleData = {
+      canvas,
+      hasContent: false,
+      gradient: [],
+    } as Layer['colorCycleData'];
+
+    const getStateSpy = jest.spyOn(useAppStore, 'getState');
+    getStateSpy.mockReturnValue({
+      layers: [layer],
+      updateLayer: jest.fn(),
+      setCcGradientSampleCount: jest.fn(),
+      colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0 },
+    } as unknown as ReturnType<typeof useAppStore.getState>);
+    const endFinalizeVisibleTimer = jest.fn();
+
+    await expect(commitColorCycleLayerStroke(
+      {
+        layer,
+        drawingCanvas: canvas,
+        brushSettings: { opacity: 1 } as never,
+        project: { width: 8, height: 8 },
+        strokeBoundingBox: null,
+        strokeCapturePadding: 0,
+        roiPadding: 0,
+        enableCaptureRoi: true,
+        shouldBuildEraseMask: false,
+      },
+      {
+        getBrushForLayer: () => undefined,
+        bindBrushToCanvas: jest.fn(),
+        markLayerHasContent: jest.fn(),
+        perfMark: jest.fn(),
+        perfMeasure: jest.fn(),
+        startFinalizeVisibleTimer: jest.fn(),
+        endFinalizeVisibleTimer,
+        dispatchFrameUpdate: jest.fn(),
+      },
+    )).rejects.toThrow('requires a brush runtime');
+
+    expect(endFinalizeVisibleTimer).toHaveBeenCalledTimes(1);
     getStateSpy.mockRestore();
   });
 
