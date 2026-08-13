@@ -80,7 +80,7 @@ describe('selectionDeleteAuthorization', () => {
     }).wouldClearAllPaint).toBe(true);
   });
 
-  it('blocks cross-layer provenance before mutation', () => {
+  it('targets the active layer when selection provenance came from another layer', () => {
     const authorization = authorizeSelectionDelete({
       source: 'keyboard-delete',
       activeLayer: createLayer({ id: 'active' }),
@@ -102,13 +102,14 @@ describe('selectionDeleteAuthorization', () => {
     });
 
     expect(authorization).toMatchObject({
-      ok: false,
-      reason: 'selection-layer-mismatch',
-      clearSelection: true,
+      ok: true,
+      layerId: 'active',
+      selectionOwnerKind: 'direct-marquee',
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
     });
   });
 
-  it('blocks cross-layer masks before mutation', () => {
+  it('targets the active layer when selection-mask provenance came from another layer', () => {
     const authorization = authorizeSelectionDelete({
       source: 'keyboard-delete',
       activeLayer: createLayer({ id: 'active' }),
@@ -131,9 +132,10 @@ describe('selectionDeleteAuthorization', () => {
     });
 
     expect(authorization).toMatchObject({
-      ok: false,
-      reason: 'selection-mask-layer-mismatch',
-      clearSelection: true,
+      ok: true,
+      layerId: 'active',
+      selectionOwnerKind: 'mask-selection',
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
     });
   });
 

@@ -108,7 +108,7 @@ describe('selection delete updates framebuffer', () => {
     expect(state.currentCompositeBitmap).toBeNull();
   });
 
-  it('does not delete pixels when a select-all selection belongs to a different layer', () => {
+  it('applies a select-all selection to the newly active layer', () => {
     const makeFilledLayer = (id: string): Layer => {
       const canvas = document.createElement('canvas');
       canvas.width = 4;
@@ -147,10 +147,12 @@ describe('selection delete updates framebuffer', () => {
     useAppStore.getState().deleteSelectedPixels('keyboard-delete');
 
     const state = useAppStore.getState();
+    const updatedSource = state.layers.find((layer) => layer.id === sourceLayer.id);
     const updatedActive = state.layers.find((layer) => layer.id === activeLayer.id);
-    expect(updatedActive?.imageData?.data[(1 * 4 + 1) * 4 + 3]).toBe(255);
+    expect(updatedSource?.imageData?.data[(1 * 4 + 1) * 4 + 3]).toBe(255);
+    expect(updatedActive?.imageData?.data[(1 * 4 + 1) * 4 + 3]).toBe(0);
     const activeCtx = (updatedActive?.framebuffer as HTMLCanvasElement).getContext('2d', { willReadFrequently: true });
-    expect(activeCtx?.getImageData(1, 1, 1, 1).data[3]).toBe(255);
+    expect(activeCtx?.getImageData(1, 1, 1, 1).data[3]).toBe(0);
     expect(state.selectionStart).toBeNull();
     expect(state.selectionEnd).toBeNull();
   });
@@ -752,7 +754,7 @@ describe('selection delete updates framebuffer', () => {
     ]));
   });
 
-  it('does not delete CC pixels when set-bounds selection belongs to another layer', () => {
+  it('deletes active CC pixels when the marquee was created on another layer', () => {
     const sourceCanvas = document.createElement('canvas');
     sourceCanvas.width = 4;
     sourceCanvas.height = 4;
@@ -824,26 +826,28 @@ describe('selection delete updates framebuffer', () => {
 
     const state = useAppStore.getState();
     const updatedLayer = state.layers.find((layer) => layer.id === ccLayer.id);
-    expect(updatedLayer?.colorCycleData?.hasContent).toBe(true);
-    expect(readTestColorCycleBrushLayerSnapshot(brush, ccLayer.id)?.hasContent).toBe(true);
+    const updatedSnapshot = readTestColorCycleBrushLayerSnapshot(brush, ccLayer.id);
+    expect(updatedLayer?.colorCycleData?.hasContent).toBe(false);
+    expect(updatedSnapshot?.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(updatedSnapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual(
+      new Array(16).fill(0),
+    );
     expect(state.selectionStart).toBeNull();
     expect(state.selectionEnd).toBeNull();
     expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        event: 'selection-delete-skipped-layer-mismatch',
+        event: 'color-cycle-layer-cleared',
         layerId: ccLayer.id,
-        reason: 'keyboard-delete',
+        reason: 'delete-selected',
         details: expect.objectContaining({
-          selectionAction: 'set-bounds',
-          selectionSource: 'selection-marquee-final',
-          selectionSourceLayerId: sourceLayer.id,
-          activeLayerId: ccLayer.id,
+          operation: 'delete-selected',
+          expectedDestructive: true,
         }),
       }),
     ]));
   });
 
-  it('does not delete CC pixels when an appended selection preserves an earlier layer owner', () => {
+  it('deletes active CC pixels through an appended mask created on another layer', () => {
     const sourceCanvas = document.createElement('canvas');
     sourceCanvas.width = 4;
     sourceCanvas.height = 4;
@@ -925,29 +929,41 @@ describe('selection delete updates framebuffer', () => {
 
     const state = useAppStore.getState();
     const updatedLayer = state.layers.find((layer) => layer.id === ccLayer.id);
+    const updatedSnapshot = readTestColorCycleBrushLayerSnapshot(brush, ccLayer.id);
     expect(updatedLayer?.colorCycleData?.hasContent).toBe(true);
-    expect(readTestColorCycleBrushLayerSnapshot(brush, ccLayer.id)?.hasContent).toBe(true);
+    expect(updatedSnapshot?.hasContent).toBe(true);
+    expect(Array.from(new Uint8Array(updatedSnapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      0, 0, 7, 7,
+      0, 0, 7, 7,
+      7, 7, 0, 0,
+      7, 7, 0, 0,
+    ]);
     expect(state.selectionStart).toBeNull();
     expect(state.selectionEnd).toBeNull();
-    expect(getPersistedCCMutationLog()).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        event: 'selection-delete-skipped-layer-mismatch',
-        layerId: ccLayer.id,
-        reason: 'keyboard-delete',
-        details: expect.objectContaining({
-          selectionSourceLayerId: sourceLayer.id,
-          activeLayerId: ccLayer.id,
-        }),
-      }),
-    ]));
   });
 
-  it('allows a marquee transform to extract all CC paint into a floating paste', () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = 4;
-    canvas.height = 4;
+  it('extracts active CC paint when the marquee was created on another layer', () => {
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = 4;
+    sourceCanvas.height = 4;
+    const ccCanvas = document.createElement('canvas');
+    ccCanvas.width = 4;
+    ccCanvas.height = 4;
 
     const layerId = 'layer-cc-extract-full-content';
+    const sourceLayer: Layer = {
+      id: 'layer-cc-extract-selection-source',
+      name: 'CC Extract Selection Source',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: sourceCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+    } as Layer;
     const ccLayer: Layer = {
       id: layerId,
       name: 'CC Extract Full Content',
@@ -955,13 +971,13 @@ describe('selection delete updates framebuffer', () => {
       opacity: 1,
       blendMode: 'source-over',
       locked: false,
-      order: 0,
+      order: 1,
       imageData: null,
-      framebuffer: canvas,
+      framebuffer: ccCanvas,
       alignment: createDefaultLayerAlignment(),
       layerType: 'color-cycle',
       colorCycleData: {
-        canvas,
+        canvas: ccCanvas,
         hasContent: true,
       },
     } as Layer;
@@ -969,7 +985,7 @@ describe('selection delete updates framebuffer', () => {
     useAppStore.setState((state) => ({
       ...state,
       project: state.project!,
-      layers: [ccLayer],
+      layers: [sourceLayer, ccLayer],
       activeLayerId: layerId,
       selectionStart: { x: 0, y: 0 },
       selectionEnd: { x: 4, y: 4 },
@@ -978,7 +994,7 @@ describe('selection delete updates framebuffer', () => {
         source: 'selection-marquee-final',
         ownerKind: 'direct-marquee',
         t: Date.now(),
-        activeLayerId: layerId,
+        activeLayerId: sourceLayer.id,
         bounds: { x: 0, y: 0, width: 4, height: 4 },
       },
       floatingPaste: null,
@@ -1007,6 +1023,7 @@ describe('selection delete updates framebuffer', () => {
     expect(extracted).toBe(true);
     const floatingPaste = useAppStore.getState().floatingPaste;
     expect(floatingPaste).not.toBeNull();
+    expect(floatingPaste?.sourceLayerId).toBe(layerId);
     expect(Array.from(floatingPaste?.colorCycleIndices ?? [])).toEqual(new Array(16).fill(9));
     expect(Array.from(floatingPaste?.colorCycleGradientIds ?? [])).toEqual(new Array(16).fill(1));
     expect(Array.from(floatingPaste?.colorCycleGradientDefIds ?? [])).toEqual(new Array(16).fill(2));

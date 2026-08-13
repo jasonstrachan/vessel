@@ -90,7 +90,7 @@ const baseRequest = () => ({
 });
 
 describe('colorCycleSelectionTransaction preflight', () => {
-  it('blocks stale layer ownership before mutation', () => {
+  it('extracts from the active CC layer when selection provenance came from another layer', () => {
     const result = preflightCcSelectionTransaction({
       ...baseRequest(),
       selectionLastAction: {
@@ -100,26 +100,29 @@ describe('colorCycleSelectionTransaction preflight', () => {
     });
 
     expect(result).toMatchObject({
-      ok: false,
+      ok: true,
       transactionId: 'tx-test',
-      kind: 'selection-layer-mismatch',
+      kind: 'partial-clear',
       operation: 'extract-selection-transform',
-      clearSelection: true,
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
     });
   });
 
-  it('blocks stale mask ownership before mutation', () => {
+  it('uses a selection mask from another layer against the active CC layer', () => {
+    const selectionMask = new ImageData(2, 2);
+    selectionMask.data[3] = 255;
     const result = preflightCcSelectionTransaction({
       ...baseRequest(),
-      selectionMask: new ImageData(2, 2),
+      selectionMask,
       selectionMaskBounds: { x: 0, y: 0, width: 2, height: 2 },
       selectionMaskLayerId: 'other-layer',
     });
 
     expect(result).toMatchObject({
-      ok: false,
-      kind: 'selection-mask-layer-mismatch',
-      clearSelection: true,
+      ok: true,
+      kind: 'partial-clear',
+      operation: 'extract-selection-transform',
+      bounds: { x: 0, y: 0, width: 2, height: 2 },
     });
   });
 

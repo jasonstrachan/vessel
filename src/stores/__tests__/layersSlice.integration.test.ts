@@ -355,6 +355,29 @@ describe('layers slice integration', () => {
     expect(nextState.layers[0].id).toBe(newLayerId);
   });
 
+  it('keeps the Selection tool and selection geometry when switching away from a CC layer', () => {
+    const store = useAppStore.getState();
+    const normalLayerId = store.addLayer(createNormalLayerInput('Selection Target'));
+    const ccLayerId = store.addLayer(createColorCycleLayerInput('Selection Source'));
+
+    useAppStore.getState().setCurrentTool('selection');
+    useAppStore.getState().setSelectionBounds(
+      { x: 4, y: 5 },
+      { x: 20, y: 21 },
+      'selection-marquee-final',
+    );
+    useAppStore.getState().setActiveLayer(normalLayerId);
+
+    const nextState = useAppStore.getState();
+    expect(nextState.activeLayerId).toBe(normalLayerId);
+    expect(nextState.tools.currentTool).toBe('selection');
+    expect(nextState.selectionStart).toEqual({ x: 4, y: 5 });
+    expect(nextState.selectionEnd).toEqual({ x: 20, y: 21 });
+    expect(nextState.selectionLastAction).toEqual(expect.objectContaining({
+      activeLayerId: ccLayerId,
+    }));
+  });
+
   it('initializes color-cycle layer resources via the manager', () => {
     mockManager.getSpeedSettingsBrush.mockReset();
     mockManager.getSpeedSettingsBrush.mockReturnValue(mockBrush);

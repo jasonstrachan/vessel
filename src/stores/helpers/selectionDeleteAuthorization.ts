@@ -61,8 +61,6 @@ export type SelectionDeleteAuthorization =
       reason:
         | 'missing-selection'
         | 'missing-active-layer'
-        | 'selection-layer-mismatch'
-        | 'selection-mask-layer-mismatch'
         | 'history-restored-keyboard-delete'
         | 'keyboard-full-content-clear-blocked'
         | 'unknown-delete-source'
@@ -149,25 +147,6 @@ export const authorizeSelectionDelete = (
   const { activeLayer, activeLayerId } = request;
   if (!activeLayer || !activeLayerId || !request.project) {
     return reject('missing-active-layer', false, { source, activeLayerId });
-  }
-
-  const selectionOwnerLayerId = request.selectionLastAction?.activeLayerId ?? null;
-  if (selectionOwnerLayerId && selectionOwnerLayerId !== activeLayerId) {
-    return reject('selection-layer-mismatch', true, {
-      source,
-      selectionOwnerLayerId,
-      activeLayerId,
-      selectionLastAction: request.selectionLastAction,
-    });
-  }
-
-  if (request.selectionMaskLayerId && request.selectionMaskLayerId !== activeLayerId) {
-    return reject('selection-mask-layer-mismatch', true, {
-      source,
-      selectionMaskLayerId: request.selectionMaskLayerId,
-      activeLayerId,
-      selectionLastAction: request.selectionLastAction,
-    });
   }
 
   const selectionOwnerKind = request.selectionLastAction?.ownerKind ?? 'unknown';

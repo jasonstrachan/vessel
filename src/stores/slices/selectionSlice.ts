@@ -412,27 +412,6 @@ const logSelectionDeleteAuthorizationBlocked = (args: {
       details,
     });
 
-    if (authorization.reason === 'selection-layer-mismatch') {
-      logCCMutation({
-        event: 'selection-delete-skipped-layer-mismatch',
-        layerId: activeLayerId,
-        reason: source,
-        severity: 'warn',
-        before: summary,
-        after: summary,
-        details: {
-          source,
-          selectionSource: selectionLastAction?.source ?? null,
-          selectionAction: selectionLastAction?.action ?? null,
-          selectionSourceLayerId: selectionLastAction?.activeLayerId ?? null,
-          activeLayerId,
-          selectionStart,
-          selectionEnd,
-          selectionBounds: selectionLastAction?.bounds ?? null,
-        },
-      });
-    }
-
     if (authorization.reason === 'keyboard-full-content-clear-blocked') {
       const paintSummary = authorization.colorCyclePaintSummary ?? null;
       logCCMutation({

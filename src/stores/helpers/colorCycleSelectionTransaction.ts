@@ -28,8 +28,6 @@ export type CcSelectionAllowedKind =
   | 'paste-cancel-restore';
 
 export type CcSelectionBlockedKind =
-  | 'selection-layer-mismatch'
-  | 'selection-mask-layer-mismatch'
   | 'history-restored-unsafe'
   | 'missing-canonical-payload'
   | 'scalar-buffer-size-mismatch'
@@ -112,10 +110,6 @@ const createTransactionId = (operation: CcSelectionOperation): string => {
 
 const toBlockedKind = (reason: string): CcSelectionBlockedKind => {
   switch (reason) {
-    case 'selection-layer-mismatch':
-      return 'selection-layer-mismatch';
-    case 'selection-mask-layer-mismatch':
-      return 'selection-mask-layer-mismatch';
     case 'history-restored-keyboard-delete':
       return 'history-restored-unsafe';
     case 'missing-canonical-paint':
@@ -251,24 +245,6 @@ export const preflightCcSelectionTransaction = (
   if (request.activeLayer.layerType !== 'color-cycle') {
     return block(request, transactionId, 'unsupported-cross-layer-target', false, {
       layerType: request.activeLayer.layerType,
-    });
-  }
-
-  const selectionOwnerLayerId = request.selectionLastAction?.activeLayerId ?? null;
-  if (selectionOwnerLayerId && selectionOwnerLayerId !== request.activeLayerId) {
-    return block(request, transactionId, 'selection-layer-mismatch', true, {
-      selectionOwnerLayerId,
-      activeLayerId: request.activeLayerId,
-      selectionLastAction: request.selectionLastAction ?? null,
-    });
-  }
-
-  const selectionMaskLayerId = request.selectionMaskLayerId ?? null;
-  if (selectionMaskLayerId && selectionMaskLayerId !== request.activeLayerId) {
-    return block(request, transactionId, 'selection-mask-layer-mismatch', true, {
-      selectionMaskLayerId,
-      activeLayerId: request.activeLayerId,
-      selectionLastAction: request.selectionLastAction ?? null,
     });
   }
 

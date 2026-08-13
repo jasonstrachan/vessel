@@ -344,8 +344,10 @@ export const createLayerActivationActions = ({
       brushSettings: baseBrushSettings
     };
     const wasOnColorCycle = currentActiveLayer?.layerType === 'color-cycle';
-    // Only restore last regular tool if we're NOT explicitly in recolor tool
-    if (wasOnColorCycle && layer && layer.layerType === 'normal' && state.tools.currentTool !== 'recolor') {
+    const isRegularPaintTool =
+      state.tools.currentTool === 'brush' || state.tools.currentTool === 'eraser';
+    // Restore regular paint context without replacing tools such as Selection.
+    if (wasOnColorCycle && layer && layer.layerType === 'normal' && isRegularPaintTool) {
       // Restore the last regular tool and brush shape
       const lastTool = state.tools.lastRegularTool ?? 'brush';
       const lastShape = state.tools.lastRegularBrushShape ?? state.tools.brushSettings.brushShape;
