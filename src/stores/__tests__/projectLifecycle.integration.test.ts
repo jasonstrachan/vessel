@@ -1670,6 +1670,45 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.autosave.dirtyRevision).toBeGreaterThan(previousRevision);
   });
 
+  it('detaches the previous project single-file autosave target from a new project', async () => {
+    const previousFileHandle = {
+      name: 'previous-project.vs',
+    } as FileSystemFileHandle;
+    const previousBackupTime = new Date('2026-08-14T01:00:00.000Z');
+    useAppStore.setState((state) => ({
+      projectFilename: previousFileHandle.name,
+      projectFileHandle: previousFileHandle,
+      autosave: {
+        ...state.autosave,
+        fileBackup: {
+          enabled: true,
+          mode: 'single-file',
+          fileHandle: previousFileHandle,
+          directoryHandle: null,
+          backupPath: previousFileHandle.name,
+          lastBackupTime: previousBackupTime,
+        },
+      },
+    }));
+
+    useAppStore.getState().newProject(256, 128, 'Detached Project');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const nextState = useAppStore.getState();
+    expect(nextState.project?.name).toBe('Detached Project');
+    expect(nextState.projectFilename).toBeNull();
+    expect(nextState.projectFileHandle).toBeNull();
+    expect(nextState.autosave.fileBackup).toEqual({
+      enabled: false,
+      mode: 'single-file',
+      fileHandle: null,
+      directoryHandle: null,
+      backupPath: null,
+      lastBackupTime: null,
+    });
+    expect(fileBackupService.setFileHandle).toHaveBeenCalledWith(null);
+  });
+
   it('does not clear a user edit made before deferred new-project initialization', async () => {
     useAppStore.getState().newProject(256, 128, 'New With Early Edit');
     useAppStore.getState().markAutosaveDirty('layer-change');

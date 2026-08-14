@@ -972,8 +972,9 @@ export const createProjectLifecycle = ({
     const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, normalizedProject);
 
     setActiveHistoryDocument(normalizedProject.id);
+    fileBackupService.setFileHandle(null);
 
-    set({
+    set((state) => ({
       project: projectWithPalette,
       palette: normalizedPalette,
       paletteDirty: false,
@@ -982,6 +983,25 @@ export const createProjectLifecycle = ({
       }),
       projectFilename: null,
       projectFileHandle: null,
+      autosave: {
+        ...state.autosave,
+        fileBackup: {
+          ...state.autosave.fileBackup,
+          enabled:
+            state.autosave.fileBackup.mode === 'single-file'
+              ? false
+              : state.autosave.fileBackup.enabled,
+          fileHandle: null,
+          backupPath:
+            state.autosave.fileBackup.mode === 'single-file'
+              ? null
+              : state.autosave.fileBackup.backupPath,
+          lastBackupTime:
+            state.autosave.fileBackup.mode === 'single-file'
+              ? null
+              : state.autosave.fileBackup.lastBackupTime,
+        },
+      },
       layers: syncedLayers,
       layerGroups: projectWithPalette.layerGroups ?? [],
       activeLayerId: defaultLayerId,
@@ -992,7 +1012,7 @@ export const createProjectLifecycle = ({
         canvasWidth: width,
         canvasHeight: height,
       },
-    });
+    }));
     get().setLayersNeedRecomposition(true);
 
     if (typeof window !== 'undefined') {
