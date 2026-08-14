@@ -73,7 +73,7 @@ export const useDrawingCanvasSampling = ({
       ? layers.find((layer) => layer.id === referenceLayerId)
       : null;
     return (
-      (preferReferenceSampling && referenceLayer?.layerType === 'color-cycle') ||
+      (preferReferenceSampling && Boolean(referenceLayer)) ||
       layers.some((layer) => layer.visible && layer.layerType === 'color-cycle')
     );
   }, [layers, preferReferenceSampling, referenceLayerId]);

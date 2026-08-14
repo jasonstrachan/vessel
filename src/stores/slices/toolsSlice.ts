@@ -2023,9 +2023,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const previousGradientVersion = currentSettings.colorCycleGradientVersion;
     const storedGradientEntry = findStoredColorCycleGradient(state.brushSpecificSettings);
     const shouldApplyColorCycleGradient = isColorCycleBrushShape(newBrushSettings.brushShape);
+    const currentColorCycleSource = state.tools.ccGradientSource ?? 'manual';
 
     if (shouldApplyColorCycleGradient) {
-      const activePaletteGradient = isColorCyclePresetId(preset.id)
+      const activePaletteGradient =
+        isColorCyclePresetId(preset.id) && currentColorCycleSource === 'manual'
         ? resolveActivePaletteColorCycleGradient(state)
         : undefined;
       const activePaletteStops = activePaletteGradient?.runtimeStops?.length
@@ -2245,8 +2247,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       newBrushSettings.colorCycleStampShape = 'checkered';
     }
 
-    let nextCcGradientSource = newBrushSettings.ccGradientSource ?? state.tools.ccGradientSource ?? 'manual';
-    if (newBrushSettings.colorCycleUseForegroundGradient) {
+    const shouldPreserveColorCycleSource = isColorCyclePresetId(preset.id);
+    let nextCcGradientSource = shouldPreserveColorCycleSource
+      ? currentColorCycleSource
+      : newBrushSettings.ccGradientSource ?? currentColorCycleSource;
+    if (shouldPreserveColorCycleSource) {
+      newBrushSettings.colorCycleUseForegroundGradient = nextCcGradientSource === 'fg';
+      newBrushSettings.autoSampleGradient = false;
+      newBrushSettings.autoSampleGradientRealtime = false;
+    } else if (newBrushSettings.colorCycleUseForegroundGradient) {
       nextCcGradientSource = 'fg';
     } else if (newBrushSettings.autoSampleGradientRealtime || newBrushSettings.autoSampleGradient) {
       nextCcGradientSource = 'sampled';

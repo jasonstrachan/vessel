@@ -275,6 +275,28 @@ describe('resolveColorCyclePresentation', () => {
     expect(resolveLayerSamplingCanvas(layer)).toBe(runtimeCanvas);
   });
 
+  it('uses persisted raster data when a hidden regular reference has no framebuffer', () => {
+    const imageData = new ImageData(2, 1);
+    imageData.data.set([12, 34, 56, 255], 0);
+    const layer = createLayer({
+      layerType: 'normal',
+      visible: false,
+      framebuffer: undefined as unknown as Layer['framebuffer'],
+      imageData,
+      colorCycleData: undefined,
+    });
+
+    const samplingCanvas = resolveLayerSamplingCanvas(layer);
+    const samplingContext = samplingCanvas?.getContext(
+      '2d',
+      { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+    ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null | undefined;
+
+    expect(Array.from(samplingContext?.getImageData(0, 0, 1, 1).data ?? [])).toEqual([
+      12, 34, 56, 255,
+    ]);
+  });
+
   it('uses a cold CC compatibility snapshot for reference sampling', () => {
     const snapshot = new ImageData(2, 1);
     snapshot.data.set([10, 20, 30, 255], 0);

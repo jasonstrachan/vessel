@@ -107,4 +107,36 @@ describe('useDrawingCanvasSampling', () => {
     act(() => fillCanvas(runtimeCanvas, '#44aa66'));
     expect(result.current.sampleColorAtPosition(1, 1)).toBe('#44aa66');
   });
+
+  it('does not reuse a stale same-coordinate sample from a hidden regular reference', () => {
+    const referenceRaster = createCanvas('#112233');
+    const imageData = referenceRaster.getContext('2d')!.getImageData(0, 0, 2, 2);
+    const layer: Layer = {
+      id: 'regular-reference',
+      name: 'Regular Reference',
+      visible: false,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData,
+      framebuffer: undefined as unknown as HTMLCanvasElement,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+    };
+    const compositeCanvasRef = { current: createCanvas('#ffffff') };
+    const lastSampleRef = createLastSampleRef();
+
+    const { result } = renderHook(() => useDrawingCanvasSampling({
+      compositeCanvasRef,
+      lastSampleRef,
+      layers: [layer],
+      referenceLayerId: layer.id,
+      preferReferenceSampling: true,
+    }));
+
+    expect(result.current.sampleColorAtPosition(1, 1)).toBe('#112233');
+    imageData.data.set([68, 170, 102, 255], (1 * imageData.width + 1) * 4);
+    expect(result.current.sampleColorAtPosition(1, 1)).toBe('#44aa66');
+  });
 });
