@@ -2,7 +2,12 @@ import { createLayerStructureDelta } from '@/history/deltas/layerStructureDelta'
 import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
 import { createRehydrationTargets } from '@/history/runtimeRehydration';
 import { useAppStore } from '@/stores/useAppStore';
-import type { CanvasSnapshot, Layer, LayerGroup } from '@/types';
+import type {
+  CanvasSnapshot,
+  Layer,
+  LayerGroup,
+  ReferenceSamplingSource,
+} from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const createLayer = (
@@ -58,10 +63,12 @@ const createLayerStructureSnapshot = (
   selectedLayerIds: string[] = [],
   referenceLayerId: string | null = null,
   layerGroups: LayerGroup[] = [],
+  referenceSamplingSource?: ReferenceSamplingSource,
 ) => ({
   snapshot: createSnapshot(id, layers, activeLayerId),
   selectedLayerIds,
   referenceLayerId,
+  referenceSamplingSource,
   layerGroups,
 });
 
@@ -130,6 +137,64 @@ describe('LayerStructureDelta', () => {
 
     await replayDeltaForTest(delta, 'backward');
     expect(useAppStore.getState().layerGroups).toEqual([]);
+  });
+
+  it('preserves an external sampling source while replaying layer history', async () => {
+    const beforeLayers = [createLayer('layer-a', 0), createLayer('layer-b', 1)];
+    const afterLayers = [beforeLayers[1]!, beforeLayers[0]!];
+    const source = { kind: 'asset' as const, assetId: 'portrait-reference' };
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? {
+            ...state.project,
+            referenceAssets: [{
+              id: source.assetId,
+              name: 'Portrait',
+              dataUrl: 'data:image/png;base64,AAAA',
+              naturalWidth: 1,
+              naturalHeight: 1,
+              visible: true,
+              locked: false,
+              opacity: 1,
+              x: 0,
+              y: 0,
+              scale: 1,
+              crop: { x: 0, y: 0, width: 1, height: 1 },
+              flipX: false,
+              flipY: false,
+              createdAt: 1,
+              updatedAt: 1,
+            }],
+            referenceSamplingSource: source,
+          }
+        : state.project,
+    }));
+    const delta = createLayerStructureDelta({
+      before: createLayerStructureSnapshot(
+        'before',
+        beforeLayers,
+        'layer-a',
+        ['layer-a'],
+        'layer-a',
+        [],
+        source,
+      ),
+      after: createLayerStructureSnapshot(
+        'after',
+        afterLayers,
+        'layer-b',
+        ['layer-b'],
+        'layer-a',
+        [],
+        source,
+      ),
+    });
+
+    await replayDeltaForTest(delta, 'forward');
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual(source);
+
+    await replayDeltaForTest(delta, 'backward');
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual(source);
   });
 
   it('routes restored active layers through the store runtime lifecycle', async () => {

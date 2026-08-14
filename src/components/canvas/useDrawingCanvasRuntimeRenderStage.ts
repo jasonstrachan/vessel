@@ -16,6 +16,8 @@ export const useDrawingCanvasRuntimeRenderStage = ({
     layers: state.layers,
     referenceLayerId: state.referenceLayerId,
     preferReferenceSampling: state.preferReferenceSampling,
+    referenceAssets: state.project?.referenceAssets ?? [],
+    referenceSamplingSource: state.project?.referenceSamplingSource,
     compositeCanvasRef: state.compositeCanvasRef,
     layerRenderShared: {
       project: state.project,

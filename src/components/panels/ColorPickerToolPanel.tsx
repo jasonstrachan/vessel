@@ -7,6 +7,8 @@ import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
 
 import ButtonGroup from '../ui/ButtonGroup';
 
+const EMPTY_REFERENCE_ASSETS: NonNullable<import('@/types').Project['referenceAssets']> = [];
+
 const normalizeHex = (value: string): string => {
   const raw = (value || '').trim().replace(/^#/, '');
   const expanded = raw.length === 3 ? raw.split('').map((ch) => ch + ch).join('') : raw;
@@ -26,11 +28,18 @@ const ColorPickerToolPanel: React.FC = () => {
   const activeSlot = useAppStore((state) => state.palette.activeSlot);
   const foregroundColor = useAppStore((state) => state.palette.foregroundColor);
   const backgroundColor = useAppStore((state) => state.palette.backgroundColor);
-  const preferReferenceSampling = useAppStore((state) => state.colorPickerPreferReferenceLayer);
-  const setPreferReferenceSampling = useAppStore((state) => state.setColorPickerPreferReferenceLayer);
+  const persistedSamplingSource = useAppStore((state) => state.project?.referenceSamplingSource);
+  const referenceAssets = useAppStore((state) => (
+    state.project?.referenceAssets ?? EMPTY_REFERENCE_ASSETS
+  ));
+  const setReferenceSamplingSource = useAppStore((state) => state.setReferenceSamplingSource);
   const layers = useAppStore((state) => state.layers);
   const activeLayerId = useAppStore((state) => state.activeLayerId);
   const referenceLayerId = useAppStore((state) => state.project?.referenceLayerId ?? null);
+  const samplingSource = persistedSamplingSource
+    ?? (referenceLayerId
+      ? { kind: 'layer' as const, layerId: referenceLayerId }
+      : { kind: 'canvas' as const });
 
   const activeColor = activeSlot === 'background' ? backgroundColor : foregroundColor;
 
@@ -47,7 +56,17 @@ const ColorPickerToolPanel: React.FC = () => {
   const activeSlotLabel = activeSlot === 'background' ? 'Background' : 'Foreground';
   const activeLayer = layers.find((layer) => layer.id === activeLayerId);
   const referenceLayer = layers.find((layer) => layer.id === referenceLayerId);
-  const effectiveReferenceLayer = preferReferenceSampling ? referenceLayer : undefined;
+  const referenceAsset = samplingSource.kind === 'asset'
+    ? referenceAssets.find((asset) => asset.id === samplingSource.assetId)
+    : undefined;
+  const effectiveReferenceLayer = samplingSource.kind === 'layer'
+    ? layers.find((layer) => layer.id === samplingSource.layerId)
+    : undefined;
+  const fallbackReferenceSource = referenceLayer
+    ? { kind: 'layer' as const, layerId: referenceLayer.id }
+    : referenceAssets[0]
+      ? { kind: 'asset' as const, assetId: referenceAssets[0].id }
+      : null;
   const ccSourceLayer = activeLayer?.layerType === 'color-cycle'
     ? activeLayer
     : undefined;
@@ -55,8 +74,10 @@ const ColorPickerToolPanel: React.FC = () => {
     ? `Active · ${ccSourceLayer.name}`
     : 'None';
   const pixelSourceLabel = effectiveReferenceLayer
-    ? `Reference · ${effectiveReferenceLayer.name}`
-    : 'Visible canvas';
+    ? `Artwork · ${effectiveReferenceLayer.name}`
+    : referenceAsset
+      ? `Studio · ${referenceAsset.name}`
+      : 'Visible canvas';
 
   return (
     <div className="border-b border-[#242424] bg-[#1F1F1F] px-4 py-3 text-xs text-[#E2E8F0]">
@@ -94,12 +115,20 @@ const ColorPickerToolPanel: React.FC = () => {
               {
                 label: 'Reference',
                 value: 'reference',
-                disabled: !referenceLayer,
-                title: referenceLayer ? `Sample ${referenceLayer.name}` : 'No reference layer selected',
+                disabled: !fallbackReferenceSource && samplingSource.kind === 'canvas',
+                title: pixelSourceLabel,
               },
             ]}
-            value={effectiveReferenceLayer ? 'reference' : 'canvas'}
-            onChange={(value) => setPreferReferenceSampling(value === 'reference')}
+            value={samplingSource.kind === 'canvas' ? 'canvas' : 'reference'}
+            onChange={(value) => {
+              if (value === 'canvas') {
+                setReferenceSamplingSource({ kind: 'canvas' });
+              } else if (samplingSource.kind !== 'canvas') {
+                setReferenceSamplingSource(samplingSource);
+              } else if (fallbackReferenceSource) {
+                setReferenceSamplingSource(fallbackReferenceSource);
+              }
+            }}
             size="sm"
           />
         </div>

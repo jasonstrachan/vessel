@@ -63,7 +63,7 @@ describe('ColorPickerToolPanel', () => {
 
     render(<BrushSettingsPanel />);
 
-    expect(screen.getByText('Reference · Portrait ref')).toBeInTheDocument();
+    expect(screen.getByText('Artwork · Portrait ref')).toBeInTheDocument();
     expect(screen.getByText('Active · Animated ink')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Canvas' }));

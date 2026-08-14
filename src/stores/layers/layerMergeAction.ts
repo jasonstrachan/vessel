@@ -460,6 +460,15 @@ export const mergeLayersAction = (
       state.referenceLayerId && uniqueIds.includes(state.referenceLayerId)
         ? null
         : state.referenceLayerId;
+    const currentReferenceSamplingSource = state.project?.referenceSamplingSource
+      ?? (state.referenceLayerId
+        ? { kind: 'layer' as const, layerId: state.referenceLayerId }
+        : { kind: 'canvas' as const });
+    const nextReferenceSamplingSource =
+      currentReferenceSamplingSource.kind === 'layer'
+      && uniqueIds.includes(currentReferenceSamplingSource.layerId)
+        ? { kind: 'canvas' as const }
+        : currentReferenceSamplingSource;
 
     return {
       layers: syncedLayers,
@@ -468,6 +477,15 @@ export const mergeLayersAction = (
       activeLayerId: mergedLayerId,
       selectedLayerIds: [mergedLayerId],
       referenceLayerId: nextReferenceLayerId,
+      colorPickerPreferReferenceLayer: nextReferenceSamplingSource.kind !== 'canvas',
+      project: state.project
+        ? {
+            ...state.project,
+            referenceLayerId: nextReferenceLayerId,
+            referenceSamplingSource: nextReferenceSamplingSource,
+            updatedAt: new Date(),
+          }
+        : state.project,
       layersNeedRecomposition: true,
     };
   });

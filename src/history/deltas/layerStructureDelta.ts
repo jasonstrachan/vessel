@@ -1,5 +1,10 @@
 import { useAppStore } from '@/stores/useAppStore';
-import type { CanvasSnapshot, Layer, LayerGroup } from '@/types';
+import type {
+  CanvasSnapshot,
+  Layer,
+  LayerGroup,
+  ReferenceSamplingSource,
+} from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 
 import {
@@ -15,6 +20,7 @@ export interface LayerStructureSnapshot {
   snapshot: CanvasSnapshot;
   selectedLayerIds: string[];
   referenceLayerId: string | null;
+  referenceSamplingSource?: ReferenceSamplingSource;
   layerGroups: LayerGroup[];
 }
 
@@ -132,6 +138,7 @@ class LayerStructureDelta implements HistoryDelta {
       activeLayerId: state.activeLayerId,
       selectedLayerIds: state.selectedLayerIds,
       referenceLayerId: state.referenceLayerId,
+      colorPickerPreferReferenceLayer: state.colorPickerPreferReferenceLayer,
       layersNeedRecomposition: state.layersNeedRecomposition,
       compositeSegments: state.compositeSegments,
       pendingCompositeDirtyBatches: state.pendingCompositeDirtyBatches,
@@ -150,6 +157,10 @@ class LayerStructureDelta implements HistoryDelta {
         !Object.is(current.project?.layers, projectSnapshot?.layers) ||
         !Object.is(current.project?.layerGroups, projectSnapshot?.layerGroups) ||
         current.project?.referenceLayerId !== projectSnapshot?.referenceLayerId ||
+        !Object.is(
+          current.project?.referenceSamplingSource,
+          projectSnapshot?.referenceSamplingSource,
+        ) ||
         !Object.is(current.project?.updatedAt, projectSnapshot?.updatedAt)
       );
     };
@@ -170,6 +181,7 @@ class LayerStructureDelta implements HistoryDelta {
                 'layers',
                 'layerGroups',
                 'referenceLayerId',
+                'referenceSamplingSource',
                 'updatedAt',
               ])
             : current.project,
@@ -218,6 +230,12 @@ class LayerStructureDelta implements HistoryDelta {
         ? target.referenceLayerId
         : null;
     store.setReferenceLayer(restoredReferenceId);
+    store.setReferenceSamplingSource(
+      target.referenceSamplingSource
+        ?? (restoredReferenceId
+          ? { kind: 'layer', layerId: restoredReferenceId }
+          : { kind: 'canvas' }),
+    );
 
     const resolvedProjectLayers = useAppStore.getState().layers;
     useAppStore.setState((state) => {

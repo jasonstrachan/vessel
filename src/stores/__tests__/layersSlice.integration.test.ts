@@ -2028,6 +2028,7 @@ describe('layers slice integration', () => {
     const store = useAppStore.getState();
     const bottomId = store.addLayer(createNormalLayerInput('Bottom'));
     const topId = store.addLayer(createNormalLayerInput('Top'));
+    store.setReferenceLayer(topId);
 
     const mergedId = useAppStore.getState().mergeLayers([bottomId, topId]);
     createElementSpy.mockRestore();
@@ -2041,6 +2042,7 @@ describe('layers slice integration', () => {
     expect(nextState.activeLayerId).toBe(mergedId);
     expect(nextState.selectedLayerIds).toEqual([mergedId]);
     expect(nextState.referenceLayerId).toBeNull();
+    expect(nextState.project?.referenceSamplingSource).toEqual({ kind: 'canvas' });
   });
 
   it('merges color-cycle layers without flattening their canonical payloads', () => {

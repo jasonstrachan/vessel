@@ -1,8 +1,9 @@
 import type React from 'react';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
-import type { Layer } from '@/types';
+import { mapProjectPointToReferencePixel } from '@/referenceStudio/referenceAssets';
+import type { Layer, ReferenceAsset, ReferenceSamplingSource } from '@/types';
 
 type CompositeSampleOptions = {
   radius?: number;
@@ -15,6 +16,8 @@ interface UseDrawingCanvasSamplingOptions {
   layers: Layer[];
   referenceLayerId: string | null;
   preferReferenceSampling: boolean;
+  referenceAssets?: ReferenceAsset[];
+  referenceSamplingSource?: ReferenceSamplingSource;
 }
 
 const rgbToHex = (r: number, g: number, b: number): string => {
@@ -66,17 +69,78 @@ export const useDrawingCanvasSampling = ({
   layers,
   referenceLayerId,
   preferReferenceSampling,
+  referenceAssets = [],
+  referenceSamplingSource,
 }: UseDrawingCanvasSamplingOptions) => {
   const referenceSampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const referenceAssetCanvasCacheRef = useRef(new Map<string, {
+    dataUrl: string;
+    naturalWidth: number;
+    naturalHeight: number;
+    canvas: HTMLCanvasElement;
+  }>());
+  const effectiveSamplingSource = useMemo<ReferenceSamplingSource>(() => {
+    if (referenceSamplingSource) return referenceSamplingSource;
+    if (preferReferenceSampling && referenceLayerId) {
+      return { kind: 'layer', layerId: referenceLayerId };
+    }
+    return { kind: 'canvas' };
+  }, [preferReferenceSampling, referenceLayerId, referenceSamplingSource]);
+  const effectiveReferenceLayerId = effectiveSamplingSource.kind === 'layer'
+    ? effectiveSamplingSource.layerId
+    : null;
+
+  useEffect(() => {
+    if (typeof Image === 'undefined' || typeof document === 'undefined') return;
+    const validIds = new Set(referenceAssets.map((asset) => asset.id));
+    referenceAssetCanvasCacheRef.current.forEach((_entry, assetId) => {
+      if (!validIds.has(assetId)) referenceAssetCanvasCacheRef.current.delete(assetId);
+    });
+
+    let cancelled = false;
+    referenceAssets.forEach((asset) => {
+      const cached = referenceAssetCanvasCacheRef.current.get(asset.id);
+      if (
+        cached?.dataUrl === asset.dataUrl
+        && cached.naturalWidth === asset.naturalWidth
+        && cached.naturalHeight === asset.naturalHeight
+      ) {
+        return;
+      }
+      referenceAssetCanvasCacheRef.current.delete(asset.id);
+      const image = new Image();
+      image.onload = () => {
+        if (cancelled) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, asset.naturalWidth);
+        canvas.height = Math.max(1, asset.naturalHeight);
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) return;
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        referenceAssetCanvasCacheRef.current.set(asset.id, {
+          dataUrl: asset.dataUrl,
+          naturalWidth: asset.naturalWidth,
+          naturalHeight: asset.naturalHeight,
+          canvas,
+        });
+      };
+      image.src = asset.dataUrl;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [referenceAssets]);
+
   const hasDynamicSamplingSource = useMemo(() => {
-    const referenceLayer = referenceLayerId
-      ? layers.find((layer) => layer.id === referenceLayerId)
+    const referenceLayer = effectiveReferenceLayerId
+      ? layers.find((layer) => layer.id === effectiveReferenceLayerId)
       : null;
     return (
-      (preferReferenceSampling && Boolean(referenceLayer)) ||
+      effectiveSamplingSource.kind === 'asset' ||
+      (effectiveSamplingSource.kind === 'layer' && Boolean(referenceLayer)) ||
       layers.some((layer) => layer.visible && layer.layerType === 'color-cycle')
     );
-  }, [layers, preferReferenceSampling, referenceLayerId]);
+  }, [effectiveReferenceLayerId, effectiveSamplingSource.kind, layers]);
 
   const sampleCompositeOpaque = useCallback(
     (x: number, y: number, options: CompositeSampleOptions = {}): string => {
@@ -155,11 +219,11 @@ export const useDrawingCanvasSampling = ({
 
   const sampleColorFromReferenceLayer = useCallback(
     (x: number, y: number): string | null => {
-      if (!referenceLayerId) {
+      if (!effectiveReferenceLayerId) {
         return null;
       }
 
-      const layer = layers.find((candidate) => candidate.id === referenceLayerId);
+      const layer = layers.find((candidate) => candidate.id === effectiveReferenceLayerId);
       const samplingCanvas = resolveLayerSamplingCanvas(layer);
       if (!samplingCanvas) {
         return null;
@@ -188,7 +252,26 @@ export const useDrawingCanvasSampling = ({
       }
       return rgbToHex(sample[0], sample[1], sample[2]);
     },
-    [layers, referenceLayerId]
+    [effectiveReferenceLayerId, layers]
+  );
+
+  const sampleColorFromReferenceAsset = useCallback(
+    (assetId: string, x: number, y: number): string | null => {
+      const asset = referenceAssets.find((candidate) => candidate.id === assetId);
+      const cached = referenceAssetCanvasCacheRef.current.get(assetId);
+      if (!asset || !cached) return null;
+      const point = mapProjectPointToReferencePixel(asset, x, y);
+      if (!point) return null;
+      const sample = readCanvasPixel(
+        cached.canvas,
+        point.x,
+        point.y,
+        referenceSampleCanvasRef,
+      );
+      if (!sample || sample[3] === 0) return null;
+      return rgbToHex(sample[0], sample[1], sample[2]);
+    },
+    [referenceAssets],
   );
 
   const sampleColorAtPosition = useCallback(
@@ -200,35 +283,50 @@ export const useDrawingCanvasSampling = ({
       const clampedY = Math.max(0, Math.min(comp.height - 1, Math.floor(y)));
 
       const last = lastSampleRef.current;
-      const cacheLayerId = preferReferenceSampling && referenceLayerId ? referenceLayerId : null;
+      const cacheLayerId = effectiveSamplingSource.kind === 'layer'
+        ? effectiveSamplingSource.layerId
+        : effectiveSamplingSource.kind === 'asset'
+          ? effectiveSamplingSource.assetId
+          : null;
+      const prefersReference = effectiveSamplingSource.kind !== 'canvas';
       if (
         !hasDynamicSamplingSource &&
         last.x === clampedX &&
         last.y === clampedY &&
         last.layerId === cacheLayerId &&
-        last.preferReference === preferReferenceSampling
+        last.preferReference === prefersReference
       ) {
         return last.color;
       }
 
-      if (preferReferenceSampling && referenceLayerId) {
+      if (effectiveSamplingSource.kind === 'layer') {
         const referenceColor = sampleColorFromReferenceLayer(clampedX, clampedY);
         if (referenceColor) {
-          lastSampleRef.current = { x: clampedX, y: clampedY, color: referenceColor, layerId: cacheLayerId, preferReference: preferReferenceSampling };
+          lastSampleRef.current = { x: clampedX, y: clampedY, color: referenceColor, layerId: cacheLayerId, preferReference: true };
+          return referenceColor;
+        }
+      } else if (effectiveSamplingSource.kind === 'asset') {
+        const referenceColor = sampleColorFromReferenceAsset(
+          effectiveSamplingSource.assetId,
+          clampedX,
+          clampedY,
+        );
+        if (referenceColor) {
+          lastSampleRef.current = { x: clampedX, y: clampedY, color: referenceColor, layerId: cacheLayerId, preferReference: true };
           return referenceColor;
         }
       }
 
       const color = sampleCompositeOpaque(clampedX, clampedY, { radius: 1, preferSolid: true });
-      lastSampleRef.current = { x: clampedX, y: clampedY, color, layerId: cacheLayerId, preferReference: preferReferenceSampling };
+      lastSampleRef.current = { x: clampedX, y: clampedY, color, layerId: cacheLayerId, preferReference: prefersReference };
       return color;
     },
     [
       compositeCanvasRef,
+      effectiveSamplingSource,
       hasDynamicSamplingSource,
       lastSampleRef,
-      preferReferenceSampling,
-      referenceLayerId,
+      sampleColorFromReferenceAsset,
       sampleColorFromReferenceLayer,
       sampleCompositeOpaque,
     ]
@@ -254,6 +352,7 @@ export const useDrawingCanvasSampling = ({
   return {
     sampleCompositeOpaque,
     sampleColorFromReferenceLayer,
+    sampleColorFromReferenceAsset,
     sampleColorAtPosition,
     sampleColorsAlongLine,
   };

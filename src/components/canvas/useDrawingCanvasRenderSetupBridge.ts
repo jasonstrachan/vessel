@@ -17,6 +17,8 @@ export interface UseDrawingCanvasRenderSetupBridgeOptions {
   layers: LayerRenderingOptions['layers'];
   referenceLayerId: SamplingOptions['referenceLayerId'];
   preferReferenceSampling: SamplingOptions['preferReferenceSampling'];
+  referenceAssets: SamplingOptions['referenceAssets'];
+  referenceSamplingSource: SamplingOptions['referenceSamplingSource'];
   compositeCanvasRef: SamplingOptions['compositeCanvasRef'];
   compositeBuffersOptions: CompositeBuffersOptions;
   layerRenderingOptions: LayerRenderingOptions;
@@ -27,6 +29,8 @@ export const useDrawingCanvasRenderSetupBridge = ({
   layers,
   referenceLayerId,
   preferReferenceSampling,
+  referenceAssets,
+  referenceSamplingSource,
   compositeCanvasRef,
   compositeBuffersOptions,
   layerRenderingOptions,
@@ -54,6 +58,8 @@ export const useDrawingCanvasRenderSetupBridge = ({
     layers,
     referenceLayerId,
     preferReferenceSampling,
+    referenceAssets,
+    referenceSamplingSource,
   });
 
   const { renderSplitComposites, rebuildStaticComposite } = useDrawingCanvasCompositeBuffers(

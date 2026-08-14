@@ -466,6 +466,8 @@ export interface VesselProject {
     brushSpecificSettings?: Record<string, unknown>;
     globalBrushSize?: number;
     referenceLayerId?: string | null;
+    referenceAssets?: Project['referenceAssets'];
+    referenceSamplingSource?: Project['referenceSamplingSource'];
     exportLayout?: ExportContainerLayout;
     palette?: PaletteState;
     canvasShape?: Project['canvasShape'];
@@ -4555,6 +4557,8 @@ const buildSerializedProjectArtifacts = async (
       brushSpecificSettings: project.brushSpecificSettings,
       globalBrushSize: project.globalBrushSize,
       referenceLayerId: project.referenceLayerId ?? null,
+      referenceAssets: project.referenceAssets,
+      referenceSamplingSource: project.referenceSamplingSource,
       exportLayout: cloneExportLayout(project.exportLayout),
       palette: normalizePalette(project.palette),
       canvasShape: project.canvasShape,
@@ -5817,6 +5821,8 @@ export async function deserializeProjectWithReport(
     brushSpecificSettings: serializedProject.brushSpecificSettings as Record<string, Partial<BrushSettings>> | undefined,
     globalBrushSize: serializedProject.globalBrushSize,
     referenceLayerId: serializedProject.referenceLayerId ?? null,
+    referenceAssets: serializedProject.referenceAssets,
+    referenceSamplingSource: serializedProject.referenceSamplingSource,
     exportLayout: cloneExportLayout(serializedProject.exportLayout),
     palette: normalizePalette(serializedProject.palette),
     canvasShape: serializedProject.canvasShape,

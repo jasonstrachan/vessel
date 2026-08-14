@@ -320,6 +320,37 @@ export interface CcCustomTilePatternPack {
   updatedAt: number;
 }
 
+export interface ReferenceAssetCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ReferenceAsset {
+  id: string;
+  name: string;
+  dataUrl: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  visible: boolean;
+  locked: boolean;
+  opacity: number;
+  x: number;
+  y: number;
+  scale: number;
+  crop: ReferenceAssetCrop;
+  flipX: boolean;
+  flipY: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ReferenceSamplingSource =
+  | { kind: 'canvas' }
+  | { kind: 'layer'; layerId: string }
+  | { kind: 'asset'; assetId: string };
+
 export interface Project {
   id: string;
   name: string;
@@ -346,6 +377,8 @@ export interface Project {
   globalBrushSize?: number;
   // Layer ID to sample from when reference sampling is enabled
   referenceLayerId?: string | null;
+  referenceAssets?: ReferenceAsset[];
+  referenceSamplingSource?: ReferenceSamplingSource;
   exportLayout?: ExportContainerLayout;
   palette?: PaletteState;
 }

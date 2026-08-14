@@ -264,6 +264,8 @@ export const createProjectLifecycle = ({
       loadedProject.referenceLayerId && validLayerIds.has(loadedProject.referenceLayerId)
         ? loadedProject.referenceLayerId
         : null;
+    const nextReferenceSamplingSource = projectWithPalette.referenceSamplingSource
+      ?? { kind: 'canvas' as const };
     const nextActiveLayerId = syncedLayers[0]?.id ?? null;
 
     historyManager.assertDocumentReplacementAvailable();
@@ -284,6 +286,7 @@ export const createProjectLifecycle = ({
       activeLayerId: nextActiveLayerId,
       selectedLayerIds: nextActiveLayerId ? [nextActiveLayerId] : [],
       referenceLayerId: nextReferenceLayerId,
+      colorPickerPreferReferenceLayer: nextReferenceSamplingSource.kind !== 'canvas',
       canvas: loadedProject.viewState
         ? {
             ...get().canvas,
@@ -960,6 +963,8 @@ export const createProjectLifecycle = ({
       brushSpecificSettings: {},
       exportLayout: createDefaultExportLayout(),
       palette: newPalette,
+      referenceAssets: [],
+      referenceSamplingSource: { kind: 'canvas' },
     };
 
     const normalizedProject = normalizeProject(newProject);
@@ -1007,6 +1012,7 @@ export const createProjectLifecycle = ({
       activeLayerId: defaultLayerId,
       selectedLayerIds: defaultLayerId ? [defaultLayerId] : [],
       referenceLayerId: null,
+      colorPickerPreferReferenceLayer: false,
       canvas: {
         ...get().canvas,
         canvasWidth: width,

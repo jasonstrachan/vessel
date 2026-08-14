@@ -149,12 +149,24 @@ export const createLayerCollectionActions = ({
           const nextReferenceLayerId = state.referenceLayerId && validLayerIds.has(state.referenceLayerId)
             ? state.referenceLayerId
             : null;
+          const currentSource = state.project?.referenceSamplingSource ?? { kind: 'canvas' as const };
+          const nextSource = currentSource.kind === 'layer' && !validLayerIds.has(currentSource.layerId)
+            ? { kind: 'canvas' as const }
+            : currentSource;
 
           return {
             layers: groupedLayers,
             layerGroups: sanitizedGroups,
             hiddenLayerGroupIds: sanitizeHiddenLayerGroupIds(state.hiddenLayerGroupIds, sanitizedGroups),
             referenceLayerId: nextReferenceLayerId,
+            colorPickerPreferReferenceLayer: nextSource.kind !== 'canvas',
+            project: state.project
+              ? {
+                  ...state.project,
+                  referenceLayerId: nextReferenceLayerId,
+                  referenceSamplingSource: nextSource,
+                }
+              : state.project,
           };
         });
         pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
@@ -358,14 +370,26 @@ export const createLayerCollectionActions = ({
       const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
       const nextLayerGroups = sanitizeLayerGroups(syncedLayers, state.layerGroups);
       const nextHiddenLayerGroupIds = sanitizeHiddenLayerGroupIds(state.hiddenLayerGroupIds, nextLayerGroups);
+      const nextReferenceLayerId = state.referenceLayerId === id ? null : state.referenceLayerId;
+      const currentSource = state.project?.referenceSamplingSource ?? { kind: 'canvas' as const };
+      const nextSource = currentSource.kind === 'layer' && currentSource.layerId === id
+        ? { kind: 'canvas' as const }
+        : currentSource;
     return {
       layers: syncedLayers,
       layerGroups: nextLayerGroups,
       hiddenLayerGroupIds: nextHiddenLayerGroupIds,
       activeLayerId: newActiveLayerId,
       selectedLayerIds: nextSelection,
-      referenceLayerId: state.referenceLayerId === id ? null : state.referenceLayerId
-      // Remove the project update entirely - only update top-level layers
+      referenceLayerId: nextReferenceLayerId,
+      colorPickerPreferReferenceLayer: nextSource.kind !== 'canvas',
+      project: state.project
+        ? {
+            ...state.project,
+            referenceLayerId: nextReferenceLayerId,
+            referenceSamplingSource: nextSource,
+          }
+        : state.project,
     };
     });
 
@@ -546,28 +570,34 @@ export const createLayerCollectionActions = ({
       selectedLayerIds: validIds
     };
   }),
-  setReferenceLayer: (id) => set((state) => {
-    if (id && !state.layers.some(layer => layer.id === id)) {
+  setReferenceLayer: (id) => {
+    let didChange = false;
+    set((state) => {
+      const isValid = !id || state.layers.some((layer) => layer.id === id);
+      const nextReferenceLayerId = isValid ? id ?? null : null;
+      const currentSource = state.project?.referenceSamplingSource ?? { kind: 'canvas' as const };
+      const nextSource = nextReferenceLayerId
+        ? { kind: 'layer' as const, layerId: nextReferenceLayerId }
+        : currentSource.kind === 'layer'
+          ? { kind: 'canvas' as const }
+          : currentSource;
+      didChange =
+        state.referenceLayerId !== nextReferenceLayerId
+        || JSON.stringify(currentSource) !== JSON.stringify(nextSource);
+      if (!didChange) return state;
       return {
-        referenceLayerId: null,
+        referenceLayerId: nextReferenceLayerId,
+        colorPickerPreferReferenceLayer: nextSource.kind !== 'canvas',
         project: state.project
           ? {
               ...state.project,
-              referenceLayerId: null,
+              referenceLayerId: nextReferenceLayerId,
+              referenceSamplingSource: nextSource,
+              updatedAt: new Date(),
             }
           : state.project,
       };
-    }
-
-    const nextReferenceLayerId = id ?? null;
-    return {
-      referenceLayerId: nextReferenceLayerId,
-      project: state.project
-        ? {
-            ...state.project,
-            referenceLayerId: nextReferenceLayerId,
-          }
-        : state.project,
-    };
-  }),
+    });
+    if (didChange) get().markAutosaveDirty('project-change');
+  },
 });

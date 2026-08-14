@@ -34,6 +34,7 @@ export const captureLayerStructureSnapshot = (
     snapshot,
     selectedLayerIds: [...state.selectedLayerIds],
     referenceLayerId: state.referenceLayerId ?? null,
+    referenceSamplingSource: state.project?.referenceSamplingSource,
     layerGroups: state.layerGroups.map((group) => ({
       ...group,
       interlace: group.interlace ? { ...group.interlace } : undefined,

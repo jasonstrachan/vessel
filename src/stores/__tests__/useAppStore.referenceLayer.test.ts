@@ -39,10 +39,15 @@ describe('reference layer management', () => {
     store.setReferenceLayer(layerId);
     expect(useAppStore.getState().referenceLayerId).toBe(layerId);
     expect(useAppStore.getState().project?.referenceLayerId ?? null).toBe(layerId);
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual({
+      kind: 'layer',
+      layerId,
+    });
 
     store.setReferenceLayer(null);
     expect(useAppStore.getState().referenceLayerId).toBeNull();
     expect(useAppStore.getState().project?.referenceLayerId ?? null).toBeNull();
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual({ kind: 'canvas' });
   });
 
   it('only keeps the most recent reference layer selection', () => {
@@ -65,6 +70,7 @@ describe('reference layer management', () => {
     store.removeLayer(layerId);
 
     expect(useAppStore.getState().referenceLayerId).toBeNull();
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual({ kind: 'canvas' });
   });
 
   it('clears referenceLayerId when setLayers omits the reference layer', () => {
@@ -76,5 +82,6 @@ describe('reference layer management', () => {
     store.setLayers(remainingLayers);
 
     expect(useAppStore.getState().referenceLayerId).toBeNull();
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual({ kind: 'canvas' });
   });
 });

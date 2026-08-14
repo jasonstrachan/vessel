@@ -6,6 +6,7 @@ const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
 const mockStartVesselMultiplayerSession = jest.fn().mockResolvedValue(undefined);
 const mockStopVesselMultiplayerSession = jest.fn();
 const mockShowAppFeedback = jest.fn();
+const mockOpenReferenceStudioWindow = jest.fn(() => true);
 let multiplayer: VesselMultiplayerSnapshot = {
   sessionId: null,
   projectId: null,
@@ -31,6 +32,10 @@ jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
 
 jest.mock('@/utils/appFeedback', () => ({
   showAppFeedback: (...args: unknown[]) => mockShowAppFeedback(...args),
+}));
+
+jest.mock('@/referenceStudio/referenceStudioChannel', () => ({
+  openReferenceStudioWindow: () => mockOpenReferenceStudioWindow(),
 }));
 
 jest.mock('@/utils/toolSwitch', () => ({
@@ -234,6 +239,15 @@ describe('LeftToolbar accessibility', () => {
     fireEvent.click(gridButton);
 
     expect(mockStore.toggleGrid).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens Reference Studio from its dedicated toolbar button', () => {
+    render(<LeftToolbar />);
+
+    fireEvent.click(screen.getByRole('button', { name: /reference studio/i }));
+
+    expect(mockOpenReferenceStudioWindow).toHaveBeenCalledTimes(1);
+    expect(mockSwitchTool).not.toHaveBeenCalled();
   });
 
   it('routes the Fl button to the brush settings filters section', () => {

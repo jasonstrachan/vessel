@@ -9,6 +9,8 @@ interface BuildDrawingCanvasRenderSetupOptionsArgs {
   layers: UseDrawingCanvasRenderSetupBridgeOptions['layers'];
   referenceLayerId: UseDrawingCanvasRenderSetupBridgeOptions['referenceLayerId'];
   preferReferenceSampling: UseDrawingCanvasRenderSetupBridgeOptions['preferReferenceSampling'];
+  referenceAssets: UseDrawingCanvasRenderSetupBridgeOptions['referenceAssets'];
+  referenceSamplingSource: UseDrawingCanvasRenderSetupBridgeOptions['referenceSamplingSource'];
   compositeCanvasRef: UseDrawingCanvasRenderSetupBridgeOptions['compositeCanvasRef'];
   layerRenderShared: LayerRenderShared;
   staticCompositeOptions: Pick<
@@ -40,6 +42,8 @@ export const buildDrawingCanvasRenderSetupOptions = ({
   layers,
   referenceLayerId,
   preferReferenceSampling,
+  referenceAssets,
+  referenceSamplingSource,
   compositeCanvasRef,
   layerRenderShared,
   staticCompositeOptions,
@@ -56,6 +60,8 @@ export const buildDrawingCanvasRenderSetupOptions = ({
     layers,
     referenceLayerId,
     preferReferenceSampling,
+    referenceAssets,
+    referenceSamplingSource,
     compositeCanvasRef,
     compositeBuffersOptions: {
       ...layerRenderShared,

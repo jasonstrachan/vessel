@@ -8,12 +8,13 @@ import {
   useVesselMultiplayerSnapshot,
 } from '@/collaboration/vesselMultiplayerSession';
 import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
+import { openReferenceStudioWindow } from '@/referenceStudio/referenceStudioChannel';
 import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
 import { showAppFeedback } from '@/utils/appFeedback';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
-type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'interlace' | 'multiplayer';
+type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'interlace' | 'multiplayer' | 'reference-studio';
 
 export const TOOLBAR_TOOLTIP_DELAY_MS = 750;
 
@@ -121,6 +122,7 @@ const LeftToolbar = () => {
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },
       { id: 'load' as Tool, label: 'Load File', abbr: 'Ld' },
       { id: 'export' as Tool, label: 'Export', abbr: 'Ex' },
+      { id: 'reference-studio' as ToolbarItemId, label: 'Reference Studio', abbr: 'Rf' },
       { id: 'grid-toggle' as ToolbarItemId, label: 'Grid', abbr: 'Gd' },
       { id: 'options' as Tool, label: 'Options', abbr: 'St' },
       {
@@ -158,6 +160,10 @@ const LeftToolbar = () => {
         );
       } finally {
         setMultiplayerPending(false);
+      }
+    } else if (toolId === 'reference-studio') {
+      if (!openReferenceStudioWindow()) {
+        showAppFeedback('Reference Studio was blocked — allow popups for Vessel');
       }
     } else if (toolId === 'new-document') {
       toggleModal('document');

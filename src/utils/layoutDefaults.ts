@@ -15,6 +15,10 @@ import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 import { normalizeCanvasShape } from '@/utils/canvasShape';
 import { normalizeCcCustomTilePatternPack } from '@/utils/colorCycle/ccCustomTilePattern';
 import { DEFAULT_GRADIENT_ID, GRADIENT_PRESETS } from '@/utils/gradientPresets';
+import {
+  normalizeReferenceAssets,
+  normalizeReferenceSamplingSource,
+} from '@/referenceStudio/referenceAssets';
 
 const createDefaultColorCycleGradients = (): NonNullable<PaletteState['colorCycleGradients']> => (
   GRADIENT_PRESETS.map((gradient) => ({
@@ -341,6 +345,13 @@ export const normalizeProject = (project: Project): Project => {
       ? { ...layer, groupId: undefined }
       : layer
   ));
+  const referenceAssets = normalizeReferenceAssets(project.referenceAssets);
+  const referenceSamplingSource = normalizeReferenceSamplingSource({
+    source: project.referenceSamplingSource,
+    assets: referenceAssets,
+    layers: layersWithValidGroups,
+    legacyReferenceLayerId: project.referenceLayerId,
+  });
 
   return {
     ...project,
@@ -353,5 +364,7 @@ export const normalizeProject = (project: Project): Project => {
     layerGroups: normalizedLayerGroups,
     palette: normalizePalette(project.palette),
     canvasShape: normalizeCanvasShape(project.canvasShape, project.width, project.height),
+    referenceAssets,
+    referenceSamplingSource,
   };
 };

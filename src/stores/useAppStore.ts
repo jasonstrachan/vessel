@@ -205,6 +205,8 @@ import type {
   ColorAdjustState,
   ColorAdjustParams,
   PaletteState,
+  ReferenceAsset,
+  ReferenceSamplingSource,
   SequentialStrokeEvent,
 } from '@/types';
 import { BrushShape } from '@/types';
@@ -259,6 +261,7 @@ import type { SelectionActionProvenance } from '@/stores/slices/selectionSlice';
 import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
 import { createCanvasSlice } from '@/stores/slices/canvasSlice';
 import { createCanvasShapeSlice, type CanvasShapeEditorState } from '@/stores/slices/canvasShapeSlice';
+import { createReferenceStudioSlice } from '@/stores/slices/referenceStudioSlice';
 import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 import type { GlobalBrushSettingsPayload } from '@/utils/brushSettingsStorage';
 import {
@@ -691,6 +694,11 @@ export interface AppState {
   setActiveLayer: (id: string | null, opts?: SetActiveLayerOptions) => void;
   setLayers: (layers: Layer[]) => void;
   setReferenceLayer: (id: string | null) => void;
+  addReferenceAsset: (asset: ReferenceAsset) => void;
+  updateReferenceAsset: (id: string, updates: Partial<ReferenceAsset>) => void;
+  removeReferenceAsset: (id: string) => void;
+  reorderReferenceAssets: (orderedIds: string[]) => void;
+  setReferenceSamplingSource: (source: ReferenceSamplingSource) => void;
   updateLayerAlignment: (layerId: string, alignment: LayerAlignmentSettings) => void;
   scheduleColorCycleSlotRebuild: (reason: string) => void;
   runColorCycleSlotRebuild: (reason: string) => void;
@@ -878,6 +886,7 @@ export const useAppStore = createVesselStore<AppState>(
         backgroundStorageService,
         now: () => new Date(),
       })(set, get, store);
+      const referenceStudioSlice = createReferenceStudioSlice(set, get, store);
 
       return {
         ...historySlice,
@@ -895,6 +904,7 @@ export const useAppStore = createVesselStore<AppState>(
         ...sequentialRecordSlice,
         ...paletteSlice,
         ...autosaveSlice,
+        ...referenceStudioSlice,
         selectLayerAlpha: selectionSlice.selectLayerAlpha,
         ensureCustomBrushHydrated: () => ensureCustomBrushHydratedFn(),
       };

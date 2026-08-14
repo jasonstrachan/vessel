@@ -15,6 +15,7 @@ import ConsoleSilencer from '@/components/dev/ConsoleSilencer';
 import FeedbackStrip from '@/components/FeedbackStrip';
 import SaveStatusStrip from '@/components/SaveStatusStrip';
 import SelectionConstraintStrip from '@/components/SelectionConstraintStrip';
+import { ReferenceStudioBridge } from '@/components/reference/ReferenceStudioBridge';
 import FPSMeter from '@/components/dev/FPSMeter';
 import DevDebugOverlay from '@/components/dev/DevDebugOverlay';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
@@ -189,6 +190,7 @@ export default function Home() {
   return (
     <main className="w-screen h-screen bg-[#141514] text-[#D9D9D9] flex overflow-hidden">
       <ConsoleSilencer />
+      <ReferenceStudioBridge />
       
       {/* Left Toolbar */}
       <LeftToolbar />
