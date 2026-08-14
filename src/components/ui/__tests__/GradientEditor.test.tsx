@@ -97,6 +97,30 @@ describe('GradientEditor', () => {
     expect(window.localStorage.setItem).not.toHaveBeenCalled();
   });
 
+  it('delegates stop color editing without opening its inline picker', () => {
+    const onChange = jest.fn();
+    const onSelectedStopChange = jest.fn();
+    render(
+      <GradientEditor
+        stops={[
+          { position: 0, color: '#FF0000' },
+          { position: 1, color: '#00FF00' },
+        ]}
+        onChange={onChange}
+        colorEditingMode="external"
+        onSelectedStopChange={onSelectedStopChange}
+      />
+    );
+
+    fireEvent.doubleClick(screen.getByRole('button', {
+      name: 'Gradient stop 1 #FF0000',
+    }));
+
+    expect(onSelectedStopChange).toHaveBeenLastCalledWith(0);
+    expect(screen.queryByTestId('color-change')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('makes a stop transparent without replacing its stored RGB with black', () => {
     const onChange = jest.fn();
     const { container } = render(

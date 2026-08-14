@@ -77,6 +77,7 @@ export const ColorCycleGradientSwatches = React.memo(({
           stops={activeGradient.stops}
           onChange={handleStopsChange}
           sampleTarget="brush"
+          colorEditingMode="external"
           selectedStopIndex={selectedStop?.gradientId === activeGradient.id
             ? selectedStop.index
             : null}

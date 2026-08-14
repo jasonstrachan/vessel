@@ -24,6 +24,9 @@ interface GradientEditorProps {
   // When user chooses "+ Sample" in the dropdown, where should the sampled gradient apply?
   // 'recolor' updates the active recolor layer; 'brush' updates the brush gradient.
   sampleTarget?: 'recolor' | 'brush';
+  // External mode delegates stop colors to a parent-owned picker while this
+  // component continues to own stop selection, position, and deletion.
+  colorEditingMode?: 'inline' | 'external';
   selectedStopIndex?: number | null;
   onSelectedStopChange?: (index: number | null) => void;
 }
@@ -193,6 +196,7 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
   onEditStart,
   onEditEnd,
   sampleTarget = 'recolor',
+  colorEditingMode = 'inline',
   selectedStopIndex,
   onSelectedStopChange,
 }, ref) => {
@@ -322,10 +326,13 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
   const openColorPicker = useCallback((index: number) => {
     setSelectedStop(index);
     onSelectedStopChange?.(index);
-    setActiveColorPickerIndex(index);
     containerRef.current?.focus();
+    if (colorEditingMode === 'external') {
+      return;
+    }
+    setActiveColorPickerIndex(index);
     colorPickerUndoRef.current = false;
-  }, [onSelectedStopChange]);
+  }, [colorEditingMode, onSelectedStopChange]);
 
   const closeColorPicker = useCallback(() => {
     setActiveColorPickerIndex(null);
@@ -704,7 +711,9 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
         </div>
       </div>
 
-      {activeColorPickerIndex !== null && stops[activeColorPickerIndex] ? (
+      {colorEditingMode === 'inline' &&
+      activeColorPickerIndex !== null &&
+      stops[activeColorPickerIndex] ? (
         <div
           ref={colorPickerOverlayRef}
           className="absolute left-1/2 z-40 w-[260px] -translate-x-1/2 rounded-md border border-[#444] bg-[#161616] p-3 shadow-2xl"

@@ -93,9 +93,12 @@ describe('ColorPickerPanel', () => {
     render(<ColorPickerPanel />);
 
     const target = activeGradient!.stops[1];
-    await user.click(screen.getByRole('button', {
+    const stopButton = screen.getByRole('button', {
       name: `Gradient stop 2 ${target.color}`,
-    }));
+    });
+    await user.dblClick(stopButton);
+
+    expect(screen.queryByText('Stop Color')).not.toBeInTheDocument();
 
     const redSlider = screen.getByRole('slider', { name: 'Red' });
     expect(redSlider).toHaveValue(parseInt(target.color.slice(1, 3), 16).toString());
@@ -120,6 +123,57 @@ describe('ColorPickerPanel', () => {
       name: `Gradient stop 2 ${expectedColor}`,
       pressed: false,
     })).toBeInTheDocument();
+  });
+
+  it('restores a transparent stop when the shared picker assigns a color', async () => {
+    const user = userEvent.setup();
+    const layer = {
+      id: 'cc-layer',
+      name: 'CC',
+      layerType: 'color-cycle',
+    } as Layer;
+    const state = useAppStore.getState();
+    const activeGradient = state.palette.colorCycleGradients?.find(
+      (gradient) => gradient.id === state.palette.activeColorCycleGradientId,
+    );
+    expect(activeGradient?.stops[0]).toBeDefined();
+    useAppStore.setState({
+      layers: [layer],
+      activeLayerId: layer.id,
+      palette: {
+        ...state.palette,
+        colorCycleGradients: state.palette.colorCycleGradients?.map((gradient) => (
+          gradient.id === activeGradient?.id
+            ? {
+                ...gradient,
+                stops: gradient.stops.map((stop, index) => (
+                  index === 0 ? { ...stop, opacity: 0 } : stop
+                )),
+              }
+            : gradient
+        )),
+      },
+    });
+
+    render(<ColorPickerPanel />);
+
+    await user.click(screen.getByRole('button', {
+      name: `Gradient stop 1 ${activeGradient!.stops[0].color}`,
+    }));
+    fireEvent.change(screen.getByRole('slider', { name: 'Red' }), {
+      target: { value: '17' },
+    });
+    const expectedColor = `#11${activeGradient!.stops[0].color.slice(3)}`.toUpperCase();
+
+    await waitFor(() => {
+      const updated = useAppStore.getState().palette.colorCycleGradients?.find(
+        (gradient) => gradient.id === activeGradient?.id,
+      );
+      expect(updated?.stops[0]).toEqual(expect.objectContaining({
+        color: expectedColor,
+        opacity: 1,
+      }));
+    });
   });
 
   it('dispatches dither warmup on color slider release', () => {

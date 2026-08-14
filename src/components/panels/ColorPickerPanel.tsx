@@ -142,7 +142,13 @@ const ColorPickerPanel = React.memo(() => {
       }
       updateActiveColorCycleGradient(gradient.stops.map((stop, index) => (
         index === target.stopIndex
-          ? { ...stop, color: pending.color.toUpperCase() }
+          ? {
+              ...stop,
+              color: pending.color.toUpperCase(),
+              ...((stop.opacity ?? 1) === 0 || stop.color.toLowerCase() === 'transparent'
+                ? { opacity: 1 }
+                : {}),
+            }
           : { ...stop }
       )));
     }
