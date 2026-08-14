@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { VesselMultiplayerSnapshot } from '@/collaboration/vesselMultiplayerSession';
-import LeftToolbar from '../LeftToolbar';
+import LeftToolbar, { TOOLBAR_TOOLTIP_DELAY_MS } from '../LeftToolbar';
 
 const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
 const mockStartVesselMultiplayerSession = jest.fn().mockResolvedValue(undefined);
@@ -115,12 +115,55 @@ describe('LeftToolbar accessibility', () => {
     });
   });
 
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   it('marks the active tool button as pressed and annotates shortcuts', () => {
     render(<LeftToolbar />);
 
     const brushButton = screen.getByRole('button', { name: /brush \(b\)/i });
     expect(brushButton).toHaveAttribute('aria-pressed', 'true');
     expect(brushButton).toHaveAttribute('data-shortcut', 'B');
+  });
+
+  it('shows the full toolbar label only after a long hover', () => {
+    jest.useFakeTimers();
+    render(<LeftToolbar />);
+
+    const brushButton = screen.getByRole('button', { name: /brush \(b\)/i });
+    fireEvent.mouseEnter(brushButton.parentElement as HTMLElement);
+
+    act(() => {
+      jest.advanceTimersByTime(TOOLBAR_TOOLTIP_DELAY_MS - 1);
+    });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Brush (B)');
+    expect(brushButton).toHaveAttribute('aria-describedby', 'toolbar-tooltip-brush');
+
+    fireEvent.mouseLeave(brushButton.parentElement as HTMLElement);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('does not let a stale hover timer replace the keyboard-focused tooltip', () => {
+    jest.useFakeTimers();
+    render(<LeftToolbar />);
+
+    const brushButton = screen.getByRole('button', { name: /brush \(b\)/i });
+    const customButton = screen.getByRole('button', { name: /custom brush \(c\)/i });
+    fireEvent.mouseEnter(brushButton.parentElement as HTMLElement);
+    fireEvent.focus(customButton);
+
+    act(() => {
+      jest.advanceTimersByTime(TOOLBAR_TOOLTIP_DELAY_MS);
+    });
+
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Custom Brush (C)');
+    expect(customButton).toHaveAttribute('aria-describedby', 'toolbar-tooltip-custom');
   });
 
   it('invokes the tool switcher for standard tool clicks', async () => {

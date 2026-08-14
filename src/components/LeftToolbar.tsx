@@ -15,6 +15,8 @@ import { useToolSwitcher } from '@/utils/toolSwitch';
 
 type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'interlace' | 'multiplayer';
 
+export const TOOLBAR_TOOLTIP_DELAY_MS = 750;
+
 const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
   custom: { aria: 'KeyC', display: 'C' },
@@ -57,8 +59,38 @@ const LeftToolbar = () => {
   const switchTool = useToolSwitcher();
   const multiplayer = useVesselMultiplayerSnapshot();
   const [multiplayerPending, setMultiplayerPending] = React.useState(false);
+  const [visibleTooltipId, setVisibleTooltipId] = React.useState<ToolbarItemId | null>(null);
+  const tooltipTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const multiplayerActive = multiplayer.status === 'active' || multiplayer.status === 'stopping';
   const multiplayerTransitioning = multiplayerPending || multiplayer.status === 'stopping';
+
+  const clearTooltipTimer = React.useCallback(() => {
+    if (tooltipTimerRef.current !== null) {
+      clearTimeout(tooltipTimerRef.current);
+      tooltipTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleTooltip = React.useCallback((toolId: ToolbarItemId) => {
+    clearTooltipTimer();
+    setVisibleTooltipId(null);
+    tooltipTimerRef.current = setTimeout(() => {
+      setVisibleTooltipId(toolId);
+      tooltipTimerRef.current = null;
+    }, TOOLBAR_TOOLTIP_DELAY_MS);
+  }, [clearTooltipTimer]);
+
+  const showTooltipImmediately = React.useCallback((toolId: ToolbarItemId) => {
+    clearTooltipTimer();
+    setVisibleTooltipId(toolId);
+  }, [clearTooltipTimer]);
+
+  const hideTooltip = React.useCallback(() => {
+    clearTooltipTimer();
+    setVisibleTooltipId(null);
+  }, [clearTooltipTimer]);
+
+  React.useEffect(() => clearTooltipTimer, [clearTooltipTimer]);
 
   const baseButtonStyle: React.CSSProperties = {
     fontFamily: 'IBM Plex Mono, "Courier New", monospace',
@@ -211,38 +243,61 @@ const LeftToolbar = () => {
                     && toolState.selectionMode !== 'magic-wand'
                   : !isFilterSectionActive && !isInterlaceSectionActive && toolState.currentTool === tool.id;
             const shortcut = tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display;
+            const tooltipText = shortcut ? `${tool.label} (${shortcut})` : tool.label;
+            const tooltipId = `toolbar-tooltip-${tool.id}`;
+            const isTooltipVisible = visibleTooltipId === tool.id;
 
             return (
               <React.Fragment key={tool.id}>
-                <button
-                  onClick={() => handleToolClick(tool.id)}
-                  title={shortcut ? `${tool.label} (${shortcut})` : tool.label}
-                  aria-label={shortcut ? `${tool.label} (${shortcut})` : tool.label}
-                  aria-pressed={isActive}
-                  aria-keyshortcuts={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.aria}
-                  data-shortcut={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display}
-                  disabled={tool.id === 'multiplayer' && multiplayerTransitioning}
-                  type="button"
-                  className="w-[44px] h-10 min-h-[36px] mx-auto flex items-center justify-center bg-transparent border-0 appearance-none outline-none mb-1 disabled:cursor-wait disabled:opacity-60"
-                  style={baseButtonStyle}
+                <div
+                  className="relative mx-auto mb-1 h-10 w-[44px] flex-shrink-0"
+                  onMouseEnter={() => scheduleTooltip(tool.id)}
+                  onMouseLeave={hideTooltip}
                 >
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      padding: isActive ? '1px 3px' : 0,
-                      color: isActive ? '#1A1A1A' : '#FFFFFF',
-                      backgroundColor: isActive
-                        ? tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'
-                        : 'transparent',
-                      boxShadow: isActive
-                        ? `0 0 0 1px ${tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'}`
-                        : 'none',
-                      lineHeight: 1.2,
+                  <button
+                    onClick={() => {
+                      hideTooltip();
+                      void handleToolClick(tool.id);
                     }}
+                    onFocus={() => showTooltipImmediately(tool.id)}
+                    onBlur={hideTooltip}
+                    aria-describedby={isTooltipVisible ? tooltipId : undefined}
+                    aria-label={tooltipText}
+                    aria-pressed={isActive}
+                    aria-keyshortcuts={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.aria}
+                    data-shortcut={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display}
+                    disabled={tool.id === 'multiplayer' && multiplayerTransitioning}
+                    type="button"
+                    className="flex h-10 min-h-[36px] w-[44px] items-center justify-center border-0 bg-transparent appearance-none outline-none disabled:cursor-wait disabled:opacity-60"
+                    style={baseButtonStyle}
                   >
-                    {tool.abbr}
-                  </span>
-                </button>
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: isActive ? '1px 3px' : 0,
+                        color: isActive ? '#1A1A1A' : '#FFFFFF',
+                        backgroundColor: isActive
+                          ? tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'
+                          : 'transparent',
+                        boxShadow: isActive
+                          ? `0 0 0 1px ${tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'}`
+                          : 'none',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {tool.abbr}
+                    </span>
+                  </button>
+                  {isTooltipVisible && (
+                    <div
+                      className="pointer-events-none absolute left-full top-1/2 z-[80] ml-2 -translate-y-1/2 whitespace-nowrap border border-[#4A4A4A] bg-[#111] px-2 py-1 text-[11px] font-normal text-[#F2F2F2] shadow-lg"
+                      id={tooltipId}
+                      role="tooltip"
+                    >
+                      {tooltipText}
+                    </div>
+                  )}
+                </div>
                 {groupIndex === 0 && toolIndex === 0 && (
                   <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
                 )}

@@ -236,6 +236,16 @@ describe('Home page client rendering', () => {
     expect(screen.getByTestId('brush-settings').parentElement).toHaveClass('flex-[1.35]');
   });
 
+  it('protects the layers region and scrolls secondary layer tools', () => {
+    render(<Home />);
+
+    expect(screen.getByTestId('layers-panel-region')).toHaveClass('min-h-48');
+    expect(screen.getByTestId('layer-tools-region')).toHaveClass(
+      'max-h-[calc(100vh-12rem)]',
+      'overflow-y-auto',
+    );
+  });
+
   it('starts the autosave service when enabled', () => {
     render(<Home />);
     expect(mockAutosaveService.start).toHaveBeenCalled();

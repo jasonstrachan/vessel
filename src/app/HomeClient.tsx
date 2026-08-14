@@ -217,12 +217,22 @@ export default function Home() {
         className="flex flex-col h-screen flex-shrink-0 bg-[#1A1A1A] border-l"
         style={{ width: '260px', minWidth: '260px', maxWidth: '260px', borderColor: '#242424' }}
       >
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <LayersPanel />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div
+            className="min-h-48 flex-1 overflow-hidden"
+            data-testid="layers-panel-region"
+          >
+            <LayersPanel />
+          </div>
+          <div
+            className="max-h-[calc(100vh-12rem)] min-h-0 flex-shrink-0 overflow-y-auto"
+            data-testid="layer-tools-region"
+          >
+            <GridSettingsPanel />
+            <AlignmentPanel />
+            <AnimationControlsPanel />
+          </div>
         </div>
-        <GridSettingsPanel />
-        <AlignmentPanel />
-        <AnimationControlsPanel />
       </div>
 
       {/* Vertical Separator Between Right Columns */}
