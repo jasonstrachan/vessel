@@ -827,7 +827,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.sampleColorAtPosition).not.toHaveBeenCalled();
   });
 
-  it('uses the selected regular reference instead of picking a CC gradient from the active layer', () => {
+  it('picks from the active CC layer while regular pixels target the reference layer', () => {
     const activeLayer = {
       id: 'cc-layer',
       visible: true,
@@ -855,17 +855,27 @@ describe('pointerHandlers main flows', () => {
         referenceLayerId: referenceLayer.id,
       } as Project,
     });
+    const pickedGradient = {
+      stops: [{ position: 0, color: '#123456' }, { position: 1, color: '#abcdef' }],
+      runtimeStops: [{ position: 0, color: '#123456' }, { position: 1, color: '#abcdef' }],
+      seamProfile: 'soft' as const,
+    };
     deps.sampleColorAtPosition = jest.fn(() => '#123456');
-    deps.resolvePickedColorCycleGradientAtPosition = jest.fn();
+    deps.resolvePickedColorCycleGradientAtPosition = jest.fn(() => pickedGradient);
     dynamicDepsRef.current.tools.currentTool = 'color-picker';
     deps.tools = dynamicDepsRef.current.tools;
 
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerDown(makePointerEvent({ clientX: 5, clientY: 6 }));
 
-    expect(deps.resolvePickedColorCycleGradientAtPosition).not.toHaveBeenCalled();
-    expect(deps.setActiveColor).toHaveBeenCalledWith('#123456');
-    expect(deps.rememberColorCycleGradient).not.toHaveBeenCalled();
+    expect(deps.resolvePickedColorCycleGradientAtPosition).toHaveBeenCalledWith(
+      activeLayer.id,
+      5,
+      6,
+    );
+    expect(deps.rememberColorCycleGradient).toHaveBeenCalledWith(pickedGradient);
+    expect(deps.setActiveColor).not.toHaveBeenCalled();
+    expect(deps.sampleColorAtPosition).not.toHaveBeenCalled();
   });
 
   it('lets the palette owner deduplicate repeated CC gradient picks', () => {

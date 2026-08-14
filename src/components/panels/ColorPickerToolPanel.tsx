@@ -48,15 +48,11 @@ const ColorPickerToolPanel: React.FC = () => {
   const activeLayer = layers.find((layer) => layer.id === activeLayerId);
   const referenceLayer = layers.find((layer) => layer.id === referenceLayerId);
   const effectiveReferenceLayer = preferReferenceSampling ? referenceLayer : undefined;
-  const ccSourceLayer = effectiveReferenceLayer?.layerType === 'color-cycle'
-    ? effectiveReferenceLayer
-    : effectiveReferenceLayer
-      ? undefined
-      : activeLayer?.layerType === 'color-cycle'
-        ? activeLayer
-        : undefined;
+  const ccSourceLayer = activeLayer?.layerType === 'color-cycle'
+    ? activeLayer
+    : undefined;
   const ccSourceLabel = ccSourceLayer
-    ? `${ccSourceLayer === referenceLayer ? 'Reference' : 'Active'} · ${ccSourceLayer.name}`
+    ? `Active · ${ccSourceLayer.name}`
     : 'None';
   const pixelSourceLabel = effectiveReferenceLayer
     ? `Reference · ${effectiveReferenceLayer.name}`

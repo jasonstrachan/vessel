@@ -1,4 +1,4 @@
-import type { BrushSettings, GradientSeamProfile } from '@/types';
+import type { BrushSettings, GradientSeamProfile, Layer } from '@/types';
 import type { ColorCycleLayerDocumentSnapshot } from '@/lib/colorCycle/document';
 import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
@@ -7,6 +7,24 @@ export type PickedColorCycleGradient = {
   stops: NonNullable<BrushSettings['colorCycleGradient']>;
   runtimeStops: NonNullable<BrushSettings['colorCycleGradient']>;
   seamProfile: GradientSeamProfile;
+};
+
+type ColorPickerGradientSourceState = {
+  activeLayerId: string | null;
+  currentTool: string;
+  layers: Layer[];
+};
+
+type ColorPickerGradientSampleControllerDependencies = {
+  getSourceState: () => ColorPickerGradientSourceState;
+  ensureColorCycleLayerRuntime: (layerId: string) => Promise<boolean>;
+  resolveGradient: (
+    layerId: string,
+    x: number,
+    y: number,
+  ) => PickedColorCycleGradient | null;
+  rememberGradient: (gradient: PickedColorCycleGradient) => void;
+  sampleRegularColor: (position: { x: number; y: number }) => void;
 };
 
 const clonePickedStops = (
@@ -104,4 +122,84 @@ export const resolvePickedColorCycleGradientAtPosition = (
   return snapshot
     ? resolvePickedColorCycleGradientFromSnapshot({ snapshot, x, y })
     : null;
+};
+
+const needsColorCycleSamplingRuntime = (layer: Layer): boolean => (
+  layer.colorCycleData?.deferredRuntimeRestore === true
+  || layer.colorCycleData?.runtimeHydrationState === 'cold'
+);
+
+export const createColorPickerGradientSampleController = (
+  dependencies: ColorPickerGradientSampleControllerDependencies,
+): {
+  sample: (position: { x: number; y: number }) => void;
+} => {
+  let latestRequestId = 0;
+
+  const rememberResolvedGradient = (
+    layerId: string,
+    position: { x: number; y: number },
+  ): boolean => {
+    const pickedGradient = dependencies.resolveGradient(
+      layerId,
+      position.x,
+      position.y,
+    );
+    if (!pickedGradient) {
+      return false;
+    }
+    dependencies.rememberGradient(pickedGradient);
+    return true;
+  };
+
+  const sample = (position: { x: number; y: number }): void => {
+    const requestId = ++latestRequestId;
+    const sourceState = dependencies.getSourceState();
+    const activeLayer = sourceState.layers.find(
+      (layer) => layer.id === sourceState.activeLayerId,
+    );
+
+    if (!activeLayer || activeLayer.layerType !== 'color-cycle') {
+      dependencies.sampleRegularColor(position);
+      return;
+    }
+
+    if (rememberResolvedGradient(activeLayer.id, position)) {
+      return;
+    }
+
+    if (!needsColorCycleSamplingRuntime(activeLayer)) {
+      dependencies.sampleRegularColor(position);
+      return;
+    }
+
+    void dependencies.ensureColorCycleLayerRuntime(activeLayer.id)
+      .catch(() => false)
+      .then(() => {
+        if (requestId !== latestRequestId) {
+          return;
+        }
+
+        const currentState = dependencies.getSourceState();
+        if (
+          currentState.currentTool !== 'color-picker'
+          || currentState.activeLayerId !== activeLayer.id
+        ) {
+          return;
+        }
+
+        const currentLayer = currentState.layers.find(
+          (layer) => layer.id === activeLayer.id,
+        );
+        if (!currentLayer || currentLayer.layerType !== 'color-cycle') {
+          return;
+        }
+
+        if (!rememberResolvedGradient(currentLayer.id, position)) {
+          dependencies.sampleRegularColor(position);
+        }
+      });
+  };
+
+  return { sample };
 };

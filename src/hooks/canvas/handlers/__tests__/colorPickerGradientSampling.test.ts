@@ -1,6 +1,10 @@
 import type { ColorCycleLayerDocumentSnapshot } from '@/lib/colorCycle/document';
+import type { Layer } from '@/types';
 
-import { resolvePickedColorCycleGradientFromSnapshot } from '../colorPickerGradientSampling';
+import {
+  createColorPickerGradientSampleController,
+  resolvePickedColorCycleGradientFromSnapshot,
+} from '../colorPickerGradientSampling';
 
 const makeSnapshot = (
   overrides: Partial<ColorCycleLayerDocumentSnapshot> = {},
@@ -95,5 +99,85 @@ describe('color picker CC gradient sampling', () => {
       x: 0,
       y: 0,
     })).toBeNull();
+  });
+
+  it('hydrates a cold active CC layer before retrying the complete gradient pick', async () => {
+    const pickedGradient = {
+      stops: [{ position: 0, color: '#123456' }, { position: 1, color: '#abcdef' }],
+      runtimeStops: [{ position: 0, color: '#123456' }, { position: 1, color: '#abcdef' }],
+      seamProfile: 'soft' as const,
+    };
+    const layer = {
+      id: 'cold-cc',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        deferredRuntimeRestore: true,
+        runtimeHydrationState: 'cold',
+      },
+    } as Layer;
+    const ensureColorCycleLayerRuntime = jest.fn(async () => true);
+    const resolveGradient = jest.fn()
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(pickedGradient);
+    const rememberGradient = jest.fn();
+    const sampleRegularColor = jest.fn();
+    const controller = createColorPickerGradientSampleController({
+      getSourceState: () => ({
+        activeLayerId: layer.id,
+        currentTool: 'color-picker',
+        layers: [layer],
+      }),
+      ensureColorCycleLayerRuntime,
+      resolveGradient,
+      rememberGradient,
+      sampleRegularColor,
+    });
+
+    controller.sample({ x: 4, y: 8 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id);
+    expect(resolveGradient).toHaveBeenLastCalledWith(layer.id, 4, 8);
+    expect(rememberGradient).toHaveBeenCalledWith(pickedGradient);
+    expect(sampleRegularColor).not.toHaveBeenCalled();
+  });
+
+  it('ignores a cold-layer completion after the active source changes', async () => {
+    let finishHydration: (ready: boolean) => void = () => {};
+    const hydration = new Promise<boolean>((resolve) => {
+      finishHydration = resolve;
+    });
+    const layer = {
+      id: 'cold-cc',
+      layerType: 'color-cycle',
+      colorCycleData: {
+        deferredRuntimeRestore: true,
+        runtimeHydrationState: 'cold',
+      },
+    } as Layer;
+    let activeLayerId: string | null = layer.id;
+    const rememberGradient = jest.fn();
+    const sampleRegularColor = jest.fn();
+    const controller = createColorPickerGradientSampleController({
+      getSourceState: () => ({
+        activeLayerId,
+        currentTool: 'color-picker',
+        layers: [layer],
+      }),
+      ensureColorCycleLayerRuntime: jest.fn(() => hydration),
+      resolveGradient: jest.fn(() => null),
+      rememberGradient,
+      sampleRegularColor,
+    });
+
+    controller.sample({ x: 2, y: 3 });
+    activeLayerId = 'another-layer';
+    finishHydration(true);
+    await hydration;
+    await Promise.resolve();
+
+    expect(rememberGradient).not.toHaveBeenCalled();
+    expect(sampleRegularColor).not.toHaveBeenCalled();
   });
 });

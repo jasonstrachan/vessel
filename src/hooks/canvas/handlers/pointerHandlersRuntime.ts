@@ -266,7 +266,10 @@ import {
   handleRecolorSamplingPointerUp,
 } from './recolorSamplingHandler';
 import { cssColorToHex } from './utils/colorSampling';
-import { resolvePickedColorCycleGradientAtPosition } from './colorPickerGradientSampling';
+import {
+  createColorPickerGradientSampleController,
+  resolvePickedColorCycleGradientAtPosition,
+} from './colorPickerGradientSampling';
 import type {
   ContourLinesBasis,
   ContourLinesStage,
@@ -2341,35 +2344,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     return { ok: false, message } as const;
   };
 
-  const applyColorPickerSample = (worldPos: Point) => {
+  const applyRegularColorPickerSample = (worldPos: Point) => {
     const dynamic = getDynamicDeps();
     const { palette } = dynamic;
-    const activeLayer = dynamic.layers.find((layer) => layer.id === dynamic.activeLayerId);
-    const appState = getAppStoreState();
-    const referenceLayer = appState.colorPickerPreferReferenceLayer
-      ? dynamic.layers.find((layer) => layer.id === appState.project?.referenceLayerId)
-      : undefined;
-    const gradientSampleLayer = referenceLayer ?? activeLayer;
-    if (gradientSampleLayer?.visible && gradientSampleLayer.layerType === 'color-cycle') {
-      const resolvePickedGradient =
-        deps.resolvePickedColorCycleGradientAtPosition ?? resolvePickedColorCycleGradientAtPosition;
-      const pickedGradient = resolvePickedGradient(
-        gradientSampleLayer.id,
-        worldPos.x,
-        worldPos.y,
-      );
-      if (pickedGradient) {
-        const rememberGradient = deps.rememberColorCycleGradient
-          ?? getAppStoreState().rememberColorCycleGradient;
-        rememberGradient({
-          stops: pickedGradient.stops,
-          runtimeStops: pickedGradient.runtimeStops,
-          seamProfile: pickedGradient.seamProfile,
-        });
-        return;
-      }
-    }
-
     const sampledHex = cssColorToHex(sampleColorAtPosition(worldPos.x, worldPos.y));
     const activeSlot = palette.activeSlot ?? 'foreground';
     const currentColor = activeSlot === 'background'
@@ -2382,6 +2359,36 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     deps.setActiveColor(sampledHex);
   };
+
+  const colorPickerGradientSampleController = createColorPickerGradientSampleController({
+    getSourceState: () => {
+      const dynamic = getDynamicDeps();
+      return {
+        activeLayerId: dynamic.activeLayerId,
+        currentTool: dynamic.tools.currentTool,
+        layers: dynamic.layers,
+      };
+    },
+    ensureColorCycleLayerRuntime: (layerId) => (
+      getAppStoreState().ensureColorCycleLayerRuntime(layerId, { target: 'active' })
+    ),
+    resolveGradient: (
+      deps.resolvePickedColorCycleGradientAtPosition
+      ?? resolvePickedColorCycleGradientAtPosition
+    ),
+    rememberGradient: (pickedGradient) => {
+      const rememberGradient = deps.rememberColorCycleGradient
+        ?? getAppStoreState().rememberColorCycleGradient;
+      rememberGradient({
+        stops: pickedGradient.stops,
+        runtimeStops: pickedGradient.runtimeStops,
+        seamProfile: pickedGradient.seamProfile,
+      });
+    },
+    sampleRegularColor: applyRegularColorPickerSample,
+  });
+
+  const applyColorPickerSample = colorPickerGradientSampleController.sample;
 
   const selectionHandlers = createSelectionRuntime(
     {
