@@ -7,12 +7,19 @@ import { ColorCycleGradientSwatches } from '../toolbar/ColorCycleGradientSwatche
 import PaletteSwatches from '../ui/PaletteSwatches';
 import { isColorCycleBrushShape } from '@/stores/helpers/toolsState';
 
+type ColorEditTarget =
+  | { kind: 'palette' }
+  | { kind: 'gradient-stop'; gradientId: string; stopIndex: number };
+
 const ColorPickerPanel = React.memo(() => {
   // Use individual selectors to avoid unstable object references  
   const palette = useAppStore(state => state.palette);
   const ditherEnabled = useAppStore(state => state.tools.brushSettings.ditherEnabled);
   const setActiveColor = useAppStore(state => state.setActiveColor);
   const setActivePaletteSlot = useAppStore(state => state.setActivePaletteSlot);
+  const updateActiveColorCycleGradient = useAppStore(
+    state => state.updateActiveColorCycleGradient,
+  );
   const activeLayerIsColorCycle = useAppStore((state) => (
     state.layers.find((layer) => layer.id === state.activeLayerId)?.layerType === 'color-cycle'
   ));
@@ -29,6 +36,37 @@ const ColorPickerPanel = React.memo(() => {
     () => (activeSlot === 'foreground' ? foregroundColor : backgroundColor),
     [activeSlot, foregroundColor, backgroundColor]
   );
+  const [selectedGradientStop, setSelectedGradientStop] = useState<{
+    gradientId: string;
+    index: number;
+  } | null>(null);
+  const activeGradient = useMemo(() => palette.colorCycleGradients?.find(
+    (gradient) => gradient.id === palette.activeColorCycleGradientId,
+  ), [palette.activeColorCycleGradientId, palette.colorCycleGradients]);
+  const selectedStop = selectedGradientStop && selectedGradientStop.gradientId === activeGradient?.id
+    ? activeGradient.stops[selectedGradientStop.index]
+    : undefined;
+  const editableColor = selectedStop?.color ?? activeColor;
+  const colorEditTarget = useMemo<ColorEditTarget>(() => (
+    selectedStop && selectedGradientStop
+      ? {
+          kind: 'gradient-stop',
+          gradientId: selectedGradientStop.gradientId,
+          stopIndex: selectedGradientStop.index,
+        }
+      : { kind: 'palette' }
+  ), [selectedGradientStop, selectedStop]);
+  const paletteRef = React.useRef(palette);
+  paletteRef.current = palette;
+
+  useEffect(() => {
+    if (
+      !showColorCycleGradients ||
+      (selectedGradientStop && selectedGradientStop.gradientId !== activeGradient?.id)
+    ) {
+      setSelectedGradientStop(null);
+    }
+  }, [activeGradient?.id, selectedGradientStop, showColorCycleGradients]);
   
   // Note: setActiveSettings removed in favor of direct setter calls to avoid re-render loops
 
@@ -67,27 +105,55 @@ const ColorPickerPanel = React.memo(() => {
   // RAF-based color update to prevent excessive store updates
   // Update RGB values when color changes
   useEffect(() => {
-    const rgb = hexToRgb(activeColor);
+    const rgb = hexToRgb(editableColor);
     setRgbValues(rgb);
-  }, [activeColor, hexToRgb]);
+  }, [editableColor, hexToRgb]);
 
   // Throttle color updates: when dithering is enabled and dragging, debounce to cut UI hitches.
-  const pendingColorRef = React.useRef<string | null>(null);
+  const pendingColorRef = React.useRef<{
+    color: string;
+    target: ColorEditTarget;
+  } | null>(null);
   const rafRef = React.useRef<number | null>(null);
   const debounceHandleRef = React.useRef<number | null>(null);
 
   const flushPendingColor = useCallback(() => {
-    const color = pendingColorRef.current;
+    const pending = pendingColorRef.current;
     rafRef.current = null;
     debounceHandleRef.current = null;
-    if (color !== null) {
+    if (pending !== null) {
       pendingColorRef.current = null;
-      setActiveColor(color);
-    }
-  }, [setActiveColor]);
+      const target = pending.target;
+      if (target.kind === 'palette') {
+        setActiveColor(pending.color);
+        return;
+      }
 
-  const scheduleActiveColorUpdate = useCallback((color: string, isDragging: boolean) => {
-    pendingColorRef.current = color;
+      const currentPalette = paletteRef.current;
+      const gradient = currentPalette.colorCycleGradients?.find(
+        (entry) => entry.id === target.gradientId,
+      );
+      if (
+        !gradient ||
+        gradient.id !== currentPalette.activeColorCycleGradientId ||
+        !gradient.stops[target.stopIndex]
+      ) {
+        return;
+      }
+      updateActiveColorCycleGradient(gradient.stops.map((stop, index) => (
+        index === target.stopIndex
+          ? { ...stop, color: pending.color.toUpperCase() }
+          : { ...stop }
+      )));
+    }
+  }, [setActiveColor, updateActiveColorCycleGradient]);
+
+  const scheduleActiveColorUpdate = useCallback((
+    color: string,
+    isDragging: boolean,
+    target: ColorEditTarget,
+  ) => {
+    pendingColorRef.current = { color, target };
 
     // When dragging, debounce to avoid churning the engine; dither uses a longer window.
     if (ditherEnabled && isDragging && typeof window !== 'undefined') {
@@ -123,8 +189,8 @@ const ColorPickerPanel = React.memo(() => {
     const newRgb = { ...rgbValues, [component]: value };
     setRgbValues(newRgb);
     const hexColor = rgbToHex(newRgb.r, newRgb.g, newRgb.b);
-    scheduleActiveColorUpdate(hexColor, dragState.isDragging);
-  }, [rgbValues, rgbToHex, scheduleActiveColorUpdate, dragState.isDragging]);
+    scheduleActiveColorUpdate(hexColor, dragState.isDragging, colorEditTarget);
+  }, [rgbValues, rgbToHex, scheduleActiveColorUpdate, dragState.isDragging, colorEditTarget]);
 
   // Handle RGB slider changes (memoized individual handlers with throttling)
   const handleRedChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -184,8 +250,8 @@ const ColorPickerPanel = React.memo(() => {
 
   // Stable color change handlers - directly call appropriate setter to avoid re-render loops
   const handleColorChange = useCallback((color: string) => {
-    scheduleActiveColorUpdate(color, isColorPickerDragging);
-  }, [isColorPickerDragging, scheduleActiveColorUpdate]);
+    scheduleActiveColorUpdate(color, isColorPickerDragging, colorEditTarget);
+  }, [colorEditTarget, isColorPickerDragging, scheduleActiveColorUpdate]);
 
   const handleColorPickerCommit = useCallback(() => {
     flushPendingColor();
@@ -202,16 +268,26 @@ const ColorPickerPanel = React.memo(() => {
 
   // Stable color select handler for ColorSwatches
   const handleColorSelect = useCallback((color: string) => {
-    setActiveColor(color);
+    if (colorEditTarget.kind === 'gradient-stop') {
+      pendingColorRef.current = { color, target: colorEditTarget };
+      flushPendingColor();
+    } else {
+      setActiveColor(color);
+    }
     requestDitherWarmup();
-  }, [requestDitherWarmup, setActiveColor]);
+  }, [colorEditTarget, flushPendingColor, requestDitherWarmup, setActiveColor]);
+
+  const handlePaletteSlotSelect = useCallback((slot: 'foreground' | 'background') => {
+    setSelectedGradientStop(null);
+    setActivePaletteSlot(slot);
+  }, [setActivePaletteSlot]);
 
   return (
     <div className="h-full overflow-y-auto bg-[#1A1A1A]">
       {/* Color Picker - Full Width Section */}
       <div className="px-0">
         <ColorPicker
-          color={activeColor}
+          color={editableColor}
           onChange={handleColorChange}
           onCommit={handleColorPickerCommit}
           onInteractionStart={handleColorPickerDragStart}
@@ -227,7 +303,7 @@ const ColorPickerPanel = React.memo(() => {
             foregroundColor={foregroundColor}
             backgroundColor={backgroundColor}
             activeSlot={activeSlot}
-            onSelect={setActivePaletteSlot}
+            onSelect={handlePaletteSlotSelect}
           />
 
           <div className="flex-1 flex flex-col gap-1">
@@ -290,7 +366,10 @@ const ColorPickerPanel = React.memo(() => {
       </div>
 
       {showColorCycleGradients ? (
-        <ColorCycleGradientSwatches />
+        <ColorCycleGradientSwatches
+          selectedStop={selectedGradientStop}
+          onSelectedStopChange={setSelectedGradientStop}
+        />
       ) : (
         <ColorSwatches
           currentColor={activeColor}

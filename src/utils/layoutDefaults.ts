@@ -14,7 +14,6 @@ import type {
 import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 import { normalizeCanvasShape } from '@/utils/canvasShape';
 import { normalizeCcCustomTilePatternPack } from '@/utils/colorCycle/ccCustomTilePattern';
-import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { DEFAULT_GRADIENT_ID, GRADIENT_PRESETS } from '@/utils/gradientPresets';
 
 const createDefaultColorCycleGradients = (): NonNullable<PaletteState['colorCycleGradients']> => (
@@ -22,9 +21,38 @@ const createDefaultColorCycleGradients = (): NonNullable<PaletteState['colorCycl
     id: gradient.id,
     name: gradient.name,
     stops: gradient.stops.map((stop) => ({ ...stop, opacity: 1 })),
-    seamProfile: 'hard' as const,
   }))
 );
+
+const normalizeColorCycleStops = (
+  stops: unknown,
+): NonNullable<PaletteState['colorCycleGradients']>[number]['stops'] | null => {
+  if (!Array.isArray(stops)) return null;
+  const normalized = stops
+    .flatMap((stop) => {
+      if (!stop || typeof stop !== 'object') return [];
+      const candidate = stop as { position?: unknown; color?: unknown; opacity?: unknown };
+      const position = Number(candidate.position);
+      const color = typeof candidate.color === 'string' ? candidate.color.trim() : '';
+      const opacity = candidate.opacity === undefined ? 1 : Number(candidate.opacity);
+      if (
+        !Number.isFinite(position) ||
+        position < 0 ||
+        position > 1 ||
+        !color ||
+        !Number.isFinite(opacity)
+      ) {
+        return [];
+      }
+      return [{
+        position,
+        color,
+        opacity: Math.max(0, Math.min(1, opacity)),
+      }];
+    })
+    .sort((left, right) => left.position - right.position);
+  return normalized.length >= 2 ? normalized : null;
+};
 
 const normalizeColorCycleGradients = (
   gradients: PaletteState['colorCycleGradients'],
@@ -36,31 +64,15 @@ const normalizeColorCycleGradients = (
   const seen = new Set<string>();
   const normalized = gradients.flatMap((gradient) => {
     if (!gradient || typeof gradient !== 'object') return [];
+    const legacyGradient = gradient as typeof gradient & {
+      isRuntimePalette?: boolean;
+    };
     const id = typeof gradient.id === 'string' ? gradient.id.trim() : '';
-    if (!id || seen.has(id) || !Array.isArray(gradient.stops)) return [];
-    const stops = gradient.stops
-      .flatMap((stop) => {
-        if (!stop || typeof stop !== 'object') return [];
-        const position = Number(stop.position);
-        const color = typeof stop.color === 'string' ? stop.color.trim() : '';
-        const opacity = stop.opacity === undefined ? 1 : Number(stop.opacity);
-        if (
-          !Number.isFinite(position) ||
-          position < 0 ||
-          position > 1 ||
-          !color ||
-          !Number.isFinite(opacity)
-        ) {
-          return [];
-        }
-        return [{
-          position,
-          color,
-          opacity: Math.max(0, Math.min(1, opacity)),
-        }];
-      })
-      .sort((left, right) => left.position - right.position);
-    if (stops.length < 2) return [];
+    if (!id || seen.has(id)) return [];
+    const stops = normalizeColorCycleStops(gradient.stops);
+    if (!stops) return [];
+    const runtimeStops = normalizeColorCycleStops(gradient.runtimeStops)
+      ?? (legacyGradient.isRuntimePalette === true ? stops.map((stop) => ({ ...stop })) : null);
     seen.add(id);
     return [{
       id,
@@ -68,8 +80,7 @@ const normalizeColorCycleGradients = (
         ? { name: gradient.name.trim() }
         : {}),
       stops,
-      seamProfile: normalizeGradientSeamProfile(gradient.seamProfile),
-      ...(gradient.isRuntimePalette === true ? { isRuntimePalette: true } : {}),
+      ...(runtimeStops ? { runtimeStops } : {}),
     }];
   });
 

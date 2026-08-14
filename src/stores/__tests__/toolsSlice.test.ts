@@ -147,7 +147,7 @@ describe('tools slice', () => {
     );
   });
 
-  it('returns an edited Manual gradient to the authored hard seam default', () => {
+  it('keeps the brush seam when an authored Manual gradient is edited', () => {
     const store = useAppStore.getState();
     store.setBrushSettings({
       colorCycleGradientSeamProfile: 'soft',
@@ -165,7 +165,7 @@ describe('tools slice', () => {
           { position: 0, color: '#123456' },
           { position: 1, color: '#abcdef' },
         ],
-        colorCycleGradientSeamProfile: 'hard',
+        colorCycleGradientSeamProfile: 'soft',
         colorCycleGradientIsRuntimePalette: false,
       }),
     );
@@ -565,6 +565,7 @@ describe('tools slice', () => {
 
   it('prefers the active shared gradient when switching between color-cycle brushes', () => {
     const store = useAppStore.getState();
+    store.setBrushSettings({ colorCycleGradientSeamProfile: 'hard' });
     const paletteStops = [
       { position: 0, color: '#112233' },
       { position: 1, color: '#aabbcc' },
@@ -585,7 +586,6 @@ describe('tools slice', () => {
         colorCycleGradients: [{
           id: 'shared-gradient',
           stops: paletteStops,
-          seamProfile: 'soft',
         }],
         activeColorCycleGradientId: 'shared-gradient',
       },
@@ -600,7 +600,9 @@ describe('tools slice', () => {
     const nextGradient = useAppStore.getState().tools.brushSettings.colorCycleGradient;
     expect(nextGradient).toEqual(paletteStops);
     expect(nextGradient).not.toEqual(storedStops);
-    expect(useAppStore.getState().tools.brushSettings.colorCycleGradientSeamProfile).toBe('soft');
+    expect(
+      useAppStore.getState().tools.brushSettings.colorCycleGradientSeamProfile ?? 'hard',
+    ).toBe('hard');
     expect(useAppStore.getState().tools.brushSettings.ccGradientSource).toBe('manual');
   });
 

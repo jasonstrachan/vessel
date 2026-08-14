@@ -1,9 +1,8 @@
 import React, { useCallback, useMemo } from 'react';
 
 import { useAppStore } from '@/stores/useAppStore';
-import type { ColorCycleGradientSwatch, GradientSeamProfile } from '@/types';
+import type { ColorCycleGradientSwatch } from '@/types';
 
-import ButtonGroup from '../ui/ButtonGroup';
 import { GradientEditor } from '../ui/GradientEditor';
 
 const hexToRgba = (color: string, opacity: number): string => {
@@ -22,7 +21,15 @@ const createGradientCss = (gradient: ColorCycleGradientSwatch): string => {
   return `linear-gradient(90deg, ${stops.join(', ')})`;
 };
 
-export const ColorCycleGradientSwatches = React.memo(() => {
+type ColorCycleGradientSwatchesProps = {
+  selectedStop?: { gradientId: string; index: number } | null;
+  onSelectedStopChange?: (selection: { gradientId: string; index: number } | null) => void;
+};
+
+export const ColorCycleGradientSwatches = React.memo(({
+  selectedStop,
+  onSelectedStopChange,
+}: ColorCycleGradientSwatchesProps) => {
   const gradients = useAppStore((state) => state.palette.colorCycleGradients ?? []);
   const activeId = useAppStore((state) => state.palette.activeColorCycleGradientId);
   const selectGradient = useAppStore((state) => state.selectColorCycleGradient);
@@ -36,11 +43,6 @@ export const ColorCycleGradientSwatches = React.memo(() => {
     updateGradient(stops);
   }, [updateGradient]);
 
-  const handleSeamChange = useCallback((value: string) => {
-    if (!activeGradient) return;
-    updateGradient(activeGradient.stops, value as GradientSeamProfile);
-  }, [activeGradient, updateGradient]);
-
   if (!activeGradient) return null;
 
   return (
@@ -52,8 +54,11 @@ export const ColorCycleGradientSwatches = React.memo(() => {
             <button
               key={gradient.id}
               type="button"
-              onClick={() => selectGradient(gradient.id)}
-              className="relative h-6 min-w-0 flex-1 focus:outline-none"
+              onClick={() => {
+                onSelectedStopChange?.(null);
+                selectGradient(gradient.id);
+              }}
+              className="relative h-6 min-w-0 flex-1 border-r border-black/70 last:border-r-0 focus:outline-none"
               style={{ background: createGradientCss(gradient) }}
               title={gradient.name ?? `CC gradient ${index + 1}`}
               aria-label={`Use CC gradient ${gradient.name ?? index + 1}`}
@@ -72,19 +77,13 @@ export const ColorCycleGradientSwatches = React.memo(() => {
           stops={activeGradient.stops}
           onChange={handleStopsChange}
           sampleTarget="brush"
+          selectedStopIndex={selectedStop?.gradientId === activeGradient.id
+            ? selectedStop.index
+            : null}
+          onSelectedStopChange={(index) => onSelectedStopChange?.(
+            index === null ? null : { gradientId: activeGradient.id, index },
+          )}
         />
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <span className="text-[11px] text-[#A0A0A0]">Seam</span>
-          <ButtonGroup
-            options={[
-              { label: 'Hard', value: 'hard' },
-              { label: 'Soft', value: 'soft' },
-            ]}
-            value={activeGradient.seamProfile}
-            onChange={handleSeamChange}
-            size="sm"
-          />
-        </div>
       </div>
     </div>
   );

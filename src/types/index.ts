@@ -89,8 +89,7 @@ export interface ColorCycleGradientSwatch {
   id: string;
   name?: string;
   stops: Array<{ position: number; color: string; opacity?: number }>;
-  seamProfile: GradientSeamProfile;
-  isRuntimePalette?: boolean;
+  runtimeStops?: Array<{ position: number; color: string; opacity?: number }>;
 }
 
 export interface PaletteState {

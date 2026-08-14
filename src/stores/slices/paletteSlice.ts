@@ -22,14 +22,11 @@ export interface PaletteSlice {
   selectColorCycleGradient: (id: string) => void;
   rememberColorCycleGradient: (gradient: {
     stops: ColorCycleGradientSwatch['stops'];
+    runtimeStops?: ColorCycleGradientSwatch['stops'];
     seamProfile: GradientSeamProfile;
     name?: string;
-    isRuntimePalette?: boolean;
   }) => string | null;
-  updateActiveColorCycleGradient: (
-    stops: ColorCycleGradientSwatch['stops'],
-    seamProfile?: GradientSeamProfile,
-  ) => void;
+  updateActiveColorCycleGradient: (stops: ColorCycleGradientSwatch['stops']) => void;
 }
 
 const MAX_COLOR_CYCLE_GRADIENT_SWATCHES = 10;
@@ -40,11 +37,9 @@ const cloneColorCycleStops = (
 
 const colorCycleGradientSignature = (
   stops: ColorCycleGradientSwatch['stops'],
-  seamProfile: GradientSeamProfile,
-  isRuntimePalette = false,
-): string => `${seamProfile}:${isRuntimePalette ? 'runtime' : 'source'}:${stops.map((stop) => (
+): string => stops.map((stop) => (
   `${stop.position.toFixed(4)}|${stop.color.toLowerCase()}|${(stop.opacity ?? 1).toFixed(3)}`
-)).join(',')}`;
+)).join(',');
 
 let colorCycleGradientSequence = 0;
 
@@ -145,24 +140,20 @@ export const createPaletteSlice: StateCreator<AppState, [], [], PaletteSlice> = 
       syncColorCycleGradient: true,
     });
   },
-  rememberColorCycleGradient: ({ stops, seamProfile, name, isRuntimePalette = false }) => {
+  rememberColorCycleGradient: ({ stops, runtimeStops, seamProfile, name }) => {
     if (!Array.isArray(stops) || stops.length < 2) return null;
+    if (runtimeStops !== undefined && runtimeStops.length < 2) return null;
     const palette = get().palette;
     const gradients = palette.colorCycleGradients ?? [];
-    const signature = colorCycleGradientSignature(stops, seamProfile, isRuntimePalette);
+    const signature = colorCycleGradientSignature(stops);
     const existing = gradients.find(
-      (gradient) => colorCycleGradientSignature(
-        gradient.stops,
-        gradient.seamProfile,
-        gradient.isRuntimePalette === true,
-      ) === signature,
+      (gradient) => colorCycleGradientSignature(gradient.stops) === signature,
     );
-    const gradient: ColorCycleGradientSwatch = existing ?? {
-      id: createColorCycleGradientId(),
-      ...(name ? { name } : {}),
+    const gradient: ColorCycleGradientSwatch = {
+      ...(existing ?? { id: createColorCycleGradientId() }),
+      ...(name ? { name } : existing?.name ? { name: existing.name } : {}),
       stops: cloneColorCycleStops(stops),
-      seamProfile,
-      ...(isRuntimePalette ? { isRuntimePalette: true } : {}),
+      ...(runtimeStops ? { runtimeStops: cloneColorCycleStops(runtimeStops) } : {}),
     };
     const nextGradients = [
       gradient,
@@ -176,10 +167,11 @@ export const createPaletteSlice: StateCreator<AppState, [], [], PaletteSlice> = 
     applyPaletteSnapshot(set, get, nextPalette, {
       paletteDirty: true,
       syncColorCycleGradient: true,
+      colorCycleGradientSeamProfile: seamProfile,
     });
     return gradient.id;
   },
-  updateActiveColorCycleGradient: (stops, seamProfile) => {
+  updateActiveColorCycleGradient: (stops) => {
     if (!Array.isArray(stops) || stops.length < 2) return;
     const palette = get().palette;
     const activeId = palette.activeColorCycleGradientId;
@@ -194,8 +186,7 @@ export const createPaletteSlice: StateCreator<AppState, [], [], PaletteSlice> = 
           ? {
               ...gradient,
               stops: cloneColorCycleStops(stops),
-              seamProfile: seamProfile ?? gradient.seamProfile,
-              isRuntimePalette: false,
+              runtimeStops: undefined,
             }
           : gradient
       )),

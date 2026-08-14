@@ -800,10 +800,11 @@ describe('pointerHandlers main flows', () => {
       { position: 0.5, color: '#00ff00', opacity: 0.75 },
       { position: 1, color: '#0000ff' },
     ];
+    const runtimeStops = stops.map((stop) => ({ ...stop }));
     deps.resolvePickedColorCycleGradientAtPosition = jest.fn(() => ({
       stops,
+      runtimeStops,
       seamProfile: 'soft',
-      isRuntimePalette: true,
     }));
     dynamicDepsRef.current.tools.currentTool = 'color-picker';
     deps.tools = dynamicDepsRef.current.tools;
@@ -818,12 +819,53 @@ describe('pointerHandlers main flows', () => {
     );
     expect(deps.rememberColorCycleGradient).toHaveBeenCalledWith({
       stops,
+      runtimeStops,
       seamProfile: 'soft',
-      isRuntimePalette: true,
     });
     expect(deps.setBrushSettings).not.toHaveBeenCalled();
     expect(deps.setActiveColor).not.toHaveBeenCalled();
     expect(deps.sampleColorAtPosition).not.toHaveBeenCalled();
+  });
+
+  it('uses the selected regular reference instead of picking a CC gradient from the active layer', () => {
+    const activeLayer = {
+      id: 'cc-layer',
+      visible: true,
+      layerType: 'color-cycle',
+    } as any;
+    const referenceLayer = {
+      id: 'reference-layer',
+      visible: true,
+      layerType: 'normal',
+    } as any;
+    const { deps, dynamicDepsRef } = createDeps({
+      layers: [activeLayer, referenceLayer],
+      activeLayerId: activeLayer.id,
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'color-picker',
+      },
+    });
+    const stateSnapshot = useAppStore.getState();
+    jest.spyOn(useAppStore, 'getState').mockReturnValue({
+      ...stateSnapshot,
+      colorPickerPreferReferenceLayer: true,
+      project: {
+        ...stateSnapshot.project,
+        referenceLayerId: referenceLayer.id,
+      } as Project,
+    });
+    deps.sampleColorAtPosition = jest.fn(() => '#123456');
+    deps.resolvePickedColorCycleGradientAtPosition = jest.fn();
+    dynamicDepsRef.current.tools.currentTool = 'color-picker';
+    deps.tools = dynamicDepsRef.current.tools;
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 5, clientY: 6 }));
+
+    expect(deps.resolvePickedColorCycleGradientAtPosition).not.toHaveBeenCalled();
+    expect(deps.setActiveColor).toHaveBeenCalledWith('#123456');
+    expect(deps.rememberColorCycleGradient).not.toHaveBeenCalled();
   });
 
   it('lets the palette owner deduplicate repeated CC gradient picks', () => {
@@ -853,8 +895,8 @@ describe('pointerHandlers main flows', () => {
     });
     deps.resolvePickedColorCycleGradientAtPosition = jest.fn(() => ({
       stops: stops.map((stop) => ({ ...stop })),
+      runtimeStops: stops.map((stop) => ({ ...stop })),
       seamProfile: 'hard',
-      isRuntimePalette: true,
     }));
     dynamicDepsRef.current.tools.currentTool = 'color-picker';
     deps.tools = dynamicDepsRef.current.tools;
@@ -864,8 +906,8 @@ describe('pointerHandlers main flows', () => {
 
     expect(deps.rememberColorCycleGradient).toHaveBeenCalledWith({
       stops,
+      runtimeStops: stops,
       seamProfile: 'hard',
-      isRuntimePalette: true,
     });
     expect(deps.setBrushSettings).not.toHaveBeenCalled();
     expect(deps.setActiveColor).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import type { Layer, Project } from '@/types';
+import type { ColorCycleGradientSwatch, Layer, Project } from '@/types';
 import {
   createDefaultLayerAlignment,
   dedupeLayerIds,
@@ -83,9 +83,8 @@ describe('normalizeProject', () => {
           { position: 1, color: '#ffffff', opacity: 2 },
           { position: 0, color: '#000000', opacity: 0.5 },
         ],
-        seamProfile: 'soft',
         isRuntimePalette: true,
-      }],
+      } as unknown as ColorCycleGradientSwatch],
       activeColorCycleGradientId: 'picked-gradient',
     };
 
@@ -98,8 +97,10 @@ describe('normalizeProject', () => {
         { position: 0, color: '#000000', opacity: 0.5 },
         { position: 1, color: '#ffffff', opacity: 1 },
       ],
-      seamProfile: 'soft',
-      isRuntimePalette: true,
+      runtimeStops: [
+        { position: 0, color: '#000000', opacity: 0.5 },
+        { position: 1, color: '#ffffff', opacity: 1 },
+      ],
     }]);
   });
 });

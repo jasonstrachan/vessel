@@ -1,5 +1,5 @@
 import type { StoreApi } from 'zustand';
-import type { PaletteState } from '@/types';
+import type { GradientSeamProfile, PaletteState } from '@/types';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -9,7 +9,10 @@ type StoreGet = StoreApi<AppState>['getState'];
 export const updateToolsWithPalette = (
   palette: PaletteState,
   tools: AppState['tools'],
-  options: { syncColorCycleGradient?: boolean } = {},
+  options: {
+    syncColorCycleGradient?: boolean;
+    colorCycleGradientSeamProfile?: GradientSeamProfile;
+  } = {},
 ): AppState['tools'] => {
   const activeColorCycleGradient = options.syncColorCycleGradient
     ? palette.colorCycleGradients?.find(
@@ -24,11 +27,15 @@ export const updateToolsWithPalette = (
       color: palette.foregroundColor,
       ...(activeColorCycleGradient
         ? {
-            colorCycleGradient: activeColorCycleGradient.stops.map((stop) => ({ ...stop })),
+            colorCycleGradient: (
+              activeColorCycleGradient.runtimeStops ?? activeColorCycleGradient.stops
+            ).map((stop) => ({ ...stop })),
             colorCycleGradientVersion:
               (tools.brushSettings.colorCycleGradientVersion ?? 0) + 1,
-            colorCycleGradientSeamProfile: activeColorCycleGradient.seamProfile,
-            colorCycleGradientIsRuntimePalette: activeColorCycleGradient.isRuntimePalette === true,
+            ...(options.colorCycleGradientSeamProfile
+              ? { colorCycleGradientSeamProfile: options.colorCycleGradientSeamProfile }
+              : {}),
+            colorCycleGradientIsRuntimePalette: Boolean(activeColorCycleGradient.runtimeStops?.length),
             ccGradientSource: 'manual' as const,
             colorCycleUseForegroundGradient: false,
             autoSampleGradient: false,
@@ -46,6 +53,7 @@ export const updateToolsWithPalette = (
 export interface ApplyPaletteOptions {
   paletteDirty?: boolean;
   syncColorCycleGradient?: boolean;
+  colorCycleGradientSeamProfile?: GradientSeamProfile;
 }
 
 export const applyPaletteSnapshot = (
@@ -59,6 +67,7 @@ export const applyPaletteSnapshot = (
       options.paletteDirty !== undefined ? options.paletteDirty : state.paletteDirty;
     const nextTools = updateToolsWithPalette(palette, state.tools, {
       syncColorCycleGradient: options.syncColorCycleGradient,
+      colorCycleGradientSeamProfile: options.colorCycleGradientSeamProfile,
     });
 
     const result: Partial<AppState> = {

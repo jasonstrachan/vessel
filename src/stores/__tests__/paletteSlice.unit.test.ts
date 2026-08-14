@@ -119,18 +119,24 @@ describe('palette slice', () => {
     expect(next.tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(false);
   });
 
-  it('retains legacy baked picks until the user edits them', () => {
+  it('reuses sampled runtime stops exactly until the user edits the swatch', () => {
     const store = createTestStore();
     const stops = [
       { position: 0, color: '#112233' },
       { position: 1, color: '#ddeeff' },
     ];
+    const runtimeStops = [
+      { position: 0, color: '#223344' },
+      { position: 1, color: '#ccddee' },
+    ];
 
     const id = store.rememberColorCycleGradient({
       stops,
-      seamProfile: 'hard',
-      isRuntimePalette: true,
+      runtimeStops,
+      seamProfile: 'soft',
     });
+    expect(store.getState().tools.brushSettings.colorCycleGradient).toEqual(runtimeStops);
+    expect(store.getState().tools.brushSettings.colorCycleGradientSeamProfile).toBe('soft');
     expect(store.getState().tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(true);
 
     store.updateActiveColorCycleGradient([
@@ -138,7 +144,8 @@ describe('palette slice', () => {
       { position: 1, color: '#ffffff' },
     ]);
     const active = store.getState().palette.colorCycleGradients.find((entry: any) => entry.id === id);
-    expect(active.isRuntimePalette).toBe(false);
+    expect(active.runtimeStops).toBeUndefined();
+    expect(store.getState().tools.brushSettings.colorCycleGradientSeamProfile).toBe('soft');
     expect(store.getState().tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(false);
   });
 });

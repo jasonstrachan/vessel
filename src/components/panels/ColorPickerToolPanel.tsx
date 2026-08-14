@@ -1,8 +1,11 @@
 'use client';
 
 import React, { useMemo } from 'react';
+
 import { useAppStore } from '@/stores/useAppStore';
 import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
+
+import ButtonGroup from '../ui/ButtonGroup';
 
 const normalizeHex = (value: string): string => {
   const raw = (value || '').trim().replace(/^#/, '');
@@ -25,6 +28,9 @@ const ColorPickerToolPanel: React.FC = () => {
   const backgroundColor = useAppStore((state) => state.palette.backgroundColor);
   const preferReferenceSampling = useAppStore((state) => state.colorPickerPreferReferenceLayer);
   const setPreferReferenceSampling = useAppStore((state) => state.setColorPickerPreferReferenceLayer);
+  const layers = useAppStore((state) => state.layers);
+  const activeLayerId = useAppStore((state) => state.activeLayerId);
+  const referenceLayerId = useAppStore((state) => state.project?.referenceLayerId ?? null);
 
   const activeColor = activeSlot === 'background' ? backgroundColor : foregroundColor;
 
@@ -39,7 +45,22 @@ const ColorPickerToolPanel: React.FC = () => {
 
   const rgbLabel = `${rgb.r}, ${rgb.g}, ${rgb.b}`;
   const activeSlotLabel = activeSlot === 'background' ? 'Background' : 'Foreground';
-  const toggleReferenceSampling = () => setPreferReferenceSampling(!preferReferenceSampling);
+  const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+  const referenceLayer = layers.find((layer) => layer.id === referenceLayerId);
+  const effectiveReferenceLayer = preferReferenceSampling ? referenceLayer : undefined;
+  const ccSourceLayer = effectiveReferenceLayer?.layerType === 'color-cycle'
+    ? effectiveReferenceLayer
+    : effectiveReferenceLayer
+      ? undefined
+      : activeLayer?.layerType === 'color-cycle'
+        ? activeLayer
+        : undefined;
+  const ccSourceLabel = ccSourceLayer
+    ? `${ccSourceLayer === referenceLayer ? 'Reference' : 'Active'} · ${ccSourceLayer.name}`
+    : 'None';
+  const pixelSourceLabel = effectiveReferenceLayer
+    ? `Reference · ${effectiveReferenceLayer.name}`
+    : 'Visible canvas';
 
   return (
     <div className="border-b border-[#242424] bg-[#1F1F1F] px-4 py-3 text-xs text-[#E2E8F0]">
@@ -68,30 +89,36 @@ const ColorPickerToolPanel: React.FC = () => {
         </div>
       </div>
 
-      <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">
-        Click to sample a color, or click a painted pixel on the active Color Cycle layer to reuse its complete gradient in Manual mode.
-      </p>
-
-      <div className="mt-3 flex items-center justify-between gap-3 rounded-sm border border-[#2A2A2A] bg-[#181818] px-3 py-2">
-        <div className="flex flex-col">
-          <span className="text-[11px] font-medium text-[#E2E8F0]">Prefer reference layer</span>
-          <span className="text-[10px] text-[#94A3B8]">Eyedropper samples the marked reference layer first.</span>
-        </div>
-        <button
-          type="button"
-          onClick={toggleReferenceSampling}
-          className={`relative h-6 w-11 rounded-full transition-colors ${
-            preferReferenceSampling ? 'bg-[#38BDF8]' : 'bg-[#374151]'
-          }`}
-          aria-pressed={preferReferenceSampling}
-          aria-label="Toggle reference layer sampling"
-        >
-          <span
-            className={`absolute top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-              preferReferenceSampling ? 'translate-x-5' : 'translate-x-1'
-            }`}
+      <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[#94A3B8]">Sample from</span>
+          <ButtonGroup
+            options={[
+              { label: 'Canvas', value: 'canvas' },
+              {
+                label: 'Reference',
+                value: 'reference',
+                disabled: !referenceLayer,
+                title: referenceLayer ? `Sample ${referenceLayer.name}` : 'No reference layer selected',
+              },
+            ]}
+            value={effectiveReferenceLayer ? 'reference' : 'canvas'}
+            onChange={(value) => setPreferReferenceSampling(value === 'reference')}
+            size="sm"
           />
-        </button>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[#94A3B8]">CC gradients</span>
+          <span className="min-w-0 truncate text-right text-[#E2E8F0]" title={ccSourceLabel}>
+            {ccSourceLabel}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[#94A3B8]">Regular pixels</span>
+          <span className="min-w-0 truncate text-right text-[#E2E8F0]" title={pixelSourceLabel}>
+            {pixelSourceLabel}
+          </span>
+        </div>
       </div>
     </div>
   );

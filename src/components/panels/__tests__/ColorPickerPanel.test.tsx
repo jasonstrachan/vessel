@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { act, render, fireEvent, screen } from '@testing-library/react';
+import { act, render, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import { useAppStore } from '@/stores/useAppStore';
@@ -73,7 +73,53 @@ describe('ColorPickerPanel', () => {
     );
     expect(state.tools.brushSettings.colorCycleGradient).toEqual(active?.stops);
     expect(state.tools.brushSettings.ccGradientSource).toBe('manual');
-    expect(screen.getByText('Seam')).toBeInTheDocument();
+    expect(screen.queryByText('Seam')).not.toBeInTheDocument();
+  });
+
+  it('edits the selected gradient stop with the shared RGB sliders', async () => {
+    const user = userEvent.setup();
+    const layer = {
+      id: 'cc-layer',
+      name: 'CC',
+      layerType: 'color-cycle',
+    } as Layer;
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const foregroundBefore = useAppStore.getState().palette.foregroundColor;
+    const activeGradient = useAppStore.getState().palette.colorCycleGradients?.find(
+      (gradient) => gradient.id === useAppStore.getState().palette.activeColorCycleGradientId,
+    );
+    expect(activeGradient?.stops[1]).toBeDefined();
+
+    render(<ColorPickerPanel />);
+
+    const target = activeGradient!.stops[1];
+    await user.click(screen.getByRole('button', {
+      name: `Gradient stop 2 ${target.color}`,
+    }));
+
+    const redSlider = screen.getByRole('slider', { name: 'Red' });
+    expect(redSlider).toHaveValue(parseInt(target.color.slice(1, 3), 16).toString());
+    fireEvent.change(redSlider, { target: { value: '17' } });
+    const expectedColor = `#11${target.color.slice(3)}`.toUpperCase();
+
+    await waitFor(() => {
+      const state = useAppStore.getState();
+      const updated = state.palette.colorCycleGradients?.find(
+        (gradient) => gradient.id === state.palette.activeColorCycleGradientId,
+      );
+      expect(updated?.stops[1].color).toBe(expectedColor);
+    });
+    expect(useAppStore.getState().palette.foregroundColor).toBe(foregroundBefore);
+    expect(screen.getByRole('button', {
+      name: /Gradient stop 2 #11/i,
+      pressed: true,
+    })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Select foreground color swatch' }));
+    expect(screen.getByRole('button', {
+      name: `Gradient stop 2 ${expectedColor}`,
+      pressed: false,
+    })).toBeInTheDocument();
   });
 
   it('dispatches dither warmup on color slider release', () => {

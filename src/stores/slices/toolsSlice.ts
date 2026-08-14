@@ -1373,14 +1373,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
   setColorCycleGradientDraft: (stops) => {
     get().setBrushSettings({
       colorCycleGradient: cloneGradientStops(stops),
-      colorCycleGradientSeamProfile: 'hard',
       colorCycleGradientIsRuntimePalette: false,
     });
   },
   commitColorCycleGradientDraft: (stops) => {
     get().setBrushSettings({
       colorCycleGradient: cloneGradientStops(stops),
-      colorCycleGradientSeamProfile: 'hard',
       colorCycleGradientIsRuntimePalette: false,
     });
   },
@@ -2030,13 +2028,16 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       const activePaletteGradient = isColorCyclePresetId(preset.id)
         ? resolveActivePaletteColorCycleGradient(state)
         : undefined;
-      const gradientSource = activePaletteGradient?.stops?.length
-        ? activePaletteGradient.stops
+      const activePaletteStops = activePaletteGradient?.runtimeStops?.length
+        ? activePaletteGradient.runtimeStops
+        : activePaletteGradient?.stops;
+      const gradientSource = activePaletteStops?.length
+        ? activePaletteStops
         : previousGradient && previousGradient.length > 0
           ? previousGradient
           : storedGradientEntry?.gradient;
       const gradientVersionSource = activePaletteGradient
-        ? gradientsEqual(previousGradient, activePaletteGradient.stops)
+        ? gradientsEqual(previousGradient, activePaletteStops)
           ? previousGradientVersion
           : (previousGradientVersion ?? 0) + 1
         : previousGradient && previousGradient.length > 0
@@ -2048,9 +2049,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         if (gradientClone && gradientClone.length > 0) {
           newBrushSettings.colorCycleGradient = gradientClone;
           if (activePaletteGradient) {
-            newBrushSettings.colorCycleGradientSeamProfile = activePaletteGradient.seamProfile;
             newBrushSettings.colorCycleGradientIsRuntimePalette =
-              activePaletteGradient.isRuntimePalette === true;
+              Boolean(activePaletteGradient.runtimeStops?.length);
             newBrushSettings.ccGradientSource = 'manual';
             newBrushSettings.colorCycleUseForegroundGradient = false;
             newBrushSettings.autoSampleGradient = false;

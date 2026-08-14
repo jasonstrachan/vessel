@@ -212,8 +212,8 @@ export interface EventHandlerDependencies {
   setBrushSettings: (settings: Partial<BrushSettings>) => void;
   rememberColorCycleGradient?: (gradient: {
     stops: NonNullable<BrushSettings['colorCycleGradient']>;
+    runtimeStops?: NonNullable<BrushSettings['colorCycleGradient']>;
     seamProfile: GradientSeamProfile;
-    isRuntimePalette?: boolean;
   }) => string | null;
   updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
   stopRecolorSampling: () => void;
@@ -271,8 +271,8 @@ export interface EventHandlerDependencies {
     y: number,
   ) => {
     stops: NonNullable<BrushSettings['colorCycleGradient']>;
+    runtimeStops: NonNullable<BrushSettings['colorCycleGradient']>;
     seamProfile: GradientSeamProfile;
-    isRuntimePalette?: boolean;
   } | null;
   getMousePos: (
     event: React.MouseEvent<Element> | React.PointerEvent<Element> | React.WheelEvent<Element>

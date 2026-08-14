@@ -225,13 +225,9 @@ export const beginMarkGradientSession = (params: {
   if (!layer || layer.layerType !== 'color-cycle') {
     return null;
   }
-  const sampledSoftSeamEnabled = state.tools.brushSettings.ccSampledSoftSeamEnabled !== false;
-  const seamProfile: GradientSeamProfile =
-    params.source === 'sampled'
-      ? sampledSoftSeamEnabled ? 'soft' : 'hard'
-      : params.source === 'manual'
-        ? normalizeGradientSeamProfile(state.tools.brushSettings.colorCycleGradientSeamProfile)
-        : 'hard';
+  const seamProfile: GradientSeamProfile = normalizeGradientSeamProfile(
+    state.tools.brushSettings.colorCycleGradientSeamProfile,
+  );
   const isRuntimePalette =
     params.source === 'manual' &&
     state.tools.brushSettings.colorCycleGradientIsRuntimePalette === true;

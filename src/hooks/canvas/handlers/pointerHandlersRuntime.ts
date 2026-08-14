@@ -2345,11 +2345,16 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     const dynamic = getDynamicDeps();
     const { palette } = dynamic;
     const activeLayer = dynamic.layers.find((layer) => layer.id === dynamic.activeLayerId);
-    if (activeLayer?.visible && activeLayer.layerType === 'color-cycle') {
+    const appState = getAppStoreState();
+    const referenceLayer = appState.colorPickerPreferReferenceLayer
+      ? dynamic.layers.find((layer) => layer.id === appState.project?.referenceLayerId)
+      : undefined;
+    const gradientSampleLayer = referenceLayer ?? activeLayer;
+    if (gradientSampleLayer?.visible && gradientSampleLayer.layerType === 'color-cycle') {
       const resolvePickedGradient =
         deps.resolvePickedColorCycleGradientAtPosition ?? resolvePickedColorCycleGradientAtPosition;
       const pickedGradient = resolvePickedGradient(
-        activeLayer.id,
+        gradientSampleLayer.id,
         worldPos.x,
         worldPos.y,
       );
@@ -2358,8 +2363,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           ?? getAppStoreState().rememberColorCycleGradient;
         rememberGradient({
           stops: pickedGradient.stops,
+          runtimeStops: pickedGradient.runtimeStops,
           seamProfile: pickedGradient.seamProfile,
-          isRuntimePalette: pickedGradient.isRuntimePalette,
         });
         return;
       }

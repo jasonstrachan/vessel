@@ -229,6 +229,13 @@ describe('Home page client rendering', () => {
     expect(screen.getByTestId('brush-settings')).toBeInTheDocument();
   });
 
+  it('gives brush settings more vertical space than the compact brush library', () => {
+    render(<Home />);
+
+    expect(screen.getByTestId('brush-library').parentElement).toHaveClass('flex-[0.85]');
+    expect(screen.getByTestId('brush-settings').parentElement).toHaveClass('flex-[1.35]');
+  });
+
   it('starts the autosave service when enabled', () => {
     render(<Home />);
     expect(mockAutosaveService.start).toHaveBeenCalled();

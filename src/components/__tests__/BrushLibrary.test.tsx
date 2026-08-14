@@ -459,6 +459,8 @@ describe('BrushLibrary', () => {
 
     const image = screen.getByAltText('Checkered thumbnail');
     expect(image).toHaveAttribute('src', '/assets/images/checkered-brush.svg');
+    expect(image).toHaveAttribute('width', '26');
+    expect(image).toHaveAttribute('height', '26');
   });
 
   it('prefixes dedicated preset thumbnail assets with the Next assetPrefix when present', () => {

@@ -50,8 +50,8 @@ describe('color picker CC gradient sampling', () => {
 
     expect(picked).toEqual({
       stops: snapshot.gradientDefStore?.[0]?.stops,
+      runtimeStops: snapshot.gradientDefStore?.[0]?.stops,
       seamProfile: 'soft',
-      isRuntimePalette: true,
     });
     expect(picked?.stops).not.toBe(snapshot.gradientDefStore?.[0]?.stops);
     expect(picked?.stops[1]).not.toBe(snapshot.gradientDefStore?.[0]?.stops[1]);
@@ -61,8 +61,8 @@ describe('color picker CC gradient sampling', () => {
     const snapshot = makeSnapshot();
     expect(resolvePickedColorCycleGradientFromSnapshot({ snapshot, x: 1, y: 0 })).toEqual({
       stops: snapshot.slotPalettes?.[0]?.stops,
+      runtimeStops: snapshot.slotPalettes?.[0]?.stops,
       seamProfile: 'hard',
-      isRuntimePalette: true,
     });
   });
 
@@ -80,8 +80,8 @@ describe('color picker CC gradient sampling', () => {
 
     expect(resolvePickedColorCycleGradientFromSnapshot({ snapshot, x: 0, y: 0 })).toEqual({
       stops: sourceStops,
+      runtimeStops: snapshot.gradientDefStore?.[0]?.stops,
       seamProfile: 'soft',
-      isRuntimePalette: false,
     });
   });
 

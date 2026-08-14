@@ -233,11 +233,11 @@ export default function Home() {
         <div className="flex-shrink-0">
           <ColorPickerPanel />
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex-[0.85] min-h-0 overflow-hidden">
           <BrushLibraryPanel />
         </div>
         <div className="border-t w-full flex-shrink-0" />
-        <div className="flex-[1.2] min-h-0 overflow-hidden">
+        <div className="flex-[1.35] min-h-0 overflow-hidden">
           <BrushSettingsPanel />
         </div>
       </div>

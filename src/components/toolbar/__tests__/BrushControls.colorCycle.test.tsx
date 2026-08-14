@@ -687,7 +687,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument();
   });
 
-  it('exposes a hard seam toggle for sampled color cycle strokes', async () => {
+  it('exposes the shared seam brush setting for sampled color cycle strokes', async () => {
     const user = userEvent.setup();
     useAppStore.setState((state) => ({
       ...state,
@@ -697,7 +697,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
         brushSettings: {
           ...state.tools.brushSettings,
           brushShape: 'color_cycle' as BrushSettings['brushShape'],
-          ccSampledSoftSeamEnabled: true,
+          colorCycleGradientSeamProfile: 'soft',
         },
       },
       currentBrushPreset: {
@@ -708,19 +708,16 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
 
     render(<BrushControls />);
 
-    const hardSeamToggle = screen.getByRole('checkbox', {
-      name: 'Sampled gradient hard seam',
-    });
-    expect(hardSeamToggle).not.toBeChecked();
-    expect(screen.queryByText('Soft seam')).not.toBeInTheDocument();
+    const hardSeamButton = screen.getByRole('button', { name: 'Hard' });
+    expect(screen.getByRole('button', { name: 'Soft' })).toBeInTheDocument();
     expect(screen.getByText('Contrast')).toBeInTheDocument();
 
-    await user.click(hardSeamToggle);
+    await user.click(hardSeamButton);
     fireEvent.change(screen.getByLabelText('Gradient Contrast'), {
       target: { value: '42' },
     });
 
-    expect(useAppStore.getState().tools.brushSettings.ccSampledSoftSeamEnabled).toBe(false);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleGradientSeamProfile).toBe('hard');
     expect(useAppStore.getState().tools.brushSettings.ccGradientRangeContrast).toBe(42);
   });
 
@@ -1286,8 +1283,9 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
     expect(screen.getByLabelText('Ink Spread')).toBeInTheDocument();
     expect(screen.getByLabelText('Flat Cycle Banding')).toBeInTheDocument();
-    expect(screen.getByLabelText('Sampled gradient soft seam')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Sampled gradient hard seam')).not.toBeInTheDocument();
+    expect(screen.getByText('Seam')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hard' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Soft' })).toBeInTheDocument();
   });
 
   it('updates dither pattern diversity from the CC gradient controls', () => {

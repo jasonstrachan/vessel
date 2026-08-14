@@ -188,6 +188,13 @@ describe('colorCycleMarkSession rebuild', () => {
     useAppStore.setState((state) => ({
       layers: [layer],
       activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleGradientSeamProfile: 'soft',
+        },
+      },
       project: state.project
         ? { ...state.project, width: 2, height: 2, layers: [layer] }
         : state.project,
@@ -262,7 +269,7 @@ describe('colorCycleMarkSession rebuild', () => {
     );
   });
 
-  it('uses a hard seam for sampled sessions when sampled soft seam is disabled', () => {
+  it('uses the shared brush seam for sampled sessions', () => {
     const layer = createLayer();
 
     useAppStore.setState((state) => ({
@@ -272,7 +279,7 @@ describe('colorCycleMarkSession rebuild', () => {
         ...state.tools,
         brushSettings: {
           ...state.tools.brushSettings,
-          ccSampledSoftSeamEnabled: false,
+          colorCycleGradientSeamProfile: 'hard',
         },
       },
       project: state.project

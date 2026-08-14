@@ -83,7 +83,6 @@ describe('useAppStore palette integration', () => {
           { position: 0, color: '#123456' },
           { position: 1, color: '#abcdef' },
         ],
-        seamProfile: 'soft' as const,
       }],
       activeColorCycleGradientId: 'loaded-gradient',
     };
@@ -95,6 +94,7 @@ describe('useAppStore palette integration', () => {
       palette: paletteOverride
     };
 
+    useAppStore.getState().setBrushSettings({ colorCycleGradientSeamProfile: 'soft' });
     useAppStore.getState().setProject(project);
 
     const nextState = useAppStore.getState();

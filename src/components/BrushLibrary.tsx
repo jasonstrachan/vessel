@@ -18,7 +18,7 @@ import {
   selectTemporaryCustomBrush,
 } from '@/stores/selectors/toolsSelectors';
 
-const BRUSH_ICON_SIZE = 32;
+const BRUSH_ICON_SIZE = 26;
 const BRUSH_TEXT_LINE_HEIGHT = 11;
 const GENERIC_PRESET_THUMBNAILS = new Set([
   '/assets/images/Brush.png',
@@ -357,7 +357,7 @@ const BrushLibrary = () => {
 
   return (
     <div className="h-full flex flex-col bg-[#1A1A1A]">
-      <div className="flex items-center justify-between px-3 py-2 bg-[#1A1A1A] border-b border-[#4a4a4a]">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1A1A1A] border-b border-[#4a4a4a]">
         <span className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Brush Library</span>
         <div className="flex items-center space-x-2">
           <PlusButton

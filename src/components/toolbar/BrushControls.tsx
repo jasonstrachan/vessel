@@ -1516,9 +1516,10 @@ const BrushControls = () => {
         (gradient) => gradient.id === palette.activeColorCycleGradientId,
       );
       if (!hasCapturedColorCyclePayload && activePaletteGradient) {
-        updates.colorCycleGradient = activePaletteGradient.stops.map((stop) => ({ ...stop }));
-        updates.colorCycleGradientSeamProfile = activePaletteGradient.seamProfile;
-        updates.colorCycleGradientIsRuntimePalette = activePaletteGradient.isRuntimePalette === true;
+        updates.colorCycleGradient = (
+          activePaletteGradient.runtimeStops ?? activePaletteGradient.stops
+        ).map((stop) => ({ ...stop }));
+        updates.colorCycleGradientIsRuntimePalette = Boolean(activePaletteGradient.runtimeStops?.length);
         updates.ccGradientSource = 'manual';
         updates.colorCycleUseForegroundGradient = false;
         updates.autoSampleGradient = false;
@@ -1826,6 +1827,24 @@ const BrushControls = () => {
           onChange={handleGradientSourceChange}
         />
 
+        <div className="mb-2 flex items-center gap-2">
+          <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+            Seam
+          </label>
+          <ButtonGroup
+            options={[
+              { label: 'Hard', value: 'hard' },
+              { label: 'Soft', value: 'soft' },
+            ]}
+            value={activeSettings.colorCycleGradientSeamProfile ?? 'hard'}
+            onChange={(value) => setActiveSettings({
+              colorCycleGradientSeamProfile: value as GradientSeamProfile,
+            })}
+            className="flex-1"
+            size="sm"
+          />
+        </div>
+
         {isColorCycleGradientPreset && (
           <div className="mb-2">
             <div className="flex items-center gap-1">
@@ -1915,7 +1934,7 @@ const BrushControls = () => {
                   samples: ccGradientSampleCount,
                 };
                 const previewSeamProfile: GradientSeamProfile =
-                  expectsSampled && activeSettings.ccSampledSoftSeamEnabled !== false ? 'soft' : 'hard';
+                  activeSettings.colorCycleGradientSeamProfile ?? 'hard';
                 return (
                   <CcSampledGradientPreviewWithDebug
                     stops={previewStops}
@@ -1936,26 +1955,6 @@ const BrushControls = () => {
                 >
                   Reset
                 </button>
-              </div>
-              <div className="mt-2 flex items-center justify-between text-xs text-[#D9D9D9]">
-                <span>{isColorCycleStrokePreset ? 'Hard seam' : 'Soft seam'}</span>
-                <CustomSwitch
-                  checked={
-                    isColorCycleStrokePreset
-                      ? activeSettings.ccSampledSoftSeamEnabled === false
-                      : activeSettings.ccSampledSoftSeamEnabled !== false
-                  }
-                  onChange={(checked) =>
-                    setActiveSettings({
-                      ccSampledSoftSeamEnabled: isColorCycleStrokePreset ? !checked : checked,
-                    })
-                  }
-                  aria-label={
-                    isColorCycleStrokePreset
-                      ? 'Sampled gradient hard seam'
-                      : 'Sampled gradient soft seam'
-                  }
-                />
               </div>
             </>
           </div>
