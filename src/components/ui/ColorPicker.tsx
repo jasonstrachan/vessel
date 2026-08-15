@@ -22,8 +22,15 @@ interface HSV {
 const GRID_COLS = 14;
 const GRID_ROWS = 14;
 const HUE_WIDTH = 28;
+const GRID_INDEX_EPSILON = 1e-9;
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+const getGridIndex = (percentage: number, cellCount: number): number => clamp(
+  // Cell-derived percentages can land just below their integer index.
+  Math.floor((percentage / 100) * cellCount + GRID_INDEX_EPSILON),
+  0,
+  cellCount - 1,
+);
 
 const getCanvasPoint = (
   canvas: HTMLCanvasElement,
@@ -576,12 +583,12 @@ export default function ColorPicker({
     ? GRID_COLS - 1
     : isPureWhiteCell
       ? 0
-      : clamp(Math.floor((currentHsv.s / 100) * GRID_COLS), 0, GRID_COLS - 1);
+      : getGridIndex(currentHsv.s, GRID_COLS);
   const indicatorRow = isPureBlackCell
     ? GRID_ROWS - 1
     : isPureWhiteCell
       ? 0
-      : clamp(Math.floor(((100 - currentHsv.v) / 100) * GRID_ROWS), 0, GRID_ROWS - 1);
+      : getGridIndex(100 - currentHsv.v, GRID_ROWS);
   const indicatorX = indicatorCol * cellWidth;
   const indicatorY = indicatorRow * cellHeight;
   const indicatorStroke = currentHsv.v > 50 ? "#000" : "#fff";

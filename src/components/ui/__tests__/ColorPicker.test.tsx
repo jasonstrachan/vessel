@@ -121,6 +121,37 @@ describe('ColorPicker', () => {
     expect(onChange).toHaveBeenLastCalledWith('#804040');
   });
 
+  it('moves the selection indicator to the exact grid cell clicked', () => {
+    const onChange = jest.fn();
+    const { container } = render(<ColorPicker color="#FF0000" onChange={onChange} />);
+    const svCanvas = container.querySelectorAll('canvas')[0];
+    const indicator = container.querySelector(
+      'div.pointer-events-none.absolute.left-0.top-0',
+    ) as HTMLDivElement;
+    mockCanvasRect(svCanvas, { left: 0, top: 0, width: 212, height: 212 });
+
+    fireEvent.pointerDown(svCanvas, {
+      clientX: (1.5 * 212) / 14,
+      clientY: (1.5 * 212) / 14,
+      pointerId: 1,
+    });
+    expect(indicator.style.transform).toBe('translate(15.142857142857142px, 15.142857142857142px)');
+
+    fireEvent.pointerDown(svCanvas, {
+      clientX: (1.5 * 212) / 14,
+      clientY: (2.5 * 212) / 14,
+      pointerId: 2,
+    });
+    expect(indicator.style.transform).toBe('translate(15.142857142857142px, 30.285714285714285px)');
+
+    fireEvent.pointerDown(svCanvas, {
+      clientX: (2.5 * 212) / 14,
+      clientY: (2.5 * 212) / 14,
+      pointerId: 3,
+    });
+    expect(indicator.style.transform).toBe('translate(30.285714285714285px, 30.285714285714285px)');
+  });
+
   it('maps pointer coordinates from the rendered hue canvas into canvas space', () => {
     const onChange = jest.fn();
     const { container } = render(<ColorPicker color="#FF0000" onChange={onChange} />);
