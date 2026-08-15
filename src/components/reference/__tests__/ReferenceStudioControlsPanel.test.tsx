@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { ReferenceStudioControlsPanel } from '@/components/reference/ReferenceStudioControlsPanel';
 import type { ReferenceStudioSnapshot } from '@/referenceStudio/referenceStudioChannel';
@@ -54,6 +54,7 @@ const renderPanel = () => render(
     onImportFiles={jest.fn()}
     onSelectAsset={jest.fn()}
     onPreviewAsset={jest.fn()}
+    onClearAssetPreview={jest.fn()}
     onUpdateAsset={jest.fn()}
     onRemoveAsset={jest.fn()}
     onMoveAssetToTop={jest.fn()}
@@ -90,5 +91,39 @@ describe('ReferenceStudioControlsPanel design contract', () => {
     screen.getAllByTestId('reference-section-divider').forEach((divider) => {
       expect(divider.className).not.toContain('border');
     });
+  });
+
+  it('cancels a drafted reference name when Escape is pressed', () => {
+    const onUpdateAsset = jest.fn();
+    render(
+      <ReferenceStudioControlsPanel
+        project={snapshot.project!}
+        grid={snapshot.grid}
+        layers={snapshot.layers}
+        assets={snapshot.referenceAssets}
+        samplingSource={snapshot.samplingSource}
+        selectedId={asset.id}
+        viewScale={0.5}
+        error={null}
+        onHide={jest.fn()}
+        onImportFiles={jest.fn()}
+        onSelectAsset={jest.fn()}
+        onPreviewAsset={jest.fn()}
+        onClearAssetPreview={jest.fn()}
+        onUpdateAsset={onUpdateAsset}
+        onRemoveAsset={jest.fn()}
+        onMoveAssetToTop={jest.fn()}
+        onFitSelectedAsset={jest.fn()}
+        onSetSamplingSource={jest.fn()}
+        onSetGrid={jest.fn()}
+      />,
+    );
+
+    const nameInput = screen.getByRole('textbox', { name: 'Reference name' });
+    fireEvent.change(nameInput, { target: { value: 'Discard this name' } });
+    fireEvent.keyDown(nameInput, { key: 'Escape' });
+
+    expect(nameInput).toHaveValue(asset.name);
+    expect(onUpdateAsset).not.toHaveBeenCalled();
   });
 });

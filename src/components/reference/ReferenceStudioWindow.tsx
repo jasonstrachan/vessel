@@ -21,7 +21,7 @@ const INITIAL_VIEW_MARGIN_CANVASES = 1;
 const MIN_VIEW_SCALE = 0.05;
 const MAX_VIEW_SCALE = 40;
 const WHEEL_ZOOM_SENSITIVITY = 0.001;
-const iconButtonClass = 'flex h-8 w-8 items-center justify-center bg-[#1A1A1A] text-[#999] hover:bg-[#242424] hover:text-[#D9D9D9] focus:outline-none';
+const iconButtonClass = 'flex h-8 w-8 items-center justify-center bg-[#1A1A1A] text-[#999] hover:bg-[#242424] hover:text-[#D9D9D9] focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-[#7DD3FC]';
 const EMPTY_REFERENCE_ASSETS: ReferenceAsset[] = [];
 
 interface PanDrag {
@@ -32,11 +32,21 @@ interface PanDrag {
   originY: number;
 }
 
-const isTextEntryTarget = (target: EventTarget | null): boolean => {
+const INTERACTIVE_SELECTOR = [
+  'a[href]',
+  'button',
+  'input',
+  'select',
+  'textarea',
+  '[contenteditable="true"]',
+  '[role="button"]',
+  '[role="slider"]',
+  '[role="switch"]',
+].join(',');
+
+const isInteractiveTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) return false;
-  return target instanceof HTMLInputElement
-    || target instanceof HTMLTextAreaElement
-    || target.isContentEditable;
+  return Boolean(target.closest(INTERACTIVE_SELECTOR));
 };
 
 const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
@@ -72,6 +82,7 @@ export const ReferenceStudioWindow = () => {
   const isSpacePressedRef = React.useRef(false);
   const panDragRef = React.useRef<PanDrag | null>(null);
   const panOverlayRef = React.useRef<HTMLDivElement | null>(null);
+  const snapshotProjectIdRef = React.useRef<string | null>(null);
 
   const send = React.useCallback((message: ReferenceStudioCommand) => {
     channelRef.current?.postMessage(message);
@@ -91,8 +102,14 @@ export const ReferenceStudioWindow = () => {
     channelRef.current = channel;
     channel.onmessage = (event: MessageEvent<ReferenceStudioMainMessage>) => {
       if (event.data?.type !== 'snapshot') return;
+      const nextProjectId = event.data.snapshot.project?.id ?? null;
+      const didProjectChange = snapshotProjectIdRef.current !== nextProjectId;
+      snapshotProjectIdRef.current = nextProjectId;
       setSnapshot(event.data.snapshot);
       setAssetPreviews((current) => {
+        if (didProjectChange) {
+          return Object.keys(current).length > 0 ? {} : current;
+        }
         let didChange = false;
         const next: Record<string, Partial<ReferenceAsset>> = {};
         Object.entries(current).forEach(([id, updates]) => {
@@ -199,21 +216,26 @@ export const ReferenceStudioWindow = () => {
     const endSpacePan = () => {
       const overlay = panOverlayRef.current;
       const pointerId = panDragRef.current?.pointerId;
-      if (overlay && pointerId !== undefined && overlay.hasPointerCapture?.(pointerId)) {
-        overlay.releasePointerCapture(pointerId);
+      try {
+        if (overlay && pointerId !== undefined && overlay.hasPointerCapture?.(pointerId)) {
+          overlay.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // Pointer capture can already be gone after cancellation or window blur.
       }
       isSpacePressedRef.current = false;
       panDragRef.current = null;
       setPanCursor(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.repeat || isTextEntryTarget(event.target)) return;
+      if (event.code !== 'Space' || isInteractiveTarget(event.target)) return;
       event.preventDefault();
+      if (event.repeat || isSpacePressedRef.current) return;
       isSpacePressedRef.current = true;
       setPanCursor('grab');
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.code !== 'Space') return;
+      if (event.code !== 'Space' || !isSpacePressedRef.current) return;
       event.preventDefault();
       endSpacePan();
     };
@@ -342,6 +364,15 @@ export const ReferenceStudioWindow = () => {
     }));
   }, []);
 
+  const clearAssetPreview = React.useCallback((id: string) => {
+    setAssetPreviews((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
   const fitSelectedAsset = React.useCallback(() => {
     if (!project || !selectedAsset) return;
     updateAsset(
@@ -368,7 +399,7 @@ export const ReferenceStudioWindow = () => {
   const originY = viewOrigin.y;
 
   return (
-    <main className="flex h-screen min-w-[760px] overflow-hidden bg-[#141514] text-[#D9D9D9]">
+    <main className="flex h-screen min-w-0 overflow-hidden bg-[#141514] text-[#D9D9D9]">
       {areControlsVisible ? (
         <ReferenceStudioControlsPanel
           project={project}
@@ -383,6 +414,7 @@ export const ReferenceStudioWindow = () => {
           onImportFiles={(files) => void importFiles(files)}
           onSelectAsset={setSelectedId}
           onPreviewAsset={previewAsset}
+          onClearAssetPreview={clearAssetPreview}
           onUpdateAsset={updateAsset}
           onRemoveAsset={(id) => send({ type: 'remove-reference', id })}
           onMoveAssetToTop={(id) => send({
@@ -432,7 +464,11 @@ export const ReferenceStudioWindow = () => {
               };
               isFitViewRef.current = false;
               setIsFitView(false);
-              event.currentTarget.setPointerCapture?.(event.pointerId);
+              try {
+                event.currentTarget.setPointerCapture?.(event.pointerId);
+              } catch {
+                // Space-pan still works while the pointer remains over the overlay.
+              }
               setPanCursor('grabbing');
             }}
             onPointerMove={(event) => {
@@ -447,8 +483,12 @@ export const ReferenceStudioWindow = () => {
             onPointerUp={(event) => {
               if (panDragRef.current?.pointerId !== event.pointerId) return;
               panDragRef.current = null;
-              if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-                event.currentTarget.releasePointerCapture(event.pointerId);
+              try {
+                if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+              } catch {
+                // The browser may release capture before this handler runs.
               }
               setPanCursor('grab');
             }}
@@ -487,9 +527,10 @@ export const ReferenceStudioWindow = () => {
                 originX={originX}
                 originY={originY}
                 viewScale={viewScale}
-                selected={selectedId === asset.id}
                 onSelect={setSelectedId}
-                onUpdate={updateAsset}
+                onPreview={previewAsset}
+                onCommit={updateAsset}
+                onClearPreview={clearAssetPreview}
               />
             ))}
           </div>

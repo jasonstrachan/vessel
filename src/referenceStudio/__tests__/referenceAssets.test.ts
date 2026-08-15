@@ -1,5 +1,6 @@
 import {
   fitReferenceAssetToProject,
+  getReferenceAssetSourceRect,
   mapProjectPointToReferencePixel,
   normalizeReferenceAssets,
   normalizeReferenceSamplingSource,
@@ -45,8 +46,29 @@ describe('Reference Studio asset contract', () => {
     const asset = createAsset();
     expect(mapProjectPointToReferencePixel(asset, 10, 20)).toEqual({ x: 25, y: 50 });
     expect(mapProjectPointToReferencePixel(asset, 109, 219)).toEqual({ x: 74, y: 149 });
-    expect(mapProjectPointToReferencePixel({ ...asset, flipX: true }, 10, 20)).toEqual({ x: 75, y: 50 });
+    expect(mapProjectPointToReferencePixel({ ...asset, flipX: true }, 10, 20)).toEqual({ x: 74, y: 50 });
     expect(mapProjectPointToReferencePixel(asset, 110, 220)).toBeNull();
+  });
+
+  it('uses one rounded source rectangle for rendering and sampling', () => {
+    const asset = createAsset({
+      naturalWidth: 10,
+      naturalHeight: 10,
+      x: 0,
+      y: 0,
+      scale: 1,
+      crop: { x: 0.25, y: 0.25, width: 0.75, height: 0.75 },
+    });
+
+    expect(getReferenceAssetSourceRect(asset)).toEqual({
+      x: 3,
+      y: 3,
+      width: 7,
+      height: 7,
+    });
+    expect(mapProjectPointToReferencePixel(asset, 0, 0)).toEqual({ x: 3, y: 3 });
+    expect(mapProjectPointToReferencePixel(asset, 7.49, 7.49)).toEqual({ x: 9, y: 9 });
+    expect(mapProjectPointToReferencePixel({ ...asset, flipX: true, flipY: true }, 0, 0)).toEqual({ x: 9, y: 9 });
   });
 
   it('fits the cropped reference proportionally inside the project and centers it', () => {

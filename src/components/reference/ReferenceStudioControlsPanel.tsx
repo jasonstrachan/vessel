@@ -61,6 +61,7 @@ interface ReferenceStudioControlsPanelProps {
   onImportFiles: (files: File[]) => void;
   onSelectAsset: (id: string) => void;
   onPreviewAsset: (id: string, updates: Partial<ReferenceAsset>) => void;
+  onClearAssetPreview: (id: string) => void;
   onUpdateAsset: (id: string, updates: Partial<ReferenceAsset>) => void;
   onRemoveAsset: (id: string) => void;
   onMoveAssetToTop: (id: string) => void;
@@ -112,6 +113,7 @@ export const ReferenceStudioControlsPanel = ({
   onImportFiles,
   onSelectAsset,
   onPreviewAsset,
+  onClearAssetPreview,
   onUpdateAsset,
   onRemoveAsset,
   onMoveAssetToTop,
@@ -121,6 +123,8 @@ export const ReferenceStudioControlsPanel = ({
 }: ReferenceStudioControlsPanelProps) => {
   const selectedAsset = assets.find((asset) => asset.id === selectedId) ?? null;
   const [nameDraft, setNameDraft] = React.useState(selectedAsset?.name ?? '');
+  const didCommitScaleRef = React.useRef(false);
+  const didCommitOpacityRef = React.useRef(false);
 
   React.useEffect(() => {
     setNameDraft(selectedAsset?.name ?? '');
@@ -345,9 +349,18 @@ export const ReferenceStudioControlsPanel = ({
                   onPreview={(value) => onPreviewAsset(selectedAsset.id, {
                     scale: sliderValueToScale(value),
                   })}
-                  onChange={(value) => onUpdateAsset(selectedAsset.id, {
-                    scale: sliderValueToScale(value),
-                  })}
+                  onChange={(value) => {
+                    didCommitScaleRef.current = true;
+                    onUpdateAsset(selectedAsset.id, {
+                      scale: sliderValueToScale(value),
+                    });
+                  }}
+                  onCommit={() => {
+                    if (!didCommitScaleRef.current) {
+                      onClearAssetPreview(selectedAsset.id);
+                    }
+                    didCommitScaleRef.current = false;
+                  }}
                   aria-label="Reference scale"
                 />
               </label>
@@ -361,7 +374,16 @@ export const ReferenceStudioControlsPanel = ({
                   step={1}
                   formatValue={(value) => `${Math.round(value)}%`}
                   onPreview={(value) => onPreviewAsset(selectedAsset.id, { opacity: value / 100 })}
-                  onChange={(value) => onUpdateAsset(selectedAsset.id, { opacity: value / 100 })}
+                  onChange={(value) => {
+                    didCommitOpacityRef.current = true;
+                    onUpdateAsset(selectedAsset.id, { opacity: value / 100 });
+                  }}
+                  onCommit={() => {
+                    if (!didCommitOpacityRef.current) {
+                      onClearAssetPreview(selectedAsset.id);
+                    }
+                    didCommitOpacityRef.current = false;
+                  }}
                   aria-label="Reference opacity"
                 />
               </label>

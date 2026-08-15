@@ -103,7 +103,10 @@ describe('ReferenceStudioWindow', () => {
     expect(screen.queryByText('+ Image')).not.toBeInTheDocument();
     expect(screen.queryByRole('slider', { name: 'Zoom' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open controls' }).className).not.toContain('border');
+    expect(screen.getByRole('button', { name: 'Open controls' })).toHaveClass('focus-visible:outline');
     expect(screen.getByTestId('reference-document-frame').className).not.toContain('border');
+    expect(screen.getByRole('main')).toHaveClass('min-w-0');
+    expect(screen.getByRole('main')).not.toHaveClass('min-w-[760px]');
 
     fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
     expect(screen.getByTestId('reference-controls')).toBeInTheDocument();
@@ -184,6 +187,19 @@ describe('ReferenceStudioWindow', () => {
 
     fireEvent.keyUp(window, { code: 'Space' });
     expect(screen.queryByTestId('reference-pan-overlay')).not.toBeInTheDocument();
+  });
+
+  it('does not start Space-pan from a focused control', () => {
+    render(<ReferenceStudioWindow />);
+    connectStudio();
+    fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
+
+    const hideButton = screen.getByRole('button', { name: 'Hide' });
+    hideButton.focus();
+    fireEvent.keyDown(hideButton, { code: 'Space' });
+
+    expect(screen.queryByTestId('reference-pan-overlay')).not.toBeInTheDocument();
+    fireEvent.keyUp(hideButton, { code: 'Space' });
   });
 
   it('imports an image pasted from the clipboard', async () => {
@@ -317,5 +333,82 @@ describe('ReferenceStudioWindow', () => {
       id: asset.id,
     }));
     expect(mockPostMessage.mock.calls[0]?.[0].updates.scale).toBeCloseTo(2);
+  });
+
+  it('clears a no-op slider preview so later snapshots remain authoritative', () => {
+    const asset: ReferenceAsset = {
+      id: 'reference-1',
+      name: 'Portrait reference',
+      dataUrl: 'data:image/png;base64,AAAA',
+      naturalWidth: 400,
+      naturalHeight: 600,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      x: 0,
+      y: 0,
+      scale: 1,
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+      flipX: false,
+      flipY: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    render(<ReferenceStudioWindow />);
+    connectStudio({ ...snapshot, referenceAssets: [asset] });
+    fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
+    mockPostMessage.mockClear();
+
+    const scaleSlider = screen.getByRole('slider', { name: 'Reference scale' });
+    fireEvent.pointerDown(scaleSlider);
+    fireEvent.change(scaleSlider, { target: { value: '60' } });
+    fireEvent.change(scaleSlider, { target: { value: '50' } });
+    fireEvent.pointerUp(scaleSlider);
+
+    expect(mockPostMessage).not.toHaveBeenCalled();
+    connectStudio({
+      ...snapshot,
+      referenceAssets: [{ ...asset, scale: 2, updatedAt: 2 }],
+    });
+    expect(screen.getByTestId('reference-asset')).toHaveAttribute('data-scale', '2');
+  });
+
+  it('clears local previews when the connected Vessel project changes', () => {
+    const asset: ReferenceAsset = {
+      id: 'shared-reference-id',
+      name: 'First project reference',
+      dataUrl: 'data:image/png;base64,AAAA',
+      naturalWidth: 400,
+      naturalHeight: 600,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      x: 0,
+      y: 0,
+      scale: 1,
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+      flipX: false,
+      flipY: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    render(<ReferenceStudioWindow />);
+    connectStudio({ ...snapshot, referenceAssets: [asset] });
+    fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
+    fireEvent.pointerDown(screen.getByRole('slider', { name: 'Reference scale' }));
+    fireEvent.change(screen.getByRole('slider', { name: 'Reference scale' }), {
+      target: { value: '60' },
+    });
+    expect(screen.getByTestId('reference-asset')).not.toHaveAttribute('data-scale', '1');
+
+    connectStudio({
+      ...snapshot,
+      project: { ...snapshot.project!, id: 'project-2' },
+      referenceAssets: [{ ...asset, name: 'Second project reference', scale: 0.5 }],
+    });
+
+    expect(screen.getByTestId('reference-asset')).toHaveAttribute('data-scale', '0.5');
   });
 });

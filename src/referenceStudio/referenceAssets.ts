@@ -114,6 +114,31 @@ export const getReferenceAssetDisplayBounds = (asset: ReferenceAsset) => ({
   height: asset.naturalHeight * asset.crop.height * asset.scale,
 });
 
+export const getReferenceAssetSourceRect = (
+  asset: Pick<ReferenceAsset, 'naturalWidth' | 'naturalHeight' | 'crop'>,
+) => {
+  const naturalWidth = Math.max(1, Math.round(asset.naturalWidth));
+  const naturalHeight = Math.max(1, Math.round(asset.naturalHeight));
+  const x = clamp(Math.round(asset.crop.x * naturalWidth), 0, naturalWidth - 1);
+  const y = clamp(Math.round(asset.crop.y * naturalHeight), 0, naturalHeight - 1);
+  const right = clamp(
+    Math.round((asset.crop.x + asset.crop.width) * naturalWidth),
+    x + 1,
+    naturalWidth,
+  );
+  const bottom = clamp(
+    Math.round((asset.crop.y + asset.crop.height) * naturalHeight),
+    y + 1,
+    naturalHeight,
+  );
+  return {
+    x,
+    y,
+    width: right - x,
+    height: bottom - y,
+  };
+};
+
 export const fitReferenceAssetToProject = (
   asset: ReferenceAsset,
   projectWidth: number,
@@ -153,15 +178,15 @@ export const mapProjectPointToReferencePixel = (
     return null;
   }
 
-  let unitX = (projectX - bounds.x) / Math.max(bounds.width, 1e-6);
-  let unitY = (projectY - bounds.y) / Math.max(bounds.height, 1e-6);
-  if (asset.flipX) unitX = 1 - unitX;
-  if (asset.flipY) unitY = 1 - unitY;
-
-  const sourceX = (asset.crop.x + unitX * asset.crop.width) * asset.naturalWidth;
-  const sourceY = (asset.crop.y + unitY * asset.crop.height) * asset.naturalHeight;
+  const unitX = (projectX - bounds.x) / Math.max(bounds.width, 1e-6);
+  const unitY = (projectY - bounds.y) / Math.max(bounds.height, 1e-6);
+  const sourceRect = getReferenceAssetSourceRect(asset);
+  const displayX = Math.min(sourceRect.width - 1, Math.floor(unitX * sourceRect.width));
+  const displayY = Math.min(sourceRect.height - 1, Math.floor(unitY * sourceRect.height));
+  const sourceX = sourceRect.x + (asset.flipX ? sourceRect.width - 1 - displayX : displayX);
+  const sourceY = sourceRect.y + (asset.flipY ? sourceRect.height - 1 - displayY : displayY);
   return {
-    x: Math.max(0, Math.min(asset.naturalWidth - 1, Math.floor(sourceX))),
-    y: Math.max(0, Math.min(asset.naturalHeight - 1, Math.floor(sourceY))),
+    x: Math.max(0, Math.min(asset.naturalWidth - 1, sourceX)),
+    y: Math.max(0, Math.min(asset.naturalHeight - 1, sourceY)),
   };
 };
