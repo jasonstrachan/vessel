@@ -1130,7 +1130,10 @@ export const fillCcGradientDither = async ({
       const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
       const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
       const errBuf = new Float32Array(gridW * gridH);
-      const jitterScale = profile.jitterBase * 0.25;
+      const sierraDiversity = clamp01((ditherPatternDiversity ?? 100) / 100);
+      const jitterScale = profile.jitterBase * 0.25 * (
+        algorithm === 'sierra-lite' ? sierraDiversity : 1
+      );
       const sierraVariety = algorithm === 'sierra-lite'
         ? createSierraLiteVarietyResolver({
             mix: 0.5,
@@ -1140,7 +1143,7 @@ export const fillCcGradientDither = async ({
             identityKey: pairCount,
             lowKey: lowIndexForBand(0),
             highKey: highIndexForBand(pairCount - 1),
-            diversity: clamp01((ditherPatternDiversity ?? 100) / 100),
+            diversity: sierraDiversity,
           })
         : null;
 
@@ -1148,7 +1151,9 @@ export const fillCcGradientDither = async ({
         const activeRow = activeCellsByRow[cy];
         if (!activeRow.length) continue;
 
-        const useSerpentine = kernel.serpentine !== false;
+        const useSerpentine = kernel.serpentine !== false && (
+          algorithm !== 'sierra-lite' || sierraDiversity > 0
+        );
         const leftToRight = useSerpentine ? (cy & 1) === 0 : true;
         const start = leftToRight ? 0 : activeRow.length - 1;
         const end = leftToRight ? activeRow.length : -1;
@@ -1160,10 +1165,7 @@ export const fillCcGradientDither = async ({
           const { band, local: initialLocal } = resolveBandState(cellCoverage[cellIdx], errBuf[cellIdx] || 0);
           let local = clamp01(
             initialLocal +
-              (sierraVariety
-                ? sierraVariety.resolveClassic(cx, cy) +
-                  sierraVariety.resolveVariation(cx, cy) * SIERRA_LITE_GRADIENT_VARIETY_SCALE
-                : 0),
+              (sierraVariety?.resolve(cx, cy) ?? 0) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
           );
           if (jitterScale > 0) {
             local = clamp01(local + (noiseAt(cx, cy) - 0.5) * jitterScale);
@@ -1330,6 +1332,7 @@ export const fillCcGradientDither = async ({
       sampleHash: flatSummary.sampleHash,
     });
   } else if (algorithm === 'sierra-lite') {
+    const sierraDiversity = clamp01((ditherPatternDiversity ?? 100) / 100);
     const sierraVariety = createSierraLiteVarietyResolver({
       mix: 0.5,
       seed: flatSeed ?? 0,
@@ -1338,7 +1341,7 @@ export const fillCcGradientDither = async ({
       identityKey: clampedLevels,
       lowKey: 1,
       highKey: clampedLevels,
-      diversity: clamp01((ditherPatternDiversity ?? 100) / 100),
+      diversity: sierraDiversity,
     });
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);
@@ -1357,7 +1360,7 @@ export const fillCcGradientDither = async ({
       errNext = swapErr;
       errNext.fill(0);
 
-      const serpentine = (cy & 1) === 1;
+      const serpentine = sierraDiversity > 0 && (cy & 1) === 1;
       const start = serpentine ? activeRow.length - 1 : 0;
       const end = serpentine ? -1 : activeRow.length;
       const step = serpentine ? -1 : 1;
@@ -1371,8 +1374,7 @@ export const fillCcGradientDither = async ({
         const adj = clamp01(
           frac +
             (errCurr[cx] || 0) +
-            sierraVariety.resolveClassic(cx, cy) +
-            sierraVariety.resolveVariation(cx, cy) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
+            sierraVariety.resolve(cx, cy) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
         );
         const thr = sierraVariety.resolveThreshold(cx, cy) +
           (noiseAt(cx, cy) - 0.5) * thresholdJitter;

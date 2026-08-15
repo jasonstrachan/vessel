@@ -26,7 +26,7 @@ describe('strokeStampDither', () => {
     };
   };
 
-  it('starts Sierra stamps with sparse vertical stacks and varies them deterministically', () => {
+  it('preserves the requested Sierra stamp tone and varies it deterministically', () => {
     const runtime = createStampDitherRuntime(0);
     const tileSize = 64;
     const build = (diversity: number) => getStampDitherTile(

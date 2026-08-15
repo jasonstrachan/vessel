@@ -1416,7 +1416,7 @@ describe('fillCcGradientDither', () => {
     expect(run(0.6101)).toEqual(run(0.6102));
   });
 
-  it('forces a neutral checkerboard-family Sierra mix at zero diversity regardless of seed', () => {
+  it('preserves the requested Sierra mix at zero diversity regardless of seed', () => {
     const run = (flatSeed: number) => {
       const gridW = 8;
       const gridH = 8;
@@ -1467,10 +1467,10 @@ describe('fillCcGradientDither', () => {
     expect(hasAlternation).toBe(true);
     expect(seedA).toEqual(seedB);
     expect(new Set(seedA)).toEqual(new Set([28, 36]));
-    expect(Math.abs(lowCount - highCount)).toBeLessThanOrEqual(1);
+    expect(highCount).toBeGreaterThan(lowCount);
   });
 
-  it('forces neutral occupancy for zero-diversity CC flat fills even when the resolved band mix is not 0.5', async () => {
+  it('preserves resolved band occupancy for zero-diversity CC flat fills', async () => {
     const width = 8;
     const height = 8;
     const run = async (flatSeed: number) => {
@@ -1511,10 +1511,10 @@ describe('fillCcGradientDither', () => {
 
     expect(seedA).toEqual(seedB);
     expect(new Set(nonZero)).toEqual(new Set([low, high]));
-    expect(Math.abs(lowCount - highCount)).toBeLessThanOrEqual(1);
+    expect(highCount).toBeGreaterThan(lowCount);
   });
 
-  it('keeps low positive diversity closer to neutral occupancy than full diversity', () => {
+  it('keeps occupancy stable while Variety changes the Sierra topology', () => {
     const run = (ditherPatternDiversity: number) => {
       const gridW = 16;
       const gridH = 16;
@@ -1540,15 +1540,18 @@ describe('fillCcGradientDither', () => {
         },
       });
 
-      const lowCount = out.filter((value) => value === 28).length;
       const highCount = out.filter((value) => value === 36).length;
-      return Math.abs(highCount - lowCount);
+      return { highCount, output: Array.from(out) };
     };
 
-    const lowDiversityBias = run(25);
-    const fullDiversityBias = run(100);
+    const zeroDiversity = run(0);
+    const lowDiversity = run(25);
+    const fullDiversity = run(100);
 
-    expect(lowDiversityBias).toBeLessThan(fullDiversityBias);
+    expect(lowDiversity.output).not.toEqual(zeroDiversity.output);
+    expect(fullDiversity.output).not.toEqual(lowDiversity.output);
+    expect(Math.abs(lowDiversity.highCount - zeroDiversity.highCount)).toBeLessThanOrEqual(16);
+    expect(Math.abs(fullDiversity.highCount - zeroDiversity.highCount)).toBeLessThanOrEqual(16);
   });
 
   it('uses two separated inks for each Sierra Lite flat tone band', () => {
@@ -2113,16 +2116,16 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     expect(values.size).toBeGreaterThan(1);
   });
 
-  it('starts with sparse vertical Sierra stacks and varies them as Variety rises', async () => {
-    const width = 32;
-    const height = 16;
-    const render = (diversity: number) => renderFlatCycle({
+  it('uses seed-free canonical Sierra at zero and varies it as Variety rises', async () => {
+    const width = 64;
+    const height = 64;
+    const render = (diversity: number, flatSeed = 8128) => renderFlatCycle({
       algorithm: 'sierra-lite',
       spread: 60,
       width,
       height,
       diversity,
-      flatSeed: 8128,
+      flatSeed,
     });
     const zero = await render(0);
     const full = await render(100);
@@ -2144,8 +2147,8 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     };
 
     expect(full).toEqual(await render(100));
+    expect(zero).toEqual(await render(0, 101));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
-    expect(countInteriorVerticalTriples(zero)).toBeGreaterThan(0);
     expect(countInteriorVerticalTriples(full)).toBeGreaterThan(0);
   });
 

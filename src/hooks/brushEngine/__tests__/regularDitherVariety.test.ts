@@ -8,8 +8,8 @@ import type { BrushSettings } from '@/types';
 
 const makeSolidImage = (
   color: [number, number, number],
-  width = 32,
-  height = 24,
+  width = 64,
+  height = 64,
 ): ImageData => {
   const imageData = new ImageData(width, height);
   for (let i = 0; i < imageData.data.length; i += 4) {
@@ -122,12 +122,12 @@ describe('regularDitherVariety', () => {
     }).seed);
   });
 
-  it('keeps zero Variety as a classic near-checker with sparse vertical stacks', () => {
+  it('runs canonical Sierra Lite at zero Variety without injected pixel doubling', () => {
     const output = render(0);
     const horizontalEdges = output.height * (output.width - 1);
 
     expect(countVerticalTriples(output)).toBeGreaterThan(0);
-    expect(countHorizontalAlternations(output) / horizontalEdges).toBeGreaterThan(0.9);
+    expect(countHorizontalAlternations(output) / horizontalEdges).toBeGreaterThan(0.99);
   });
 
   it('adds deterministic Sierra vertical runs as Variety increases', () => {
@@ -139,7 +139,8 @@ describe('regularDitherVariety', () => {
     expect(Array.from(full.data)).not.toEqual(Array.from(medium.data));
     expect(countVerticalTriples(medium)).toBeGreaterThan(0);
     expect(countVerticalTriples(full)).toBeGreaterThan(0);
-    expect(countChangedPixels(neutral, full)).toBeGreaterThan(countChangedPixels(neutral, medium));
+    expect(countChangedPixels(neutral, medium)).toBeGreaterThan(neutral.width * neutral.height * 0.1);
+    expect(countChangedPixels(neutral, full)).toBeGreaterThan(neutral.width * neutral.height * 0.1);
   });
 
   it('keeps full Variety deterministic and approximately tone-balanced', () => {

@@ -80,6 +80,24 @@ describe('Interlace Sierra Lite playback', () => {
     expect(high.every((value) => value === 1)).toBe(true);
   });
 
+  it('produces the exact symmetric Sierra checker at zero Variety and midpoint tone', () => {
+    const width = 64;
+    const height = 64;
+    const field = resolveSierraLiteBinaryField({
+      width,
+      height,
+      mix: 0.5,
+      seed: 8128,
+      diversity: 0,
+    });
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        expect(field[y * width + x]).toBe(((x + y) & 1) === 0 ? 1 : 0);
+      }
+    }
+  });
+
   it('turns dominance into pulse width while keeping the lattice anchored', () => {
     const neighbourSlits = resolveInterlaceMaskRectangles({
       width: 64,

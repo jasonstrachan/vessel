@@ -840,9 +840,10 @@ export const applySierraLitePressureDither = (
 
   // Pressure affects error diffusion intensity
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
+  const useSerpentine = serpentine && varietyStrength > 0;
 
   for (let y = 0; y < height; y++) {
-    const leftToRight = serpentine ? (y & 1) === 0 : true;
+    const leftToRight = useSerpentine ? (y & 1) === 0 : true;
     const xStart = leftToRight ? 0 : width - 1;
     const xEnd = leftToRight ? width : -1;
     const xStep = leftToRight ? 1 : -1;
@@ -855,9 +856,7 @@ export const applySierraLitePressureDither = (
         continue;
       }
 
-      const patternError =
-        variety.resolveClassic(x, y) * 2 +
-        variety.resolveVariation(x, y) * varietyStrength;
+      const patternError = variety.resolve(x, y) * varietyStrength;
       const oldR = Math.max(
         0,
         Math.min(
