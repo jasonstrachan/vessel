@@ -1,4 +1,5 @@
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
@@ -48,6 +49,7 @@ export const sampleStampDitherReplayMask = ({
   algorithm,
   patternStyle,
   imageTileThresholdResolver,
+  diversity = 1,
 }: {
   runtime: StampDitherRuntime;
   x: number;
@@ -60,6 +62,7 @@ export const sampleStampDitherReplayMask = ({
   algorithm: StampDitherAlgorithm;
   patternStyle: PatternStyle;
   imageTileThresholdResolver?: (x: number, y: number) => number | null;
+  diversity?: number;
 }): number => {
   const scale = Math.max(1, Math.floor(tileScale));
   const clampedCoverage = Math.max(0, Math.min(1, coverage));
@@ -73,6 +76,7 @@ export const sampleStampDitherReplayMask = ({
     algorithm,
     patternStyle,
     imageTileThresholdResolver,
+    diversity,
   );
   return resolveStampDitherTileSample(
     tile,
@@ -198,6 +202,7 @@ export const recomposeStampDitherOverlay = (args: {
           algo === 'pattern' ? 'pattern' : 'sierra-lite',
           config.patternStyle ?? 'dots',
           config.imageTileThresholdResolver,
+          config.diversity ?? 1,
         );
         tileEntry = { tile, tileClamp, originX, originY };
         tileCache.set(tileKey, tileEntry);
@@ -401,32 +406,48 @@ export const finalizeStampDither = (args: {
       const cellChoice = new Uint8Array(cellCount);
       const errBuf = new Float32Array(cellCount);
 
-      for (let cy = 0; cy < gridH; cy += 1) {
-        const leftToRight = kernel.serpentine ? (cy & 1) === 0 : true;
-        const xStart = leftToRight ? 0 : gridW - 1;
-        const xEnd = leftToRight ? gridW : -1;
-        const xStep = leftToRight ? 1 : -1;
+      if (algo === 'sierra-lite') {
+        cellChoice.set(resolveSierraLiteBinaryField({
+          width: gridW,
+          height: gridH,
+          mix: coverage,
+          seed,
+          phaseX: minCellX,
+          phaseY: minCellY,
+          identityKey: cellSize,
+          lowKey: bucket,
+          highKey: STAMP_DITHER_BUCKETS - 1 - bucket,
+          diversity: config.diversity ?? 1,
+          activeMask: cellMask,
+        }));
+      } else {
+        for (let cy = 0; cy < gridH; cy += 1) {
+          const leftToRight = kernel.serpentine ? (cy & 1) === 0 : true;
+          const xStart = leftToRight ? 0 : gridW - 1;
+          const xEnd = leftToRight ? gridW : -1;
+          const xStep = leftToRight ? 1 : -1;
 
-        for (let cx = xStart; cx !== xEnd; cx += xStep) {
-          const cellIdx = cy * gridW + cx;
-          if (cellMask[cellIdx] === 0) continue;
-          const globalCellX = cx + minCellX;
-          const globalCellY = cy + minCellY;
-          const jitter = jitterScale > 0
-            ? (hashStampDitherCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale
-            : 0;
-          const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
-          const quant = value >= 0.5 ? 1 : 0;
-          cellChoice[cellIdx] = quant;
-          const error = (value - quant) * errorIntensity;
-          if (error === 0) continue;
-          for (const tap of kernel.taps) {
-            const nx = cx + (leftToRight ? tap.dx : -tap.dx);
-            const ny = cy + tap.dy;
-            if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
-            const nIdx = ny * gridW + nx;
-            if (cellMask[nIdx] === 0) continue;
-            errBuf[nIdx] += (error * tap.weight) / kernel.divisor;
+          for (let cx = xStart; cx !== xEnd; cx += xStep) {
+            const cellIdx = cy * gridW + cx;
+            if (cellMask[cellIdx] === 0) continue;
+            const globalCellX = cx + minCellX;
+            const globalCellY = cy + minCellY;
+            const jitter = jitterScale > 0
+              ? (hashStampDitherCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale
+              : 0;
+            const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
+            const quant = value >= 0.5 ? 1 : 0;
+            cellChoice[cellIdx] = quant;
+            const error = (value - quant) * errorIntensity;
+            if (error === 0) continue;
+            for (const tap of kernel.taps) {
+              const nx = cx + (leftToRight ? tap.dx : -tap.dx);
+              const ny = cy + tap.dy;
+              if (nx < 0 || nx >= gridW || ny < 0 || ny >= gridH) continue;
+              const nIdx = ny * gridW + nx;
+              if (cellMask[nIdx] === 0) continue;
+              errBuf[nIdx] += (error * tap.weight) / kernel.divisor;
+            }
           }
         }
       }
@@ -488,6 +509,7 @@ export const finalizeStampDither = (args: {
             algo,
             config.patternStyle ?? 'dots',
             config.imageTileThresholdResolver,
+            config.diversity ?? 1,
           );
           tileEntry = { tile, tileClamp, originX, originY };
           tileCache.set(tileKey, tileEntry);

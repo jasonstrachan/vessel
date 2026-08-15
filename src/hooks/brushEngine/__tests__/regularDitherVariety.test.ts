@@ -1,17 +1,15 @@
 import { BrushShape } from '@/types';
-import {
-  applyRegularDitherVarietyToImageData,
-  resolveRegularDitherVariety,
-} from '../regularDitherVariety';
+
 import { computeStrokeDitherPaletteForSettings } from '../engineShared';
 import { applyDitheringWithFillResolution } from '../dithering';
+import { resolveRegularDitherVariety } from '../regularDitherVariety';
 
 import type { BrushSettings } from '@/types';
 
 const makeSolidImage = (
   color: [number, number, number],
-  width = 16,
-  height = 16
+  width = 32,
+  height = 24,
 ): ImageData => {
   const imageData = new ImageData(width, height);
   for (let i = 0; i < imageData.data.length; i += 4) {
@@ -25,16 +23,67 @@ const makeSolidImage = (
 
 const makeSettings = (
   color: string,
-  ditherPatternDiversity = 100
+  ditherPatternDiversity = 100,
 ): BrushSettings => ({
   brushShape: BrushShape.PIXEL_DITHER,
   color,
   ditherAlgorithm: 'sierra-lite',
   patternStyle: 'dots',
-  ditherPaletteSpread: 3,
+  ditherPaletteSpread: 0,
   ditherPatternDiversity,
-  fillResolution: 7,
+  fillResolution: 1,
 } as BrushSettings);
+
+const render = (ditherPatternDiversity: number): ImageData => {
+  const settings = makeSettings('#808080', ditherPatternDiversity);
+  const palette = computeStrokeDitherPaletteForSettings(settings);
+  return applyDitheringWithFillResolution(
+    makeSolidImage([128, 128, 128]),
+    palette.length,
+    1,
+    'sierra-lite',
+    'dots',
+    palette,
+    undefined,
+    undefined,
+    resolveRegularDitherVariety({ settings, palette }),
+  );
+};
+
+const colorKeyAt = (imageData: ImageData, x: number, y: number): string => {
+  const index = (y * imageData.width + x) * 4;
+  return `${imageData.data[index]},${imageData.data[index + 1]},${imageData.data[index + 2]}`;
+};
+
+const countVerticalTriples = (imageData: ImageData): number => {
+  let count = 0;
+  for (let y = 0; y < imageData.height - 2; y += 1) {
+    for (let x = 0; x < imageData.width; x += 1) {
+      const key = colorKeyAt(imageData, x, y);
+      if (
+        key === colorKeyAt(imageData, x, y + 1) &&
+        key === colorKeyAt(imageData, x, y + 2)
+      ) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+};
+
+const countChangedPixels = (left: ImageData, right: ImageData): number => {
+  let count = 0;
+  for (let index = 0; index < left.data.length; index += 4) {
+    if (
+      left.data[index] !== right.data[index] ||
+      left.data[index + 1] !== right.data[index + 1] ||
+      left.data[index + 2] !== right.data[index + 2]
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+};
 
 describe('regularDitherVariety', () => {
   it('produces one stable variety from visible settings alone', () => {
@@ -42,11 +91,11 @@ describe('regularDitherVariety', () => {
     const palette = computeStrokeDitherPaletteForSettings(settings);
 
     expect(resolveRegularDitherVariety({ settings, palette })).toEqual(
-      resolveRegularDitherVariety({ settings, palette })
+      resolveRegularDitherVariety({ settings, palette }),
     );
   });
 
-  it('allows visible color changes to alter the stable dither mix', () => {
+  it('allows visible color changes to alter the stable Sierra seed', () => {
     const warmSettings = makeSettings('#b34a22');
     const coolSettings = makeSettings('#226db3');
     const warmPalette = computeStrokeDitherPaletteForSettings(warmSettings);
@@ -55,66 +104,49 @@ describe('regularDitherVariety', () => {
     expect(resolveRegularDitherVariety({
       settings: warmSettings,
       palette: warmPalette,
-    })).not.toEqual(resolveRegularDitherVariety({
+    }).seed).not.toBe(resolveRegularDitherVariety({
       settings: coolSettings,
       palette: coolPalette,
-    }));
+    }).seed);
   });
 
-  it('neutralizes variety when ditherPatternDiversity is zero', () => {
-    const settings = makeSettings('#b34a22', 0);
-    const palette = computeStrokeDitherPaletteForSettings(settings);
-    const source = makeSolidImage([179, 74, 34]);
-    const variety = resolveRegularDitherVariety({ settings, palette });
-    const varied = applyRegularDitherVarietyToImageData(source, variety);
+  it('keeps zero Variety as the neutral classic checker', () => {
+    const output = render(0);
 
-    expect(variety).toEqual({ toneBias: 0 });
-    expect(Array.from(varied.data)).toEqual(Array.from(source.data));
+    expect(countVerticalTriples(output)).toBe(0);
+    expect(colorKeyAt(output, 0, 0)).toBe(colorKeyAt(output, 2, 0));
+    expect(colorKeyAt(output, 0, 0)).not.toBe(colorKeyAt(output, 1, 0));
+    expect(colorKeyAt(output, 0, 0)).not.toBe(colorKeyAt(output, 0, 1));
   });
 
-  it('keeps dark endpoint colors inside a ditherable range', () => {
-    const settings = makeSettings('#0e0f14');
-    const palette = computeStrokeDitherPaletteForSettings(settings);
-    const variety = resolveRegularDitherVariety({ settings, palette });
+  it('adds deterministic Sierra vertical runs as Variety increases', () => {
+    const neutral = render(0);
+    const medium = render(50);
+    const full = render(100);
 
-    expect(variety.toneBias).toBeGreaterThanOrEqual(18);
+    expect(Array.from(medium.data)).not.toEqual(Array.from(neutral.data));
+    expect(Array.from(full.data)).not.toEqual(Array.from(medium.data));
+    expect(countVerticalTriples(medium)).toBeGreaterThan(0);
+    expect(countVerticalTriples(full)).toBeGreaterThan(0);
+    expect(countChangedPixels(neutral, full)).toBeGreaterThan(countChangedPixels(neutral, medium));
   });
 
-  it('keeps white endpoint fills textured', () => {
-    const settings = makeSettings('#ffffff');
-    const palette = computeStrokeDitherPaletteForSettings(settings);
-    const variety = resolveRegularDitherVariety({ settings, palette });
-    const varied = applyRegularDitherVarietyToImageData(
-      makeSolidImage([255, 255, 255], 70, 70),
-      variety
-    );
-    const dithered = applyDitheringWithFillResolution(
-      varied,
-      palette.length,
-      settings.fillResolution ?? 7,
-      settings.ditherAlgorithm,
-      settings.patternStyle,
-      palette,
-      variety.phaseOffset
-    );
+  it('keeps full Variety deterministic and approximately tone-balanced', () => {
+    const first = render(100);
+    const second = render(100);
+    const firstKey = colorKeyAt(first, 0, 0);
+    let firstInkCount = 0;
 
-    let interiorPixels = 0;
-    let texturedPixels = 0;
-    for (let y = 14; y < 56; y += 1) {
-      for (let x = 14; x < 56; x += 1) {
-        const idx = (y * dithered.width + x) * 4;
-        interiorPixels += 1;
-        if (
-          dithered.data[idx] < 250 ||
-          dithered.data[idx + 1] < 250 ||
-          dithered.data[idx + 2] < 250
-        ) {
-          texturedPixels += 1;
+    for (let y = 0; y < first.height; y += 1) {
+      for (let x = 0; x < first.width; x += 1) {
+        if (colorKeyAt(first, x, y) === firstKey) {
+          firstInkCount += 1;
         }
       }
     }
 
-    expect(variety.toneBias).toBeLessThanOrEqual(-28);
-    expect(texturedPixels / interiorPixels).toBeGreaterThan(0.1);
+    expect(Array.from(first.data)).toEqual(Array.from(second.data));
+    expect(firstInkCount / (first.width * first.height)).toBeGreaterThan(0.4);
+    expect(firstInkCount / (first.width * first.height)).toBeLessThan(0.6);
   });
 });

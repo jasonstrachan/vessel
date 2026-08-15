@@ -1650,7 +1650,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
           mergeExisting: liveBgFillOn,
           overridePressure: effectivePressure,
           overridePixelSize: previewPixelSize,
-          regularDitherVariety: true,
         });
         } catch (error) {
         if (process.env.NODE_ENV !== 'production') {

@@ -41,7 +41,11 @@ export type ColorCyclePaintStrokeContext = {
   getFlowMode(): FlowMode;
   resolvePressureBrushSize(pressure: number): number;
   getGradientBands(): number;
-  createStampDitherConfig(options: { patterns: CcCustomTilePattern[] | undefined; seed: number }): StampDitherConfig;
+  createStampDitherConfig(options: {
+    patterns: CcCustomTilePattern[] | undefined;
+    seed: number;
+    diversity: number;
+  }): StampDitherConfig;
   getPerfStroke(): ReturnType<ColorCycleStrokePerfState['get']>;
   getStampDitherStrokeData(strokeData: LayerStrokeState): StampDitherState & {
     paint: Uint8Array;
@@ -310,10 +314,20 @@ function paintStampDither(
     flowSlot,
   }: StampDitherPaintOptions
 ): void {
-  const config = context.createStampDitherConfig({
-    patterns: getAppStoreState().project?.ccCustomTilePatterns,
+  const appState = getAppStoreState();
+  const stampDitherState = context.getStampDitherStrokeData(strokeData);
+  const requestedConfig = context.createStampDitherConfig({
+    patterns: appState.project?.ccCustomTilePatterns,
     seed: strokeData.stampDither?.stampDitherSeed ?? 0,
+    diversity: Math.max(
+      0,
+      Math.min(1, (appState.tools.brushSettings.ditherPatternDiversity ?? 100) / 100),
+    ),
   });
+  const config = {
+    ...requestedConfig,
+    diversity: stampDitherState.stampDitherDiversity ?? requestedConfig.diversity,
+  };
   const perf = context.getPerfStroke();
   const stampStart = perf ? nowMs() : 0;
   let lastMaskMs = 0;
@@ -321,7 +335,7 @@ function paintStampDither(
   let lastBounds: { minX: number; minY: number; maxX: number; maxY: number } | undefined;
   applyStampDitherStamp({
     animator,
-    state: context.getStampDitherStrokeData(strokeData),
+    state: stampDitherState,
     config,
     runtime: context.getStampDitherRuntime(),
     stampShape,

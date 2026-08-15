@@ -220,7 +220,11 @@ export class ColorCycleBrushSettingsApiRuntime {
   setStampDitherClearsValue = (enabled: boolean): void => {
     this.stampDitherState.setClears(enabled);
   };
-  createStampDitherConfig = (options: { patterns: CcCustomTilePattern[] | undefined; seed: number }) =>
+  createStampDitherConfig = (options: {
+    patterns: CcCustomTilePattern[] | undefined;
+    seed: number;
+    diversity: number;
+  }) =>
     this.stampDitherState.createConfig(options);
   getStampDitherImageTileThresholdResolver = (patterns: CcCustomTilePattern[] | undefined) =>
     this.stampDitherState.getImageTileThresholdResolver(patterns);

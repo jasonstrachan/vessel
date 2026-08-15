@@ -3509,8 +3509,7 @@ describe('pointerHandlers main flows', () => {
 
     expect(applyStrokeDither).toHaveBeenCalled();
     const options = applyStrokeDither.mock.calls[0]?.[3];
-    expect(options.regularDitherVariety).toBe(true);
-    expect(options).not.toHaveProperty('regularDitherVarietySeed');
+    expect(options).not.toHaveProperty('regularDitherVariety');
   });
 
   it('finalizes shape drawing on pointer up', async () => {

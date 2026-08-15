@@ -191,6 +191,7 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
           bgFill: context.stampDitherBgFill(),
           pressureLinked: context.stampDitherPressureLinked(),
           seed: strokeData.stampDither?.stampDitherSeed ?? 0,
+          diversity: strokeData.stampDither?.stampDitherDiversity ?? 1,
         },
         width: context.width(),
         height: context.height(),

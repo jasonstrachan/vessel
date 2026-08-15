@@ -21,6 +21,10 @@ import {
 } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import { resolveFlatSierraBandMixInfo } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import {
+  createSierraLiteVarietyResolver,
+  resolveSierraLiteBinaryField,
+} from '@/lib/colorCycle/gobletPlaybackMath';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { useAppStore } from '@/stores/useAppStore';
 
@@ -89,6 +93,7 @@ export type CcGradientDitherOptions = {
 };
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+const SIERRA_LITE_GRADIENT_VARIETY_SCALE = 0.25;
 
 export const buildNonZeroWindingRowSpans = ({
   vertices,
@@ -1015,7 +1020,30 @@ export const fillCcGradientDither = async ({
       flatCycleHighLut[coverage] = indices[1];
     }
 
-    if (algorithm in ERROR_DIFFUSION_KERNELS) {
+    if (algorithm === 'sierra-lite') {
+      const phaseX = Math.floor((patternPhaseOriginX ?? minX) / Math.max(1, cellSize));
+      const phaseY = Math.floor((patternPhaseOriginY ?? minY) / Math.max(1, cellSize));
+      const bits = resolveSierraLiteBinaryField({
+        width: gridW,
+        height: gridH,
+        mix: FLAT_CYCLE_TONE,
+        seed: flatSeed ?? 0,
+        phaseX,
+        phaseY,
+        identityKey: wrappedBaseOffset,
+        lowKey: flatCycleLowLut[128] ?? 0,
+        highKey: flatCycleHighLut[128] ?? 1,
+        diversity: clamp01((ditherPatternDiversity ?? 100) / 100),
+        activeMask,
+      });
+      bits.forEach((bit, cellIdx) => {
+        if (!activeMask[cellIdx]) return;
+        const coverage = cellCoverage[cellIdx] ?? 0;
+        cellIndices[cellIdx] = bit === 1
+          ? flatCycleHighLut[coverage]
+          : (fillBackground ? flatCycleLowLut[coverage] : 0);
+      });
+    } else if (algorithm in ERROR_DIFFUSION_KERNELS) {
       const kernel = ERROR_DIFFUSION_KERNELS[algorithm as keyof typeof ERROR_DIFFUSION_KERNELS];
       const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
       const errBuf = new Float32Array(gridW * gridH);
@@ -1103,6 +1131,18 @@ export const fillCcGradientDither = async ({
       const profile = ERROR_DIFFUSION_PROFILES[algorithm as keyof typeof ERROR_DIFFUSION_PROFILES];
       const errBuf = new Float32Array(gridW * gridH);
       const jitterScale = profile.jitterBase * 0.25;
+      const sierraVariety = algorithm === 'sierra-lite'
+        ? createSierraLiteVarietyResolver({
+            mix: 0.5,
+            seed: flatSeed ?? 0,
+            phaseX: Math.floor((patternPhaseOriginX ?? minX) / Math.max(1, cellSize)),
+            phaseY: Math.floor((patternPhaseOriginY ?? minY) / Math.max(1, cellSize)),
+            identityKey: pairCount,
+            lowKey: lowIndexForBand(0),
+            highKey: highIndexForBand(pairCount - 1),
+            diversity: clamp01((ditherPatternDiversity ?? 100) / 100),
+          })
+        : null;
 
       for (let cy = 0; cy < gridH; cy += 1) {
         const activeRow = activeCellsByRow[cy];
@@ -1118,11 +1158,15 @@ export const fillCcGradientDither = async ({
           const cx = activeRow[i];
           const cellIdx = cy * gridW + cx;
           const { band, local: initialLocal } = resolveBandState(cellCoverage[cellIdx], errBuf[cellIdx] || 0);
-          let local = initialLocal;
+          let local = clamp01(
+            initialLocal +
+              (sierraVariety?.resolve(cx, cy) ?? 0) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
+          );
           if (jitterScale > 0) {
             local = clamp01(local + (noiseAt(cx, cy) - 0.5) * jitterScale);
           }
-          const usePrimary = local >= profile.threshold;
+          const threshold = sierraVariety?.resolveThreshold(cx, cy) ?? profile.threshold;
+          const usePrimary = local >= threshold;
           cellIndices[cellIdx] = usePrimary ? highIndexForBand(band) : (fillBackground ? lowIndexForBand(band) : 0);
           const quant = usePrimary ? 1 : 0;
           const err = local - quant;
@@ -1283,6 +1327,16 @@ export const fillCcGradientDither = async ({
       sampleHash: flatSummary.sampleHash,
     });
   } else if (algorithm === 'sierra-lite') {
+    const sierraVariety = createSierraLiteVarietyResolver({
+      mix: 0.5,
+      seed: flatSeed ?? 0,
+      phaseX: Math.floor((patternPhaseOriginX ?? minX) / Math.max(1, cellSize)),
+      phaseY: Math.floor((patternPhaseOriginY ?? minY) / Math.max(1, cellSize)),
+      identityKey: clampedLevels,
+      lowKey: 1,
+      highKey: clampedLevels,
+      diversity: clamp01((ditherPatternDiversity ?? 100) / 100),
+    });
     let errCurr = new Float32Array(gridW);
     let errNext = new Float32Array(gridW);
     for (let cy = 0; cy < gridH; cy += 1) {
@@ -1311,8 +1365,13 @@ export const fillCcGradientDither = async ({
         const scaled = (cellCoverage[cellIdx] / 255) * (clampedLevels - 1);
         const lower = Math.max(0, Math.min(clampedLevels - 1, Math.floor(scaled)));
         const frac = scaled - lower;
-        const adj = clamp01(frac + (errCurr[cx] || 0));
-        const thr = 0.5 + (noiseAt(cx, cy) - 0.5) * thresholdJitter;
+        const adj = clamp01(
+          frac +
+            (errCurr[cx] || 0) +
+            sierraVariety.resolve(cx, cy) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
+        );
+        const thr = sierraVariety.resolveThreshold(cx, cy) +
+          (noiseAt(cx, cy) - 0.5) * thresholdJitter;
         const chooseUpper = lower < clampedLevels - 1 && adj >= thr;
         const q = chooseUpper ? 1 : 0;
         const err = adj - q;

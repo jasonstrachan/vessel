@@ -100,6 +100,40 @@ const baseSettings: BrushSettings = {
 };
 
 describe('DitherControls wiring', () => {
+  it('shows and wires Variety for Sierra Lite on every shared dither control', () => {
+    const onChange = jest.fn();
+    render(
+      <DitherControls
+        settings={{
+          ...baseSettings,
+          ditherAlgorithm: 'sierra-lite',
+          ditherPatternDiversity: 42,
+        }}
+        onChange={onChange}
+        forceOn
+        hideToggle
+      />,
+    );
+
+    const variety = screen.getByLabelText('Dither Pattern Diversity');
+    expect(variety).toHaveValue('42');
+    fireEvent.change(variety, { target: { value: '67' } });
+    expect(onChange).toHaveBeenCalledWith({ ditherPatternDiversity: 67 });
+  });
+
+  it('hides Variety when the selected algorithm does not consume it', () => {
+    render(
+      <DitherControls
+        settings={{ ...baseSettings, ditherAlgorithm: 'bayer' }}
+        onChange={() => {}}
+        forceOn
+        hideToggle
+      />,
+    );
+
+    expect(screen.queryByLabelText('Dither Pattern Diversity')).toBeNull();
+  });
+
   it('shows pattern dropdown when algorithm is pattern', () => {
     render(
       <DitherControls

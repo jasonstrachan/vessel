@@ -3,6 +3,7 @@
  * Implements Floyd-Steinberg and Bayer matrix dithering with pressure control
  */
 
+import { createSierraLiteVarietyResolver } from '@/lib/colorCycle/gobletPlaybackMath';
 import { debugWarn } from '@/utils/debug';
 import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
@@ -219,7 +220,10 @@ export interface DitherSettings {
   patternStyle?: PatternStyle; // For pattern dithering
   phaseOffset?: { x: number; y: number }; // Optional phase offset for ordered patterns
   imageTileThresholdResolver?: (x: number, y: number) => number | null;
+  sierraLiteVariety?: { diversity: number; seed: number };
 }
+
+const SIERRA_LITE_REGULAR_VARIETY_SCALE = 0.5;
 
 const mod = (value: number, modulo: number) => ((value % modulo) + modulo) % modulo;
 const hashCell = (x: number, y: number) => ((x * 73856093) ^ (y * 19349663)) >>> 0;
@@ -817,6 +821,22 @@ export const applySierraLitePressureDither = (
   const width = imageData.width;
   const height = imageData.height;
   const palette = settings.palette;
+  const paletteByLuminance = palette.slice().sort((left, right) => (
+    (0.2126 * left[0] + 0.7152 * left[1] + 0.0722 * left[2]) -
+    (0.2126 * right[0] + 0.7152 * right[1] + 0.0722 * right[2])
+  ));
+  const lowInk = paletteByLuminance[0] ?? [0, 0, 0];
+  const highInk = paletteByLuminance[paletteByLuminance.length - 1] ?? lowInk;
+  const variety = createSierraLiteVarietyResolver({
+    mix: 0.5,
+    seed: settings.sierraLiteVariety?.seed ?? 0,
+    phaseX: settings.phaseOffset?.x ?? 0,
+    phaseY: settings.phaseOffset?.y ?? 0,
+    lowKey: Math.round(0.2126 * lowInk[0] + 0.7152 * lowInk[1] + 0.0722 * lowInk[2]),
+    highKey: Math.round(0.2126 * highInk[0] + 0.7152 * highInk[1] + 0.0722 * highInk[2]),
+    diversity: settings.sierraLiteVariety?.diversity ?? 0,
+  });
+  const varietyStrength = Math.max(0, Math.min(1, settings.sierraLiteVariety?.diversity ?? 0));
 
   // Pressure affects error diffusion intensity
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
@@ -835,9 +855,28 @@ export const applySierraLitePressureDither = (
         continue;
       }
 
-      const oldR = data[idx];
-      const oldG = data[idx + 1];
-      const oldB = data[idx + 2];
+      const patternError = variety.resolve(x, y) * varietyStrength;
+      const oldR = Math.max(
+        0,
+        Math.min(
+          255,
+          data[idx] + patternError * (highInk[0] - lowInk[0]) * SIERRA_LITE_REGULAR_VARIETY_SCALE,
+        ),
+      );
+      const oldG = Math.max(
+        0,
+        Math.min(
+          255,
+          data[idx + 1] + patternError * (highInk[1] - lowInk[1]) * SIERRA_LITE_REGULAR_VARIETY_SCALE,
+        ),
+      );
+      const oldB = Math.max(
+        0,
+        Math.min(
+          255,
+          data[idx + 2] + patternError * (highInk[2] - lowInk[2]) * SIERRA_LITE_REGULAR_VARIETY_SCALE,
+        ),
+      );
 
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);

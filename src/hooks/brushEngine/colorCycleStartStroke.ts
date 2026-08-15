@@ -188,6 +188,7 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
       const perf = context.getPerfStroke();
       const stampState = context.ensureStampDitherState(strokeData);
       stampState.stampDitherSeed = nextSeed;
+      stampState.stampDitherDiversity = undefined;
       stampState.stampDitherOrigin = null;
       stampState.stampDitherPressureState = null;
       stampState.stampDitherPressureStable = undefined;

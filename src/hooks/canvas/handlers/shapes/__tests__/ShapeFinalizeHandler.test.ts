@@ -167,8 +167,7 @@ describe('ShapeFinalizeHandler', () => {
     expect(ditherArgs.settingsOverride.ditherPaletteSpread).toBe(55);
     expect(ditherArgs.settingsOverride.ditherPatternDiversity).toBe(72);
     expect(ditherArgs.quantizeSourceAlpha).toBe(true);
-    expect(ditherArgs.regularDitherVariety).toBe(true);
-    expect(ditherArgs).not.toHaveProperty('regularDitherVarietySeed');
+    expect(ditherArgs).not.toHaveProperty('regularDitherVariety');
     expect(opacityImage.data[3]).toBe(128);
     expect(drawCtx.putImageData).toHaveBeenCalled();
   });

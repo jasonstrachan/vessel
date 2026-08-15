@@ -46,6 +46,29 @@ export const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
 const labelClass = 'text-[#D9D9D9] w-16';
 const labelStyle: React.CSSProperties = { fontSize: '14px' };
 
+export const DitherVarietyControl: React.FC<{
+  settings: BrushSettings;
+  onChange: (updates: Partial<BrushSettings>) => void;
+  labelWidth?: string;
+}> = ({ settings, onChange, labelWidth = labelClass }) => (
+  <div className="flex items-center gap-2 mt-2">
+    <label className={labelWidth} style={labelStyle}>
+      Variety
+    </label>
+    <ProgressSlider
+      value={settings.ditherPatternDiversity ?? 100}
+      min={0}
+      max={100}
+      step={1}
+      onChange={(value) => onChange({
+        ditherPatternDiversity: Math.max(0, Math.min(100, Math.round(value))),
+      })}
+      aria-label="Dither Pattern Diversity"
+      className="flex-1"
+    />
+  </div>
+);
+
 export const DitherControls: React.FC<Props> = ({
   settings,
   onChange,
@@ -116,6 +139,14 @@ export const DitherControls: React.FC<Props> = ({
                 className="flex-1"
               />
             </div>
+          )}
+
+          {(settings.ditherAlgorithm ?? 'sierra-lite') === 'sierra-lite' && (
+            <DitherVarietyControl
+              settings={settings}
+              onChange={onChange}
+              labelWidth={labelWidth}
+            />
           )}
 
           {beforeResolution ? <div className="mt-2">{beforeResolution}</div> : null}

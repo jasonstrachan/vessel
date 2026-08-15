@@ -4,6 +4,7 @@ import type { createPressureResolutionState } from '@/utils/pressureResolution';
 export type StampDitherState = {
   stampDitherOrigin?: { x: number; y: number } | null;
   stampDitherSeed?: number;
+  stampDitherDiversity?: number;
   stampDitherPressureState?: ReturnType<typeof createPressureResolutionState> | null;
   stampDitherPressureStable?: number;
   stampDitherPressureLast?: number;

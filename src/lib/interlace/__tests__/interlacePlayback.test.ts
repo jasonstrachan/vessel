@@ -60,6 +60,26 @@ describe('Interlace Sierra Lite playback', () => {
     expect(field).toEqual(new Uint8Array(mixField));
   });
 
+  it('keeps exact low and high endpoints solid at full Variety', () => {
+    const low = resolveSierraLiteBinaryField({
+      width: 64,
+      height: 64,
+      mix: 0,
+      seed: 8128,
+      diversity: 1,
+    });
+    const high = resolveSierraLiteBinaryField({
+      width: 64,
+      height: 64,
+      mix: 1,
+      seed: 8128,
+      diversity: 1,
+    });
+
+    expect(low.every((value) => value === 0)).toBe(true);
+    expect(high.every((value) => value === 1)).toBe(true);
+  });
+
   it('turns dominance into pulse width while keeping the lattice anchored', () => {
     const neighbourSlits = resolveInterlaceMaskRectangles({
       width: 64,

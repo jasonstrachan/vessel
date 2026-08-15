@@ -4,6 +4,7 @@ import {
   createStampDitherRuntime,
   getImageTileResolverCacheKey,
 } from '../strokeStampDither/runtime';
+import { getStampDitherTile } from '../strokeStampDither/tile';
 import type { StampDitherState } from '../strokeStampDither';
 import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 
@@ -24,6 +25,43 @@ describe('strokeStampDither', () => {
       handle,
     };
   };
+
+  it('turns neutral Sierra stamp checks into deterministic stacked cells as Variety rises', () => {
+    const runtime = createStampDitherRuntime(0);
+    const tileSize = 64;
+    const build = (diversity: number) => getStampDitherTile(
+      runtime,
+      32,
+      1,
+      tileSize,
+      'sierra-lite',
+      'dots',
+      undefined,
+      diversity,
+    );
+    const zero = build(0);
+    const full = build(1);
+    const countVerticalTriples = (tile: Uint8Array) => {
+      let count = 0;
+      for (let y = 0; y < tileSize - 2; y += 1) {
+        for (let x = 0; x < tileSize; x += 1) {
+          const value = tile[y * tileSize + x];
+          if (
+            tile[(y + 1) * tileSize + x] === value &&
+            tile[(y + 2) * tileSize + x] === value
+          ) {
+            count += 1;
+          }
+        }
+      }
+      return count;
+    };
+
+    expect(full).toEqual(build(1));
+    expect(Array.from(full)).not.toEqual(Array.from(zero));
+    expect(countVerticalTriples(zero)).toBe(0);
+    expect(countVerticalTriples(full)).toBeGreaterThan(0);
+  });
 
   it('keeps image-tile resolver cache identity runtime-local', () => {
     const resolver = () => 0.5;

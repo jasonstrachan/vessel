@@ -32,6 +32,7 @@ export type StampDitherConfig = {
   bgFill: boolean;
   pressureLinked: boolean;
   seed: number;
+  diversity?: number;
 };
 
 export type ErrorDiffusionTap = { dx: number; dy: number; weight: number };

@@ -604,6 +604,29 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(slider.disabled).toBe(true);
   });
 
+  it('updates Variety for Sierra Lite CC stamp dithering', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          ditherEnabled: false,
+          colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherAlgorithm: 'sierra-lite',
+          ditherPatternDiversity: 100,
+        },
+      },
+    }));
+
+    render(<BrushControls />);
+    fireEvent.change(screen.getByLabelText('Dither Pattern Diversity'), {
+      target: { value: '24' },
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.ditherPatternDiversity).toBe(24);
+  });
+
   it('does not force stamp dither resolution back to 6 when enabling pressure-linked mode', async () => {
     const user = userEvent.setup();
     useAppStore.setState((state) => ({

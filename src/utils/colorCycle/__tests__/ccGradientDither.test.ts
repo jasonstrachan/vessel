@@ -1985,6 +1985,8 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     width = 32,
     height = 8,
     flatCycleBands,
+    diversity,
+    flatSeed,
   }: {
     algorithm: Parameters<typeof fillCcGradientDither>[0]['algorithm'];
     spread?: number;
@@ -1992,6 +1994,8 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     width?: number;
     height?: number;
     flatCycleBands?: number;
+    diversity?: number;
+    flatSeed?: number;
   }) => {
     const out = new Uint8Array(width * height);
     await fillCcGradientDither({
@@ -2009,6 +2013,8 @@ describe('fillCcGradientDither flat-cycle mode', () => {
       levels: 64,
       baseOffset: 0,
       flatPairSpread: spread,
+      ditherPatternDiversity: diversity,
+      flatSeed,
       algorithm,
       flatCycle: true,
       flatCycleBands,
@@ -2105,6 +2111,42 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     }
     expect(written).toBeGreaterThan((width - 2) * (height - 2));
     expect(values.size).toBeGreaterThan(1);
+  });
+
+  it('adds stable vertical Sierra stacks to flat-cycle checks as Variety rises', async () => {
+    const width = 32;
+    const height = 16;
+    const render = (diversity: number) => renderFlatCycle({
+      algorithm: 'sierra-lite',
+      spread: 60,
+      width,
+      height,
+      diversity,
+      flatSeed: 8128,
+    });
+    const zero = await render(0);
+    const full = await render(100);
+    const countInteriorVerticalTriples = (output: Uint8Array) => {
+      let count = 0;
+      for (let y = 1; y < height - 3; y += 1) {
+        for (let x = 1; x < width - 1; x += 1) {
+          const value = output[y * width + x];
+          if (
+            value !== 0 &&
+            output[(y + 1) * width + x] === value &&
+            output[(y + 2) * width + x] === value
+          ) {
+            count += 1;
+          }
+        }
+      }
+      return count;
+    };
+
+    expect(full).toEqual(await render(100));
+    expect(Array.from(full)).not.toEqual(Array.from(zero));
+    expect(countInteriorVerticalTriples(zero)).toBe(0);
+    expect(countInteriorVerticalTriples(full)).toBeGreaterThan(0);
   });
 
   it('snaps the ink pair to the band grid so regions share one crisp pair', async () => {

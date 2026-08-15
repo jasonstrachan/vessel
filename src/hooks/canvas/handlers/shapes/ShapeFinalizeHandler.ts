@@ -53,7 +53,6 @@ export type ShapeFinalizeBrushRuntime = {
       overridePressure?: number;
       overridePixelSize?: number;
       settingsOverride?: BrushSettings;
-      regularDitherVariety?: boolean;
       quantizeSourceAlpha?: boolean;
     },
   ) => void;
@@ -1118,7 +1117,6 @@ export const finalizeRasterShapeFill = ({
             overridePressure: effectivePressure,
             overridePixelSize: forcedPixelSize,
             settingsOverride: settingsForDither,
-            regularDitherVariety: true,
             quantizeSourceAlpha: isPixelBrush,
           }
         );

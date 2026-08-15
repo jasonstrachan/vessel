@@ -8,6 +8,11 @@ import { resolveDitherPalette, selectDynamicPalette } from './ditherPalette';
 import { srgbToLinear } from './colorUtils';
 export { findDitherColors, selectDiversePalette } from './ditherPalette';
 
+export type SierraLiteVariety = {
+  diversity: number;
+  seed: number;
+};
+
 // Lookup table to avoid pow() per pixel in hot dithering paths
 const SRGB_TO_LINEAR_LUT: Float32Array = new Float32Array(256);
 for (let i = 0; i < 256; i++) {
@@ -24,7 +29,8 @@ export const applyDithering = (
   patternStyle?: string,
   customPalette?: string[],  // Accept custom palette
   phaseOffset?: { x: number; y: number },
-  imageTileThresholdResolver?: (x: number, y: number) => number | null
+  imageTileThresholdResolver?: (x: number, y: number) => number | null,
+  sierraLiteVariety?: SierraLiteVariety,
 ): ImageData => {
   const palette = resolveDitherPalette(imageData, numColors, customPalette);
   const resolvedAlgorithm = (algorithm as DitherAlgorithmType) || 'sierra-lite';
@@ -70,8 +76,11 @@ export const applyDithering = (
     bayerMatrixSize: 8,
     palette,
     patternStyle: (patternStyle as PatternStyle) || 'dots',
-    phaseOffset: orderedPhaseAlgorithms.has(resolvedAlgorithm) ? phaseOffset : undefined,
+    phaseOffset: orderedPhaseAlgorithms.has(resolvedAlgorithm) || resolvedAlgorithm === 'sierra-lite'
+      ? phaseOffset
+      : undefined,
     imageTileThresholdResolver,
+    sierraLiteVariety,
   };
 
   const dithered = applyPressureDither(input, ditherSettings);
@@ -231,7 +240,8 @@ export const applyDitheringWithFillResolution = (
   patternStyle?: string,
   customPalette?: string[],  // Accept custom palette
   phaseOffset?: { x: number; y: number },
-  imageTileThresholdResolver?: (x: number, y: number) => number | null
+  imageTileThresholdResolver?: (x: number, y: number) => number | null,
+  sierraLiteVariety?: SierraLiteVariety,
 ): ImageData => {
   const pixelSize = Math.max(1, Math.floor(fillResolution));
   const resolvedAlgorithm = algorithm || 'sierra-lite';
@@ -244,7 +254,8 @@ export const applyDitheringWithFillResolution = (
       patternStyle,
       customPalette,
       phaseOffset,
-      imageTileThresholdResolver
+      imageTileThresholdResolver,
+      sierraLiteVariety,
     );
   }
 
@@ -253,7 +264,8 @@ export const applyDitheringWithFillResolution = (
       imageData,
       numColors,
       pixelSize,
-      customPalette
+      customPalette,
+      sierraLiteVariety,
     );
   }
 
@@ -265,7 +277,8 @@ export const applyDitheringWithFillResolution = (
     patternStyle,
     customPalette,
     phaseOffset,
-    imageTileThresholdResolver
+    imageTileThresholdResolver,
+    sierraLiteVariety,
   );
 };
 
@@ -273,7 +286,8 @@ const applySierraLiteDitherWithPixelSize = (
   imageData: ImageData,
   numColors: number,
   pixelSize: number,
-  customPalette?: string[]
+  customPalette?: string[],
+  sierraLiteVariety?: SierraLiteVariety,
 ): ImageData => {
   return downsampleDitherAndScale(
     imageData,
@@ -281,7 +295,10 @@ const applySierraLiteDitherWithPixelSize = (
     pixelSize,
     'sierra-lite',
     undefined,
-    customPalette
+    customPalette,
+    undefined,
+    undefined,
+    sierraLiteVariety,
   );
 };
 
@@ -293,7 +310,8 @@ const downsampleDitherAndScale = (
   patternStyle?: string,
   customPalette?: string[],
   phaseOffset?: { x: number; y: number },
-  imageTileThresholdResolver?: (x: number, y: number) => number | null
+  imageTileThresholdResolver?: (x: number, y: number) => number | null,
+  sierraLiteVariety?: SierraLiteVariety,
 ): ImageData => {
   const downsampled = createDownsampledImageData(imageData, pixelSize);
   const resolvedPhase = phaseOffset
@@ -309,7 +327,8 @@ const downsampleDitherAndScale = (
     patternStyle,
     customPalette,
     resolvedPhase,
-    imageTileThresholdResolver
+    imageTileThresholdResolver,
+    sierraLiteVariety,
   );
   return expandNearestNeighbor(dithered, imageData.width, imageData.height, pixelSize);
 };

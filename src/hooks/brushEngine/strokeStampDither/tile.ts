@@ -1,5 +1,10 @@
-import { BAYER_8x8_MATRIX, BLUE_NOISE_16x16, VOID_CLUSTER_8x8 } from '@/utils/ditherAlgorithms';
-import type { PatternStyle } from '@/utils/ditherAlgorithms';
+import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
+import {
+  BAYER_8x8_MATRIX,
+  BLUE_NOISE_16x16,
+  VOID_CLUSTER_8x8,
+  type PatternStyle,
+} from '@/utils/ditherAlgorithms';
 import {
   resolveCcPatternThreshold,
   withCcImageTileThresholdResolver,
@@ -72,6 +77,7 @@ const buildBaseStampDitherTile = (
   algo: string,
   pattern: PatternStyle,
   imageTileThresholdResolver?: (x: number, y: number) => number | null,
+  diversity = 1,
 ): Uint8Array => {
   const tileSize = Math.max(1, Math.floor(baseSize));
   const clampedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket));
@@ -115,6 +121,22 @@ const buildBaseStampDitherTile = (
     return result;
   }
   const noiseSeed = 0x9e3779b9 ^ (clampedBucket << 8) ^ tileSize;
+  if (algo === 'sierra-lite') {
+    const field = resolveSierraLiteBinaryField({
+      width: tileSize,
+      height: tileSize,
+      mix: coverage,
+      seed: noiseSeed,
+      identityKey: tileSize,
+      lowKey: clampedBucket,
+      highKey: STAMP_DITHER_BUCKETS - 1 - clampedBucket,
+      diversity,
+    });
+    for (let index = 0; index < field.length; index += 1) {
+      result[index] = field[index] === 1 ? 0 : 255;
+    }
+    return result;
+  }
   for (let y = 0; y < tileSize; y += 1) {
     for (let x = 0; x < tileSize; x += 1) {
       result[y * tileSize + x] = toByte(hashStampDitherCellNoise(noiseSeed, x, y));
@@ -148,6 +170,7 @@ const getBaseStampDitherTile = (
   algoOverride: string,
   patternOverride: PatternStyle,
   imageTileThresholdResolver?: (x: number, y: number) => number | null,
+  diversity = 1,
 ): Uint8Array => {
   const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
   const algo = algoOverride;
@@ -156,7 +179,8 @@ const getBaseStampDitherTile = (
   const imageTileKey = pattern === 'image-tile'
     ? getImageTileResolverCacheKey(runtime, imageTileThresholdResolver)
     : 'none';
-  const cacheKey = `${algo}|${pattern}|${imageTileKey}|${normalizedBucket}|${sizeKey}`;
+  const diversityKey = Math.round(Math.max(0, Math.min(1, diversity)) * 100);
+  const cacheKey = `${algo}|${pattern}|${imageTileKey}|${normalizedBucket}|${sizeKey}|${diversityKey}`;
   let tile = runtime.baseTiles.get(cacheKey);
   if (!tile) {
     tile = buildBaseStampDitherTile(
@@ -165,6 +189,7 @@ const getBaseStampDitherTile = (
       algo,
       pattern,
       imageTileThresholdResolver,
+      diversity,
     );
     runtime.baseTiles.set(cacheKey, tile);
   }
@@ -179,6 +204,7 @@ export const getStampDitherTile = (
   algoOverride: string,
   patternOverride: PatternStyle,
   imageTileThresholdResolver?: (x: number, y: number) => number | null,
+  diversity = 1,
 ): Uint8Array => {
   const normalizedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket | 0));
   const algo = algoOverride;
@@ -188,7 +214,8 @@ export const getStampDitherTile = (
   const imageTileKey = pattern === 'image-tile'
     ? getImageTileResolverCacheKey(runtime, imageTileThresholdResolver)
     : 'none';
-  const cacheKey = `${algo}|${pattern}|${imageTileKey}|${normalizedBucket}|${sizeKey}|${scale}`;
+  const diversityKey = Math.round(Math.max(0, Math.min(1, diversity)) * 100);
+  const cacheKey = `${algo}|${pattern}|${imageTileKey}|${normalizedBucket}|${sizeKey}|${scale}|${diversityKey}`;
   let tile = runtime.tiles.get(cacheKey);
   if (!tile) {
     const baseTile = getBaseStampDitherTile(
@@ -198,6 +225,7 @@ export const getStampDitherTile = (
       algo,
       pattern,
       imageTileThresholdResolver,
+      diversity,
     );
     tile = scale === 1 ? baseTile : scaleStampDitherTile(baseTile, scale, sizeKey);
     runtime.tiles.set(cacheKey, tile);

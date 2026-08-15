@@ -207,6 +207,7 @@ export class ColorCycleStampDitherState {
   createConfig(params: {
     patterns: CcCustomTilePattern[] | undefined;
     seed: number;
+    diversity?: number;
   }): StampDitherConfig {
     return {
       algorithm: this.algorithm,
@@ -216,6 +217,7 @@ export class ColorCycleStampDitherState {
       bgFill: this.bgFill,
       pressureLinked: this.pressureLinked,
       seed: params.seed,
+      diversity: Math.max(0, Math.min(1, params.diversity ?? 1)),
     };
   }
 

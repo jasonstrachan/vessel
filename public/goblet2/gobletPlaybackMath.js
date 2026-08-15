@@ -201,6 +201,79 @@ const resolveSierraLiteInitialError = (x, y, identityKey, seed, variant, pattern
   }
 };
 
+const SIERRA_LITE_VARIETY_ERROR_SCALE = 8;
+
+/**
+ * Build a deterministic, zero-centred perturbation for the canonical Sierra
+ * Lite field. The diffusion kernel still owns quantization and error spread;
+ * this only prevents a neutral 50/50 input from collapsing to the same perfect
+ * checker at every non-zero Variety value.
+ */
+export const createSierraLiteVarietyResolver = ({
+  mix,
+  seed = 0,
+  phaseX = 0,
+  phaseY = 0,
+  identityKey = 0,
+  lowKey = 0,
+  highKey = 1,
+  diversity = 1,
+}) => {
+  const diversity01 = clamp01(Number.isFinite(diversity) ? diversity : 1);
+  const baseMix = 0.5 +
+    (clamp01(Number.isFinite(mix) ? mix : 0.5) - 0.5) * diversity01 * diversity01;
+  const mixKey = Math.round(baseMix * 255) & 255;
+  const normalizedLowKey = Number(lowKey) & 255;
+  const normalizedHighKey = Number(highKey) & 255;
+  const normalizedSeed = Number(seed) >>> 0;
+  const seedPhaseX = normalizedSeed & 7;
+  const seedPhaseY = (normalizedSeed >>> 3) & 7;
+  const patternKey =
+    (mixKey << 16)
+    ^ (normalizedLowKey << 8)
+    ^ normalizedHighKey
+    ^ Math.imul(normalizedSeed, 0x9e3779b1);
+  const variant = hashSierraLite32(
+    normalizedSeed,
+    patternKey,
+    normalizedSeed ^ patternKey,
+    0x51f15e,
+  ) & 7;
+  const variationScale = Math.sqrt(diversity01) * SIERRA_LITE_VARIETY_ERROR_SCALE;
+
+  return {
+    baseMix,
+    resolve: (x, y) => {
+      if (diversity01 <= 0) {
+        return 0;
+      }
+      return resolveSierraLiteInitialError(
+        x + phaseX + seedPhaseX,
+        y + phaseY + seedPhaseY,
+        identityKey,
+        normalizedSeed,
+        variant,
+        patternKey,
+      ) * variationScale;
+    },
+    resolveThreshold: (x, y) => {
+      const seededX = x + phaseX + seedPhaseX;
+      const seededY = y + phaseY + seedPhaseY;
+      const noise = resolveSierraLiteNoise(
+        seededX,
+        seededY,
+        identityKey,
+        normalizedSeed,
+        variant,
+        patternKey,
+      );
+      const amplitude = [0.03, 0.045, 0.035, 0.05, 0.04, 0.055, 0.038, 0.048][variant];
+      const threshold = 0.5 + (noise - 0.5) * amplitude;
+      return 0.5 + (threshold - 0.5) * diversity01;
+    },
+  };
+};
+
 /**
  * Exact binary Sierra Lite field shared by Vessel flat fills and Interlace playback.
  * Values are 0 for the low source and 1 for the high source.
@@ -241,25 +314,16 @@ export const resolveSierraLiteBinaryField = ({
     return output;
   }
   const errors = new Float32Array(output.length);
-  const diversity01 = clamp01(Number.isFinite(diversity) ? diversity : 1);
-  const baseMix = 0.5 + (clamp01(Number.isFinite(mix) ? mix : 0.5) - 0.5) * diversity01 * diversity01;
-  const mixKey = Math.round(baseMix * 255) & 255;
-  const normalizedLowKey = Number(lowKey) & 255;
-  const normalizedHighKey = Number(highKey) & 255;
-  const normalizedSeed = Number(seed) >>> 0;
-  const seedPhaseX = normalizedSeed & 7;
-  const seedPhaseY = (normalizedSeed >>> 3) & 7;
-  const patternKey =
-    (mixKey << 16)
-    ^ (normalizedLowKey << 8)
-    ^ normalizedHighKey
-    ^ Math.imul(normalizedSeed, 0x9e3779b1);
-  const variant = hashSierraLite32(
-    normalizedSeed,
-    patternKey,
-    normalizedSeed ^ patternKey,
-    0x51f15e,
-  ) & 7;
+  const variety = createSierraLiteVarietyResolver({
+    mix,
+    seed,
+    phaseX,
+    phaseY,
+    identityKey,
+    lowKey,
+    highKey,
+    diversity,
+  });
 
   for (let y = 0; y < gridHeight; y += 1) {
     const serpentine = (y & 1) === 1;
@@ -271,34 +335,18 @@ export const resolveSierraLiteBinaryField = ({
       if (activeMask && !activeMask[index]) {
         continue;
       }
-      const seededX = x + phaseX + seedPhaseX;
-      const seededY = y + phaseY + seedPhaseY;
-      const initialError = resolveSierraLiteInitialError(
-        seededX,
-        seededY,
-        identityKey,
-        normalizedSeed,
-        variant,
-        patternKey,
-      );
-      const noise = resolveSierraLiteNoise(
-        seededX,
-        seededY,
-        identityKey,
-        normalizedSeed,
-        variant,
-        patternKey,
-      );
-      const amplitude = [0.03, 0.045, 0.035, 0.05, 0.04, 0.055, 0.038, 0.048][variant];
-      const threshold = 0.5 + (noise - 0.5) * amplitude;
-      const blendedThreshold = 0.5 + (threshold - 0.5) * diversity01;
       const cellMix = mixField && Number.isFinite(mixField[index])
         ? clamp01(mixField[index])
-        : baseMix;
-      const value = clamp01(cellMix + initialError * diversity01 + errors[index]);
-      const bit = value >= blendedThreshold ? 1 : 0;
+        : variety.baseMix;
+      const isEndpoint = cellMix <= 0 || cellMix >= 1;
+      const value = isEndpoint
+        ? cellMix
+        : clamp01(cellMix + variety.resolve(x, y) + errors[index]);
+      const bit = isEndpoint
+        ? (cellMix >= 1 ? 1 : 0)
+        : (value >= variety.resolveThreshold(x, y) ? 1 : 0);
       output[index] = bit;
-      const quantizationError = value - bit;
+      const quantizationError = isEndpoint ? 0 : value - bit;
       const nextX = serpentine ? x - 1 : x + 1;
       if (nextX >= 0 && nextX < gridWidth) {
         const nextIndex = index + (serpentine ? -1 : 1);

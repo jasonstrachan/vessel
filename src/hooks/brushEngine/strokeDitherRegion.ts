@@ -1,10 +1,7 @@
 import { debugWarn } from '@/utils/debug';
 import { parseColor } from './colorUtils';
 import { applyDithering as applyDitheringImport, applyDitheringWithFillResolution } from './dithering';
-import {
-  applyRegularDitherVarietyToImageData,
-  resolveRegularDitherVariety,
-} from './regularDitherVariety';
+import { resolveRegularDitherVariety } from './regularDitherVariety';
 
 import type { BrushSettings } from '@/types';
 
@@ -15,7 +12,6 @@ export type StrokeDitherRegionOptions = {
   bgOffMode?: 'direct' | 'accumulate';
   bgOffComposite?: 'copy' | 'source-over';
   settingsOverride?: BrushSettings;
-  regularDitherVariety?: boolean;
   quantizeSourceAlpha?: boolean;
 };
 
@@ -222,41 +218,34 @@ export const ditherRegionWithCurrentPressure = ({
   const phaseOffset = !fillBackground
     ? (strokePhaseOriginRef.current ?? { x: 0, y: 0 })
     : undefined;
-  const variety = options?.regularDitherVariety === true
+  const sierraLiteVariety = algorithm === 'sierra-lite'
     ? resolveRegularDitherVariety({
         settings,
         palette,
       })
-    : null;
-  const sourceForDither = variety
-    ? applyRegularDitherVarietyToImageData(src, variety)
-    : src;
-  const ditherPhaseOffset = variety?.phaseOffset
-    ? {
-        x: (phaseOffset?.x ?? 0) + variety.phaseOffset.x,
-        y: (phaseOffset?.y ?? 0) + variety.phaseOffset.y,
-      }
-    : phaseOffset;
+    : undefined;
 
   const dithered = pixelSize > 1
     ? applyDitheringWithFillResolution(
-        sourceForDither,
+        src,
         palette.length,
         pixelSize,
         algorithm,
         patternStyle,
         palette,
-        ditherPhaseOffset,
-        imageTileThresholdResolver
+        phaseOffset,
+        imageTileThresholdResolver,
+        sierraLiteVariety,
       )
     : applyDitheringImport(
-        sourceForDither,
+        src,
         palette.length,
         algorithm,
         patternStyle,
         palette,
-        ditherPhaseOffset,
-        imageTileThresholdResolver
+        phaseOffset,
+        imageTileThresholdResolver,
+        sierraLiteVariety,
       );
 
   const data = dithered.data;

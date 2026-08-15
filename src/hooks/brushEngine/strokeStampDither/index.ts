@@ -264,6 +264,8 @@ export const applyStampDitherStamp = (args: {
   } = args;
 
   const baseTileScale = Math.max(1, config.pixelSize);
+  const diversity = state.stampDitherDiversity ?? Math.max(0, Math.min(1, config.diversity ?? 1));
+  state.stampDitherDiversity = diversity;
   let tileScale = baseTileScale;
   if (config.pressureLinked) {
     tileScale = resolvePressureLinkedTileScale(state, baseTileScale, pressure);
@@ -343,7 +345,8 @@ export const applyStampDitherStamp = (args: {
     baseSize,
     algo,
     config.patternStyle ?? 'dots',
-    config.imageTileThresholdResolver
+    config.imageTileThresholdResolver,
+    diversity,
   );
 
   const nextSeq = (state.stampDitherStampSeq ?? 0) + 1;
