@@ -1,9 +1,12 @@
 'use client';
 
 import React from 'react';
+import { Menu } from 'lucide-react';
 
 import GridOverlay from '@/components/canvas/GridOverlay';
 import { ReferenceAssetCanvas } from '@/components/reference/ReferenceAssetCanvas';
+import { ReferenceStudioControlsPanel } from '@/components/reference/ReferenceStudioControlsPanel';
+import { fitReferenceAssetToProject } from '@/referenceStudio/referenceAssets';
 import {
   createReferenceStudioChannel,
   getReferenceStudioSessionIdFromLocation,
@@ -11,12 +14,30 @@ import {
   type ReferenceStudioMainMessage,
   type ReferenceStudioSnapshot,
 } from '@/referenceStudio/referenceStudioChannel';
-import type { ReferenceAsset, ReferenceAssetCrop, ReferenceSamplingSource } from '@/types';
+import type { ReferenceAsset } from '@/types';
 
 const MAX_REFERENCE_FILE_BYTES = 20 * 1024 * 1024;
-const BOARD_MARGIN_CANVASES = 1;
-const fieldClass = 'h-8 w-full border border-[#444] bg-[#111] px-2 text-xs text-[#E7E7E7] focus:border-[#D9D9D9] focus:outline-none';
-const buttonClass = 'border border-[#555] bg-[#242424] px-2 py-1.5 text-xs text-[#E7E7E7] hover:bg-[#303030] disabled:cursor-not-allowed disabled:opacity-40';
+const INITIAL_VIEW_MARGIN_CANVASES = 1;
+const MIN_VIEW_SCALE = 0.05;
+const MAX_VIEW_SCALE = 40;
+const WHEEL_ZOOM_SENSITIVITY = 0.001;
+const iconButtonClass = 'flex h-8 w-8 items-center justify-center bg-[#1A1A1A] text-[#999] hover:bg-[#242424] hover:text-[#D9D9D9] focus:outline-none';
+const EMPTY_REFERENCE_ASSETS: ReferenceAsset[] = [];
+
+interface PanDrag {
+  pointerId: number;
+  clientX: number;
+  clientY: number;
+  originX: number;
+  originY: number;
+}
+
+const isTextEntryTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) return false;
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target.isContentEditable;
+};
 
 const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
   const reader = new FileReader();
@@ -33,39 +54,24 @@ const readImageDimensions = (dataUrl: string): Promise<{ width: number; height: 
     image.src = dataUrl;
   });
 
-const encodeSource = (source: ReferenceSamplingSource): string => {
-  if (source.kind === 'layer') return `layer:${source.layerId}`;
-  if (source.kind === 'asset') return `asset:${source.assetId}`;
-  return 'canvas';
-};
-
-const decodeSource = (value: string): ReferenceSamplingSource => {
-  if (value.startsWith('layer:')) return { kind: 'layer', layerId: value.slice(6) };
-  if (value.startsWith('asset:')) return { kind: 'asset', assetId: value.slice(6) };
-  return { kind: 'canvas' };
-};
-
-const updateCropEdge = (
-  crop: ReferenceAssetCrop,
-  edge: 'left' | 'top' | 'right' | 'bottom',
-  percent: number,
-): ReferenceAssetCrop => {
-  const value = Math.max(0, Math.min(99, percent)) / 100;
-  const right = 1 - crop.x - crop.width;
-  const bottom = 1 - crop.y - crop.height;
-  if (edge === 'left') return { ...crop, x: value, width: Math.max(0.01, 1 - value - right) };
-  if (edge === 'top') return { ...crop, y: value, height: Math.max(0.01, 1 - value - bottom) };
-  if (edge === 'right') return { ...crop, width: Math.max(0.01, 1 - crop.x - value) };
-  return { ...crop, height: Math.max(0.01, 1 - crop.y - value) };
-};
-
 export const ReferenceStudioWindow = () => {
   const [snapshot, setSnapshot] = React.useState<ReferenceStudioSnapshot | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [assetPreviews, setAssetPreviews] = React.useState<Record<string, Partial<ReferenceAsset>>>({});
   const [viewScale, setViewScale] = React.useState(0.5);
+  const [viewOrigin, setViewOrigin] = React.useState({ x: 0, y: 0 });
+  const [areControlsVisible, setAreControlsVisible] = React.useState(false);
+  const [viewportSize, setViewportSize] = React.useState({ width: 0, height: 0 });
+  const [isFitView, setIsFitView] = React.useState(true);
+  const [panCursor, setPanCursor] = React.useState<'grab' | 'grabbing' | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const channelRef = React.useRef<BroadcastChannel | null>(null);
   const boardViewportRef = React.useRef<HTMLDivElement | null>(null);
+  const isFitViewRef = React.useRef(true);
+  const viewportSizeRef = React.useRef(viewportSize);
+  const isSpacePressedRef = React.useRef(false);
+  const panDragRef = React.useRef<PanDrag | null>(null);
+  const panOverlayRef = React.useRef<HTMLDivElement | null>(null);
 
   const send = React.useCallback((message: ReferenceStudioCommand) => {
     channelRef.current?.postMessage(message);
@@ -86,6 +92,24 @@ export const ReferenceStudioWindow = () => {
     channel.onmessage = (event: MessageEvent<ReferenceStudioMainMessage>) => {
       if (event.data?.type !== 'snapshot') return;
       setSnapshot(event.data.snapshot);
+      setAssetPreviews((current) => {
+        let didChange = false;
+        const next: Record<string, Partial<ReferenceAsset>> = {};
+        Object.entries(current).forEach(([id, updates]) => {
+          const asset = event.data.snapshot.referenceAssets.find((entry) => entry.id === id);
+          const didSnapshotApplyPreview = asset
+            ? Object.entries(updates).every(([key, value]) => (
+              asset[key as keyof ReferenceAsset] === value
+            ))
+            : true;
+          if (didSnapshotApplyPreview) {
+            didChange = true;
+          } else {
+            next[id] = updates;
+          }
+        });
+        return didChange ? next : current;
+      });
       setSelectedId((current) => (
         current && event.data.snapshot.referenceAssets.some((asset) => asset.id === current)
           ? current
@@ -100,28 +124,148 @@ export const ReferenceStudioWindow = () => {
   }, []);
 
   const project = snapshot?.project ?? null;
-  const assets = snapshot?.referenceAssets ?? [];
+  const sourceAssets = snapshot?.referenceAssets ?? EMPTY_REFERENCE_ASSETS;
+  const assets = React.useMemo(() => sourceAssets.map((asset) => (
+    assetPreviews[asset.id]
+      ? { ...asset, ...assetPreviews[asset.id] }
+      : asset
+  )), [assetPreviews, sourceAssets]);
   const selectedAsset = assets.find((asset) => asset.id === selectedId) ?? null;
+  const projectId = project?.id ?? null;
+  const projectWidth = project?.width ?? 0;
+  const projectHeight = project?.height ?? 0;
+  const viewMetricsRef = React.useRef({ viewScale, viewOrigin });
+  viewMetricsRef.current = { viewScale, viewOrigin };
+  viewportSizeRef.current = viewportSize;
 
-  const fitBoard = React.useCallback(() => {
-    const viewport = boardViewportRef.current;
-    if (!viewport || !project) return;
+  const fitInitialView = React.useCallback(() => {
+    if (!projectId || viewportSize.width <= 0 || viewportSize.height <= 0) return;
     const scale = Math.min(
-      (viewport.clientWidth - 48) / Math.max(1, project.width * (1 + BOARD_MARGIN_CANVASES * 2)),
-      (viewport.clientHeight - 48) / Math.max(1, project.height * (1 + BOARD_MARGIN_CANVASES * 2)),
+      (viewportSize.width - 48) / Math.max(1, projectWidth * (1 + INITIAL_VIEW_MARGIN_CANVASES * 2)),
+      (viewportSize.height - 48) / Math.max(1, projectHeight * (1 + INITIAL_VIEW_MARGIN_CANVASES * 2)),
       2,
     );
-    setViewScale(Math.max(0.05, scale));
-  }, [project]);
+    isFitViewRef.current = true;
+    setIsFitView(true);
+    const nextScale = Math.max(MIN_VIEW_SCALE, scale);
+    setViewScale(nextScale);
+    setViewOrigin({
+      x: (viewportSize.width - projectWidth * nextScale) / 2,
+      y: (viewportSize.height - projectHeight * nextScale) / 2,
+    });
+  }, [projectHeight, projectId, projectWidth, viewportSize.height, viewportSize.width]);
+
+  React.useLayoutEffect(() => {
+    const viewport = boardViewportRef.current;
+    if (!viewport || !projectId) return;
+
+    const updateViewportSize = () => {
+      const nextSize = {
+        width: viewport.clientWidth,
+        height: viewport.clientHeight,
+      };
+      const previousSize = viewportSizeRef.current;
+      if (previousSize.width === nextSize.width && previousSize.height === nextSize.height) return;
+      if (!isFitViewRef.current && previousSize.width > 0 && previousSize.height > 0) {
+        const metrics = viewMetricsRef.current;
+        const worldX = (previousSize.width / 2 - metrics.viewOrigin.x) / metrics.viewScale;
+        const worldY = (previousSize.height / 2 - metrics.viewOrigin.y) / metrics.viewScale;
+        setViewOrigin({
+          x: nextSize.width / 2 - worldX * metrics.viewScale,
+          y: nextSize.height / 2 - worldY * metrics.viewScale,
+        });
+      }
+      viewportSizeRef.current = nextSize;
+      setViewportSize(nextSize);
+    };
+
+    updateViewportSize();
+    window.addEventListener('resize', updateViewportSize);
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updateViewportSize);
+    resizeObserver?.observe(viewport);
+    return () => {
+      window.removeEventListener('resize', updateViewportSize);
+      resizeObserver?.disconnect();
+    };
+  }, [projectId]);
 
   React.useEffect(() => {
-    fitBoard();
-  }, [fitBoard]);
+    if (isFitView) fitInitialView();
+  }, [fitInitialView, isFitView]);
 
-  const importFiles = React.useCallback(async (files: FileList | null) => {
-    if (!files || !project) return;
+  React.useEffect(() => {
+    const endSpacePan = () => {
+      const overlay = panOverlayRef.current;
+      const pointerId = panDragRef.current?.pointerId;
+      if (overlay && pointerId !== undefined && overlay.hasPointerCapture?.(pointerId)) {
+        overlay.releasePointerCapture(pointerId);
+      }
+      isSpacePressedRef.current = false;
+      panDragRef.current = null;
+      setPanCursor(null);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'Space' || event.repeat || isTextEntryTarget(event.target)) return;
+      event.preventDefault();
+      isSpacePressedRef.current = true;
+      setPanCursor('grab');
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== 'Space') return;
+      event.preventDefault();
+      endSpacePan();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', endSpacePan);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', endSpacePan);
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const viewport = boardViewportRef.current;
+    if (!viewport) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+
+      const rect = viewport.getBoundingClientRect();
+      const pointerX = event.clientX - rect.left;
+      const pointerY = event.clientY - rect.top;
+      const metrics = viewMetricsRef.current;
+      const zoomFactor = 1 - event.deltaY * WHEEL_ZOOM_SENSITIVITY;
+      const nextScale = Math.max(
+        MIN_VIEW_SCALE,
+        Math.min(metrics.viewScale * zoomFactor, MAX_VIEW_SCALE),
+      );
+      if (Math.abs(nextScale - metrics.viewScale) < 0.0001) return;
+
+      const worldX = (pointerX - metrics.viewOrigin.x) / metrics.viewScale;
+      const worldY = (pointerY - metrics.viewOrigin.y) / metrics.viewScale;
+      setViewOrigin({
+        x: pointerX - worldX * nextScale,
+        y: pointerY - worldY * nextScale,
+      });
+      isFitViewRef.current = false;
+      setIsFitView(false);
+      setViewScale(nextScale);
+    };
+
+    viewport.addEventListener('wheel', handleWheel, { passive: false });
+    return () => viewport.removeEventListener('wheel', handleWheel);
+  }, [projectId]);
+
+  const importFiles = React.useCallback(async (files: File[]) => {
+    if (files.length === 0 || !project) return;
     setError(null);
-    for (const file of Array.from(files)) {
+    for (const file of files) {
       try {
         if (!file.type.startsWith('image/')) throw new Error(`${file.name} is not an image`);
         if (file.size > MAX_REFERENCE_FILE_BYTES) throw new Error(`${file.name} exceeds 20 MB`);
@@ -164,9 +308,47 @@ export const ReferenceStudioWindow = () => {
     }
   }, [project, send]);
 
+  React.useEffect(() => {
+    const handlePaste = (event: ClipboardEvent) => {
+      const clipboardData = event.clipboardData;
+      if (!clipboardData) return;
+      const itemFiles = Array.from(clipboardData.items)
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      const imageFiles = itemFiles.length > 0
+        ? itemFiles
+        : Array.from(clipboardData.files).filter((file) => file.type.startsWith('image/'));
+      if (imageFiles.length === 0) return;
+      event.preventDefault();
+      void importFiles(imageFiles);
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [importFiles]);
+
   const updateAsset = React.useCallback((id: string, updates: Partial<ReferenceAsset>) => {
     send({ type: 'update-reference', id, updates });
   }, [send]);
+
+  const previewAsset = React.useCallback((id: string, updates: Partial<ReferenceAsset>) => {
+    setAssetPreviews((current) => ({
+      ...current,
+      [id]: {
+        ...current[id],
+        ...updates,
+      },
+    }));
+  }, []);
+
+  const fitSelectedAsset = React.useCallback(() => {
+    if (!project || !selectedAsset) return;
+    updateAsset(
+      selectedAsset.id,
+      fitReferenceAssetToProject(selectedAsset, project.width, project.height),
+    );
+  }, [project, selectedAsset, updateAsset]);
 
   if (!snapshot) {
     return (
@@ -182,167 +364,104 @@ export const ReferenceStudioWindow = () => {
     return <main className="flex h-screen items-center justify-center bg-[#141514] text-[#CFCFCF]">Open a Vessel project first.</main>;
   }
 
-  const boardPaddingX = project.width * BOARD_MARGIN_CANVASES;
-  const boardPaddingY = project.height * BOARD_MARGIN_CANVASES;
-  const originX = boardPaddingX * viewScale;
-  const originY = boardPaddingY * viewScale;
+  const originX = viewOrigin.x;
+  const originY = viewOrigin.y;
 
   return (
     <main className="flex h-screen min-w-[760px] overflow-hidden bg-[#141514] text-[#D9D9D9]">
-      <aside className="flex w-[310px] flex-shrink-0 flex-col border-r border-[#333] bg-[#1A1A1A]">
-        <header className="border-b border-[#333] px-4 py-3">
-          <div className="text-sm font-semibold">Reference Studio</div>
-          <div className="mt-1 truncate text-[11px] text-[#929292]" data-testid="reference-project-name">
-            {project.name} · {project.width}×{project.height}
-          </div>
-        </header>
+      {areControlsVisible ? (
+        <ReferenceStudioControlsPanel
+          project={project}
+          grid={snapshot.grid}
+          layers={snapshot.layers}
+          assets={assets}
+          samplingSource={snapshot.samplingSource}
+          selectedId={selectedId}
+          viewScale={viewScale}
+          error={error}
+          onHide={() => setAreControlsVisible(false)}
+          onImportFiles={(files) => void importFiles(files)}
+          onSelectAsset={setSelectedId}
+          onPreviewAsset={previewAsset}
+          onUpdateAsset={updateAsset}
+          onRemoveAsset={(id) => send({ type: 'remove-reference', id })}
+          onMoveAssetToTop={(id) => send({
+            type: 'reorder-references',
+            orderedIds: [
+              ...assets.filter((entry) => entry.id !== id).map((entry) => entry.id),
+              id,
+            ],
+          })}
+          onFitSelectedAsset={fitSelectedAsset}
+          onSetSamplingSource={(source) => send({ type: 'set-sampling-source', source })}
+          onSetGrid={(grid) => send({ type: 'set-grid', grid })}
+        />
+      ) : null}
 
-        <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          <label className={`${buttonClass} block cursor-pointer text-center`}>
-            Import references
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              className="sr-only"
-              data-testid="reference-file-input"
-              onChange={(event) => {
-                void importFiles(event.target.files);
-                event.currentTarget.value = '';
-              }}
-            />
-          </label>
-          {error ? <div role="alert" className="border border-red-700 bg-red-950/40 p-2 text-xs text-red-200">{error}</div> : null}
-
-          <section className="space-y-2">
-            <label className="block text-[11px] uppercase tracking-[0.14em] text-[#999]" htmlFor="reference-sampling-source">Sample from</label>
-            <select
-              id="reference-sampling-source"
-              className={fieldClass}
-              data-testid="reference-sampling-source"
-              value={encodeSource(snapshot.samplingSource)}
-              onChange={(event) => send({ type: 'set-sampling-source', source: decodeSource(event.target.value) })}
-            >
-              <option value="canvas">Canvas composite</option>
-              <optgroup label="Artwork layers">
-                {snapshot.layers.map((layer) => <option key={layer.id} value={`layer:${layer.id}`}>{layer.name}</option>)}
-              </optgroup>
-              <optgroup label="Reference Studio">
-                {assets.map((asset) => <option key={asset.id} value={`asset:${asset.id}`}>{asset.name}</option>)}
-              </optgroup>
-            </select>
-          </section>
-
-          <section className="space-y-2 border-t border-[#333] pt-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-[#999]">Synced grid</span>
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={snapshot.grid.enabled}
-                  onChange={(event) => send({ type: 'set-grid', grid: { enabled: event.target.checked } })}
-                />
-                Visible
-              </label>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {(['rows', 'columns'] as const).map((key) => (
-                <label key={key} className="text-xs capitalize">
-                  {key}
-                  <input
-                    className={`${fieldClass} mt-1`}
-                    type="number"
-                    min={1}
-                    max={128}
-                    value={snapshot.grid[key]}
-                    data-testid={`reference-grid-${key}`}
-                    onChange={(event) => send({ type: 'set-grid', grid: { [key]: Number(event.target.value) } })}
-                  />
-                </label>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-2 border-t border-[#333] pt-3" data-testid="reference-list">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-[#999]">References · {assets.length}</div>
-            {assets.length === 0 ? <div className="text-xs text-[#777]">Import an image to begin.</div> : null}
-            {assets.map((asset, index) => (
-              <div key={asset.id} className={`border p-2 ${selectedId === asset.id ? 'border-[#D9D9D9]' : 'border-[#3A3A3A]'}`}>
-                <button type="button" className="w-full bg-transparent text-left text-xs" onClick={() => setSelectedId(asset.id)}>{asset.name}</button>
-                <div className="mt-2 flex items-center gap-2 text-[11px]">
-                  <label><input type="checkbox" checked={asset.visible} onChange={(event) => updateAsset(asset.id, { visible: event.target.checked })} /> Show</label>
-                  <label><input type="checkbox" checked={asset.locked} onChange={(event) => updateAsset(asset.id, { locked: event.target.checked })} /> Lock</label>
-                  <button
-                    type="button"
-                    className={buttonClass}
-                    disabled={index === assets.length - 1}
-                    onClick={() => send({
-                      type: 'reorder-references',
-                      orderedIds: [
-                        ...assets.filter((entry) => entry.id !== asset.id).map((entry) => entry.id),
-                        asset.id,
-                      ],
-                    })}
-                  >
-                    Top
-                  </button>
-                  <button type="button" className={`${buttonClass} ml-auto`} onClick={() => send({ type: 'remove-reference', id: asset.id })}>Remove</button>
-                </div>
-              </div>
-            ))}
-          </section>
-
-          {selectedAsset ? (
-            <section className="space-y-3 border-t border-[#333] pt-3" data-testid="reference-inspector">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-[#999]">Selected reference</div>
-              <label className="block text-xs">Name<input className={`${fieldClass} mt-1`} defaultValue={selectedAsset.name} key={`${selectedAsset.id}-${selectedAsset.name}`} onBlur={(event) => updateAsset(selectedAsset.id, { name: event.target.value })} /></label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['x', 'y'] as const).map((key) => <label key={key} className="text-xs uppercase">{key}<input className={`${fieldClass} mt-1`} type="number" value={Math.round(selectedAsset[key])} onChange={(event) => updateAsset(selectedAsset.id, { [key]: Number(event.target.value) })} /></label>)}
-              </div>
-              <label className="block text-xs">Scale · {Math.round(selectedAsset.scale * 100)}%<input className="mt-1 w-full" type="range" min={1} max={400} value={Math.round(selectedAsset.scale * 100)} onChange={(event) => updateAsset(selectedAsset.id, { scale: Number(event.target.value) / 100 })} /></label>
-              <label className="block text-xs">Opacity · {Math.round(selectedAsset.opacity * 100)}%<input className="mt-1 w-full" type="range" min={0} max={100} value={Math.round(selectedAsset.opacity * 100)} onChange={(event) => updateAsset(selectedAsset.id, { opacity: Number(event.target.value) / 100 })} /></label>
-              <div className="grid grid-cols-4 gap-1">
-                {(['left', 'top', 'right', 'bottom'] as const).map((edge) => {
-                  const percent = edge === 'left'
-                    ? selectedAsset.crop.x * 100
-                    : edge === 'top'
-                      ? selectedAsset.crop.y * 100
-                      : edge === 'right'
-                        ? (1 - selectedAsset.crop.x - selectedAsset.crop.width) * 100
-                        : (1 - selectedAsset.crop.y - selectedAsset.crop.height) * 100;
-                  return <label key={edge} className="text-[10px] capitalize">{edge}<input className={`${fieldClass} mt-1 px-1 text-center`} type="number" min={0} max={99} value={Math.round(percent)} onChange={(event) => updateAsset(selectedAsset.id, { crop: updateCropEdge(selectedAsset.crop, edge, Number(event.target.value)) })} /></label>;
-                })}
-              </div>
-              <div className="flex gap-2">
-                <button type="button" className={buttonClass} onClick={() => updateAsset(selectedAsset.id, { flipX: !selectedAsset.flipX })}>Flip X</button>
-                <button type="button" className={buttonClass} onClick={() => updateAsset(selectedAsset.id, { flipY: !selectedAsset.flipY })}>Flip Y</button>
-                <button type="button" className={buttonClass} onClick={() => updateAsset(selectedAsset.id, { crop: { x: 0, y: 0, width: 1, height: 1 } })}>Reset crop</button>
-              </div>
-            </section>
-          ) : null}
-        </div>
-      </aside>
-
-      <section className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-[#333] bg-[#1A1A1A] px-4">
-          <span className="text-xs text-[#999]">Board zoom</span>
-          <input type="range" min={5} max={200} value={Math.round(viewScale * 100)} onChange={(event) => setViewScale(Number(event.target.value) / 100)} />
-          <span className="w-12 text-xs">{Math.round(viewScale * 100)}%</span>
-          <button type="button" className={buttonClass} onClick={fitBoard}>Fit</button>
-          <span className="ml-auto text-[11px] text-[#858585]">Drag unlocked references. Grid changes sync both ways.</span>
-        </header>
-        <div ref={boardViewportRef} className="min-h-0 flex-1 overflow-auto bg-[#101110]" data-testid="reference-board">
-          <div
-            className="relative"
-            style={{
-              width: project.width * (1 + BOARD_MARGIN_CANVASES * 2) * viewScale,
-              height: project.height * (1 + BOARD_MARGIN_CANVASES * 2) * viewScale,
-              minWidth: '100%',
-              minHeight: '100%',
-            }}
+      <section className="relative flex min-w-0 flex-1 flex-col">
+        {!areControlsVisible ? (
+          <button
+            type="button"
+            className={`${iconButtonClass} absolute left-3 top-3 z-20`}
+            aria-label="Open controls"
+            aria-controls="reference-studio-controls"
+            aria-expanded="false"
+            onClick={() => setAreControlsVisible(true)}
           >
+            <Menu size={16} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        ) : null}
+        {panCursor ? (
+          <div
+            ref={panOverlayRef}
+            className="absolute inset-0 z-30"
+            data-testid="reference-pan-overlay"
+            style={{ cursor: panCursor }}
+            onPointerDown={(event) => {
+              if (!isSpacePressedRef.current) return;
+              const viewport = boardViewportRef.current;
+              if (!viewport) return;
+              event.preventDefault();
+              const metrics = viewMetricsRef.current;
+              panDragRef.current = {
+                pointerId: event.pointerId,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                originX: metrics.viewOrigin.x,
+                originY: metrics.viewOrigin.y,
+              };
+              isFitViewRef.current = false;
+              setIsFitView(false);
+              event.currentTarget.setPointerCapture?.(event.pointerId);
+              setPanCursor('grabbing');
+            }}
+            onPointerMove={(event) => {
+              const viewport = boardViewportRef.current;
+              const drag = panDragRef.current;
+              if (!viewport || !drag || drag.pointerId !== event.pointerId) return;
+              setViewOrigin({
+                x: drag.originX + event.clientX - drag.clientX,
+                y: drag.originY + event.clientY - drag.clientY,
+              });
+            }}
+            onPointerUp={(event) => {
+              if (panDragRef.current?.pointerId !== event.pointerId) return;
+              panDragRef.current = null;
+              if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                event.currentTarget.releasePointerCapture(event.pointerId);
+              }
+              setPanCursor('grab');
+            }}
+            onPointerCancel={() => {
+              panDragRef.current = null;
+              setPanCursor(isSpacePressedRef.current ? 'grab' : null);
+            }}
+          />
+        ) : null}
+        <div ref={boardViewportRef} className="relative min-h-0 flex-1 overflow-hidden bg-[#101110]" data-testid="reference-board">
+          <div className="relative h-full w-full">
             <div
-              className="absolute border border-[#555] bg-[#202020]"
+              className="absolute bg-[#202020]"
               data-testid="reference-document-frame"
               style={{
                 left: originX,

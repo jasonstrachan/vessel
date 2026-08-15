@@ -1,4 +1,5 @@
 import {
+  fitReferenceAssetToProject,
   mapProjectPointToReferencePixel,
   normalizeReferenceAssets,
   normalizeReferenceSamplingSource,
@@ -46,6 +47,18 @@ describe('Reference Studio asset contract', () => {
     expect(mapProjectPointToReferencePixel(asset, 109, 219)).toEqual({ x: 74, y: 149 });
     expect(mapProjectPointToReferencePixel({ ...asset, flipX: true }, 10, 20)).toEqual({ x: 75, y: 50 });
     expect(mapProjectPointToReferencePixel(asset, 110, 220)).toBeNull();
+  });
+
+  it('fits the cropped reference proportionally inside the project and centers it', () => {
+    const fitted = fitReferenceAssetToProject(createAsset({
+      naturalWidth: 1000,
+      naturalHeight: 800,
+      crop: { x: 0.25, y: 0.1, width: 0.5, height: 0.5 },
+    }), 800, 1000);
+
+    expect(fitted.scale).toBeCloseTo(1.6);
+    expect(fitted.x).toBeCloseTo(0);
+    expect(fitted.y).toBeCloseTo(180);
   });
 
   it('preserves the legacy marked artwork layer as the initial source', () => {

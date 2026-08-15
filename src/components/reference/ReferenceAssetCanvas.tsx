@@ -75,9 +75,7 @@ export const ReferenceAssetCanvas = ({
       tabIndex={0}
       aria-label={`${asset.name}${asset.locked ? ', locked' : ''}`}
       data-testid={`reference-asset-${asset.id}`}
-      className={`absolute touch-none select-none border ${
-        selected ? 'border-[#F2F2F2]' : 'border-transparent hover:border-[#8A8A8A]'
-      } ${asset.locked ? 'cursor-default' : 'cursor-move'}`}
+      className={`absolute touch-none select-none focus:outline-none ${asset.locked ? 'cursor-default' : 'cursor-move'}`}
       style={{
         left: originX + bounds.x * viewScale,
         top: originY + bounds.y * viewScale,
@@ -118,11 +116,6 @@ export const ReferenceAssetCanvas = ({
       }}
     >
       <canvas ref={canvasRef} className="h-full w-full" aria-hidden="true" />
-      {selected ? (
-        <span className="absolute left-0 top-0 bg-black/80 px-1.5 py-0.5 text-[10px] text-white">
-          {asset.name}
-        </span>
-      ) : null}
     </div>
   );
 };

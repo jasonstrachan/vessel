@@ -6,8 +6,8 @@ import type {
 } from '@/types';
 
 const MIN_CROP_SIZE = 0.01;
-const MIN_SCALE = 0.01;
-const MAX_SCALE = 64;
+export const MIN_REFERENCE_ASSET_SCALE = 0.01;
+export const MAX_REFERENCE_ASSET_SCALE = 64;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, Number.isFinite(value) ? value : min));
@@ -49,7 +49,7 @@ export const normalizeReferenceAsset = (
     opacity: clamp(asset.opacity ?? 1, 0, 1),
     x: Number.isFinite(asset.x) ? asset.x : 0,
     y: Number.isFinite(asset.y) ? asset.y : 0,
-    scale: clamp(asset.scale ?? 1, MIN_SCALE, MAX_SCALE),
+    scale: clamp(asset.scale ?? 1, MIN_REFERENCE_ASSET_SCALE, MAX_REFERENCE_ASSET_SCALE),
     crop: normalizeCrop(asset.crop),
     flipX: asset.flipX === true,
     flipY: asset.flipY === true,
@@ -113,6 +113,30 @@ export const getReferenceAssetDisplayBounds = (asset: ReferenceAsset) => ({
   width: asset.naturalWidth * asset.crop.width * asset.scale,
   height: asset.naturalHeight * asset.crop.height * asset.scale,
 });
+
+export const fitReferenceAssetToProject = (
+  asset: ReferenceAsset,
+  projectWidth: number,
+  projectHeight: number,
+): Pick<ReferenceAsset, 'x' | 'y' | 'scale'> => {
+  const targetWidth = Math.max(1, projectWidth);
+  const targetHeight = Math.max(1, projectHeight);
+  const croppedWidth = Math.max(1, asset.naturalWidth * asset.crop.width);
+  const croppedHeight = Math.max(1, asset.naturalHeight * asset.crop.height);
+  const scale = clamp(
+    Math.min(targetWidth / croppedWidth, targetHeight / croppedHeight),
+    MIN_REFERENCE_ASSET_SCALE,
+    MAX_REFERENCE_ASSET_SCALE,
+  );
+  const width = croppedWidth * scale;
+  const height = croppedHeight * scale;
+
+  return {
+    x: (targetWidth - width) / 2,
+    y: (targetHeight - height) / 2,
+    scale,
+  };
+};
 
 export const mapProjectPointToReferencePixel = (
   asset: ReferenceAsset,
