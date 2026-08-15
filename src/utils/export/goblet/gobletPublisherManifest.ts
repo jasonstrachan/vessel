@@ -139,15 +139,26 @@ export const createManifestGobletPublisher = (
   descriptor: GobletPublisherDescriptor,
   fetcher?: typeof fetch,
 ): GobletPublisher => {
-  let inFlight: Promise<GobletPublishResult> | null = null;
+  let inFlight: {
+    artifact: GobletArtifact;
+    context: GobletPublishContext;
+    promise: Promise<GobletPublishResult>;
+  } | null = null;
   return {
     id: descriptor.id,
     label: descriptor.label,
     publish: (artifact, context) => {
       if (inFlight) {
-        return inFlight;
+        if (
+          inFlight.artifact === artifact
+          && inFlight.context.projectId === context.projectId
+          && inFlight.context.projectName === context.projectName
+        ) {
+          return inFlight.promise;
+        }
+        return Promise.reject(new Error('Another Goblet publish is already in progress.'));
       }
-      inFlight = (async () => {
+      const promise = (async () => {
         const form = new FormData();
         form.set('file', artifact.blob, artifact.filename);
         form.set('metadata', JSON.stringify(buildPublishMetadata(artifact, context)));
@@ -163,9 +174,12 @@ export const createManifestGobletPublisher = (
         });
         return responseMessage(response);
       })().finally(() => {
-        inFlight = null;
+        if (inFlight?.promise === promise) {
+          inFlight = null;
+        }
       });
-      return inFlight;
+      inFlight = { artifact, context: { ...context }, promise };
+      return promise;
     },
   };
 };

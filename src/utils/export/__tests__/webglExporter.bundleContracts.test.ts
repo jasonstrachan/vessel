@@ -1,5 +1,6 @@
 import JSZip from 'jszip';
 
+import { MAX_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { registerColorCycleBrushSerializedStateRuntime } from '@/lib/colorCycle/document';
 import {
   buildProjectGobletArtifact,
@@ -377,7 +378,7 @@ describe('webglExporter bundle contracts', () => {
       project,
       layers,
       bundleFormat: 'json',
-      colorCyclePlaybackSpeedScale: 2,
+      colorCyclePlaybackSpeedScale: 1.3,
     });
 
     expect(metadata.interlaceGroups).toEqual([{
@@ -385,9 +386,26 @@ describe('webglExporter bundle contracts', () => {
       layerIds: ['pose-a', 'pose-b'],
       settings: {
         ...project.layerGroups[0].interlace,
-        loopDurationSeconds: 5,
+        loopDurationSeconds: 10 / 1.3,
       },
     }]);
+  });
+
+  it('applies the global playback rate to Color Cycle layers in Goblet JSON', async () => {
+    const layer = createDenseBrushLayer();
+    const project = createProject();
+    project.layers = [layer];
+
+    const metadata = await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      layers: [layer],
+      bundleFormat: 'json',
+      colorCyclePlaybackSpeedScale: 1.3,
+    });
+
+    expect(metadata.layers[0]?.colorCycle?.speedMax)
+      .toBeCloseTo(MAX_BRUSH_COLOR_CYCLE_SPEED * 1.3, 8);
   });
 
   it('embeds metadata, title, and background in single-file HTML exports', async () => {

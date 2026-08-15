@@ -589,7 +589,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
               <Button variant="secondary" onClick={onRepair}>Repair...</Button>
               <Button variant="primary" onClick={onContinueAnyway}>Continue anyway</Button>
             </>
-          ) : canClose && state.kind === 'webgl' && artifact ? (
+          ) : state.phase === 'complete' && state.kind === 'webgl' && artifact ? (
             <GobletReleaseActions
               artifact={artifact}
               publishingPublisherId={publishingPublisherId}
@@ -628,12 +628,6 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const toggleModal = useAppStore((s) => s.toggleModal);
   const webglExportSettings = useAppStore((s) => s.webglExportSettings);
   const updateWebglExportSettings = useAppStore((s) => s.updateWebglExportSettings);
-  const transparencyBackgroundMode = useAppStore((s) => s.canvas.transparencyBackgroundMode);
-  const displayFilters = useAppStore((s) => s.canvas.displayFilters);
-  const colorCyclePlaybackSpeedScale = useAppStore((s) => s.colorCyclePlayback?.playbackSpeedScale);
-  const colorCycleLayerSpeedScale = useAppStore((s) => s.tools?.brushSettings?.colorCycleLayerSpeedScale);
-  const colorCycleToolSpeed = useAppStore((s) => s.tools?.brushSettings?.colorCycleSpeed);
-
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   // Draggable position (px)
@@ -1305,6 +1299,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     const controller = new AbortController();
     exportAbortRef.current = controller;
     try {
+      // Export from the authoritative store at click time. Playback controls can
+      // change independently of the modal's render lifecycle, and Goblet must
+      // never package a stale global or per-layer speed snapshot.
+      const exportSnapshotState = getAppStoreState();
       const request = exportKind === 'png'
         ? {
           kind: 'png' as const,
@@ -1382,11 +1380,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                       : current);
                   },
                 }, {
-                  transparencyBackgroundMode,
-                  displayFilters,
-                  colorCyclePlaybackSpeedScale,
-                  colorCycleLayerSpeedScale,
-                  colorCycleToolSpeed,
+                  transparencyBackgroundMode: exportSnapshotState.canvas.transparencyBackgroundMode,
+                  displayFilters: exportSnapshotState.canvas.displayFilters,
+                  colorCyclePlaybackSpeedScale: exportSnapshotState.colorCyclePlayback?.playbackSpeedScale,
+                  colorCycleLayerSpeedScale: exportSnapshotState.tools?.brushSettings?.colorCycleLayerSpeedScale,
+                  colorCycleToolSpeed: exportSnapshotState.tools?.brushSettings?.colorCycleSpeed,
                 }),
                 bundleFormat: webglBundleFormat,
                 gobletVersion: webglGobletVersion,
@@ -1531,6 +1529,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     <>
     <div
       className={`fixed inset-0 z-50 ${isVisible ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
+      aria-hidden={progressModal?.isOpen ? true : undefined}
+      inert={progressModal?.isOpen ? true : undefined}
       onClick={() => { if (!isExporting) onClose(); }}
     >
       <div

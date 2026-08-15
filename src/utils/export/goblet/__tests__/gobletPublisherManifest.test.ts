@@ -190,6 +190,25 @@ describe('Goblet publisher manifests', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a different artifact while another publish is in flight', async () => {
+    const fetcher = jest.fn<Promise<Response>, Parameters<typeof fetch>>(async () => response({
+      body: JSON.stringify({ message: 'Stored' }),
+    }));
+    const artifact = createArtifact();
+    const publisher = createManifestGobletPublisher({
+      id: 'archive',
+      label: 'Archive',
+      endpoint: 'https://publisher.example/api/vessel/goblets',
+    }, fetcher);
+    const context = { projectId: 'project-1', projectName: 'Portrait' };
+
+    const first = publisher.publish(artifact, context);
+    await expect(publisher.publish({ ...artifact, filename: 'other-goblet.html' }, context))
+      .rejects.toThrow('already in progress');
+    await expect(first).resolves.toEqual({ message: 'Stored' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('hydrates a host manifest once and treats a missing manifest as no publisher', async () => {
     const manifestFetcher = jest.fn<Promise<Response>, Parameters<typeof fetch>>(async () => response({
       body: JSON.stringify({

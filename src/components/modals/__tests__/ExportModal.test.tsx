@@ -1,6 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+
+import { registerGobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
+
 import { ExportModal } from '../ExportModal';
 
 jest.mock('@/hooks/useKeyboardScope', () => ({
@@ -78,6 +81,11 @@ const makeStore = () => ({
     transparencyBackgroundMode: 'checker' as const,
     displayFilters: [],
   },
+  colorCyclePlayback: {
+    desiredPlaying: false,
+    suspendDepth: 0,
+    playbackSpeedScale: 1,
+  },
   sequentialRecord: {
     currentFrame: 0,
   },
@@ -86,7 +94,13 @@ const makeStore = () => ({
   addNotification: jest.fn(),
   setSequentialFrame: jest.fn(),
   updateLayer: jest.fn(),
-  tools: { brushSettings: { colorCycleFPS: 30 } },
+  tools: {
+    brushSettings: {
+      colorCycleFPS: 30,
+      colorCycleLayerSpeedScale: 1,
+      colorCycleSpeed: 0.1,
+    },
+  },
   webglExportSettings: {
     includeHiddenLayers: false,
     embedCanvasFallback: false,
@@ -437,6 +451,35 @@ describe('ExportModal', () => {
     expect(request.options.request.pixelPerfectStack).toBe(false);
   });
 
+  it('captures the live global playback rate when exporting Goblet JSON', async () => {
+    (store as any).webglExportSettings = {
+      ...store.webglExportSettings,
+      bundleFormat: 'json',
+    };
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    // Reproduce a control update after the modal rendered but before Export.
+    // The export boundary must read the authoritative value, not the old render.
+    (store as any).colorCyclePlayback.playbackSpeedScale = 1.3;
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    await waitFor(() => {
+      expect(runExportMock).toHaveBeenCalled();
+    });
+
+    const request = runExportMock.mock.calls[0]?.[0];
+    expect(request.kind).toBe('webgl');
+    expect(request.options.request.bundleFormat).toBe('json');
+    expect(request.options.request.colorCyclePlaybackSpeedScale).toBe(1.3);
+  });
+
   it('updates minify setting from checkbox', () => {
     (store as any).project = {
       ...store.project,
@@ -633,6 +676,69 @@ describe('ExportModal', () => {
 
     expect(await screen.findByRole('button', { name: 'Download' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Publish/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps release actions visible and locked while publishing', async () => {
+    let resolvePublish: ((value: { message: string }) => void) | undefined;
+    const publish = jest.fn(() => new Promise<{ message: string }>((resolve) => {
+      resolvePublish = resolve;
+    }));
+    const unregister = registerGobletPublisher({
+      id: 'test-archive',
+      label: 'Test archive',
+      publish,
+    });
+    const sizeReport = {
+      format: 'single-html' as const,
+      totalBytes: 4,
+      metadataBytes: 0,
+      runtimeBytes: 0,
+      htmlBytes: 4,
+      ccBufferBytes: 0,
+      maskBytes: 0,
+      textureBytes: 0,
+      sequentialFrameBytes: 0,
+      previewBytes: 0,
+      fallbackBytes: 0,
+      binarySidecarBytes: 0,
+      binarySidecarCount: 0,
+      duplicatedMetadataBytes: 0,
+    };
+    runExportMock.mockResolvedValue(makeWebglResult(store.layers, sizeReport));
+
+    try {
+      render(<ExportModal isOpen onClose={jest.fn()} />);
+      act(() => {
+        jest.runAllTimers();
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+      });
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Publish to Test archive' }));
+
+      const progressModal = within(screen.getByTestId('export-progress-backdrop'));
+      expect(await progressModal.findByRole('button', { name: 'Publishing...' })).toBeDisabled();
+      expect(progressModal.getByRole('button', { name: 'Download' })).toBeDisabled();
+      expect(progressModal.getByRole('button', { name: 'Close' })).toBeDisabled();
+      expect(progressModal.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+
+      await act(async () => {
+        resolvePublish?.({ message: 'Stored' });
+        resolvePublish = undefined;
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Publish to Test archive' })).toBeEnabled();
+      });
+    } finally {
+      await act(async () => {
+        resolvePublish?.({ message: 'Stored' });
+        resolvePublish = undefined;
+        unregister();
+        await Promise.resolve();
+      });
+    }
   });
 
   it('shows a warning when MP4 request falls back to WebM output', async () => {
