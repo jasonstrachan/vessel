@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import Button from '@/components/ui/Button';
 import {
@@ -18,10 +18,49 @@ interface GobletReleaseSummaryProps {
   artifact: GobletArtifact;
 }
 
+const PREVIEW_HEIGHT = 320;
+
+interface GobletPreviewFrame {
+  height: number;
+  scale: number;
+  width: number;
+}
+
+const normalizePreviewDimension = (value: unknown, fallback: number): number => (
+  typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : fallback
+);
+
+export const resolveGobletPreviewFrame = (
+  artifact: GobletArtifact,
+  availableWidth: number,
+  availableHeight = PREVIEW_HEIGHT,
+): GobletPreviewFrame => {
+  const fallbackWidth = normalizePreviewDimension(artifact.metadata.project?.width, 1);
+  const fallbackHeight = normalizePreviewDimension(artifact.metadata.project?.height, 1);
+  const width = normalizePreviewDimension(artifact.metadata.viewport?.designWidth, fallbackWidth);
+  const height = normalizePreviewDimension(artifact.metadata.viewport?.designHeight, fallbackHeight);
+  const safeAvailableWidth = normalizePreviewDimension(availableWidth, width);
+  const safeAvailableHeight = normalizePreviewDimension(availableHeight, height);
+
+  return {
+    width,
+    height,
+    scale: Math.min(safeAvailableWidth / width, safeAvailableHeight / height),
+  };
+};
+
 export const GobletReleaseSummary: React.FC<GobletReleaseSummaryProps> = ({ artifact }) => {
   const [isPreviewVisible, setIsPreviewVisible] = useState(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewWidth, setPreviewWidth] = useState(0);
+  const previewHostRef = useRef<HTMLDivElement>(null);
   const healthMetrics = getGobletArtifactHealth(artifact);
+  const previewFrame = useMemo(
+    () => resolveGobletPreviewFrame(artifact, previewWidth),
+    [artifact, previewWidth],
+  );
 
   useEffect(() => {
     if (artifact.blob.type !== 'text/html') {
@@ -33,6 +72,36 @@ export const GobletReleaseSummary: React.FC<GobletReleaseSummaryProps> = ({ arti
     setIsPreviewVisible(true);
     return () => URL.revokeObjectURL(url);
   }, [artifact]);
+
+  useEffect(() => {
+    if (!isPreviewVisible || !previewUrl) {
+      return;
+    }
+
+    const host = previewHostRef.current;
+    if (!host) {
+      return;
+    }
+
+    const updateWidth = () => {
+      const nextWidth = host.getBoundingClientRect().width;
+      setPreviewWidth((currentWidth) => (
+        Math.abs(currentWidth - nextWidth) > 0.5 ? nextWidth : currentWidth
+      ));
+    };
+
+    updateWidth();
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updateWidth);
+    resizeObserver?.observe(host);
+    window.addEventListener('resize', updateWidth);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateWidth);
+    };
+  }, [isPreviewVisible, previewUrl]);
 
   return (
     <>
@@ -68,12 +137,28 @@ export const GobletReleaseSummary: React.FC<GobletReleaseSummaryProps> = ({ arti
             </button>
           </div>
           {isPreviewVisible && (
-            <iframe
-              className="h-[320px] w-full border-0 bg-black"
-              src={previewUrl}
-              sandbox="allow-scripts allow-same-origin"
-              title="Goblet artifact preview"
-            />
+            <div
+              ref={previewHostRef}
+              className="relative h-[320px] w-full overflow-hidden"
+              data-testid="goblet-preview-host"
+              style={{ backgroundColor: artifact.metadata.settings?.htmlBackgroundColor ?? '#000000' }}
+            >
+              <iframe
+                className="absolute left-1/2 top-1/2 border-0 bg-black"
+                data-testid="goblet-preview-frame"
+                src={previewUrl}
+                sandbox="allow-scripts allow-same-origin"
+                scrolling="no"
+                style={{
+                  height: `${previewFrame.height}px`,
+                  opacity: previewWidth > 0 ? 1 : 0,
+                  transform: `translate(-50%, -50%) scale(${previewFrame.scale})`,
+                  transformOrigin: 'center',
+                  width: `${previewFrame.width}px`,
+                }}
+                title="Goblet artifact preview"
+              />
+            </div>
           )}
         </div>
       )}
