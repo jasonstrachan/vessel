@@ -7,9 +7,7 @@ import {
   ensureStampDitherBaseBuffers,
   ensureStampDitherBuffers,
   ensureStampDitherTag,
-  resolveStampDitherBucket,
-  resolveStampDitherCoverage,
-  STAMP_DITHER_BUCKETS,
+  STAMP_DITHER_FLAT_BUCKET,
   type StampDitherState,
 } from './strokeStampDither';
 import { nowMs } from './colorCycleCanvas2DUtils';
@@ -235,14 +233,7 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
           });
         }
       }
-      const phaseForMask = 0.5;
-      const idxForMask = context.computeColorBandIndex(strokeData);
-      const coverage = resolveStampDitherCoverage(phaseForMask, idxForMask, context.isAnimating());
-      const rawBucket = resolveStampDitherBucket(coverage);
-      stampStroke.stampDitherLockedBucket = Math.min(
-        STAMP_DITHER_BUCKETS - 2,
-        Math.max(1, rawBucket)
-      );
+      stampStroke.stampDitherLockedBucket = STAMP_DITHER_FLAT_BUCKET;
     } else {
       strokeData.stampDither = undefined;
     }

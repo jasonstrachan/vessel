@@ -26,7 +26,7 @@ describe('strokeStampDither', () => {
     };
   };
 
-  it('preserves the requested Sierra stamp tone and varies it deterministically', () => {
+  it('uses the exact flat Sierra checker at zero Variety and varies it deterministically', () => {
     const runtime = createStampDitherRuntime(0);
     const tileSize = 64;
     const build = (diversity: number) => getStampDitherTile(
@@ -59,8 +59,99 @@ describe('strokeStampDither', () => {
 
     expect(full).toEqual(build(1));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
-    expect(countVerticalTriples(zero)).toBeGreaterThan(0);
+    for (let y = 0; y < tileSize; y += 1) {
+      for (let x = 0; x < tileSize; x += 1) {
+        expect(zero[y * tileSize + x]).toBe(((x + y) & 1) === 0 ? 0 : 255);
+      }
+    }
+    expect(countVerticalTriples(zero)).toBe(0);
     expect(countVerticalTriples(full)).toBeGreaterThan(0);
+  });
+
+  it('keeps zero-Variety CC stroke masks flat across seeds, colours, and stamp shapes', () => {
+    const width = 32;
+    const height = 32;
+    type StampShape = Parameters<typeof stampDither.applyStampDitherStamp>[0]['stampShape'];
+
+    const run = (seed: number, primaryIndex: number, stampShape: StampShape) => {
+      const animator = buildAnimator(width, height);
+      const state: StampDitherState & {
+        paint: Uint8Array;
+        gradientIdBuffer: Uint8Array;
+        speedBuffer: Uint8Array;
+      } = {
+        paint: new Uint8Array(width * height),
+        gradientIdBuffer: new Uint8Array(width * height),
+        speedBuffer: new Uint8Array(width * height),
+        stampDitherStrokeEpoch: 1,
+        stampDitherStampSeq: 0,
+      };
+      const config = {
+        algorithm: 'sierra-lite' as const,
+        pixelSize: 1,
+        patternStyle: 'dots' as const,
+        bgFill: true,
+        pressureLinked: false,
+        seed,
+        diversity: 0,
+      };
+      const runtime = stampDither.createStampDitherRuntime(0);
+      const secondaryIndex = stampDither.resolveStampDitherSecondaryIndex(primaryIndex);
+
+      stampDither.applyStampDitherStamp({
+        animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+        state,
+        config,
+        runtime,
+        stampShape,
+        x: 16,
+        y: 16,
+        pressure: 1,
+        pressureSize: 20,
+        primaryIndex,
+        flowSlot: 1,
+        cycleSpeed: 1,
+        width,
+        height,
+        isAnimating: true,
+      });
+
+      expect(state.stampDitherLockedBucket).toBe(stampDither.STAMP_DITHER_FLAT_BUCKET);
+      expect(state.stampDitherOrigin).toEqual({ x: 0, y: 0 });
+
+      const assertWorldChecker = (data: Uint8Array) => {
+        let activeCount = 0;
+        state.stampDitherTag?.forEach((tag, index) => {
+          if ((tag >>> 16) !== 1 || (tag & 0xffff) === 0) return;
+          activeCount += 1;
+          const x = index % width;
+          const y = Math.floor(index / width);
+          const expected = ((x + y) & 1) === 0 ? primaryIndex : secondaryIndex;
+          expect(data[index]).toBe(expected);
+        });
+        expect(activeCount).toBeGreaterThan(0);
+      };
+
+      assertWorldChecker(animator.handle.data);
+      expect(stampDither.finalizeStampDither({
+        animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
+        state,
+        config,
+        runtime,
+        width,
+        height,
+        flowSlot: 1,
+        cycleSpeed: 1,
+        ditherStrength: 1,
+      })).toBe(true);
+      assertWorldChecker(animator.handle.data);
+
+      return Array.from(state.stampDitherChoice ?? []);
+    };
+
+    expect(run(1, 5, 'square')).toEqual(run(0xfedcba98, 180, 'square'));
+    run(7, 40, 'round');
+    run(99, 220, 'triangle');
   });
 
   it('keeps image-tile resolver cache identity runtime-local', () => {

@@ -13,6 +13,10 @@ import {
 import { getImageTileResolverCacheKey, type StampDitherRuntime } from './runtime';
 
 export const STAMP_DITHER_BUCKETS = 64;
+export const STAMP_DITHER_FLAT_COVERAGE = 0.5;
+export const STAMP_DITHER_FLAT_BUCKET = Math.round(
+  STAMP_DITHER_FLAT_COVERAGE * (STAMP_DITHER_BUCKETS - 1),
+);
 const STAMP_DITHER_TILE_BASE_MIN = 64;
 const STAMP_DITHER_TILE_BASE_MAX = 128;
 const STAMP_DITHER_TILE_TARGET = 128;
@@ -40,10 +44,16 @@ export const resolveStampDitherTileSample = (
   originX: number,
   originY: number,
   seed: number,
+  diversity = 1,
 ): number => {
   const size = Math.max(1, Math.floor(tileSize));
   const relX = worldX - originX;
   const relY = worldY - originY;
+  if (diversity <= 0) {
+    const x = ((relX % size) + size) % size;
+    const y = ((relY % size) + size) % size;
+    return tile[y * size + x] ? 0.0 : 1.0;
+  }
   const blockX = Math.floor(relX / size);
   const blockY = Math.floor(relY / size);
   let h = seed ^ Math.imul(blockX + 1, 0x27d4eb2d) ^ Math.imul(blockY + 1, 0x85ebca6b);
@@ -81,7 +91,9 @@ const buildBaseStampDitherTile = (
 ): Uint8Array => {
   const tileSize = Math.max(1, Math.floor(baseSize));
   const clampedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, bucket));
-  const coverage = clampedBucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+  const coverage = clampedBucket === STAMP_DITHER_FLAT_BUCKET
+    ? STAMP_DITHER_FLAT_COVERAGE
+    : clampedBucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
   if (algo === 'pattern') {
     const result = new Uint8Array(tileSize * tileSize);
     for (let y = 0; y < tileSize; y += 1) {

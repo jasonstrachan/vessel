@@ -5,10 +5,9 @@ import type { StampDitherRuntime } from './runtime';
 import {
   nowMs,
   resolvePressureLinkedTileScale,
-  resolveStampDitherBucket,
-  resolveStampDitherCoverage,
+  resolveStampDitherBucketCoverage,
   resolveStampDitherPatternBucket,
-  STAMP_DITHER_BUCKETS,
+  STAMP_DITHER_FLAT_BUCKET,
   type StampDitherAlgorithm,
   type StampDitherConfig,
 } from './coverage';
@@ -40,7 +39,7 @@ export {
 } from './runtime';
 export {
   resolveStampDitherBucket,
-  resolveStampDitherCoverage,
+  resolveStampDitherBucketCoverage,
   resolveStampDitherPatternBucket,
   STAMP_DITHER_FINALIZE_ERROR_DIFFUSION_ALGOS,
   type StampDitherAlgorithm,
@@ -50,6 +49,7 @@ export {
   resolveStampDitherBaseSize,
   resolveStampDitherTileSample,
   STAMP_DITHER_BUCKETS,
+  STAMP_DITHER_FLAT_BUCKET,
 } from './tile';
 export {
   ensureStampDitherBaseBuffers,
@@ -259,7 +259,6 @@ export const applyStampDitherStamp = (args: {
     cycleSpeed,
     width,
     height,
-    isAnimating,
     onScheduleRecompose,
   } = args;
 
@@ -292,18 +291,15 @@ export const applyStampDitherStamp = (args: {
   const shouldLockPatternTone = isMarkTonePattern;
   const isFirstStamp = (state.stampDitherStampSeq ?? 0) === 0;
   if (state.stampDitherLockedBucket == null || (shouldLockPatternTone && isFirstStamp)) {
-    const phaseForMask = 0.5;
-    const coverage = resolveStampDitherCoverage(phaseForMask, primaryIndex, isAnimating);
-    const rawBucket = resolveStampDitherBucket(coverage);
     state.stampDitherLockedBucket = shouldLockPatternTone
       ? resolveStampDitherPatternBucket(
-          rawBucket,
+          STAMP_DITHER_FLAT_BUCKET,
           config.patternStyle,
           primaryIndex,
           config.imageTileThresholdResolver,
           true,
         )
-      : Math.min(STAMP_DITHER_BUCKETS - 2, Math.max(1, rawBucket));
+      : STAMP_DITHER_FLAT_BUCKET;
   }
 
   const lastScale = state.stampDitherLastTileScale;
@@ -316,7 +312,7 @@ export const applyStampDitherStamp = (args: {
 
   const baseSize = resolveStampDitherBaseSize(tileScaleInt);
   if (!state.stampDitherOriginUnits || state.stampDitherOriginBaseSize !== baseSize) {
-    const seed = config.seed ?? 0;
+    const seed = diversity > 0 ? (config.seed ?? 0) : 0;
     state.stampDitherOriginUnits = {
       x: (seed % baseSize) | 0,
       y: ((seed >>> 16) % baseSize) | 0,
@@ -325,11 +321,11 @@ export const applyStampDitherStamp = (args: {
   }
   tileSize = baseSize * tileScaleInt;
   const originU = state.stampDitherOriginUnits ?? { x: 0, y: 0 };
-  const maskOriginX = -originU.x * tileScaleInt;
-  const maskOriginY = -originU.y * tileScaleInt;
+  const maskOriginX = originU.x === 0 ? 0 : -originU.x * tileScaleInt;
+  const maskOriginY = originU.y === 0 ? 0 : -originU.y * tileScaleInt;
   state.stampDitherOrigin = { x: maskOriginX, y: maskOriginY };
 
-  const lockedBucket = state.stampDitherLockedBucket ?? 1;
+  const lockedBucket = state.stampDitherLockedBucket ?? STAMP_DITHER_FLAT_BUCKET;
   const bucket = algo === 'pattern' && !shouldLockPatternTone
     ? resolveStampDitherPatternBucket(
         lockedBucket,
@@ -352,7 +348,7 @@ export const applyStampDitherStamp = (args: {
   const nextSeq = (state.stampDitherStampSeq ?? 0) + 1;
   state.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
   const stampSeq = state.stampDitherStampSeq ?? 1;
-  const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+  const coverage = resolveStampDitherBucketCoverage(bucket);
   const fusedBgFill = config.bgFill;
   const fusedHandle = fusedBgFill ? (state.stampDitherFillHandle ?? animator.beginDirectFill()) : undefined;
   const fusedShouldCloseHandle = fusedBgFill && !state.stampDitherFillHandle;

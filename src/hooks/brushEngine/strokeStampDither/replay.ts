@@ -9,8 +9,10 @@ import {
   isTileMaskAlgorithm,
   nowMs,
   resolveStampDitherBucket,
+  resolveStampDitherBucketCoverage,
   resolveStampDitherPatternBucket,
   STAMP_DITHER_BUCKETS,
+  STAMP_DITHER_FLAT_BUCKET,
   type StampDitherAlgorithm,
   type StampDitherConfig,
 } from './coverage';
@@ -86,6 +88,7 @@ export const sampleStampDitherReplayMask = ({
     originX,
     originY,
     seed >>> 0,
+    diversity,
   );
 };
 
@@ -137,9 +140,10 @@ export const recomposeStampDitherOverlay = (args: {
   if (!bounds || !tag || !primary) return;
   const rawAlgo = config.algorithm || 'sierra-lite';
   const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
-  const bucket = state.stampDitherLockedBucket ?? 1;
-  const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+  const bucket = state.stampDitherLockedBucket ?? STAMP_DITHER_FLAT_BUCKET;
+  const coverage = resolveStampDitherBucketCoverage(bucket);
   const seed = config.seed ?? 0;
+  const diversity = Math.max(0, Math.min(1, config.diversity ?? 1));
   const bgFillOff = !config.bgFill;
   if (bgFillOff && (!base || !baseTag)) {
     return;
@@ -187,9 +191,10 @@ export const recomposeStampDitherOverlay = (args: {
       let tileEntry = tileCache.get(tileKey);
       if (!tileEntry) {
         const baseSize = resolveStampDitherBaseSize(seqScale);
+        const originSeed = diversity > 0 ? seed : 0;
         const originU = {
-          x: (seed % baseSize) | 0,
-          y: ((seed >>> 16) % baseSize) | 0,
+          x: (originSeed % baseSize) | 0,
+          y: ((originSeed >>> 16) % baseSize) | 0,
         };
         const originX = -originU.x * seqScale;
         const originY = -originU.y * seqScale;
@@ -202,7 +207,7 @@ export const recomposeStampDitherOverlay = (args: {
           algo === 'pattern' ? 'pattern' : 'sierra-lite',
           config.patternStyle ?? 'dots',
           config.imageTileThresholdResolver,
-          config.diversity ?? 1,
+          diversity,
         );
         tileEntry = { tile, tileClamp, originX, originY };
         tileCache.set(tileKey, tileEntry);
@@ -365,9 +370,10 @@ export const finalizeStampDither = (args: {
 
   if (scaleBounds.size === 0) return false;
 
-  const bucket = state.stampDitherLockedBucket ?? 1;
-  const coverage = bucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
+  const bucket = state.stampDitherLockedBucket ?? STAMP_DITHER_FLAT_BUCKET;
+  const coverage = resolveStampDitherBucketCoverage(bucket);
   const seed = config.seed ?? 0;
+  const diversity = Math.max(0, Math.min(1, config.diversity ?? 1));
 
   if (isErrorDiffusion) {
     const kernel = getErrorDiffusionKernel(algo);
@@ -407,19 +413,29 @@ export const finalizeStampDither = (args: {
       const errBuf = new Float32Array(cellCount);
 
       if (algo === 'sierra-lite') {
-        cellChoice.set(resolveSierraLiteBinaryField({
-          width: gridW,
-          height: gridH,
-          mix: coverage,
-          seed,
-          phaseX: minCellX,
-          phaseY: minCellY,
-          identityKey: cellSize,
-          lowKey: bucket,
-          highKey: STAMP_DITHER_BUCKETS - 1 - bucket,
-          diversity: config.diversity ?? 1,
-          activeMask: cellMask,
-        }));
+        if (diversity <= 0) {
+          for (let cy = 0; cy < gridH; cy += 1) {
+            for (let cx = 0; cx < gridW; cx += 1) {
+              const cellIdx = cy * gridW + cx;
+              if (cellMask[cellIdx] === 0) continue;
+              cellChoice[cellIdx] = ((cx + minCellX + cy + minCellY) & 1) === 0 ? 1 : 0;
+            }
+          }
+        } else {
+          cellChoice.set(resolveSierraLiteBinaryField({
+            width: gridW,
+            height: gridH,
+            mix: coverage,
+            seed,
+            phaseX: minCellX,
+            phaseY: minCellY,
+            identityKey: cellSize,
+            lowKey: bucket,
+            highKey: STAMP_DITHER_BUCKETS - 1 - bucket,
+            diversity,
+            activeMask: cellMask,
+          }));
+        }
       } else {
         for (let cy = 0; cy < gridH; cy += 1) {
           const leftToRight = kernel.serpentine ? (cy & 1) === 0 : true;
@@ -432,7 +448,7 @@ export const finalizeStampDither = (args: {
             if (cellMask[cellIdx] === 0) continue;
             const globalCellX = cx + minCellX;
             const globalCellY = cy + minCellY;
-            const jitter = jitterScale > 0
+            const jitter = jitterScale > 0 && diversity > 0
               ? (hashStampDitherCellNoise(seed, globalCellX, globalCellY) - 0.5) * 2 * jitterScale
               : 0;
             const value = Math.max(0, Math.min(1, coverage + errBuf[cellIdx] + jitter));
@@ -494,9 +510,10 @@ export const finalizeStampDither = (args: {
         let tileEntry = tileCache.get(tileKey);
         if (!tileEntry) {
           const baseSize = resolveStampDitherBaseSize(seqScale);
+          const originSeed = diversity > 0 ? seed : 0;
           const originU = {
-            x: (seed % baseSize) | 0,
-            y: ((seed >>> 16) % baseSize) | 0,
+            x: (originSeed % baseSize) | 0,
+            y: ((originSeed >>> 16) % baseSize) | 0,
           };
           const originX = -originU.x * seqScale;
           const originY = -originU.y * seqScale;
@@ -509,7 +526,7 @@ export const finalizeStampDither = (args: {
             algo,
             config.patternStyle ?? 'dots',
             config.imageTileThresholdResolver,
-            config.diversity ?? 1,
+            diversity,
           );
           tileEntry = { tile, tileClamp, originX, originY };
           tileCache.set(tileKey, tileEntry);

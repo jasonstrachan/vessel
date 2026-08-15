@@ -7,8 +7,16 @@ import {
 } from '@/utils/pressureResolution';
 
 import type { StampDitherState } from './state';
-import { STAMP_DITHER_BUCKETS } from './tile';
-export { STAMP_DITHER_BUCKETS } from './tile';
+import {
+  STAMP_DITHER_BUCKETS,
+  STAMP_DITHER_FLAT_BUCKET,
+  STAMP_DITHER_FLAT_COVERAGE,
+} from './tile';
+export {
+  STAMP_DITHER_BUCKETS,
+  STAMP_DITHER_FLAT_BUCKET,
+  STAMP_DITHER_FLAT_COVERAGE,
+} from './tile';
 
 export type StampDitherAlgorithm =
   | 'floyd-steinberg'
@@ -44,11 +52,6 @@ export type ErrorDiffusionKernel = {
   errorScale: number;
 };
 
-export const STAMP_DITHER_PHASE_STEPS = 8;
-export const STAMP_DITHER_COVERAGE_MIN = 0.25;
-export const STAMP_DITHER_COVERAGE_MAX = 0.75;
-export const STAMP_DITHER_COVERAGE_CLAMP_MIN = 0.35;
-export const STAMP_DITHER_COVERAGE_CLAMP_MAX = 0.65;
 export const STAMP_DITHER_PRESSURE_SMOOTHING = 0.6;
 export const STAMP_DITHER_PRESSURE_MAX_DECAY_PER_MS = 0.003;
 export const STAMP_DITHER_PRESSURE_MIN_DROP = 0.01;
@@ -153,22 +156,11 @@ export const resolvePressureLinkedTileScale = (
   return Math.max(1, Math.round(computed));
 };
 
-export const resolveStampDitherCoverage = (
-  phase: number,
-  colorIndex: number,
-  isAnimating: boolean,
-): number => {
-  const basePhase = isAnimating ? phase : 0.5;
-  const clamped = Math.max(0, Math.min(1, basePhase));
-  const steps = Math.max(2, STAMP_DITHER_PHASE_STEPS);
-  const snapped = Math.round(clamped * (steps - 1)) / (steps - 1);
-  const eased = STAMP_DITHER_COVERAGE_MIN +
-    (STAMP_DITHER_COVERAGE_MAX - STAMP_DITHER_COVERAGE_MIN) * snapped;
-  const normalizedIndex = Math.max(0, Math.min(1, (colorIndex - 1) / 254));
-  const extremity = Math.abs(normalizedIndex - 0.5) * 2;
-  const pullToMid = Math.min(1, extremity * 0.85);
-  const blended = eased + (0.5 - eased) * pullToMid;
-  return Math.max(STAMP_DITHER_COVERAGE_CLAMP_MIN, Math.min(STAMP_DITHER_COVERAGE_CLAMP_MAX, blended));
+export const resolveStampDitherBucketCoverage = (bucket: number): number => {
+  const clampedBucket = Math.max(0, Math.min(STAMP_DITHER_BUCKETS - 1, Math.round(bucket)));
+  return clampedBucket === STAMP_DITHER_FLAT_BUCKET
+    ? STAMP_DITHER_FLAT_COVERAGE
+    : clampedBucket / Math.max(1, STAMP_DITHER_BUCKETS - 1);
 };
 
 export const resolveStampDitherBucket = (fraction: number): number => {
