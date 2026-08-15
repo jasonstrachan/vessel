@@ -2129,6 +2129,14 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     });
     const zero = await render(0);
     const full = await render(100);
+    for (let y = 2; y < height - 2; y += 1) {
+      for (let x = 2; x < width - 2; x += 1) {
+        const position = Math.round(((x + 0.5) / width) * 255) / 255;
+        const { indices } = resolveFlatCycleInkSetForPosition(position, 2, 0, 60);
+        const expected = ((x + y) & 1) === 0 ? indices[1] : indices[0];
+        expect(zero[y * width + x]).toBe(expected);
+      }
+    }
     const countInteriorVerticalTriples = (output: Uint8Array) => {
       let count = 0;
       for (let y = 1; y < height - 3; y += 1) {

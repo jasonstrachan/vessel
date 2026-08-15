@@ -321,13 +321,11 @@ const fillSierraLiteFlatPatternMode = ({
   const resolvedMix = isSampledFlat
     ? clamp01(flatMix as number)
     : resolveBandMixAmount(resolvedBand, flatPosition, flatMix, flatMixByBand, spread);
-  const mixStrength = diversity01 * diversity01;
-  const baseMix = 0.5 + (resolvedMix - 0.5) * mixStrength;
   const lowIdx = inkSet.indices[0] & 255;
   const highIdx = inkSet.indices[1] & 255;
   const shapeSeed = (flatSeed ?? 0) >>> 0;
   debugCollector?.({
-    baseMix,
+    baseMix: resolvedMix,
     lowIdx,
     highIdx,
   });
