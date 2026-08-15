@@ -3,6 +3,7 @@ import {
   registerGobletPublisher,
   type GobletPublishContext,
   type GobletPublisher,
+  type GobletPublishResult,
 } from '@/utils/export/goblet/gobletPublisherRegistry';
 
 const MAX_MANIFEST_BYTES = 64 * 1024;
@@ -137,26 +138,37 @@ const responseMessage = async (response: Response): Promise<{ message: string; u
 export const createManifestGobletPublisher = (
   descriptor: GobletPublisherDescriptor,
   fetcher?: typeof fetch,
-): GobletPublisher => ({
-  id: descriptor.id,
-  label: descriptor.label,
-  publish: async (artifact, context) => {
-    const form = new FormData();
-    form.set('file', artifact.blob, artifact.filename);
-    form.set('metadata', JSON.stringify(buildPublishMetadata(artifact, context)));
-    const resolvedFetcher = fetcher ?? globalThis.fetch;
-    if (typeof resolvedFetcher !== 'function') {
-      throw new Error('Publishing is unavailable in this browser.');
-    }
-    const response = await resolvedFetcher(descriptor.endpoint, {
-      method: 'POST',
-      body: form,
-      credentials: 'same-origin',
-      cache: 'no-store',
-    });
-    return responseMessage(response);
-  },
-});
+): GobletPublisher => {
+  let inFlight: Promise<GobletPublishResult> | null = null;
+  return {
+    id: descriptor.id,
+    label: descriptor.label,
+    publish: (artifact, context) => {
+      if (inFlight) {
+        return inFlight;
+      }
+      inFlight = (async () => {
+        const form = new FormData();
+        form.set('file', artifact.blob, artifact.filename);
+        form.set('metadata', JSON.stringify(buildPublishMetadata(artifact, context)));
+        const resolvedFetcher = fetcher ?? globalThis.fetch;
+        if (typeof resolvedFetcher !== 'function') {
+          throw new Error('Publishing is unavailable in this browser.');
+        }
+        const response = await resolvedFetcher(descriptor.endpoint, {
+          method: 'POST',
+          body: form,
+          credentials: 'same-origin',
+          cache: 'no-store',
+        });
+        return responseMessage(response);
+      })().finally(() => {
+        inFlight = null;
+      });
+      return inFlight;
+    },
+  };
+};
 
 const fetchManifest = async (
   fetcher: typeof fetch,

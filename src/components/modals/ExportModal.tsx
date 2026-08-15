@@ -400,7 +400,8 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
     return null;
   }
 
-  const canClose = state.phase === 'complete' || state.phase === 'failed';
+  const canClose = (state.phase === 'complete' || state.phase === 'failed')
+    && publishingPublisherId === null;
   const isBlocked = state.phase === 'blocked';
   const progressWidth = `${Math.max(0, Math.min(100, state.percent))}%`;
   const diagnosticsText = state.layers

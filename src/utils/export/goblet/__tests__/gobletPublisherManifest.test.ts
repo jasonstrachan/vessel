@@ -170,6 +170,26 @@ describe('Goblet publisher manifests', () => {
     });
   });
 
+  it('coalesces rapid duplicate publishes while the first request is in flight', async () => {
+    const fetcher = jest.fn<Promise<Response>, Parameters<typeof fetch>>(async () => response({
+      body: JSON.stringify({ message: 'Stored', url: 'https://archive.example/works/1' }),
+    }));
+    const artifact = createArtifact();
+    const publisher = createManifestGobletPublisher({
+      id: 'archive',
+      label: 'Archive',
+      endpoint: 'https://publisher.example/api/vessel/goblets',
+    }, fetcher);
+    const context = { projectId: 'project-1', projectName: 'Portrait' };
+
+    const first = publisher.publish(artifact, context);
+    const second = publisher.publish(artifact, context);
+
+    expect(second).toBe(first);
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it('hydrates a host manifest once and treats a missing manifest as no publisher', async () => {
     const manifestFetcher = jest.fn<Promise<Response>, Parameters<typeof fetch>>(async () => response({
       body: JSON.stringify({

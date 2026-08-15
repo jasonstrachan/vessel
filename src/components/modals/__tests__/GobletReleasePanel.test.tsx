@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import {
+  GobletReleaseActions,
   GobletReleaseSummary,
   resolveGobletPreviewFrame,
 } from '@/components/modals/GobletReleasePanel';
@@ -149,5 +150,22 @@ describe('GobletReleaseSummary preview', () => {
       height: 400,
       scale: 0.5,
     });
+  });
+});
+
+describe('GobletReleaseActions', () => {
+  it('prevents dismissal and download while a publish is in flight', () => {
+    render(
+      <GobletReleaseActions
+        artifact={createArtifact()}
+        publishingPublisherId="archive"
+        onClose={jest.fn()}
+        onDownload={jest.fn()}
+        onPublish={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
   });
 });

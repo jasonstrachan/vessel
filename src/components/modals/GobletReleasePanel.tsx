@@ -182,6 +182,7 @@ export const GobletReleaseActions: React.FC<GobletReleaseActionsProps> = ({
   onPublish,
 }) => {
   const [publishers, setPublishers] = useState<GobletPublisher[]>(getGobletPublishers);
+  const isPublishing = publishingPublisherId !== null;
 
   useEffect(() => {
     const refresh = () => setPublishers(getGobletPublishers());
@@ -193,18 +194,24 @@ export const GobletReleaseActions: React.FC<GobletReleaseActionsProps> = ({
 
   return (
     <>
-      <Button variant="secondary" onClick={() => onDownload(artifact)}>Download</Button>
+      <Button
+        variant="secondary"
+        disabled={isPublishing}
+        onClick={() => onDownload(artifact)}
+      >
+        Download
+      </Button>
       {publishers.map((publisher) => (
         <Button
           key={publisher.id}
           variant="primary"
-          disabled={publishingPublisherId !== null}
+          disabled={isPublishing}
           onClick={() => onPublish(publisher, artifact)}
         >
           {publishingPublisherId === publisher.id ? 'Publishing...' : `Publish to ${publisher.label}`}
         </Button>
       ))}
-      <Button variant="secondary" onClick={onClose}>Close</Button>
+      <Button variant="secondary" disabled={isPublishing} onClick={onClose}>Close</Button>
     </>
   );
 };
