@@ -1,13 +1,34 @@
 import { runExport } from '@/utils/export/exportService';
-import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
+import { buildProjectGobletArtifact } from '@/utils/export/webglExporter';
 import type { ExportRequest } from '@/utils/export/types';
 
 jest.mock('@/utils/export/webglExporter', () => ({
-  exportProjectAsWebGL: jest.fn(async (request) => {
+  buildProjectGobletArtifact: jest.fn(async (request) => {
     if (request.signal?.aborted) {
       throw new DOMException('Export cancelled', 'AbortError');
     }
-    return { layers: [] };
+    const metadata = { layers: [] };
+    return {
+      blob: new Blob(['{}'], { type: 'application/json' }),
+      filename: 'demo-goblet.json',
+      metadata,
+      sizeReport: {
+        format: 'json',
+        totalBytes: 2,
+        metadataBytes: 2,
+        runtimeBytes: 0,
+        htmlBytes: 0,
+        ccBufferBytes: 0,
+        maskBytes: 0,
+        textureBytes: 0,
+        sequentialFrameBytes: 0,
+        previewBytes: 0,
+        fallbackBytes: 0,
+        binarySidecarBytes: 0,
+        binarySidecarCount: 0,
+        duplicatedMetadataBytes: 0,
+      },
+    };
   }),
 }));
 
@@ -74,7 +95,7 @@ describe('runExport webgl cancellation', () => {
       runExport(createWebglRequest(), jest.fn(), controller.signal)
     ).rejects.toThrow('Export cancelled');
 
-    expect(exportProjectAsWebGL).toHaveBeenCalledWith(expect.objectContaining({
+    expect(buildProjectGobletArtifact).toHaveBeenCalledWith(expect.objectContaining({
       signal: controller.signal,
     }));
   });

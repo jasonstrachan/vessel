@@ -1,7 +1,10 @@
 import JSZip from 'jszip';
 
 import { registerColorCycleBrushSerializedStateRuntime } from '@/lib/colorCycle/document';
-import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
+import {
+  buildProjectGobletArtifact,
+  exportProjectAsWebGL,
+} from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { DisplayFilterConfig, ExportContainerLayout, Layer, Project } from '@/types';
 
@@ -333,6 +336,19 @@ afterEach(() => {
 });
 
 describe('webglExporter bundle contracts', () => {
+  it('builds a reusable artifact without downloading it', async () => {
+    const artifact = await buildProjectGobletArtifact({
+      ...baseExportRequest(),
+      bundleFormat: 'single-html',
+    });
+
+    expect(downloadedBlobs).toHaveLength(0);
+    expect(artifact.filename).toBe('bundle-contract-goblet.html');
+    expect(artifact.blob.type).toBe('text/html');
+    expect(artifact.blob.size).toBe(artifact.sizeReport.totalBytes);
+    expect(artifact.metadata.format).toBe('vessel-goblet2');
+  });
+
   it('serializes ordered Interlace groups into Goblet metadata', async () => {
     const project = createProject();
     const layers = [

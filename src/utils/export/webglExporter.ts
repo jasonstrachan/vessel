@@ -1,10 +1,11 @@
 import {
   __TESTING__,
+  buildProjectGobletArtifact,
   exportProjectAsWebGL,
 } from '@/utils/export/goblet/gobletExporter';
 
 export { __TESTING__ };
-export { exportProjectAsWebGL };
+export { buildProjectGobletArtifact, exportProjectAsWebGL };
 
 export type {
   WebGLExportMetadata,

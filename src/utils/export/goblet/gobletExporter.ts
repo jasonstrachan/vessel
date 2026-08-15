@@ -37,6 +37,7 @@ import {
   resolveGobletColorCycleDocument,
 } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import { downloadBlob } from '@/utils/export/goblet/downloadBlob';
+import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
 import {
   fetchGobletAsset,
   type GobletAssetName,
@@ -214,9 +215,9 @@ const minifyProperties = (value: unknown): unknown => {
 
 
 
-export const exportProjectAsWebGL = async (
+export const buildProjectGobletArtifact = async (
   options: WebGLExportRequest
-): Promise<WebGLExportMetadata> => {
+): Promise<GobletArtifact> => {
   if (typeof window === 'undefined') {
     throw new Error('WebGL export is only available in the browser');
   }
@@ -1003,13 +1004,19 @@ export const exportProjectAsWebGL = async (
   if (bundleFormat === 'json') {
     throwIfExportAborted(options.signal);
     const blob = new Blob([json], { type: 'application/json' });
-    downloadBlob(blob, jsonFilename);
+    const sizeReport = createGobletSizeReport({
+      metadata,
+      metadataJson: json,
+      format: 'json',
+      totalBytes: blob.size,
+    });
+    options.onSizeReport?.(sizeReport);
     emitProgress?.({
       phase: 'complete',
       percent: 100,
       message: 'Goblet export complete',
     });
-    return metadata;
+    return { blob, filename: jsonFilename, metadata, sizeReport };
   }
 
   let indexHtml: string;
@@ -1071,20 +1078,25 @@ export const exportProjectAsWebGL = async (
         diagnosticsEnabled
       );
       const htmlBlob = new Blob([singleHtmlArtifact.html], { type: 'text/html' });
-      options.onSizeReport?.(createGobletSingleHtmlSizeReport({
+      const sizeReport = createGobletSingleHtmlSizeReport({
         metadata,
         metadataJson: json,
         runtimeBytes: singleHtmlArtifact.runtimeBytes,
         htmlBytes: singleHtmlArtifact.htmlBytes,
         totalBytes: htmlBlob.size,
-      }));
-      downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
+      });
+      options.onSizeReport?.(sizeReport);
       emitProgress?.({
         phase: 'complete',
         percent: 100,
         message: 'Goblet export complete',
       });
-      return metadata;
+      return {
+        blob: htmlBlob,
+        filename: `${options.filenameBase}-goblet.html`,
+        metadata,
+        sizeReport,
+      };
     }
 
     let gobletJs: string;
@@ -1123,20 +1135,25 @@ export const exportProjectAsWebGL = async (
       }
     );
     const htmlBlob = new Blob([singleHtmlArtifact.html], { type: 'text/html' });
-    options.onSizeReport?.(createGobletSingleHtmlSizeReport({
+    const sizeReport = createGobletSingleHtmlSizeReport({
       metadata,
       metadataJson: json,
       runtimeBytes: singleHtmlArtifact.runtimeBytes,
       htmlBytes: singleHtmlArtifact.htmlBytes,
       totalBytes: htmlBlob.size,
-    }));
-    downloadBlob(htmlBlob, `${options.filenameBase}-goblet.html`);
+    });
+    options.onSizeReport?.(sizeReport);
     emitProgress?.({
       phase: 'complete',
       percent: 100,
       message: 'Goblet export complete',
     });
-    return metadata;
+    return {
+      blob: htmlBlob,
+      filename: `${options.filenameBase}-goblet.html`,
+      metadata,
+      sizeReport,
+    };
   }
 
   if (bundleFormat === 'zip' || bundleFormat === 'zip-compat') {
@@ -1209,26 +1226,46 @@ export const exportProjectAsWebGL = async (
       binaryEntries: zipMetadataSource.binaryEntries,
     });
     throwIfExportAborted(options.signal);
-    downloadBlob(zipBlob, `${options.filenameBase}-goblet.zip`);
+    const sizeReport = {
+      ...zipMetadataSource.report,
+      totalBytes: zipBlob.size,
+    };
+    options.onSizeReport?.(sizeReport);
     emitProgress?.({
       phase: 'complete',
       percent: 100,
       message: 'Goblet export complete',
     });
-    return metadata;
+    return {
+      blob: zipBlob,
+      filename: `${options.filenameBase}-goblet.zip`,
+      metadata,
+      sizeReport,
+    };
   }
 
   // Fallback to raw JSON if an unknown bundle format is supplied.
   throwIfExportAborted(options.signal);
   const fallbackBlob = new Blob([json], { type: 'application/json' });
-  downloadBlob(fallbackBlob, jsonFilename);
+  const fallbackSizeReport = createGobletSizeReport({
+    metadata,
+    metadataJson: json,
+    format: 'json',
+    totalBytes: fallbackBlob.size,
+  });
+  options.onSizeReport?.(fallbackSizeReport);
   emitProgress?.({
     phase: 'complete',
     percent: 100,
     message: 'Goblet export complete',
   });
 
-  return metadata;
+  return {
+    blob: fallbackBlob,
+    filename: jsonFilename,
+    metadata,
+    sizeReport: fallbackSizeReport,
+  };
   } catch (error) {
     const progressError = toProgressError(error);
     emitProgress?.({
@@ -1252,6 +1289,14 @@ export const exportProjectAsWebGL = async (
     gobletDiagnosticsActive = previousDiagnostics;
     setGobletColorCycleDiagnosticsActive(previousDiagnostics);
   }
+};
+
+export const exportProjectAsWebGL = async (
+  options: WebGLExportRequest,
+): Promise<WebGLExportMetadata> => {
+  const artifact = await buildProjectGobletArtifact(options);
+  downloadBlob(artifact.blob, artifact.filename);
+  return artifact.metadata;
 };
 
 // Expose a few pure helpers for focused tests

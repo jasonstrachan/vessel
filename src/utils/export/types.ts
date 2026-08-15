@@ -2,6 +2,7 @@ import type { DitherMethod } from '@/utils/gifDither';
 import type { WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 import type { WebGLExportProgressEvent } from '@/utils/export/goblet/gobletTypes';
 import type { WebGLExportMetadata, WebGLExportRequest } from '@/utils/export/webglExporter';
+import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
 
 export type ExportKind = 'png' | 'gif' | 'video' | 'webgl';
 
@@ -141,6 +142,7 @@ export type ExportResult =
       kind: 'webgl';
       filename: string;
       metadata: WebGLExportMetadata;
+      artifact: GobletArtifact;
     };
 
 export type ExportService = {

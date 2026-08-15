@@ -1,6 +1,6 @@
 import type { Palette, RGB, RGBA } from 'gifenc';
 import { mapToIndexedWithDithering, type DitherMethod } from '@/utils/gifDither';
-import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
+import { buildProjectGobletArtifact } from '@/utils/export/webglExporter';
 import type {
   AnimationSession,
   ExportEstimate,
@@ -498,7 +498,7 @@ const runWebglExport = async (
   onProgress: (progress: ExportProgress) => void,
   signal: AbortSignal
 ): Promise<ExportResult> => {
-  const metadata = await exportProjectAsWebGL({
+  const artifact = await buildProjectGobletArtifact({
     ...request.options.request,
     signal,
     onProgress: (event) => {
@@ -512,8 +512,9 @@ const runWebglExport = async (
   });
   return {
     kind: 'webgl',
-    filename: request.filenameBase,
-    metadata,
+    filename: artifact.filename,
+    metadata: artifact.metadata,
+    artifact,
   };
 };
 

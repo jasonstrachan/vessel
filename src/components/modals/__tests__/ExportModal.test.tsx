@@ -31,6 +31,10 @@ jest.mock('@/utils/export/webglExporter', () => ({
   exportProjectAsWebGL: jest.fn(),
 }));
 
+jest.mock('@/utils/export/goblet/gobletPublisherManifest', () => ({
+  hydrateHostGobletPublishers: jest.fn(async () => []),
+}));
+
 const runExportMock = jest.fn();
 const estimateExportMock = jest.fn();
 
@@ -99,6 +103,25 @@ const makeStore = () => ({
   updateWebglExportSettings: jest.fn(),
 });
 
+const makeWebglResult = (layers: any[], sizeReport: any) => {
+  const metadata = {
+    layers,
+    viewport: { designWidth: 10, designHeight: 10 },
+    animation: { totalFrames: 1, fps: 60 },
+  };
+  return {
+    kind: 'webgl' as const,
+    filename: 'Demo-goblet.zip',
+    metadata,
+    artifact: {
+      blob: new Blob(['zip'], { type: 'application/zip' }),
+      filename: 'Demo-goblet.zip',
+      metadata,
+      sizeReport,
+    },
+  };
+};
+
 let store = makeStore();
 
 jest.mock('@/stores/useAppStore', () => {
@@ -139,6 +162,17 @@ describe('ExportModal', () => {
 
     fireEvent.click(container.firstElementChild as HTMLElement);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('cancels a pending close timer when reopened immediately', () => {
+    const { rerender } = render(<ExportModal isOpen={false} onClose={jest.fn()} />);
+
+    rerender(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.getByText('Packaging')).toBeInTheDocument();
   });
 
   it('switches export type to GIF and shows scale controls', () => {
@@ -480,11 +514,7 @@ describe('ExportModal', () => {
     };
     runExportMock.mockImplementation(async (request) => {
       request.options.request.onSizeReport?.(sizeReport);
-      return {
-        kind: 'webgl',
-        filename: 'Demo',
-        metadata: { layers: store.layers },
-      };
+      return makeWebglResult(store.layers, sizeReport);
     });
 
     render(<ExportModal isOpen onClose={jest.fn()} />);
@@ -553,11 +583,11 @@ describe('ExportModal', () => {
     };
     runExportMock.mockImplementation(async (request) => {
       request.options.request.onSizeReport?.(sizeReport);
-      return {
-        kind: 'webgl',
-        filename: 'Demo',
-        metadata: { layers: store.layers },
-      };
+      return makeWebglResult(store.layers, {
+        ...sizeReport,
+        format: 'zip',
+        singleHtmlBreakdown: undefined,
+      });
     });
 
     render(<ExportModal isOpen onClose={jest.fn()} />);
@@ -572,6 +602,37 @@ describe('ExportModal', () => {
       expect(runExportMock).toHaveBeenCalled();
     });
     expect(screen.queryByTestId('single-html-size-breakdown')).not.toBeInTheDocument();
+  });
+
+  it('hides publishing when the host has no publisher manifest', async () => {
+    const sizeReport = {
+      format: 'single-html' as const,
+      totalBytes: 4,
+      metadataBytes: 0,
+      runtimeBytes: 0,
+      htmlBytes: 4,
+      ccBufferBytes: 0,
+      maskBytes: 0,
+      textureBytes: 0,
+      sequentialFrameBytes: 0,
+      previewBytes: 0,
+      fallbackBytes: 0,
+      binarySidecarBytes: 0,
+      binarySidecarCount: 0,
+      duplicatedMetadataBytes: 0,
+    };
+    runExportMock.mockResolvedValue(makeWebglResult(store.layers, sizeReport));
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    expect(await screen.findByRole('button', { name: 'Download' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Publish/ })).not.toBeInTheDocument();
   });
 
   it('shows a warning when MP4 request falls back to WebM output', async () => {

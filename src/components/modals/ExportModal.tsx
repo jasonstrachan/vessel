@@ -1,30 +1,43 @@
-"use client";
+'use client';
 
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+
+import { LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
+import {
+  GobletReleaseActions,
+  GobletReleaseSummary,
+} from '@/components/modals/GobletReleasePanel';
+import { XIcon } from '@/components/icons/XIcon';
+import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
+import Button from '@/components/ui/Button';
+import Input from '@/components/ui/Input';
+import { useKeyboardScope } from '@/hooks/useKeyboardScope';
+import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useAppStore } from '../../stores/useAppStore';
-import { XIcon } from '../icons/XIcon';
-import Input from '../ui/Input';
-import Button from '../ui/Button';
-import { useKeyboardScope } from '../../hooks/useKeyboardScope';
-import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
-import type { DitherMethod } from '@/utils/gifDither';
-import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
-import { LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
-import { Eye, EyeOff } from 'lucide-react';
-import { createDefaultExportLayout } from '@/utils/layoutDefaults';
+import { useAppStore } from '@/stores/useAppStore';
+import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
 import { runExport } from '@/utils/export/exportService';
+import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
+import type { GobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
 import { buildGobletExportSnapshotRequest } from '@/utils/export/goblet/gobletSnapshot';
-import type { ExportProgress, FrameProvider } from '@/utils/export/types';
 import type {
   GobletSingleHtmlBreakdown,
   GobletSizeReport,
   WebGLExportLayerStatus,
   WebGLExportProgressPhase,
 } from '@/utils/export/goblet/gobletTypes';
-import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
+import type { ExportProgress, FrameProvider } from '@/utils/export/types';
+import type { DitherMethod } from '@/utils/gifDither';
+import { createDefaultExportLayout } from '@/utils/layoutDefaults';
 
 type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
 type RasterExportScale = 0.2 | 0.5 | 1 | 2 | 3 | 4;
@@ -60,6 +73,7 @@ type ExportProgressModalState = {
     stack?: string;
   };
   sizeReport?: GobletSizeReport;
+  artifact?: GobletArtifact;
 };
 
 const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
@@ -364,6 +378,9 @@ interface ExportProgressModalProps {
   onDismissComplete: () => void;
   onContinueAnyway: () => void;
   onRepair: () => void;
+  onDownload: (artifact: GobletArtifact) => void;
+  onPublish: (publisher: GobletPublisher, artifact: GobletArtifact) => void;
+  publishingPublisherId: string | null;
 }
 
 const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
@@ -373,7 +390,12 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
   onDismissComplete,
   onContinueAnyway,
   onRepair,
+  onDownload,
+  onPublish,
+  publishingPublisherId,
 }) => {
+  const artifact = state?.artifact;
+
   if (!state?.isOpen) {
     return null;
   }
@@ -426,7 +448,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
           )}
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
           {state.issue && (
             <div className="border border-[#735B2D] bg-[#261F12] px-3 py-2">
               <div className="text-sm font-semibold text-[#F0D9A0]">{state.issue.title}</div>
@@ -504,7 +526,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
                   {formatExactBytes(state.sizeReport.totalBytes)}
                 </span>
               </div>
-              <div className="mt-2 space-y-1">
+              <div className="mt-2 grid grid-cols-2 gap-x-5 gap-y-1">
                 {SINGLE_HTML_BREAKDOWN_ROWS.map(({ key, label }) => {
                   const bytes = singleHtmlBreakdown[key];
                   if (bytes <= 0) {
@@ -516,7 +538,7 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
                   return (
                     <div
                       key={key}
-                      className="grid grid-cols-[1fr_auto_auto] gap-3 text-xs"
+                      className="grid grid-cols-[1fr_auto_auto] gap-2 text-xs"
                       data-bytes={bytes}
                       data-percentage={percentage}
                       data-testid={`single-html-size-${key}`}
@@ -531,6 +553,10 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
                 })}
               </div>
             </div>
+          )}
+
+          {state.phase === 'complete' && artifact && (
+            <GobletReleaseSummary artifact={artifact} />
           )}
 
           {diagnosticsText && (
@@ -562,6 +588,14 @@ const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
               <Button variant="secondary" onClick={onRepair}>Repair...</Button>
               <Button variant="primary" onClick={onContinueAnyway}>Continue anyway</Button>
             </>
+          ) : canClose && state.kind === 'webgl' && artifact ? (
+            <GobletReleaseActions
+              artifact={artifact}
+              publishingPublisherId={publishingPublisherId}
+              onClose={onDismissComplete}
+              onDownload={onDownload}
+              onPublish={onPublish}
+            />
           ) : canClose ? (
             <Button variant="primary" onClick={onDismissComplete}>Close</Button>
           ) : (
@@ -696,6 +730,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [isExporting, setIsExporting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressModal, setProgressModal] = useState<ExportProgressModalState | null>(null);
+  const [publishingPublisherId, setPublishingPublisherId] = useState<string | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
   const continueAnywayRef = useRef(false);
   const scaleOptions = exportKind === 'gif' || exportKind === 'mp4'
@@ -715,20 +750,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     ];
 
   useEffect(() => {
+    let visibilityTimer: ReturnType<typeof setTimeout> | null = null;
     if (isOpen) {
       setShouldRender(true);
       // Initial position: center horizontally with a fixed top margin so the modal stays within the viewport
       const modalWidth = 580; // matches class w-[580px]
       const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
       setPos({ x, y: 24 });
-      setTimeout(() => setIsVisible(true), 10);
+      visibilityTimer = setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
       exportAbortRef.current?.abort();
       exportAbortRef.current = null;
       setProgressModal(null);
-      setTimeout(() => setShouldRender(false), 300);
+      visibilityTimer = setTimeout(() => setShouldRender(false), 300);
     }
+    return () => {
+      if (visibilityTimer !== null) clearTimeout(visibilityTimer);
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -1375,13 +1414,15 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               ...current,
               phase: 'complete',
               percent: 100,
-              message: 'Goblet export complete',
+              message: 'Goblet ready to preview, download, or publish',
+              sizeReport: result.artifact.sizeReport,
+              artifact: result.artifact,
             }
           : current);
         addNotification({
           type: 'success',
-          title: 'Goblet bundle saved',
-          message: `Exported ${result.metadata.layers.length} layer${result.metadata.layers.length === 1 ? '' : 's'} to ${BUNDLE_FORMAT_LABELS[webglBundleFormat]}`,
+          title: 'Goblet ready',
+          message: `Built ${result.metadata.layers.length} layer${result.metadata.layers.length === 1 ? '' : 's'} as ${BUNDLE_FORMAT_LABELS[webglBundleFormat]}`,
           timestamp: new Date(),
           duration: 5000
         });
@@ -1453,6 +1494,34 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     setProgressModal(null);
     onClose();
     toggleModal('loadProject');
+  };
+
+  const publishGoblet = async (publisher: GobletPublisher, artifact: GobletArtifact) => {
+    if (!project || publishingPublisherId) return;
+    setPublishingPublisherId(publisher.id);
+    try {
+      const result = await publisher.publish(artifact, {
+        projectId: project.id,
+        projectName: project.name,
+      });
+      addNotification({
+        type: 'success',
+        title: `Published to ${publisher.label}`,
+        message: result.url ? `${result.message} ${result.url}` : result.message,
+        timestamp: new Date(),
+        duration: 8000,
+      });
+    } catch (error) {
+      addNotification({
+        type: 'error',
+        title: `Publish to ${publisher.label} failed`,
+        message: error instanceof Error ? error.message : 'Unknown publish error',
+        timestamp: new Date(),
+        duration: 8000,
+      });
+    } finally {
+      setPublishingPublisherId(null);
+    }
   };
 
   if (!shouldRender) return null;
@@ -2083,6 +2152,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }}
       onContinueAnyway={continueBlockedExport}
       onRepair={openRepairFlow}
+      onDownload={(artifact) => downloadBlob(artifact.blob, artifact.filename)}
+      onPublish={(publisher, artifact) => { void publishGoblet(publisher, artifact); }}
+      publishingPublisherId={publishingPublisherId}
     />
     </>
   );

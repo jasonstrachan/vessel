@@ -30,6 +30,41 @@ jest.mock('@/components/MinimalLayerList', () => ({
 const runExportMock = jest.fn();
 const estimateExportMock = jest.fn();
 
+const makeWebglResult = () => {
+  const metadata = {
+    layers: [],
+    viewport: { designWidth: 64, designHeight: 64 },
+    animation: { totalFrames: 1, fps: 60 },
+  };
+  const sizeReport = {
+    format: 'zip' as const,
+    totalBytes: 3,
+    metadataBytes: 0,
+    runtimeBytes: 0,
+    htmlBytes: 0,
+    ccBufferBytes: 0,
+    maskBytes: 0,
+    textureBytes: 0,
+    sequentialFrameBytes: 0,
+    previewBytes: 0,
+    fallbackBytes: 0,
+    binarySidecarBytes: 0,
+    binarySidecarCount: 0,
+    duplicatedMetadataBytes: 0,
+  };
+  return {
+    kind: 'webgl' as const,
+    filename: 'Demo-goblet.zip',
+    metadata,
+    artifact: {
+      blob: new Blob(['zip'], { type: 'application/zip' }),
+      filename: 'Demo-goblet.zip',
+      metadata,
+      sizeReport,
+    },
+  };
+};
+
 jest.mock('@/utils/export/exportService', () => ({
   runExport: (...args: unknown[]) => runExportMock(...args),
   estimateExport: (...args: unknown[]) => estimateExportMock(...args),
@@ -107,11 +142,7 @@ describe('ExportModal webgl preflight', () => {
     store = makeStore();
     runExportMock.mockReset();
     estimateExportMock.mockReset();
-    runExportMock.mockResolvedValue({
-      kind: 'webgl',
-      filename: 'Demo',
-      metadata: { layers: [] },
-    });
+    runExportMock.mockResolvedValue(makeWebglResult());
     estimateExportMock.mockResolvedValue({
       paletteSize: null,
       estimatedBytes: null,
@@ -324,11 +355,7 @@ describe('ExportModal webgl preflight', () => {
   });
 
   it('clears progress state when the parent modal closes', async () => {
-    runExportMock.mockResolvedValue({
-      kind: 'webgl',
-      filename: 'Demo',
-      metadata: { layers: [] },
-    });
+    runExportMock.mockResolvedValue(makeWebglResult());
 
     const { rerender } = render(<ExportModal isOpen onClose={jest.fn()} />);
     act(() => {
@@ -354,11 +381,7 @@ describe('ExportModal webgl preflight', () => {
 
   it('dismisses completed export progress and parent export modal from the progress backdrop', async () => {
     const onClose = jest.fn();
-    runExportMock.mockResolvedValue({
-      kind: 'webgl',
-      filename: 'Demo',
-      metadata: { layers: [] },
-    });
+    runExportMock.mockResolvedValue(makeWebglResult());
 
     render(<ExportModal isOpen onClose={onClose} />);
     act(() => {
