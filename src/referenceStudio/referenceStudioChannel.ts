@@ -2,6 +2,7 @@ import type { ReferenceAsset, ReferenceSamplingSource } from '@/types';
 
 export const REFERENCE_STUDIO_CHANNEL_NAME = 'vessel-reference-studio-v1';
 const REFERENCE_STUDIO_SESSION_PARAM = 'session';
+const REFERENCE_STUDIO_SESSION_STORAGE_KEY = 'vessel-reference-studio-session-v1';
 let mainWindowSessionId: string | null = null;
 
 const createSessionId = (): string => {
@@ -11,8 +12,28 @@ const createSessionId = (): string => {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 };
 
+const readStoredSessionId = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(REFERENCE_STUDIO_SESSION_STORAGE_KEY)?.trim() || null;
+  } catch {
+    return null;
+  }
+};
+
+const storeSessionId = (sessionId: string): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(REFERENCE_STUDIO_SESSION_STORAGE_KEY, sessionId);
+  } catch {
+    // Named-window reuse still works until this Vessel tab reloads.
+  }
+};
+
 export const getReferenceStudioSessionId = (): string => {
-  mainWindowSessionId ??= createSessionId();
+  if (mainWindowSessionId) return mainWindowSessionId;
+  mainWindowSessionId = readStoredSessionId() ?? createSessionId();
+  storeSessionId(mainWindowSessionId);
   return mainWindowSessionId;
 };
 

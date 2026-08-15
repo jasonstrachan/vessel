@@ -23,6 +23,37 @@ describe('Reference Studio window session', () => {
     open.mockRestore();
   });
 
+  it('restores the originating session after the Vessel window reloads', () => {
+    window.sessionStorage.clear();
+    const focus = jest.fn();
+    const open = jest.spyOn(window, 'open').mockReturnValue({ focus } as unknown as Window);
+    let initialSessionId = '';
+    let restoredSessionId = '';
+
+    try {
+      jest.isolateModules(() => {
+        const channel = jest.requireActual<typeof import('../referenceStudioChannel')>(
+          '../referenceStudioChannel',
+        );
+        initialSessionId = channel.getReferenceStudioSessionId();
+        channel.openReferenceStudioWindow();
+      });
+      jest.isolateModules(() => {
+        const channel = jest.requireActual<typeof import('../referenceStudioChannel')>(
+          '../referenceStudioChannel',
+        );
+        restoredSessionId = channel.getReferenceStudioSessionId();
+        channel.openReferenceStudioWindow();
+      });
+
+      expect(restoredSessionId).toBe(initialSessionId);
+      expect(open.mock.calls[1]?.[1]).toBe(open.mock.calls[0]?.[1]);
+      expect(focus).toHaveBeenCalledTimes(2);
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it('reads the originating session from the studio URL', () => {
     const originalUrl = window.location.href;
     window.history.replaceState({}, '', '/reference-studio/?session=window-a');
