@@ -202,12 +202,14 @@ const resolveSierraLiteInitialError = (x, y, identityKey, seed, variant, pattern
 };
 
 const SIERRA_LITE_VARIETY_ERROR_SCALE = 8;
+const SIERRA_LITE_CLASSIC_ERROR_SCALE = 1.25;
+const SIERRA_LITE_CLASSIC_PATTERN_KEY = 0x534c434c;
 
 /**
  * Build deterministic, zero-centred perturbations around canonical Sierra
- * Lite. Zero Variety uses the unmodified input mix; increasing Variety only
- * introduces seeded alternatives and never changes tone. The diffusion kernel
- * still owns quantization and error spread.
+ * Lite. Zero Variety keeps one seed-free near-checker baseline with sparse
+ * stacks; increasing Variety fades that baseline into seeded alternatives.
+ * The diffusion kernel still owns quantization, tone, and error spread.
  */
 export const createSierraLiteVarietyResolver = ({
   mix,
@@ -239,7 +241,21 @@ export const createSierraLiteVarietyResolver = ({
     0x51f15e,
   ) & 7;
   const variationScale = Math.sqrt(diversity01) * SIERRA_LITE_VARIETY_ERROR_SCALE;
-  const resolve = (x, y) => {
+  const classicScale = (1 - diversity01) * SIERRA_LITE_CLASSIC_ERROR_SCALE;
+  const resolveClassic = (x, y) => {
+    if (classicScale <= 0) {
+      return 0;
+    }
+    return resolveSierraLiteInitialError(
+      x + phaseX,
+      y + phaseY,
+      0,
+      0,
+      0,
+      SIERRA_LITE_CLASSIC_PATTERN_KEY,
+    ) * classicScale;
+  };
+  const resolveVariation = (x, y) => {
     if (diversity01 <= 0) {
       return 0;
     }
@@ -255,7 +271,9 @@ export const createSierraLiteVarietyResolver = ({
 
   return {
     baseMix,
-    resolve,
+    resolveClassic,
+    resolveVariation,
+    resolve: (x, y) => resolveClassic(x, y) + resolveVariation(x, y),
     resolveThreshold: (x, y) => {
       const seededX = x + phaseX + seedPhaseX;
       const seededY = y + phaseY + seedPhaseY;
@@ -288,7 +306,6 @@ export const createSierraLiteVarietyResolver = ({
  *   lowKey?: number,
  *   highKey?: number,
  *   diversity?: number,
- *   activeMask?: Uint8Array | null,
  *   mixField?: Float32Array | null,
  * }} options
  * @returns {Uint8Array}
@@ -304,7 +321,6 @@ export const resolveSierraLiteBinaryField = ({
   lowKey = 0,
   highKey = 1,
   diversity = 1,
-  activeMask = null,
   mixField = null,
 }) => {
   const gridWidth = Math.max(0, Math.round(Number(width) || 0));
@@ -333,9 +349,6 @@ export const resolveSierraLiteBinaryField = ({
     const step = serpentine ? -1 : 1;
     for (let x = start; x !== end; x += step) {
       const index = y * gridWidth + x;
-      if (activeMask && !activeMask[index]) {
-        continue;
-      }
       const cellMix = mixField && Number.isFinite(mixField[index])
         ? clamp01(mixField[index])
         : variety.baseMix;
@@ -351,16 +364,16 @@ export const resolveSierraLiteBinaryField = ({
       const nextX = serpentine ? x - 1 : x + 1;
       if (nextX >= 0 && nextX < gridWidth) {
         const nextIndex = index + (serpentine ? -1 : 1);
-        if (!activeMask || activeMask[nextIndex]) errors[nextIndex] += quantizationError * 0.5;
+        errors[nextIndex] += quantizationError * 0.5;
       }
       if (y + 1 < gridHeight) {
         const diagonalX = serpentine ? x + 1 : x - 1;
         if (diagonalX >= 0 && diagonalX < gridWidth) {
           const diagonalIndex = index + gridWidth + (serpentine ? 1 : -1);
-          if (!activeMask || activeMask[diagonalIndex]) errors[diagonalIndex] += quantizationError * 0.25;
+          errors[diagonalIndex] += quantizationError * 0.25;
         }
         const belowIndex = index + gridWidth;
-        if (!activeMask || activeMask[belowIndex]) errors[belowIndex] += quantizationError * 0.25;
+        errors[belowIndex] += quantizationError * 0.25;
       }
     }
   }

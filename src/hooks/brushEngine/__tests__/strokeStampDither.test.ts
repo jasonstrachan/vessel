@@ -26,7 +26,7 @@ describe('strokeStampDither', () => {
     };
   };
 
-  it('uses the exact flat Sierra checker at zero Variety and varies it deterministically', () => {
+  it('uses the classic near-checker Sierra field at zero Variety and varies it deterministically', () => {
     const runtime = createStampDitherRuntime(0);
     const tileSize = 64;
     const build = (diversity: number) => getStampDitherTile(
@@ -59,12 +59,16 @@ describe('strokeStampDither', () => {
 
     expect(full).toEqual(build(1));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
+    let horizontalAlternations = 0;
     for (let y = 0; y < tileSize; y += 1) {
-      for (let x = 0; x < tileSize; x += 1) {
-        expect(zero[y * tileSize + x]).toBe(((x + y) & 1) === 0 ? 0 : 255);
+      for (let x = 0; x < tileSize - 1; x += 1) {
+        if (zero[y * tileSize + x] !== zero[y * tileSize + x + 1]) {
+          horizontalAlternations += 1;
+        }
       }
     }
-    expect(countVerticalTriples(zero)).toBe(0);
+    expect(horizontalAlternations / (tileSize * (tileSize - 1))).toBeGreaterThan(0.99);
+    expect(countVerticalTriples(zero)).toBeGreaterThan(0);
     expect(countVerticalTriples(full)).toBeGreaterThan(0);
   });
 
@@ -119,20 +123,20 @@ describe('strokeStampDither', () => {
       expect(state.stampDitherLockedBucket).toBe(stampDither.STAMP_DITHER_FLAT_BUCKET);
       expect(state.stampDitherOrigin).toEqual({ x: 0, y: 0 });
 
-      const assertWorldChecker = (data: Uint8Array) => {
+      const readActiveMask = (data: Uint8Array) => {
         let activeCount = 0;
+        const mask = new Uint8Array(width * height);
         state.stampDitherTag?.forEach((tag, index) => {
           if ((tag >>> 16) !== 1 || (tag & 0xffff) === 0) return;
           activeCount += 1;
-          const x = index % width;
-          const y = Math.floor(index / width);
-          const expected = ((x + y) & 1) === 0 ? primaryIndex : secondaryIndex;
-          expect(data[index]).toBe(expected);
+          expect([primaryIndex, secondaryIndex]).toContain(data[index]);
+          mask[index] = data[index] === primaryIndex ? 1 : 0;
         });
         expect(activeCount).toBeGreaterThan(0);
+        return mask;
       };
 
-      assertWorldChecker(animator.handle.data);
+      const liveMask = readActiveMask(animator.handle.data);
       expect(stampDither.finalizeStampDither({
         animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
         state,
@@ -144,14 +148,30 @@ describe('strokeStampDither', () => {
         cycleSpeed: 1,
         ditherStrength: 1,
       })).toBe(true);
-      assertWorldChecker(animator.handle.data);
+      expect(readActiveMask(animator.handle.data)).toEqual(liveMask);
 
-      return Array.from(state.stampDitherChoice ?? []);
+      return {
+        active: Array.from(state.stampDitherTag ?? [], (tag) => (
+          (tag >>> 16) === 1 && (tag & 0xffff) > 0
+        )),
+        choice: Array.from(state.stampDitherChoice ?? []),
+      };
     };
 
-    expect(run(1, 5, 'square')).toEqual(run(0xfedcba98, 180, 'square'));
-    run(7, 40, 'round');
-    run(99, 220, 'triangle');
+    const square = run(1, 5, 'square');
+    expect(square).toEqual(run(0xfedcba98, 180, 'square'));
+    const round = run(7, 40, 'round');
+    const triangle = run(99, 220, 'triangle');
+
+    for (const other of [round, triangle]) {
+      let overlap = 0;
+      square.active.forEach((isSquareActive, index) => {
+        if (!isSquareActive || !other.active[index]) return;
+        overlap += 1;
+        expect(other.choice[index]).toBe(square.choice[index]);
+      });
+      expect(overlap).toBeGreaterThan(0);
+    }
   });
 
   it('keeps image-tile resolver cache identity runtime-local', () => {

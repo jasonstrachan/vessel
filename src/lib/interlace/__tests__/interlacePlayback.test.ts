@@ -80,7 +80,7 @@ describe('Interlace Sierra Lite playback', () => {
     expect(high.every((value) => value === 1)).toBe(true);
   });
 
-  it('produces the exact symmetric Sierra checker at zero Variety and midpoint tone', () => {
+  it('produces the seed-free classic Sierra near-checker at zero Variety', () => {
     const width = 64;
     const height = 64;
     const field = resolveSierraLiteBinaryField({
@@ -91,11 +91,36 @@ describe('Interlace Sierra Lite playback', () => {
       diversity: 0,
     });
 
+    let horizontalAlternations = 0;
+    let verticalTriples = 0;
     for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        expect(field[y * width + x]).toBe(((x + y) & 1) === 0 ? 1 : 0);
+      for (let x = 0; x < width - 1; x += 1) {
+        if (field[y * width + x] !== field[y * width + x + 1]) {
+          horizontalAlternations += 1;
+        }
       }
     }
+    for (let y = 0; y < height - 2; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const value = field[y * width + x];
+        if (
+          field[(y + 1) * width + x] === value &&
+          field[(y + 2) * width + x] === value
+        ) {
+          verticalTriples += 1;
+        }
+      }
+    }
+
+    expect(horizontalAlternations / (height * (width - 1))).toBeGreaterThan(0.99);
+    expect(verticalTriples).toBeGreaterThan(0);
+    expect(field).toEqual(resolveSierraLiteBinaryField({
+      width,
+      height,
+      mix: 0.5,
+      seed: 101,
+      diversity: 0,
+    }));
   });
 
   it('turns dominance into pulse width while keeping the lattice anchored', () => {

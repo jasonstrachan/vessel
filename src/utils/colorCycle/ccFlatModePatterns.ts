@@ -340,7 +340,6 @@ const fillSierraLiteFlatPatternMode = ({
     lowKey: lowIdx,
     highKey: highIdx,
     diversity: diversity01,
-    activeMask,
   });
   bits.forEach((bit, index) => {
     if (activeMask && !activeMask[index]) {

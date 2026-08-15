@@ -1990,6 +1990,7 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     flatCycleBands,
     diversity,
     flatSeed,
+    vertices,
   }: {
     algorithm: Parameters<typeof fillCcGradientDither>[0]['algorithm'];
     spread?: number;
@@ -1999,10 +2000,11 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     flatCycleBands?: number;
     diversity?: number;
     flatSeed?: number;
+    vertices?: Array<{ x: number; y: number }>;
   }) => {
     const out = new Uint8Array(width * height);
     await fillCcGradientDither({
-      vertices: [
+      vertices: vertices ?? [
         { x: 0, y: 0 },
         { x: width - 1, y: 0 },
         { x: width - 1, y: height - 1 },
@@ -2116,7 +2118,7 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     expect(values.size).toBeGreaterThan(1);
   });
 
-  it('uses seed-free canonical Sierra at zero and varies it as Variety rises', async () => {
+  it('uses the seed-free classic Sierra near-checker at zero and varies it as Variety rises', async () => {
     const width = 64;
     const height = 64;
     const render = (diversity: number, flatSeed = 8128) => renderFlatCycle({
@@ -2129,14 +2131,6 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     });
     const zero = await render(0);
     const full = await render(100);
-    for (let y = 2; y < height - 2; y += 1) {
-      for (let x = 2; x < width - 2; x += 1) {
-        const position = Math.round(((x + 0.5) / width) * 255) / 255;
-        const { indices } = resolveFlatCycleInkSetForPosition(position, 2, 0, 60);
-        const expected = ((x + y) & 1) === 0 ? indices[1] : indices[0];
-        expect(zero[y * width + x]).toBe(expected);
-      }
-    }
     const countInteriorVerticalTriples = (output: Uint8Array) => {
       let count = 0;
       for (let y = 1; y < height - 3; y += 1) {
@@ -2157,7 +2151,45 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     expect(full).toEqual(await render(100));
     expect(zero).toEqual(await render(0, 101));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
+    expect(countInteriorVerticalTriples(zero)).toBeGreaterThan(0);
     expect(countInteriorVerticalTriples(full)).toBeGreaterThan(0);
+  });
+
+  it('keeps the zero-Variety Sierra field independent of Free versus Rect clipping', async () => {
+    const width = 64;
+    const height = 64;
+    const rect = await renderFlatCycle({
+      algorithm: 'sierra-lite',
+      spread: 60,
+      width,
+      height,
+      diversity: 0,
+      flatSeed: 8128,
+    });
+    const free = await renderFlatCycle({
+      algorithm: 'sierra-lite',
+      spread: 60,
+      width,
+      height,
+      diversity: 0,
+      flatSeed: 101,
+      vertices: [
+        { x: 0, y: 28 },
+        { x: 14, y: 0 },
+        { x: 49, y: 5 },
+        { x: 63, y: 31 },
+        { x: 47, y: 63 },
+        { x: 12, y: 57 },
+      ],
+    });
+
+    let sharedCellCount = 0;
+    for (let index = 0; index < free.length; index += 1) {
+      if (free[index] === 0 || rect[index] === 0) continue;
+      sharedCellCount += 1;
+      expect(free[index]).toBe(rect[index]);
+    }
+    expect(sharedCellCount).toBeGreaterThan(1_000);
   });
 
   it('snaps the ink pair to the band grid so regions share one crisp pair', async () => {

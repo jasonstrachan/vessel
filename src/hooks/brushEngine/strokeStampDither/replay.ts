@@ -374,8 +374,9 @@ export const finalizeStampDither = (args: {
   const coverage = resolveStampDitherBucketCoverage(bucket);
   const seed = config.seed ?? 0;
   const diversity = Math.max(0, Math.min(1, config.diversity ?? 1));
+  const shouldUseStableSierraTile = algo === 'sierra-lite' && diversity <= 0;
 
-  if (isErrorDiffusion) {
+  if (isErrorDiffusion && !shouldUseStableSierraTile) {
     const kernel = getErrorDiffusionKernel(algo);
     const effectiveStrength = ditherStrength > 0 ? ditherStrength : 1;
     const errorIntensity = Math.max(0, Math.min(1, effectiveStrength)) * kernel.errorScale;
@@ -413,29 +414,18 @@ export const finalizeStampDither = (args: {
       const errBuf = new Float32Array(cellCount);
 
       if (algo === 'sierra-lite') {
-        if (diversity <= 0) {
-          for (let cy = 0; cy < gridH; cy += 1) {
-            for (let cx = 0; cx < gridW; cx += 1) {
-              const cellIdx = cy * gridW + cx;
-              if (cellMask[cellIdx] === 0) continue;
-              cellChoice[cellIdx] = ((cx + minCellX + cy + minCellY) & 1) === 0 ? 1 : 0;
-            }
-          }
-        } else {
-          cellChoice.set(resolveSierraLiteBinaryField({
-            width: gridW,
-            height: gridH,
-            mix: coverage,
-            seed,
-            phaseX: minCellX,
-            phaseY: minCellY,
-            identityKey: cellSize,
-            lowKey: bucket,
-            highKey: STAMP_DITHER_BUCKETS - 1 - bucket,
-            diversity,
-            activeMask: cellMask,
-          }));
-        }
+        cellChoice.set(resolveSierraLiteBinaryField({
+          width: gridW,
+          height: gridH,
+          mix: coverage,
+          seed,
+          phaseX: minCellX,
+          phaseY: minCellY,
+          identityKey: cellSize,
+          lowKey: bucket,
+          highKey: STAMP_DITHER_BUCKETS - 1 - bucket,
+          diversity,
+        }));
       } else {
         for (let cy = 0; cy < gridH; cy += 1) {
           const leftToRight = kernel.serpentine ? (cy & 1) === 0 : true;

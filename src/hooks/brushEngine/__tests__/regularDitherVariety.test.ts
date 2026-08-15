@@ -122,7 +122,7 @@ describe('regularDitherVariety', () => {
     }).seed);
   });
 
-  it('runs canonical Sierra Lite at zero Variety without injected pixel doubling', () => {
+  it('uses the classic Sierra near-checker at zero Variety without horizontal runs', () => {
     const output = render(0);
     const horizontalEdges = output.height * (output.width - 1);
 
