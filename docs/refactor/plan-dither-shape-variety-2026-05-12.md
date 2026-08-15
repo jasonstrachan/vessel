@@ -24,7 +24,7 @@ Use `ditherPatternDiversity` as the shared `Variety` control for regular `Dither
 
 Expected semantics:
 
-- `0`: stable neutral mix with minimal extra variation.
+- `0`: stable neutral near-checker with sparse classic Sierra vertical stacks.
 - `100`: stronger color/tone/pattern variation, closer to current CC Gradient variety.
 - Same color + same shape seed remains deterministic.
 - Different selected colors at high variety can produce visibly different dither texture/mix.

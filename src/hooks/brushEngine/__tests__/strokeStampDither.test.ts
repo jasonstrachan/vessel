@@ -26,7 +26,7 @@ describe('strokeStampDither', () => {
     };
   };
 
-  it('turns neutral Sierra stamp checks into deterministic stacked cells as Variety rises', () => {
+  it('starts Sierra stamps with sparse vertical stacks and varies them deterministically', () => {
     const runtime = createStampDitherRuntime(0);
     const tileSize = 64;
     const build = (diversity: number) => getStampDitherTile(
@@ -59,7 +59,7 @@ describe('strokeStampDither', () => {
 
     expect(full).toEqual(build(1));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
-    expect(countVerticalTriples(zero)).toBe(0);
+    expect(countVerticalTriples(zero)).toBeGreaterThan(0);
     expect(countVerticalTriples(full)).toBeGreaterThan(0);
   });
 

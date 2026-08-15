@@ -71,6 +71,18 @@ const countVerticalTriples = (imageData: ImageData): number => {
   return count;
 };
 
+const countHorizontalAlternations = (imageData: ImageData): number => {
+  let count = 0;
+  for (let y = 0; y < imageData.height; y += 1) {
+    for (let x = 0; x < imageData.width - 1; x += 1) {
+      if (colorKeyAt(imageData, x, y) !== colorKeyAt(imageData, x + 1, y)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
+};
+
 const countChangedPixels = (left: ImageData, right: ImageData): number => {
   let count = 0;
   for (let index = 0; index < left.data.length; index += 4) {
@@ -110,13 +122,12 @@ describe('regularDitherVariety', () => {
     }).seed);
   });
 
-  it('keeps zero Variety as the neutral classic checker', () => {
+  it('keeps zero Variety as a classic near-checker with sparse vertical stacks', () => {
     const output = render(0);
+    const horizontalEdges = output.height * (output.width - 1);
 
-    expect(countVerticalTriples(output)).toBe(0);
-    expect(colorKeyAt(output, 0, 0)).toBe(colorKeyAt(output, 2, 0));
-    expect(colorKeyAt(output, 0, 0)).not.toBe(colorKeyAt(output, 1, 0));
-    expect(colorKeyAt(output, 0, 0)).not.toBe(colorKeyAt(output, 0, 1));
+    expect(countVerticalTriples(output)).toBeGreaterThan(0);
+    expect(countHorizontalAlternations(output) / horizontalEdges).toBeGreaterThan(0.9);
   });
 
   it('adds deterministic Sierra vertical runs as Variety increases', () => {

@@ -855,7 +855,9 @@ export const applySierraLitePressureDither = (
         continue;
       }
 
-      const patternError = variety.resolve(x, y) * varietyStrength;
+      const patternError =
+        variety.resolveClassic(x, y) * 2 +
+        variety.resolveVariation(x, y) * varietyStrength;
       const oldR = Math.max(
         0,
         Math.min(

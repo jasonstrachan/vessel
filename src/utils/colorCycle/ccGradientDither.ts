@@ -1160,7 +1160,10 @@ export const fillCcGradientDither = async ({
           const { band, local: initialLocal } = resolveBandState(cellCoverage[cellIdx], errBuf[cellIdx] || 0);
           let local = clamp01(
             initialLocal +
-              (sierraVariety?.resolve(cx, cy) ?? 0) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
+              (sierraVariety
+                ? sierraVariety.resolveClassic(cx, cy) +
+                  sierraVariety.resolveVariation(cx, cy) * SIERRA_LITE_GRADIENT_VARIETY_SCALE
+                : 0),
           );
           if (jitterScale > 0) {
             local = clamp01(local + (noiseAt(cx, cy) - 0.5) * jitterScale);
@@ -1368,7 +1371,8 @@ export const fillCcGradientDither = async ({
         const adj = clamp01(
           frac +
             (errCurr[cx] || 0) +
-            sierraVariety.resolve(cx, cy) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
+            sierraVariety.resolveClassic(cx, cy) +
+            sierraVariety.resolveVariation(cx, cy) * SIERRA_LITE_GRADIENT_VARIETY_SCALE,
         );
         const thr = sierraVariety.resolveThreshold(cx, cy) +
           (noiseAt(cx, cy) - 0.5) * thresholdJitter;

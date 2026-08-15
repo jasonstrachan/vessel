@@ -2113,7 +2113,7 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     expect(values.size).toBeGreaterThan(1);
   });
 
-  it('adds stable vertical Sierra stacks to flat-cycle checks as Variety rises', async () => {
+  it('starts with sparse vertical Sierra stacks and varies them as Variety rises', async () => {
     const width = 32;
     const height = 16;
     const render = (diversity: number) => renderFlatCycle({
@@ -2145,7 +2145,7 @@ describe('fillCcGradientDither flat-cycle mode', () => {
 
     expect(full).toEqual(await render(100));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
-    expect(countInteriorVerticalTriples(zero)).toBe(0);
+    expect(countInteriorVerticalTriples(zero)).toBeGreaterThan(0);
     expect(countInteriorVerticalTriples(full)).toBeGreaterThan(0);
   });
 
