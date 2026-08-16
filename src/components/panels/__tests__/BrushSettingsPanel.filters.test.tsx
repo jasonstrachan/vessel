@@ -9,6 +9,14 @@ import type { Layer } from '@/types';
 describe('BrushSettingsPanel filters section', () => {
   const initialState = useAppStore.getInitialState();
 
+  beforeAll(() => {
+    global.ResizeObserver = class ResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    };
+  });
+
   afterEach(() => {
     act(() => {
       useAppStore.setState({
