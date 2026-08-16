@@ -2,9 +2,8 @@
 
 import React from 'react';
 
-import CustomSwitch from '@/components/ui/CustomSwitch';
 import Dropdown from '@/components/ui/Dropdown';
-import HueRangeStrip from '@/components/ui/HueRangeStrip';
+import { HueSlider } from '@/components/ui/HueSlider';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import {
   ADJUSTMENT_EFFECT_LABELS,
@@ -25,12 +24,14 @@ const EFFECT_OPTIONS = (Object.entries(ADJUSTMENT_EFFECT_LABELS) as Array<[
 ]>).map(([value, label]) => ({ value, label }));
 
 const HUE_SAT_SLIDERS: Array<{
-  key: Exclude<keyof ColorAdjustParams, 'hueRangeEnabled' | 'hueRangeStart' | 'hueRangeEnd'>;
+  key: Exclude<
+    keyof ColorAdjustParams,
+    'hue' | 'hueRangeEnabled' | 'hueRangeStart' | 'hueRangeEnd'
+  >;
   label: string;
   min: number;
   max: number;
 }> = [
-  { key: 'hue', label: 'Hue', min: -180, max: 180 },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100 },
   { key: 'vibrance', label: 'Vibrance', min: -100, max: 100 },
   { key: 'lightness', label: 'Lightness', min: -100, max: 100 },
@@ -148,26 +149,21 @@ export const AdjustmentLayerPanel = () => {
 
       {effect.id === 'hue-sat' ? (
         <>
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs uppercase tracking-wider text-[#9C9C9C]">Hue Range</span>
-              <CustomSwitch
-                checked={effect.settings.hueRangeEnabled}
-                onChange={(checked) => changeImmediately({
-                  ...effect,
-                  settings: { ...effect.settings, hueRangeEnabled: checked },
-                })}
-                aria-label="Enable adjustment hue range"
-              />
+              <span className="text-xs uppercase tracking-wider text-[#9C9C9C]">Hue</span>
+              <span className="text-xs tabular-nums text-[#9C9C9C]">
+                {Math.round(effect.settings.hue)}°
+              </span>
             </div>
-            <HueRangeStrip
-              value={[effect.settings.hueRangeStart, effect.settings.hueRangeEnd]}
-              onValueChange={([hueRangeStart, hueRangeEnd]) => preview({
+            <HueSlider
+              value={[effect.settings.hue]}
+              onValueChange={([hue]) => preview({
                 ...effect,
-                settings: { ...effect.settings, hueRangeStart, hueRangeEnd },
+                settings: { ...effect.settings, hue },
               })}
-              onCommit={commit}
-              disabled={!effect.settings.hueRangeEnabled}
+              onValueCommit={commit}
+              aria-label="Hue adjustment"
             />
           </div>
           <div className="flex flex-col gap-3">

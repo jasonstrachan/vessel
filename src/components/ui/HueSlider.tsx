@@ -1,13 +1,15 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import * as SliderPrimitive from "@radix-ui/react-slider";
+import * as React from 'react';
+import * as SliderPrimitive from '@radix-ui/react-slider';
 
 interface HueSliderProps {
   value?: number[];
   onValueChange?: (value: number[]) => void;
+  onValueCommit?: (value: number[]) => void;
   'aria-label'?: string;
   trackGradient?: string;
+  disabled?: boolean;
 }
 
 const DEFAULT_GRADIENT = `linear-gradient(to right,
@@ -28,17 +30,25 @@ const DEFAULT_GRADIENT = `linear-gradient(to right,
 const HueSlider = React.forwardRef<
   React.ElementRef<typeof SliderPrimitive.Root>,
   HueSliderProps
->(({ value, onValueChange, trackGradient, ...props }, ref) => {
+>(({
+  value,
+  onValueChange,
+  onValueCommit,
+  trackGradient,
+  disabled = false,
+  'aria-label': ariaLabel,
+  ...props
+}, ref) => {
   const thumbStyle = React.useMemo(
     () => ({ '--ascii-thumb-size': '16px' } as React.CSSProperties),
-    []
+    [],
   );
   const trackStyle = React.useMemo(
     () => ({
       '--ascii-track-overlay-opacity': '0.3',
-      '--slider-track-gradient': trackGradient ?? DEFAULT_GRADIENT
+      '--slider-track-gradient': trackGradient ?? DEFAULT_GRADIENT,
     }) as React.CSSProperties,
-    [trackGradient]
+    [trackGradient],
   );
 
   return (
@@ -50,6 +60,8 @@ const HueSlider = React.forwardRef<
       step={1}
       value={value}
       onValueChange={onValueChange}
+      onValueCommit={onValueCommit}
+      disabled={disabled}
       {...props}
     >
       <SliderPrimitive.Track
@@ -59,10 +71,11 @@ const HueSlider = React.forwardRef<
       <SliderPrimitive.Thumb
         className="ascii-slider-thumb focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50"
         style={thumbStyle}
+        aria-label={ariaLabel}
       />
     </SliderPrimitive.Root>
   );
 });
-HueSlider.displayName = "HueSlider";
+HueSlider.displayName = 'HueSlider';
 
 export { HueSlider };

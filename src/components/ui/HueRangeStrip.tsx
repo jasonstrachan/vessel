@@ -31,12 +31,14 @@ type DragState =
       startValue: [number, number];
     };
 
-const normalizeHue = (value: number): number => {
+const wrapHue = (value: number): number => {
   const normalized = value % 360;
   return normalized < 0 ? normalized + 360 : normalized;
 };
 
-const toPercent = (value: number): number => (normalizeHue(value) / 360) * 100;
+const clampHueEndpoint = (value: number): number => Math.min(360, Math.max(0, value));
+
+const toPercent = (value: number): number => (clampHueEndpoint(value) / 360) * 100;
 
 export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
   value,
@@ -48,8 +50,8 @@ export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
   const trackRef = React.useRef<HTMLDivElement | null>(null);
   const dragStateRef = React.useRef<DragState | null>(null);
 
-  const start = normalizeHue(value[0]);
-  const end = normalizeHue(value[1]);
+  const start = clampHueEndpoint(value[0]);
+  const end = clampHueEndpoint(value[1]);
 
   const selectedSegments = React.useMemo(() => {
     if (start <= end) {
@@ -77,8 +79,8 @@ export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
       return null;
     }
 
-    const ratio = (clientX - rect.left) / rect.width;
-    return normalizeHue(ratio * 360);
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    return ratio * 360;
   }, []);
 
   React.useEffect(() => {
@@ -100,9 +102,13 @@ export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
         }
 
         const deltaDegrees = ((event.clientX - dragState.startX) / rect.width) * 360;
+        const isFullRange = dragState.startValue[0] === 0 && dragState.startValue[1] === 360;
+        if (isFullRange) {
+          return;
+        }
         onValueChange([
-          normalizeHue(dragState.startValue[0] + deltaDegrees),
-          normalizeHue(dragState.startValue[1] + deltaDegrees),
+          wrapHue(dragState.startValue[0] + deltaDegrees),
+          wrapHue(dragState.startValue[1] + deltaDegrees),
         ]);
         return;
       }
@@ -183,16 +189,22 @@ export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
 
         <button
           type="button"
-          className="absolute top-1/2 z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 border border-black bg-white disabled:cursor-default"
-          style={{ left: `${toPercent(start)}%` }}
+          className="absolute top-1/2 z-20 h-4 w-4 border border-black bg-white disabled:cursor-default"
+          style={{
+            left: `${toPercent(start)}%`,
+            transform: `translate(${start === 0 ? '0' : start === 360 ? '-100%' : '-50%'}, -50%)`,
+          }}
           onPointerDown={(event) => beginHandleDrag('start-handle', event)}
           disabled={disabled}
           aria-label="Hue range start"
         />
         <button
           type="button"
-          className="absolute top-1/2 z-20 h-4 w-4 -translate-x-1/2 -translate-y-1/2 border border-black bg-white disabled:cursor-default"
-          style={{ left: `${toPercent(end)}%` }}
+          className="absolute top-1/2 z-20 h-4 w-4 border border-black bg-white disabled:cursor-default"
+          style={{
+            left: `${toPercent(end)}%`,
+            transform: `translate(${end === 0 ? '0' : end === 360 ? '-100%' : '-50%'}, -50%)`,
+          }}
           onPointerDown={(event) => beginHandleDrag('end-handle', event)}
           disabled={disabled}
           aria-label="Hue range end"
