@@ -2,9 +2,9 @@ name: Build Vessel Static Export
 
 on:
   pull_request:
-    branches: [ main, master, poc1 ]
+    branches: [main, master, poc1]
   push:
-    branches: [ main, master, poc1 ]
+    branches: [main, master, poc1]
   workflow_dispatch:
 
 permissions:
@@ -12,11 +12,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: "vessel-static-export"
-  cancel-in-progress: false
+  group: vessel-static-export-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  quality:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -28,7 +28,7 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
 
       - name: Resolve last successful Vessel export baseline
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -53,7 +53,7 @@ jobs:
           fi
           echo "PLAYBACK_GUARD_BASE_SHA=${base_sha}" >> "${GITHUB_ENV}"
           echo "Playback guard will inspect ${base_sha}...${GITHUB_SHA}"
-          
+
       - name: Install dependencies
         run: npm ci
 
@@ -81,20 +81,80 @@ jobs:
       - name: Check playback-sensitive change gates
         run: npm run verify:cc-render-gate
 
+      - name: Run quality and type checks
+        run: npm run verify:deploy:preflight
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run full Jest suite
+        run: npm test -- --maxWorkers=2
+
+  gpu-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run shared deployment verification
-        run: npm run verify:deploy
-        
+      - name: Run rendered CPU/GPU parity
+        run: npm run test:cc-runtime-gpu-parity
+
+  static-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build verified static export
+        env:
+          VESSEL_VERIFIED_BUILD: '1'
+        run: npm run build:github
+
       - name: Upload static export artifact
         uses: actions/upload-artifact@v7
         with:
           name: vessel-static-export
           path: ./out
 
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [quality, unit-tests, gpu-parity, static-export]
+    runs-on: ubuntu-latest
+    steps:
       - name: Trigger website Vessel sync
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           WEBSITE_DEPLOY_TOKEN: ${{ secrets.WEBSITE_DEPLOY_TOKEN }}
           VESSEL_SHA: ${{ github.sha }}

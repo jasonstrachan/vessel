@@ -117,13 +117,15 @@ The current public deployment target is `https://jasonstrachan.com/vessel/`.
 
 Pushes to `main` build the static export and then dispatch the
 `vessel-static-export` workflow in `jasonstrachan/jasonstrachan.com`. That
-website workflow rebuilds this repo at the exact pushed SHA, runs the website
-repo's `npm run vessel:sync`, verifies the website build, and commits only
-`public/vessel`.
+website workflow verifies the source run, downloads its immutable static-export
+artifact, runs the website repo's `npm run vessel:sync`, verifies the website
+build, and commits only `public/vessel`. Manual website releases retain a
+slower ref-based rebuild fallback.
 
 The playback guard compares `main` against the last successful Vessel export,
 so changes from a failed deployment remain in scope on the next push. Install
-the repository pre-push guard once per checkout to run the same contract check
+the repository pre-push guard once per checkout to run the same contract check,
+the Jest tests related to changed source files, and the deployment preflight
 against the remote branch before GitHub accepts the push:
 
 ```bash

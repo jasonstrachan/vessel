@@ -14,6 +14,17 @@ run_deploy_preflight() {
   fi
 }
 
+run_related_tests() {
+  base_sha="$1"
+  local_sha="$2"
+
+  if command -v mise >/dev/null 2>&1; then
+    mise exec node@22.22.0 -- node scripts/run-related-tests.mjs --base "${base_sha}" --head "${local_sha}"
+  else
+    node scripts/run-related-tests.mjs --base "${base_sha}" --head "${local_sha}"
+  fi
+}
+
 while read -r local_ref local_sha remote_ref remote_sha; do
   case "${remote_ref}" in
     refs/heads/*) ;;
@@ -36,6 +47,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   echo "[pre-push] Checking playback contracts for ${base_sha}...${local_sha}"
   node scripts/check-playback-change-gates.mjs --base "${base_sha}"
+
+  echo "[pre-push] Running tests related to ${base_sha}...${local_sha}"
+  run_related_tests "${base_sha}" "${local_sha}"
 
   if [ "${remote_ref}" = "refs/heads/main" ] && [ "${deploy_preflight_ran}" = "false" ]; then
     echo "[pre-push] Running the shared deployment preflight for main"

@@ -9,6 +9,7 @@ export interface VesselNextBuildMode {
 export interface VesselNextBuildEnv {
   NODE_ENV?: string;
   VESSEL_STATIC_EXPORT?: string;
+  VESSEL_VERIFIED_BUILD?: string;
   NEXT_DIST_DIR?: string;
 }
 
@@ -30,9 +31,18 @@ export const buildVesselNextConfig = (
   env: VesselNextBuildEnv = process.env,
 ): NextConfig => {
   const { isStaticExport, distDir } = resolveVesselNextBuildMode(env);
+  const isExternallyVerifiedBuild = env.VESSEL_VERIFIED_BUILD === '1';
 
   return {
     distDir,
+    ...(isExternallyVerifiedBuild && {
+      eslint: {
+        ignoreDuringBuilds: true,
+      },
+      typescript: {
+        ignoreBuildErrors: true,
+      },
+    }),
     // Only use static export config for wrapper-owned export builds.
     ...(isStaticExport && {
       output: 'export',
@@ -49,7 +59,7 @@ export const buildVesselNextConfig = (
     },
 
     // Ensure proper development server configuration
-    webpack: (config, { dev, isServer }) => {
+    webpack: (config, { dev }) => {
       if (dev) {
         // WSL2-optimized watch configuration to prevent cache corruption
         config.watchOptions = {
