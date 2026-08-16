@@ -56,22 +56,6 @@ const colorKeyAt = (imageData: ImageData, x: number, y: number): string => {
   return `${imageData.data[index]},${imageData.data[index + 1]},${imageData.data[index + 2]}`;
 };
 
-const countVerticalTriples = (imageData: ImageData): number => {
-  let count = 0;
-  for (let y = 0; y < imageData.height - 2; y += 1) {
-    for (let x = 0; x < imageData.width; x += 1) {
-      const key = colorKeyAt(imageData, x, y);
-      if (
-        key === colorKeyAt(imageData, x, y + 1) &&
-        key === colorKeyAt(imageData, x, y + 2)
-      ) {
-        count += 1;
-      }
-    }
-  }
-  return count;
-};
-
 const countChangedPixels = (left: ImageData, right: ImageData): number => {
   let count = 0;
   for (let index = 0; index < left.data.length; index += 4) {
@@ -111,17 +95,23 @@ describe('regularDitherVariety', () => {
     }).seed);
   });
 
-  it('uses the shared four-row Sierra interruption at zero Variety', () => {
+  it('uses the shared registered Sierra interruption at zero Variety', () => {
     const output = render(0);
-    const lowInk = colorKeyAt(output, 0, 0);
+    const inkKeys = Array.from(new Set([
+      colorKeyAt(output, 0, 0),
+      colorKeyAt(output, 1, 0),
+    ])).sort((left, right) => {
+      const sum = (key: string) => key.split(',').reduce((total, value) => total + Number(value), 0);
+      return sum(left) - sum(right);
+    });
+    const highInk = inkKeys[1];
     const actual = new Uint8Array(output.width * output.height);
     for (let y = 0; y < output.height; y += 1) {
       for (let x = 0; x < output.width; x += 1) {
-        actual[y * output.width + x] = colorKeyAt(output, x, y) === lowInk ? 0 : 1;
+        actual[y * output.width + x] = colorKeyAt(output, x, y) === highInk ? 1 : 0;
       }
     }
 
-    expect(countVerticalTriples(output)).toBeGreaterThan(0);
     expect(actual).toEqual(resolveSierraLiteBinaryField({
       width: output.width,
       height: output.height,
@@ -130,15 +120,13 @@ describe('regularDitherVariety', () => {
     }));
   });
 
-  it('adds deterministic Sierra vertical runs as Variety increases', () => {
+  it('switches from the registered zero pattern to canonical Sierra above zero', () => {
     const neutral = render(0);
     const medium = render(50);
     const full = render(100);
 
     expect(Array.from(medium.data)).not.toEqual(Array.from(neutral.data));
-    expect(Array.from(full.data)).not.toEqual(Array.from(medium.data));
-    expect(countVerticalTriples(medium)).toBeGreaterThan(0);
-    expect(countVerticalTriples(full)).toBeGreaterThan(0);
+    expect(Array.from(full.data)).toEqual(Array.from(medium.data));
     expect(countChangedPixels(neutral, medium)).toBeGreaterThan(neutral.width * neutral.height * 0.1);
     expect(countChangedPixels(neutral, full)).toBeGreaterThan(neutral.width * neutral.height * 0.1);
   });

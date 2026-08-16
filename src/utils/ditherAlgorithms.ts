@@ -3,10 +3,7 @@
  * Implements Floyd-Steinberg and Bayer matrix dithering with pressure control
  */
 
-import {
-  createSierraLiteVarietyResolver,
-  resolveSierraLiteBinaryField,
-} from '@/lib/colorCycle/gobletPlaybackMath';
+import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import { debugWarn } from '@/utils/debug';
 import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
@@ -225,8 +222,6 @@ export interface DitherSettings {
   imageTileThresholdResolver?: (x: number, y: number) => number | null;
   sierraLiteVariety?: { diversity: number; seed: number };
 }
-
-const SIERRA_LITE_REGULAR_VARIETY_SCALE = 0.5;
 
 const mod = (value: number, modulo: number) => ((value % modulo) + modulo) % modulo;
 const hashCell = (x: number, y: number) => ((x * 73856093) ^ (y * 19349663)) >>> 0;
@@ -818,8 +813,9 @@ export const applyVoidAndClusterDither = (
 export const applySierraLitePressureDither = (
   imageData: ImageData,
   settings: DitherSettings,
-  serpentine: boolean = true
+  _serpentine: boolean = true,
 ): ImageData => {
+  void _serpentine;
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
@@ -834,7 +830,7 @@ export const applySierraLitePressureDither = (
   const highInkKey = Math.round(0.2126 * highInk[0] + 0.7152 * highInk[1] + 0.0722 * highInk[2]);
   const varietyStrength = Math.max(0, Math.min(1, settings.sierraLiteVariety?.diversity ?? 0));
 
-  if (varietyStrength === 0 && paletteByLuminance.length === 2) {
+  if (paletteByLuminance.length === 2) {
     const mixField = new Float32Array(width * height);
     const redRange = highInk[0] - lowInk[0];
     const greenRange = highInk[1] - lowInk[1];
@@ -857,9 +853,10 @@ export const applySierraLitePressureDither = (
       mix: 0.5,
       phaseX: settings.phaseOffset?.x ?? 0,
       phaseY: settings.phaseOffset?.y ?? 0,
+      seed: settings.sierraLiteVariety?.seed ?? 0,
       lowKey: lowInkKey,
       highKey: highInkKey,
-      diversity: 0,
+      diversity: varietyStrength,
       mixField,
     });
     for (let index = 0; index < bits.length; index += 1) {
@@ -875,27 +872,11 @@ export const applySierraLitePressureDither = (
     return new ImageData(data, width, height);
   }
 
-  const variety = createSierraLiteVarietyResolver({
-    mix: 0.5,
-    seed: settings.sierraLiteVariety?.seed ?? 0,
-    phaseX: settings.phaseOffset?.x ?? 0,
-    phaseY: settings.phaseOffset?.y ?? 0,
-    lowKey: lowInkKey,
-    highKey: highInkKey,
-    diversity: settings.sierraLiteVariety?.diversity ?? 0,
-  });
-
   // Pressure affects error diffusion intensity
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
-  const useSerpentine = serpentine && varietyStrength > 0;
 
   for (let y = 0; y < height; y++) {
-    const leftToRight = useSerpentine ? (y & 1) === 0 : true;
-    const xStart = leftToRight ? 0 : width - 1;
-    const xEnd = leftToRight ? width : -1;
-    const xStep = leftToRight ? 1 : -1;
-
-    for (let x = xStart; x !== xEnd; x += xStep) {
+    for (let x = 0; x < width; x += 1) {
       const idx = (y * width + x) * 4;
 
       // Transparent padding is outside the shape and must not seed diffusion.
@@ -903,30 +884,9 @@ export const applySierraLitePressureDither = (
         continue;
       }
 
-      const patternError =
-        variety.resolveClassic(x, y) +
-        variety.resolveVariation(x, y) * varietyStrength;
-      const oldR = Math.max(
-        0,
-        Math.min(
-          255,
-          data[idx] + patternError * (highInk[0] - lowInk[0]) * SIERRA_LITE_REGULAR_VARIETY_SCALE,
-        ),
-      );
-      const oldG = Math.max(
-        0,
-        Math.min(
-          255,
-          data[idx + 1] + patternError * (highInk[1] - lowInk[1]) * SIERRA_LITE_REGULAR_VARIETY_SCALE,
-        ),
-      );
-      const oldB = Math.max(
-        0,
-        Math.min(
-          255,
-          data[idx + 2] + patternError * (highInk[2] - lowInk[2]) * SIERRA_LITE_REGULAR_VARIETY_SCALE,
-        ),
-      );
+      const oldR = data[idx];
+      const oldG = data[idx + 1];
+      const oldB = data[idx + 2];
 
       // Quantize to nearest palette color
       const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
@@ -941,46 +901,22 @@ export const applySierraLitePressureDither = (
       data[idx + 1] = newG;
       data[idx + 2] = newB;
 
-      // Distribute error using Sierra Lite weights (mirrored on odd rows)
-      if (leftToRight) {
-        // Right pixel (2/4)
-        if (x < width - 1) {
-          const rightIdx = (y * width + (x + 1)) * 4;
-          if (data[rightIdx + 3] !== 0) {
-            data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + (errorR * 2) / 4));
-            data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + (errorG * 2) / 4));
-            data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + (errorB * 2) / 4));
-          }
+      // Distribute error using the canonical Sierra Lite raster kernel.
+      if (x < width - 1) {
+        const rightIdx = (y * width + (x + 1)) * 4;
+        if (data[rightIdx + 3] !== 0) {
+          data[rightIdx] = Math.max(0, Math.min(255, data[rightIdx] + (errorR * 2) / 4));
+          data[rightIdx + 1] = Math.max(0, Math.min(255, data[rightIdx + 1] + (errorG * 2) / 4));
+          data[rightIdx + 2] = Math.max(0, Math.min(255, data[rightIdx + 2] + (errorB * 2) / 4));
         }
+      }
 
-        // Bottom-left pixel (1/4)
-        if (y < height - 1 && x > 0) {
-          const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
-          if (data[bottomLeftIdx + 3] !== 0) {
-            data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR / 4));
-            data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG / 4));
-            data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB / 4));
-          }
-        }
-      } else {
-        // Left pixel (2/4) when scanning right-to-left
-        if (x > 0) {
-          const leftIdx = (y * width + (x - 1)) * 4;
-          if (data[leftIdx + 3] !== 0) {
-            data[leftIdx] = Math.max(0, Math.min(255, data[leftIdx] + (errorR * 2) / 4));
-            data[leftIdx + 1] = Math.max(0, Math.min(255, data[leftIdx + 1] + (errorG * 2) / 4));
-            data[leftIdx + 2] = Math.max(0, Math.min(255, data[leftIdx + 2] + (errorB * 2) / 4));
-          }
-        }
-
-        // Bottom-right pixel (1/4)
-        if (y < height - 1 && x < width - 1) {
-          const bottomRightIdx = ((y + 1) * width + (x + 1)) * 4;
-          if (data[bottomRightIdx + 3] !== 0) {
-            data[bottomRightIdx] = Math.max(0, Math.min(255, data[bottomRightIdx] + errorR / 4));
-            data[bottomRightIdx + 1] = Math.max(0, Math.min(255, data[bottomRightIdx + 1] + errorG / 4));
-            data[bottomRightIdx + 2] = Math.max(0, Math.min(255, data[bottomRightIdx + 2] + errorB / 4));
-          }
+      if (y < height - 1 && x > 0) {
+        const bottomLeftIdx = ((y + 1) * width + (x - 1)) * 4;
+        if (data[bottomLeftIdx + 3] !== 0) {
+          data[bottomLeftIdx] = Math.max(0, Math.min(255, data[bottomLeftIdx] + errorR / 4));
+          data[bottomLeftIdx + 1] = Math.max(0, Math.min(255, data[bottomLeftIdx + 1] + errorG / 4));
+          data[bottomLeftIdx + 2] = Math.max(0, Math.min(255, data[bottomLeftIdx + 2] + errorB / 4));
         }
       }
 
@@ -1144,7 +1080,7 @@ export const applySierraLiteLostEdgeMask = (
       if (dist <= effectiveFadeZone) {
         const fade = Math.min(1, Math.max(0, (dist - 1) / effectiveFadeZone));
         const edgeWeight = Math.pow(1 - fade, 1.75);
-        const erosion = Math.min(0.72, Math.pow(intensity, 0.25) * edgeWeight);
+        const erosion = Math.min(0.72, Math.pow(intensity, 0.35) * edgeWeight);
         const value = Math.max(0, Math.min(255, Math.round(255 * (1 - erosion))));
         edgeData[rgbaIndex] = value;
         edgeData[rgbaIndex + 1] = value;

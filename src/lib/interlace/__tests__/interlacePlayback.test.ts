@@ -80,7 +80,7 @@ describe('Interlace Sierra Lite playback', () => {
     expect(high.every((value) => value === 1)).toBe(true);
   });
 
-  it('produces the exact seed-free four-row interruption at zero Variety', () => {
+  it('produces the exact seed-free registered interruption at zero Variety', () => {
     const width = 64;
     const height = 64;
     const field = resolveSierraLiteBinaryField({
@@ -91,7 +91,12 @@ describe('Interlace Sierra Lite playback', () => {
       diversity: 0,
     });
 
-    const rowPhases = [0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1];
+    const rowPhases = [
+      1, 1, 0, 1,
+      0, 1, 1, 0,
+      1, 1, 0, 1,
+      1, 0, 1, 0,
+    ];
     const expected = new Uint8Array(width * height);
     for (let y = 0; y < height; y += 1) {
       for (let x = 0; x < width; x += 1) {
@@ -107,6 +112,50 @@ describe('Interlace Sierra Lite playback', () => {
       seed: 101,
       diversity: 0,
     }));
+  });
+
+  it('preserves the requested tone at every positive Variety', () => {
+    const width = 128;
+    const height = 128;
+    const render = (mix: number, diversity: number) => resolveSierraLiteBinaryField({
+      width,
+      height,
+      mix,
+      seed: 8128,
+      diversity,
+    });
+    const occupancy = (field: Uint8Array) =>
+      field.reduce((sum, bit) => sum + bit, 0) / field.length;
+
+    const lowNearZero = render(0.25, 0.01);
+    const lowFull = render(0.25, 1);
+    const highNearZero = render(0.75, 0.01);
+    const highFull = render(0.75, 1);
+
+    expect(lowNearZero).toEqual(lowFull);
+    expect(highNearZero).toEqual(highFull);
+    expect(occupancy(lowFull)).toBeCloseTo(0.25, 2);
+    expect(occupancy(highFull)).toBeCloseTo(0.75, 2);
+  });
+
+  it('uses the canonical Sierra Lite raster kernel above zero Variety', () => {
+    const field = resolveSierraLiteBinaryField({
+      width: 8,
+      height: 8,
+      mix: 0.37,
+      diversity: 1,
+    });
+
+    expect(field).toEqual(new Uint8Array([
+      0, 1, 0, 0, 1, 0, 0, 1,
+      0, 0, 1, 0, 0, 1, 0, 0,
+      1, 0, 0, 1, 0, 1, 0, 1,
+      0, 1, 0, 1, 0, 0, 1, 0,
+      0, 1, 0, 0, 1, 0, 0, 1,
+      0, 0, 1, 0, 0, 1, 0, 0,
+      1, 0, 0, 1, 0, 0, 1, 0,
+      0, 1, 0, 1, 0, 1, 0, 1,
+    ]));
   });
 
   it('turns dominance into pulse width while keeping the lattice anchored', () => {

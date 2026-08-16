@@ -1314,7 +1314,7 @@ describe('fillCcGradientDither', () => {
     expect(Array.from(low)).not.toEqual(Array.from(high));
   });
 
-  it('varies Sierra Lite flat arrangement when flatSeed changes', async () => {
+  it('keeps canonical Sierra Lite independent of the legacy flat seed', async () => {
     const width = 12;
     const height = 12;
     const run = async (flatSeed: number) => {
@@ -1352,7 +1352,7 @@ describe('fillCcGradientDither', () => {
     expect(valuesA).toHaveLength(2);
     expect(valuesB).toHaveLength(2);
     expect(valuesA).toEqual(valuesB);
-    expect(Array.from(seedA)).not.toEqual(Array.from(seedB));
+    expect(Array.from(seedA)).toEqual(Array.from(seedB));
   });
 
   it('derives sampled-flat Sierra pattern identity from pair and mix instead of legacy band', async () => {
@@ -1550,7 +1550,7 @@ describe('fillCcGradientDither', () => {
     const fullDiversity = run(100);
 
     expect(lowDiversity.output).not.toEqual(zeroDiversity.output);
-    expect(fullDiversity.output).not.toEqual(lowDiversity.output);
+    expect(fullDiversity.output).toEqual(lowDiversity.output);
     expect(zeroDiversity.highCount).toBe(128);
     expect(lowDiversity.highCount).toBeGreaterThan(zeroDiversity.highCount);
     expect(fullDiversity.highCount).toBeGreaterThan(zeroDiversity.highCount);
@@ -2140,28 +2140,9 @@ describe('fillCcGradientDither flat-cycle mode', () => {
       mix: 0.5,
       diversity: 0,
     });
-    const countInteriorVerticalTriples = (output: Uint8Array) => {
-      let count = 0;
-      for (let y = 1; y < height - 3; y += 1) {
-        for (let x = 1; x < width - 1; x += 1) {
-          const value = output[y * width + x];
-          if (
-            value !== 0 &&
-            output[(y + 1) * width + x] === value &&
-            output[(y + 2) * width + x] === value
-          ) {
-            count += 1;
-          }
-        }
-      }
-      return count;
-    };
-
     expect(full).toEqual(await render(100));
     expect(zero).toEqual(await render(0, 101));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
-    expect(countInteriorVerticalTriples(zero)).toBeGreaterThan(0);
-    expect(countInteriorVerticalTriples(full)).toBeGreaterThan(0);
     for (let x = 1; x < width - 1; x += 1) {
       const valueByBit = new Map<number, number>();
       for (let y = 1; y < height - 1; y += 1) {

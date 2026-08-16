@@ -28,7 +28,7 @@ describe('strokeStampDither', () => {
     };
   };
 
-  it('uses the shared four-row Sierra interruption at zero Variety and varies it deterministically', () => {
+  it('uses the shared registered Sierra interruption at zero Variety and canonical Sierra above zero', () => {
     const runtime = createStampDitherRuntime(0);
     const tileSize = 64;
     const build = (diversity: number) => getStampDitherTile(
@@ -43,22 +43,6 @@ describe('strokeStampDither', () => {
     );
     const zero = build(0);
     const full = build(1);
-    const countVerticalTriples = (tile: Uint8Array) => {
-      let count = 0;
-      for (let y = 0; y < tileSize - 2; y += 1) {
-        for (let x = 0; x < tileSize; x += 1) {
-          const value = tile[y * tileSize + x];
-          if (
-            tile[(y + 1) * tileSize + x] === value &&
-            tile[(y + 2) * tileSize + x] === value
-          ) {
-            count += 1;
-          }
-        }
-      }
-      return count;
-    };
-
     expect(full).toEqual(build(1));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
     const expected = resolveSierraLiteBinaryField({
@@ -68,8 +52,6 @@ describe('strokeStampDither', () => {
       diversity: 0,
     });
     expect(zero).toEqual(Uint8Array.from(expected, (bit) => bit === 1 ? 0 : 255));
-    expect(countVerticalTriples(zero)).toBeGreaterThan(0);
-    expect(countVerticalTriples(full)).toBeGreaterThan(0);
   });
 
   it('keeps zero-Variety CC stroke masks flat across seeds, colours, and stamp shapes', () => {

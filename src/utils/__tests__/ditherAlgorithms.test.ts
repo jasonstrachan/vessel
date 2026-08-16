@@ -460,6 +460,7 @@ describe('Dithering Algorithms', () => {
           [100, 100, 100],
           [200, 200, 200],
         ],
+        sierraLiteVariety: { diversity: 1, seed: 0 },
       });
 
       expect(Array.from(result.data.slice(0, 4))).toEqual([0, 0, 0, 0]);
@@ -525,6 +526,7 @@ describe('Dithering Algorithms', () => {
           ],
           pressure: 0.5,
           intensity: 1,
+          sierraLiteVariety: { diversity: 1, seed: 0 },
         }
       );
 
