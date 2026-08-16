@@ -9,6 +9,7 @@ import {
 } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import type { ColorCyclePaintMask } from '@/lib/colorCycle/document';
 import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
+import type { MaskManager } from '@/layers/MaskManager';
 
 export type ColorCycleStrokeCommitArgs = {
   isColorCycleLayer: boolean;
@@ -129,6 +130,7 @@ export type ClearColorCycleEraseMaskOptions = {
   alphaSource?: ColorCycleEraseMaskAlphaSource | null;
   alphaSourceBounds?: CaptureRegion | null;
   paintMask?: ColorCyclePaintMask | null;
+  maskManager?: Pick<MaskManager, 'clearPendingHealMask' | 'commitPendingHealMask'>;
 };
 
 const getSourceSize = (
@@ -278,6 +280,14 @@ export const clearColorCycleEraseMaskInRegion = (
   roi: CaptureRegion,
   options?: ClearColorCycleEraseMaskOptions
 ): void => {
+  let maskManager = options?.maskManager;
+  const resolveMaskManager = (): Pick<
+    MaskManager,
+    'clearPendingHealMask' | 'commitPendingHealMask'
+  > => {
+    maskManager ??= getMaskManager();
+    return maskManager;
+  };
   try {
     const st = storeRef.current;
     const freshLayer = st.layers.find((layer) => layer.id === layerId);
@@ -293,12 +303,17 @@ export const clearColorCycleEraseMaskInRegion = (
     if (!clamped) {
       return;
     }
+    try {
+      if (resolveMaskManager().commitPendingHealMask(layerId)) {
+        return;
+      }
+    } catch {}
     const clearedWithMask = clearEraseMaskWithPaintMask(eraseMaskCtx, clamped, options?.paintMask);
     const clearedWithAlpha = clearedWithMask
       ? true
       : clearEraseMaskWithAlphaSource(eraseMaskCtx, clamped, options);
     if (!clearedWithAlpha) {
-      eraseMaskCtx.clearRect(clamped.x, clamped.y, clamped.width, clamped.height);
+      return;
     }
     const nextVersion = (freshLayer?.colorCycleData?.eraseMaskVersion ?? 0) + 1;
     st.updateLayer(
@@ -313,7 +328,7 @@ export const clearColorCycleEraseMaskInRegion = (
   } catch {
   } finally {
     try {
-      getMaskManager().clearPendingHealMask(layerId);
+      resolveMaskManager().clearPendingHealMask(layerId);
     } catch {}
   }
 };

@@ -1,10 +1,11 @@
-import type { Layer } from '@/types';
-import { BrushShape } from '@/types';
-import type { MaskManager } from '@/layers/MaskManager';
-import type { EraseStrategy } from './types';
-import type { BrushStampSource } from '@/tools/stamps/BrushStampSource';
-import { applyPressureCurve } from '@/utils/pressureCurve';
+import { createPixelCircleStamp } from '@/hooks/brushEngine/brushStampController';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
+import type { MaskManager } from '@/layers/MaskManager';
+import type { BrushStampSource } from '@/tools/stamps/BrushStampSource';
+import { BrushShape, type Layer } from '@/types';
+import { applyPressureCurve } from '@/utils/pressureCurve';
+
+import type { EraseStrategy } from './types';
 
 type CanvasPoint = { x: number; y: number };
 
@@ -17,10 +18,30 @@ type BrushSnapshot = {
   customStamp?: CustomBrushStrokeData;
 };
 
+const DIAMOND_5_MASK: ReadonlyArray<number> = [
+  0, 0, 1, 0, 0,
+  0, 1, 1, 1, 0,
+  1, 1, 1, 1, 1,
+  0, 1, 1, 1, 0,
+  0, 0, 1, 0, 0,
+];
+
+export const resolveCCMaskEraserStampSize = (
+  requestedSize: number,
+  brushShape: BrushShape
+): number => {
+  const roundedSize = Math.max(1, Math.round(requestedSize));
+  if (brushShape === BrushShape.PIXEL_DITHER) {
+    return 5 * Math.max(1, Math.round(roundedSize / 5));
+  }
+  return roundedSize;
+};
+
 export class CCMaskEraseStrategy implements EraseStrategy {
   private ctx: CanvasRenderingContext2D | null = null;
   private overlayCtx: CanvasRenderingContext2D | null = null;
   private readonly stampCanvasCache = new WeakMap<ImageData, HTMLCanvasElement>();
+  private readonly pixelRoundStampCache = new Map<string, HTMLCanvasElement>();
 
   constructor(
     private readonly maskManager: MaskManager,
@@ -106,7 +127,7 @@ export class CCMaskEraseStrategy implements EraseStrategy {
       baseSize = baseSize * applyPressureCurve(pressure, minP, maxP, 's-curve');
     }
 
-    return Math.max(1, Math.round(baseSize));
+    return resolveCCMaskEraserStampSize(baseSize, snapshot.brushShape);
   }
 
   private interpolatePoints(from: CanvasPoint, to: CanvasPoint, size: number): CanvasPoint[] {
@@ -114,10 +135,13 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance === 0) {
+      return [{ ...to }];
+    }
     const step = Math.max(1, size * 0.45);
     const steps = Math.max(1, Math.ceil(distance / step));
-    for (let i = 0; i <= steps; i++) {
-      const t = steps === 0 ? 0 : i / steps;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
       points.push({
         x: from.x + dx * t,
         y: from.y + dy * t
@@ -152,7 +176,20 @@ export class CCMaskEraseStrategy implements EraseStrategy {
       return;
     }
 
-    if (snapshot.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) {
+    if (
+      snapshot.brushShape === BrushShape.PIXEL_ROUND ||
+      snapshot.brushShape === BrushShape.ROUND
+    ) {
+      this.drawRound(ctx, x, y, size);
+      if (overlayCtx) {
+        this.drawRound(overlayCtx, x, y, size);
+      }
+    } else if (snapshot.brushShape === BrushShape.PIXEL_DITHER) {
+      this.drawDiamond5(ctx, x, y, size);
+      if (overlayCtx) {
+        this.drawDiamond5(overlayCtx, x, y, size);
+      }
+    } else if (snapshot.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) {
       this.drawTriangle(ctx, x, y, size);
       if (overlayCtx) {
         this.drawTriangle(overlayCtx, x, y, size);
@@ -170,6 +207,41 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     const left = Math.round(cx - half);
     const top = Math.round(cy - half);
     ctx.fillRect(left, top, size, size);
+  }
+
+  private drawRound(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    const stampSize = Math.max(1, Math.round(size));
+    const stamp = createPixelCircleStamp({
+      size: stampSize,
+      brushStampCache: this.pixelRoundStampCache,
+    });
+    ctx.drawImage(
+      stamp,
+      Math.round(cx - stampSize / 2),
+      Math.round(cy - stampSize / 2)
+    );
+  }
+
+  private drawDiamond5(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {
+    const gridSize = 5;
+    const pixelScale = Math.max(1, Math.round(size / gridSize));
+    const stampSize = gridSize * pixelScale;
+    const originX = Math.round(cx - stampSize / 2);
+    const originY = Math.round(cy - stampSize / 2);
+
+    for (let row = 0; row < gridSize; row += 1) {
+      for (let col = 0; col < gridSize; col += 1) {
+        if (DIAMOND_5_MASK[row * gridSize + col] === 0) {
+          continue;
+        }
+        ctx.fillRect(
+          originX + col * pixelScale,
+          originY + row * pixelScale,
+          pixelScale,
+          pixelScale
+        );
+      }
+    }
   }
 
   private drawTriangle(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number): void {

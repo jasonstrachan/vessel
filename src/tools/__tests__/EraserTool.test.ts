@@ -57,4 +57,53 @@ describe('EraserTool', () => {
     expect(overlayFillRectSpy).toHaveBeenCalled();
     expect(tool.getROI()).toEqual({ x: 2, y: 4, width: 16, height: 16 });
   });
+
+  it('includes the full minimum Diamond5 stamp in the history ROI', () => {
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = 24;
+    overlayCanvas.height = 24;
+    const overlayCtx = overlayCanvas.getContext('2d', { willReadFrequently: true });
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = 24;
+    maskCanvas.height = 24;
+    const layer: Layer = {
+      id: 'layer-cc',
+      name: 'CC',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: maskCanvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'color-cycle',
+      colorCycleData: {
+        canvas: maskCanvas,
+        hasContent: true,
+        gradient: [],
+      },
+    };
+    expect(overlayCtx).not.toBeNull();
+    const tool = new EraserTool(layer, { opacity: 1 }, {
+      overlayCtx: overlayCtx!,
+      maskManager: {
+        getMask: jest.fn(() => maskCanvas),
+        bumpVersion: jest.fn(),
+      } as unknown as MaskManager,
+      createStampSource: jest.fn() as unknown as () => BrushStampSource,
+      brushHalfSize: () => 0.5,
+      getBrushSettings: () => ({
+        size: 1,
+        pressureEnabled: false,
+        minPressure: 0,
+        maxPressure: 1,
+        brushShape: BrushShape.PIXEL_DITHER,
+      }),
+    });
+
+    tool.begin({ x: 10, y: 10 }, 1);
+
+    expect(tool.getROI()).toEqual({ x: 5, y: 5, width: 10, height: 10 });
+  });
 });

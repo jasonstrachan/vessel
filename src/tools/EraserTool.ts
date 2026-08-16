@@ -4,7 +4,10 @@ import { ROITracker, type ROI } from '@/utils/ROITracker';
 import type { MaskManager } from '@/layers/MaskManager';
 import type { BrushStampSource } from './stamps/BrushStampSource';
 import { RasterEraseStrategy } from './strategies/RasterEraseStrategy';
-import { CCMaskEraseStrategy } from './strategies/CCMaskEraseStrategy';
+import {
+  CCMaskEraseStrategy,
+  resolveCCMaskEraserStampSize,
+} from './strategies/CCMaskEraseStrategy';
 import type { EraseStrategy } from './strategies/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 
@@ -133,6 +136,8 @@ export class EraserTool implements StrokeTool {
       const pressureScale = Math.max(1, (snapshot.maxPressure ?? 200) / 100);
       size *= pressureScale;
     }
+
+    size = resolveCCMaskEraserStampSize(size, snapshot.brushShape);
 
     const brushPadding = Math.ceil(size / 2) + ROI_PADDING;
     return Math.max(basePadding, brushPadding);
