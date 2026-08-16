@@ -24,6 +24,7 @@ import {
   recordLayerActivationRestoreFailure,
   summarizeLayerForActivationDebug,
 } from '@/stores/layers/layerActivationActions';
+import { createLayerAdjustmentActions } from '@/stores/layers/layerAdjustmentActions';
 import { createLayerCollectionActions } from '@/stores/layers/layerCollectionActions';
 import { createLayerColorCycleEditActions } from '@/stores/layers/layerColorCycleEditActions';
 import { createLayerColorCycleLifecycleActions } from '@/stores/layers/layerColorCycleLifecycleActions';
@@ -188,6 +189,12 @@ export const createLayersSlice = (
       trackLayerChanges,
       getVesselWindow,
     });
+    const layerAdjustmentActions = createLayerAdjustmentActions({
+      set,
+      get,
+      captureLayerStructureSnapshot,
+      commitLayerStructureHistory,
+    });
     const layerCollectionActions = createLayerCollectionActions({
       set,
       get,
@@ -232,6 +239,7 @@ export const createLayersSlice = (
       currentLayer: 0,
       ...layerDuplicateActions,
       ...layerUpdateActions,
+      ...layerAdjustmentActions,
       ...layerColorCycleSlotActions,
       createLayerGroupFromSelection: (layerIds) =>
         createLayerGroupFromSelectionAction(layerIds, layerGroupActionDeps),

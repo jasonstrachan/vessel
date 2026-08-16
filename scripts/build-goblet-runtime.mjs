@@ -100,6 +100,7 @@ const buildInlineDisplayFilterRuntime = (pipelineJs) => {
     'ensureDisplayNoiseOverlay',
     'applyDisplayNoiseOverlay',
     'applyDisplayFilterStack',
+    'applyAdjustmentEffect',
   ];
   const exportList = exports.join(', ');
   return `const { ${exportList} } = (() => {\n${sanitized}\nreturn { ${exportList} };\n})();`;

@@ -220,7 +220,7 @@ export const createLayerUpdateActions = ({
 
     // Check if visual properties changed that require recomposition
     const needsRecomposition = 'visible' in updates || 'opacity' in updates || 'blendMode' in updates ||
-                               'colorCycleData' in updates || 'layerType' in updates;
+                               'colorCycleData' in updates || 'adjustmentData' in updates || 'layerType' in updates;
     if (needsRecomposition) {
       // Visual property changed - triggering recomposition
     }

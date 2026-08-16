@@ -5,6 +5,7 @@ import * as React from 'react';
 interface HueRangeStripProps {
   value: [number, number];
   onValueChange: (value: [number, number]) => void;
+  onCommit?: () => void;
   'aria-label'?: string;
   disabled?: boolean;
 }
@@ -40,6 +41,7 @@ const toPercent = (value: number): number => (normalizeHue(value) / 360) * 100;
 export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
   value,
   onValueChange,
+  onCommit,
   disabled = false,
   'aria-label': ariaLabel = 'Target hue range',
 }) => {
@@ -122,6 +124,7 @@ export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
         return;
       }
       stopDrag();
+      onCommit?.();
     };
 
     window.addEventListener('pointermove', handlePointerMove, { passive: true });
@@ -133,7 +136,7 @@ export const HueRangeStrip: React.FC<HueRangeStripProps> = ({
       window.removeEventListener('pointerup', handlePointerEnd);
       window.removeEventListener('pointercancel', handlePointerEnd);
     };
-  }, [end, onValueChange, start, stopDrag, valueFromClientX]);
+  }, [end, onCommit, onValueChange, start, stopDrag, valueFromClientX]);
 
   const beginHandleDrag = React.useCallback((kind: DragState['kind'], event: React.PointerEvent<HTMLButtonElement>) => {
     if (disabled || kind === 'range') {

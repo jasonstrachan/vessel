@@ -8,6 +8,11 @@ import {
   type ColorCycleBrushManager,
 } from '@/stores/colorCycleBrushManager';
 import { prepareColorCycleCompositeSource } from '@/stores/layers/layerColorCycleMaskState';
+import {
+  createAdjustmentLayerCompositeCache,
+  hasVisibleAdjustmentLayers,
+  renderAdjustmentAwareLayerStack,
+} from '@/stores/layers/adjustmentLayerCompositor';
 import type { Layer, Project } from '@/types';
 import { logError } from '@/utils/debug';
 
@@ -25,6 +30,7 @@ export const createLayerCompositeDrawing = ({
   createLayerTransferCanvas,
   hasValidFramebuffer,
 }: LayerCompositeDrawingDeps) => {
+    const adjustmentCompositeCache = createAdjustmentLayerCompositeCache();
     const drawStaticLayers = (
       ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
       sortedLayers: Layer[],
@@ -66,6 +72,7 @@ export const createLayerCompositeDrawing = ({
       for (const layer of sortedLayers) {
         if (
           !layer.visible ||
+          layer.layerType === 'adjustment' ||
           layer.layerType === 'color-cycle' ||
           layer.layerType === 'sequential' ||
           (layer.groupId ? interlaceGroupIds.has(layer.groupId) : false)
@@ -169,6 +176,108 @@ export const createLayerCompositeDrawing = ({
           : null;
       };
 
+      const drawLayerToContext = (
+        targetContext: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+        layer: Layer,
+      ): void => {
+        if (layer.layerType === 'sequential' && layer.sequentialData) {
+          const source = getSequentialLayerRenderCanvas({
+            layer,
+            width: project.width,
+            height: project.height,
+            frameIndex,
+          });
+          if (!source) return;
+          try {
+            targetContext.globalCompositeOperation = layer.blendMode;
+            targetContext.globalAlpha = layer.opacity;
+            targetContext.drawImage(source as CanvasImageSource, 0, 0);
+          } catch {
+            // ignore transient draw failures
+          }
+          return;
+        }
+
+        if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+          const canvas = layer.colorCycleData.canvas;
+          if (!canvas) return;
+          if (layer.colorCycleData.mode !== 'recolor') {
+            const brush = brushManager?.getSurfaceBrush(layer.id);
+            if (brush) {
+              try {
+                const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
+                const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
+                if (wantPlaying && !isPlaying) brush.startAnimation?.();
+                else if (!wantPlaying && isPlaying) brush.stopAnimation?.();
+                if (wantPlaying) brush.updateAnimation?.();
+                brush.renderDirectToCanvas?.(canvas, layer.id);
+              } catch (error) {
+                logError('[compose] CC advance/render failed', error);
+              }
+            }
+          }
+          const source = prepareColorCycleCompositeSource(layer, canvas, createLayerTransferCanvas);
+          try {
+            targetContext.globalCompositeOperation = layer.blendMode;
+            targetContext.globalAlpha = layer.opacity;
+            targetContext.drawImage(source, 0, 0);
+          } catch (error) {
+            logError('[compose] Layer compose error', error);
+          }
+          return;
+        }
+
+        let source: CanvasImageSource | null = null;
+        if (hasValidFramebuffer(layer.framebuffer)) {
+          source = layer.framebuffer as CanvasImageSource;
+        } else if (layer.imageData) {
+          const layerCanvas = createLayerTransferCanvas(layer.imageData.width, layer.imageData.height);
+          const layerContext = layerCanvas?.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings,
+          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          layerContext?.putImageData(layer.imageData, 0, 0);
+          source = layerCanvas as CanvasImageSource | null;
+        }
+        const liveOverlay = liveLayerOverlay?.layerId === layer.id ? liveLayerOverlay.canvas : null;
+        if (!source && !liveOverlay) return;
+        targetContext.globalCompositeOperation = layer.blendMode;
+        targetContext.globalAlpha = layer.opacity;
+        if (source && (!liveOverlay || liveLayerOverlay?.mode !== 'replace')) {
+          targetContext.drawImage(source, 0, 0);
+        }
+        if (liveOverlay) targetContext.drawImage(liveOverlay, 0, 0);
+      };
+
+      if (hasVisibleAdjustmentLayers(sortedLayers)) {
+        renderAdjustmentAwareLayerStack({
+          context: ctx,
+          sortedLayers,
+          layerGroups: project.layerGroups ?? [],
+          width: project.width,
+          height: project.height,
+          cache: adjustmentCompositeCache,
+          drawLayer: drawLayerToContext,
+          drawInterlaceGroup: (targetContext, group, members) => {
+            const sources = members
+              .map(resolveInterlaceSource)
+              .filter((source): source is InterlaceRenderSource => Boolean(source));
+            if (!group.interlace) return;
+            drawSierraLiteInterlace({
+              context: targetContext,
+              width: project.width,
+              height: project.height,
+              sources,
+              settings: group.interlace,
+              elapsedSeconds: getInterlaceElapsedSeconds(),
+            });
+          },
+        });
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+        return;
+      }
+
       for (const layer of sortedLayers) {
         if (!layer.visible) {
           continue;
@@ -194,98 +303,7 @@ export const createLayerCompositeDrawing = ({
           continue;
         }
 
-        if (layer.layerType === 'sequential' && layer.sequentialData) {
-          const source = getSequentialLayerRenderCanvas({
-            layer,
-            width: project.width,
-            height: project.height,
-            frameIndex,
-          });
-          if (!source) {
-            continue;
-          }
-
-          try {
-            ctx.globalCompositeOperation = layer.blendMode;
-            ctx.globalAlpha = layer.opacity;
-            ctx.drawImage(source as CanvasImageSource, 0, 0);
-          } catch {
-            // ignore transient draw failures
-          }
-          continue;
-        }
-
-        if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
-          const canvas = layer.colorCycleData.canvas;
-          if (!canvas) {
-            continue;
-          }
-
-        if (layer.colorCycleData.mode !== 'recolor') {
-            const brush = brushManager?.getSurfaceBrush(layer.id);
-            if (brush) {
-              try {
-                const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
-                const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
-                if (wantPlaying && !isPlaying) {
-                  brush.startAnimation?.();
-                } else if (!wantPlaying && isPlaying) {
-                  brush.stopAnimation?.();
-                }
-                if (wantPlaying) {
-                  brush.updateAnimation?.();
-                }
-                brush.renderDirectToCanvas?.(canvas, layer.id);
-              } catch (error) {
-                logError('[compose] CC advance/render failed', error);
-              }
-            }
-          }
-
-          const source = prepareColorCycleCompositeSource(layer, canvas, createLayerTransferCanvas);
-
-          try {
-            ctx.globalCompositeOperation = layer.blendMode;
-            ctx.globalAlpha = layer.opacity;
-            ctx.drawImage(source, 0, 0);
-          } catch (error) {
-            logError('[compose] Layer compose error', error);
-          }
-          continue;
-        }
-
-        let source: CanvasImageSource | null = null;
-        if (hasValidFramebuffer(layer.framebuffer)) {
-          source = layer.framebuffer as CanvasImageSource;
-        } else if (layer.imageData) {
-          const layerCanvas = createLayerTransferCanvas(layer.imageData.width, layer.imageData.height);
-          if (!layerCanvas) {
-            continue;
-          }
-          const layerCtx = layerCanvas.getContext(
-            '2d',
-            { willReadFrequently: true } as CanvasRenderingContext2DSettings
-          ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
-          if (!layerCtx) {
-            continue;
-          }
-          layerCtx.putImageData(layer.imageData, 0, 0);
-          source = layerCanvas as CanvasImageSource;
-        }
-
-        const liveOverlay = liveLayerOverlay?.layerId === layer.id
-          ? liveLayerOverlay.canvas
-          : null;
-        if (!source && !liveOverlay) {
-          continue;
-        }
-
-        ctx.globalCompositeOperation = layer.blendMode;
-        ctx.globalAlpha = layer.opacity;
-        if (source && (!liveOverlay || liveLayerOverlay?.mode !== 'replace')) {
-          ctx.drawImage(source, 0, 0);
-        }
-        if (liveOverlay) ctx.drawImage(liveOverlay, 0, 0);
+        drawLayerToContext(ctx, layer);
       }
 
       ctx.globalCompositeOperation = 'source-over';

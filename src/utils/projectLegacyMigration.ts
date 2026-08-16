@@ -44,7 +44,9 @@ export function migrateLegacyProjectLayers<TLayer extends LegacySerializedLayerL
     const inferredType = inferLegacyLayerType(layer);
     let result: LayerMigrationResult<TLayer>;
 
-    if (inferredType === 'color-cycle') {
+    if (inferredType === 'adjustment') {
+      result = { layer, repairs: [] };
+    } else if (inferredType === 'color-cycle') {
       result = migrateColorCycleLegacyLayer(layer, context);
     } else if (inferredType === 'sequential') {
       result = migrateSequentialLegacyLayer(layer, context);

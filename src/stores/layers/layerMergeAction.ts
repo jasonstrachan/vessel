@@ -116,6 +116,10 @@ export const mergeLayersAction = (
       return state;
     }
 
+    if (layersToMerge.some((layer) => layer.layerType === 'adjustment')) {
+      return state;
+    }
+
     const sortedByOrder = [...layersToMerge].sort((a, b) => a.order - b.order);
     const shouldMergeColorCycle = sortedByOrder.every(
       (layer) => layer.layerType === 'color-cycle' && Boolean(layer.colorCycleData),

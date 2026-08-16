@@ -1,6 +1,7 @@
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type { LayerTransform } from '@/utils/layerAlignment';
 import type {
+  AdjustmentLayerData,
   ContentBounds,
   DisplayFilterConfig,
   ExportContainerLayout,
@@ -271,6 +272,7 @@ export interface WebGLLayerMetadata {
   assets?: WebGLLayerAsset;
   colorCycle?: WebGLSerializedColorCycle;
   sequential?: WebGLSerializedSequential;
+  adjustment?: AdjustmentLayerData;
   stackIndex?: number;
   version?: number;
 }
@@ -295,6 +297,11 @@ export interface WebGLSerializedInterlaceGroup {
     loopDurationSeconds: number;
     seed: number;
   };
+}
+
+export interface WebGLSerializedAdjustmentGroup {
+  id: string;
+  layerIds: string[];
 }
 
 export interface WebGLExportMetadata {
@@ -329,6 +336,7 @@ export interface WebGLExportMetadata {
   };
   layers: WebGLLayerMetadata[];
   interlaceGroups?: WebGLSerializedInterlaceGroup[];
+  adjustmentGroups?: WebGLSerializedAdjustmentGroup[];
   gradients?: SerializedGradientStops[];
   preview?: {
     type: CanvasExportMimeType;

@@ -135,6 +135,52 @@ export const drawFloatingPastePixels = ({
   ctx.restore();
 };
 
+export const renderFloatingPasteLayerOverlay = ({
+  outputCanvasRef,
+  baseOverlay,
+  floatingPaste,
+  project,
+  pasteCanvasRef,
+  lastPasteInfoRef,
+  activeCanvasShape,
+  applyCanvasShapeClip,
+}: {
+  outputCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  baseOverlay?: HTMLCanvasElement | null;
+  floatingPaste: FloatingPasteStateLike;
+  project: { width: number; height: number };
+  pasteCanvasRef: DrawFloatingPastePixelsOptions['pasteCanvasRef'];
+  lastPasteInfoRef: DrawFloatingPastePixelsOptions['lastPasteInfoRef'];
+  activeCanvasShape: CanvasShape | null;
+  applyCanvasShapeClip: DrawFloatingPastePixelsOptions['applyCanvasShapeClip'];
+}): HTMLCanvasElement | null => {
+  if (!floatingPaste.imageData) return null;
+  const canvas = outputCanvasRef.current ?? document.createElement('canvas');
+  canvas.width = project.width;
+  canvas.height = project.height;
+  outputCanvasRef.current = canvas;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  if (!context) return null;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  if (baseOverlay) context.drawImage(baseOverlay, 0, 0);
+  drawFloatingPastePixels({
+    ctx: context,
+    floatingPaste,
+    project,
+    layerOpacity: 1,
+    layerBlendMode: 'source-over',
+    contextIsWorldTransformed: true,
+    scale: 1,
+    offsetX: 0,
+    offsetY: 0,
+    pasteCanvasRef,
+    lastPasteInfoRef,
+    activeCanvasShape,
+    applyCanvasShapeClip,
+  });
+  return canvas;
+};
+
 export const drawFloatingPasteMarquee = ({
   ctx,
   floatingPaste,

@@ -1,21 +1,26 @@
 'use client';
 
-import { getAppStoreState } from '@/stores/appStoreAccess';
 import React from 'react';
 import { ChevronRight, Eye, EyeOff, LoaderCircle, Plus } from 'lucide-react';
-import { useAppStore } from '@/stores/useAppStore';
-import {
-  selectLayers,
-  selectActiveLayerId,
-  selectLayerGroups,
-  selectSelectedLayerIds,
-} from '@/stores/selectors/layersSelectors';
-import { getStoreDestinationForDisplayBoundary } from '@/stores/layers/layerCrudService';
-import { BrushShape, Layer } from '@/types';
-import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+
 import { LayerColorSwatches } from '@/components/MinimalLayerList';
 import ProgressSlider from '@/components/ui/ProgressSlider';
+import {
+  ADJUSTMENT_EFFECT_LABELS,
+  createDefaultAdjustmentEffect,
+} from '@/lib/adjustmentLayers';
 import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
+import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getStoreDestinationForDisplayBoundary } from '@/stores/layers/layerCrudService';
+import {
+  selectActiveLayerId,
+  selectLayerGroups,
+  selectLayers,
+  selectSelectedLayerIds,
+} from '@/stores/selectors/layersSelectors';
+import { useAppStore } from '@/stores/useAppStore';
+import { BrushShape, type Layer } from '@/types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const LAYER_GROUPS_COLLAPSED_STORAGE_KEY = 'vessel-layer-groups-collapsed';
 const GROUP_DRAG_PAYLOAD_PREFIX = 'group:';
@@ -126,6 +131,8 @@ const LayersPanel: React.FC = () => {
   const removeLayerGroup = useAppStore((state) => state.removeLayerGroup);
   const setLayerGroupVisibility = useAppStore((state) => state.setLayerGroupVisibility);
   const setLayersVisibility = useAppStore((state) => state.setLayersVisibility);
+  const beginAdjustmentLayerEdit = useAppStore((state) => state.beginAdjustmentLayerEdit);
+  const commitAdjustmentLayerEdit = useAppStore((state) => state.commitAdjustmentLayerEdit);
   const sequentialRecord = useAppStore((state) => state.sequentialRecord);
   const layerGroupsById = React.useMemo(
     () => new Map(layerGroups.map((group) => [group.id, group] as const)),
@@ -315,6 +322,28 @@ const LayersPanel: React.FC = () => {
     }
   }, [activeLayerId, addLayer, insertionGroupId, layers.length, setActiveLayer, setSelectedLayerIds]);
 
+  const handleAddAdjustmentLayer = React.useCallback(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    addLayer({
+      name: `Hue/Sat ${layers.filter((layer) => layer.layerType === 'adjustment').length + 1}`,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'adjustment',
+      groupId: insertionGroupId && !isInterlaceGroup(layerGroupsById.get(insertionGroupId))
+        ? insertionGroupId
+        : undefined,
+      adjustmentData: { effect: createDefaultAdjustmentEffect('hue-sat') },
+    });
+  }, [addLayer, insertionGroupId, layerGroupsById, layers]);
+
   const handleAddColorCycleLayer = React.useCallback(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 1;
@@ -466,8 +495,11 @@ const LayersPanel: React.FC = () => {
   }, [layers, updateResolvedLayers]);
 
   const handleOpacityChange = React.useCallback((layerId: string, opacityPercent: number) => {
+    if (layers.find((layer) => layer.id === layerId)?.layerType === 'adjustment') {
+      beginAdjustmentLayerEdit(layerId);
+    }
     updateResolvedLayers(layerId, { opacity: opacityPercent / 100 });
-  }, [updateResolvedLayers]);
+  }, [beginAdjustmentLayerEdit, layers, updateResolvedLayers]);
 
   const handleToggleTransparencyLock = React.useCallback((layerId: string) => {
     const layer = layers.find(l => l.id === layerId);
@@ -1077,11 +1109,20 @@ const LayersPanel: React.FC = () => {
         </button>
         <button
           onClick={handleAddSequentialLayer}
-          className="flex-1 flex items-center justify-center gap-1 py-2 text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
           title="Add Sequence Layer"
         >
           <Plus size={14} className="text-[#D9D9D9]" />
           <span>Sequence</span>
+        </button>
+        <button
+          onClick={handleAddAdjustmentLayer}
+          className="flex-1 flex items-center justify-center gap-1 py-2 text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          title="Add Adjustment Layer"
+          aria-label="Add Adjustment Layer"
+        >
+          <Plus size={14} className="text-[#D9D9D9]" />
+          <span>Adjust</span>
         </button>
       </div>
 
@@ -1095,6 +1136,7 @@ const LayersPanel: React.FC = () => {
           const isColorCycle = layer.layerType === 'color-cycle';
           const isColorCycleRuntimeWarming = warmingColorCycleLayerIds.includes(layer.id);
           const isSequential = layer.layerType === 'sequential';
+          const isAdjustment = layer.layerType === 'adjustment';
           const gradient = layer.colorCycleData?.gradient || layer.colorCycleData?.recolorSettings?.gradient;
           const isMenuOpen = layerMenuState?.layerId === layer.id;
           const isReferenceLayer = referenceLayerId === layer.id;
@@ -1125,13 +1167,15 @@ const LayersPanel: React.FC = () => {
               ? 'bg-[#D7E7F7] text-[#23425C] border-[#9BC7E8]'
               : 'bg-[#2E2E34] text-[#AEB6C2] border-[#4B4B55]'
           }`;
-          const layerKindLabel = isColorCycle ? 'CC' : isSequential ? 'Seq' : 'Reg';
+          const layerKindLabel = isColorCycle ? 'CC' : isSequential ? 'Seq' : isAdjustment ? 'Adj' : 'Reg';
           const layerKindTitle = isColorCycle
             ? isColorCycleRuntimeWarming
               ? 'Warming color-cycle payloads'
               : `Color-cycle ${layer.colorCycleData?.mode === 'recolor' ? 'recolor' : 'brush'} layer${layer.colorCycleData?.deferredRuntimeRestore ? ' (cold runtime)' : ''}`
             : isSequential
               ? `Sequence layer, ${Math.max(1, Math.round(layer.sequentialData?.frameCount ?? sequentialRecord.frameCount))} frames`
+              : isAdjustment
+                ? `${ADJUSTMENT_EFFECT_LABELS[layer.adjustmentData?.effect.id ?? 'hue-sat']} adjustment layer`
               : 'Regular layer';
           const isDropAbove = layerDropTarget?.layerId === layer.id
             && layerDropTarget.edge === 'above';
@@ -1289,6 +1333,10 @@ const LayersPanel: React.FC = () => {
                           opacity: layer.visible ? 1 : 0.5
                         }}
                       />
+                    ) : isAdjustment ? (
+                      <div className="flex h-3 w-full items-center justify-center bg-[#3A3151] text-[7px] font-bold text-[#D8C8FF]">
+                        fx
+                      </div>
                     ) : (
                       <LayerColorSwatches layer={layer} visible={layer.visible} />
                     )}
@@ -1375,61 +1423,68 @@ const LayersPanel: React.FC = () => {
                           max={100}
                           step={1}
                           onChange={value => handleOpacityChange(layer.id, value)}
+                          onCommit={isAdjustment
+                            ? () => commitAdjustmentLayerEdit(layer.id)
+                            : undefined}
                           aria-label="Layer Opacity"
                         />
                       </div>
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          handleToggleTransparencyLock(layer.id);
-                        }}
-                        className={`w-full flex items-center justify-center gap-2 px-1.5 py-0.5 text-[11px] border border-[#545454] transition-colors ${
-                          layer.transparencyLocked ? 'bg-[#3C3C3C] text-[#F8D866]' : 'bg-transparent text-[#B0B0B0]'
-                        } hover:bg-[#3C3C3C]`}
-                        aria-pressed={layer.transparencyLocked === true}
-                        title={layer.transparencyLocked ? 'Unlock transparent pixels' : 'Lock transparent pixels'}
-                      >
-                        <span>{layer.transparencyLocked ? 'Unlock transparency' : 'Lock transparency'}</span>
-                      </button>
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          setActiveLayer(layer.id);
-                          setSelectedLayerIds([layer.id]);
-                          selectLayerAlpha(layer.id);
-                          setLayerMenuState(null);
-                        }}
-                        className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A] transition-colors"
-                        title="Select all non-transparent pixels on this layer"
-                      >
-                        <span>Select alpha</span>
-                      </button>
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          handleToggleLock(layer.id);
-                        }}
-                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] transition-colors ${
-                          layer.locked ? 'text-[#D9D9D9] bg-[#3A3A3A]' : 'text-[#B0B0B0] bg-transparent'
-                        } hover:bg-[#3A3A3A]`}
-                      >
-                        <span>{layer.locked ? 'Unlock layer' : 'Lock layer'}</span>
-                      </button>
-                      <button
-                        onClick={event => {
-                          event.stopPropagation();
-                          setReferenceLayer(isReferenceLayer ? null : layer.id);
-                        }}
-                        className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
-                          isReferenceLayer
-                            ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29]'
-                            : 'border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A]'
-                        }`}
-                        title="Use this layer when sampling colors"
-                        aria-pressed={isReferenceLayer}
-                      >
-                        <span>{isReferenceLayer ? 'Unmark reference layer' : 'Mark as reference layer'}</span>
-                      </button>
+                      {!isAdjustment && (
+                        <>
+                          <button
+                            onClick={event => {
+                              event.stopPropagation();
+                              handleToggleTransparencyLock(layer.id);
+                            }}
+                            className={`w-full flex items-center justify-center gap-2 px-1.5 py-0.5 text-[11px] border border-[#545454] transition-colors ${
+                              layer.transparencyLocked ? 'bg-[#3C3C3C] text-[#F8D866]' : 'bg-transparent text-[#B0B0B0]'
+                            } hover:bg-[#3C3C3C]`}
+                            aria-pressed={layer.transparencyLocked === true}
+                            title={layer.transparencyLocked ? 'Unlock transparent pixels' : 'Lock transparent pixels'}
+                          >
+                            <span>{layer.transparencyLocked ? 'Unlock transparency' : 'Lock transparency'}</span>
+                          </button>
+                          <button
+                            onClick={event => {
+                              event.stopPropagation();
+                              setActiveLayer(layer.id);
+                              setSelectedLayerIds([layer.id]);
+                              selectLayerAlpha(layer.id);
+                              setLayerMenuState(null);
+                            }}
+                            className="w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A] transition-colors"
+                            title="Select all non-transparent pixels on this layer"
+                          >
+                            <span>Select alpha</span>
+                          </button>
+                          <button
+                            onClick={event => {
+                              event.stopPropagation();
+                              handleToggleLock(layer.id);
+                            }}
+                            className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border border-[#545454] transition-colors ${
+                              layer.locked ? 'text-[#D9D9D9] bg-[#3A3A3A]' : 'text-[#B0B0B0] bg-transparent'
+                            } hover:bg-[#3A3A3A]`}
+                          >
+                            <span>{layer.locked ? 'Unlock layer' : 'Lock layer'}</span>
+                          </button>
+                          <button
+                            onClick={event => {
+                              event.stopPropagation();
+                              setReferenceLayer(isReferenceLayer ? null : layer.id);
+                            }}
+                            className={`w-full flex items-center justify-center px-1.5 py-0.5 text-[11px] border transition-colors ${
+                              isReferenceLayer
+                                ? 'border-[#4C6B3C] text-[#D4F7C4] bg-[#2E3A29]'
+                                : 'border-[#545454] text-[#B0B0B0] hover:bg-[#3A3A3A]'
+                            }`}
+                            title="Use this layer when sampling colors"
+                            aria-pressed={isReferenceLayer}
+                          >
+                            <span>{isReferenceLayer ? 'Unmark reference layer' : 'Mark as reference layer'}</span>
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={event => {
                           event.stopPropagation();
@@ -1477,6 +1532,7 @@ const LayersPanel: React.FC = () => {
                       >
                         <span>Ungroup</span>
                       </button>
+                      {!isAdjustment && (
                       <button
                         onClick={event => {
                           event.stopPropagation();
@@ -1505,6 +1561,7 @@ const LayersPanel: React.FC = () => {
                       >
                         <span>Merge layers</span>
                       </button>
+                      )}
                       {layer.layerType === 'color-cycle' && (
                         <button
                           onClick={event => {

@@ -12,7 +12,9 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain(
       '{getSeamlessNoisePatternSize:getSeamlessNoisePatternSize,createTileableNoiseGrid:createTileableNoiseGrid,createDisplayFilterPipelineState:createDisplayFilterPipelineState'
     );
-    expect(runtime).toContain('applyDisplayFilterStack:applyDisplayFilterStack}=(()=>{');
+    expect(runtime).toContain(
+      'applyDisplayFilterStack:applyDisplayFilterStack,applyAdjustmentEffect:applyAdjustmentEffect}=(()=>{',
+    );
   });
 
   it('includes display filter handling in Goblet 1', () => {
@@ -101,7 +103,9 @@ describe('Goblet display filter runtime parity', () => {
     expect(runtime).toContain(
       '{getSeamlessNoisePatternSize:getSeamlessNoisePatternSize,createTileableNoiseGrid:createTileableNoiseGrid,createDisplayFilterPipelineState:createDisplayFilterPipelineState'
     );
-    expect(runtime).toContain('applyDisplayFilterStack:applyDisplayFilterStack}=(()=>{');
+    expect(runtime).toContain(
+      'applyDisplayFilterStack:applyDisplayFilterStack,applyAdjustmentEffect:applyAdjustmentEffect}=(()=>{',
+    );
     expect(runtime).toContain('direct-overlay-only');
     expect(runtime).toContain('directOverlayTarget');
   });

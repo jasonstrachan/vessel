@@ -6,6 +6,7 @@ import type {
   ReferenceSamplingSource,
 } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
+import { cloneAdjustmentLayerData } from '@/lib/adjustmentLayers';
 
 import {
   prepareHistoryDelta,
@@ -42,6 +43,7 @@ const cloneLayerForReplay = (layer: Layer): Layer => ({
   ...layer,
   imageData: cloneImageData(layer.imageData),
   alignment: cloneLayerAlignment(layer.alignment),
+  adjustmentData: cloneAdjustmentLayerData(layer.adjustmentData),
   colorCycleData: layer.colorCycleData
     ? {
         ...layer.colorCycleData,

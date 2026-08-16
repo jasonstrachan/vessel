@@ -1,4 +1,7 @@
-import { drawFloatingPasteMarquee } from '../drawingCanvasFloatingPaste';
+import {
+  drawFloatingPasteMarquee,
+  renderFloatingPasteLayerOverlay,
+} from '../drawingCanvasFloatingPaste';
 import { strokeMarqueeRect } from '@/utils/marqueeStroke';
 
 jest.mock('@/utils/marqueeStroke', () => ({
@@ -43,5 +46,42 @@ describe('drawFloatingPasteMarquee', () => {
       18,
       expect.objectContaining({ scale: 12 }),
     );
+  });
+});
+
+describe('renderFloatingPasteLayerOverlay', () => {
+  it('combines an existing live layer overlay with the floating paste bitmap', () => {
+    const base = document.createElement('canvas');
+    base.width = 2;
+    base.height = 1;
+    const baseContext = base.getContext('2d');
+    baseContext!.fillStyle = '#ff0000';
+    baseContext!.fillRect(0, 0, 2, 1);
+    const imageData = new ImageData(1, 1);
+    imageData.data.set([0, 255, 0, 255]);
+    const outputCanvas = document.createElement('canvas');
+    const outputContext = outputCanvas.getContext('2d', { willReadFrequently: true });
+    const drawImage = jest.spyOn(outputContext!, 'drawImage');
+    const outputCanvasRef = { current: outputCanvas as HTMLCanvasElement | null };
+
+    const output = renderFloatingPasteLayerOverlay({
+      outputCanvasRef,
+      baseOverlay: base,
+      floatingPaste: {
+        imageData,
+        position: { x: 1, y: 0 },
+        width: 1,
+        height: 1,
+      },
+      project: { width: 2, height: 1 },
+      pasteCanvasRef: { current: null },
+      lastPasteInfoRef: { current: { imageData: null, width: 0, height: 0 } },
+      activeCanvasShape: null,
+      applyCanvasShapeClip: jest.fn(),
+    });
+
+    expect(output).toBe(outputCanvas);
+    expect(drawImage).toHaveBeenCalledWith(base, 0, 0);
+    expect(drawImage).toHaveBeenCalledTimes(2);
   });
 });

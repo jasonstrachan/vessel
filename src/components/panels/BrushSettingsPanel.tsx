@@ -12,6 +12,7 @@ import ColorPickerToolPanel from '@/components/panels/ColorPickerToolPanel';
 import SelectionOptionsPanel from '@/components/panels/SelectionOptionsPanel';
 import { DisplayFiltersSection } from '@/components/panels/DisplayFiltersSection';
 import { InterlaceSettingsPanel } from '@/components/panels/InterlaceSettingsPanel';
+import AdjustmentLayerPanel from '@/components/panels/AdjustmentLayerPanel';
 import { useAppStore } from '@/stores/useAppStore';
 import ColorAdjustToolPanel from '@/components/panels/ColorAdjustToolPanel';
 import { brushCache } from '@/utils/brushCache';
@@ -29,6 +30,9 @@ const BrushSettingsPanel: React.FC = () => {
   const brushSettings = useAppStore(selectBrushSettings);
   const temporaryCustomBrush = useAppStore((state) => state.temporaryCustomBrush);
   const brushPanelSection = useAppStore((state) => state.ui.brushPanelSection);
+  const isAdjustmentLayer = useAppStore((state) => (
+    state.layers.find((layer) => layer.id === state.activeLayerId)?.layerType === 'adjustment'
+  ));
   const setBrushSettings = useAppStore(state => state.setBrushSettings);
 
   const hueShift = brushSettings.hueShift ?? 0;
@@ -84,7 +88,9 @@ const BrushSettingsPanel: React.FC = () => {
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
-        {isInterlaceSection ? (
+        {isAdjustmentLayer ? (
+          <AdjustmentLayerPanel />
+        ) : isInterlaceSection ? (
           <InterlaceSettingsPanel />
         ) : isFiltersSection ? (
           <div className="px-4 py-4">

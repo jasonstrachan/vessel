@@ -472,6 +472,7 @@ export const repaintStaticCompositeSegment = ({
     if (
       !layer ||
       !layer.visible ||
+      layer.layerType === 'adjustment' ||
       layer.layerType === 'color-cycle' ||
       layer.layerType === 'sequential'
     ) {

@@ -42,6 +42,26 @@ const createLayer = (layerType: Layer['layerType']): Layer => {
 };
 
 describe('runStrokeStartLayerGuards', () => {
+  it('blocks drawing on adjustment layers', () => {
+    const feedback = jest.fn();
+    const allowed = runStrokeStartLayerGuards({
+      activeLayer: createLayer('adjustment'),
+      currentTool: 'brush',
+      isAnyColorCycleBrush: false,
+      runtimeProject: { width: 64, height: 64 },
+      currentState: useAppStore.getState(),
+      feedbackMessageRef: { current: feedback },
+      logError: jest.fn(),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+    });
+
+    expect(allowed).toBe(false);
+    expect(feedback).toHaveBeenCalledWith(
+      "Can't draw on an Adjustment layer. Switch to a paint layer.",
+    );
+  });
+
   it('allows Color Cycle brushes on sequential layers', () => {
     const feedback = jest.fn();
     const allowed = runStrokeStartLayerGuards(

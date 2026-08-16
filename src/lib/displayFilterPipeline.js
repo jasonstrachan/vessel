@@ -102,6 +102,7 @@ export const createTileableNoiseGrid = (columns, rows, seed = 0) => {
 
 export const createDisplayFilterPipelineState = () => ({
   filterSurfaceCanvas: null,
+  adjustmentMixCanvas: null,
   workCanvasA: null,
   workCanvasB: null,
   auxCanvas: null,
@@ -3023,4 +3024,206 @@ export const applyDisplayFilterStack = ({
   }
 
   return currentCanvas;
+};
+
+const adjustmentRgbToHsl = (r, g, b) => {
+  const red = r / 255;
+  const green = g / 255;
+  const blue = b / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  if (max === min) {
+    return [0, 0, lightness * 100];
+  }
+  const delta = max - min;
+  const saturation = lightness > 0.5
+    ? delta / (2 - max - min)
+    : delta / (max + min);
+  let hue;
+  if (max === red) {
+    hue = (green - blue) / delta + (green < blue ? 6 : 0);
+  } else if (max === green) {
+    hue = (blue - red) / delta + 2;
+  } else {
+    hue = (red - green) / delta + 4;
+  }
+  return [(hue / 6) * 360, saturation * 100, lightness * 100];
+};
+
+const adjustmentHslToRgb = (h, s, l) => {
+  const hue = h / 360;
+  const saturation = s / 100;
+  const lightness = l / 100;
+  if (saturation === 0) {
+    const gray = Math.round(lightness * 255);
+    return [gray, gray, gray];
+  }
+  const hueToRgb = (p, q, value) => {
+    let wrapped = value;
+    if (wrapped < 0) wrapped += 1;
+    if (wrapped > 1) wrapped -= 1;
+    if (wrapped < 1 / 6) return p + (q - p) * 6 * wrapped;
+    if (wrapped < 1 / 2) return q;
+    if (wrapped < 2 / 3) return p + (q - p) * (2 / 3 - wrapped) * 6;
+    return p;
+  };
+  const q = lightness < 0.5
+    ? lightness * (1 + saturation)
+    : lightness + saturation - lightness * saturation;
+  const p = 2 * lightness - q;
+  return [
+    Math.round(hueToRgb(p, q, hue + 1 / 3) * 255),
+    Math.round(hueToRgb(p, q, hue) * 255),
+    Math.round(hueToRgb(p, q, hue - 1 / 3) * 255),
+  ];
+};
+
+const clampAdjustmentByte = (value) => Math.max(0, Math.min(255, Math.round(value)));
+
+const applyHueSatAdjustment = ({ sourceCanvas, targetCanvas, settings }) => {
+  const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+  const targetCtx = clearDisplayFilterCanvas(targetCanvas);
+  if (!sourceCtx || !targetCtx) {
+    return sourceCanvas;
+  }
+  const imageData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const data = imageData.data;
+  const hueShift = Math.max(-180, Math.min(180, getNumeric(settings?.hue, 0)));
+  const saturationFactor = Math.max(0, Math.min(200, 100 + getNumeric(settings?.saturation, 0))) / 100;
+  const vibrance = Math.max(-100, Math.min(100, getNumeric(settings?.vibrance, 0)));
+  const lightnessAdjust = Math.max(-100, Math.min(100, getNumeric(settings?.lightness, 0)));
+  const contrastValue = Math.max(-255, Math.min(255, Math.round(getNumeric(settings?.contrast, 0) * 2.55)));
+  const contrastFactor = contrastValue === 0
+    ? 1
+    : (259 * (contrastValue + 255)) / (255 * (259 - contrastValue));
+  const redOffset = Math.max(-255, Math.min(255, Math.round(getNumeric(settings?.red, 0) * 2.55)));
+  const greenOffset = Math.max(-255, Math.min(255, Math.round(getNumeric(settings?.green, 0) * 2.55)));
+  const blueOffset = Math.max(-255, Math.min(255, Math.round(getNumeric(settings?.blue, 0) * 2.55)));
+  const rangeEnabled = settings?.hueRangeEnabled === true;
+  const rawRangeStart = getNumeric(settings?.hueRangeStart, 0);
+  const rawRangeEnd = getNumeric(settings?.hueRangeEnd, 360);
+  const rangeStart = ((rawRangeStart % 360) + 360) % 360;
+  const rangeEnd = ((rawRangeEnd % 360) + 360) % 360;
+  const rangeCoversFullCircle = Math.abs(rawRangeEnd - rawRangeStart) >= 360;
+  const isHueInRange = (hue) => {
+    if (!rangeEnabled || rangeCoversFullCircle) return true;
+    return rangeStart <= rangeEnd
+      ? hue >= rangeStart && hue <= rangeEnd
+      : hue >= rangeStart || hue <= rangeEnd;
+  };
+
+  for (let index = 0; index < data.length; index += 4) {
+    if (data[index + 3] === 0) continue;
+    const [sourceHue, sourceSaturation, sourceLightness] = adjustmentRgbToHsl(
+      data[index],
+      data[index + 1],
+      data[index + 2],
+    );
+    if (!isHueInRange(sourceHue)) continue;
+    const nextHue = (sourceHue + hueShift + 360) % 360;
+    let nextSaturation = Math.max(0, Math.min(100, sourceSaturation * saturationFactor));
+    if (vibrance > 0) {
+      nextSaturation += (100 - nextSaturation) * (vibrance / 100);
+    } else if (vibrance < 0) {
+      nextSaturation += nextSaturation * (vibrance / 100);
+    }
+    const nextLightness = Math.max(0, Math.min(100, sourceLightness + lightnessAdjust));
+    let [red, green, blue] = adjustmentHslToRgb(nextHue, nextSaturation, nextLightness);
+    if (contrastValue !== 0) {
+      red = contrastFactor * (red - 128) + 128;
+      green = contrastFactor * (green - 128) + 128;
+      blue = contrastFactor * (blue - 128) + 128;
+    }
+    data[index] = clampAdjustmentByte(red + redOffset);
+    data[index + 1] = clampAdjustmentByte(green + greenOffset);
+    data[index + 2] = clampAdjustmentByte(blue + blueOffset);
+  }
+  targetCtx.putImageData(imageData, 0, 0);
+  return targetCanvas;
+};
+
+export const applyAdjustmentEffect = ({
+  sourceCanvas,
+  effect,
+  mix = 1,
+  filterState,
+  visibleRect,
+  lengthScale = 1,
+}) => {
+  if (!sourceCanvas || !effect || !filterState) {
+    return sourceCanvas;
+  }
+  const resolvedMix = clamp01(mix);
+  if (resolvedMix <= 0) {
+    return sourceCanvas;
+  }
+
+  if (effect.id === 'hue-sat') {
+    const settings = effect.settings ?? {};
+    const isNoop = [
+      settings.hue,
+      settings.saturation,
+      settings.vibrance,
+      settings.lightness,
+      settings.contrast,
+      settings.red,
+      settings.green,
+      settings.blue,
+    ].every((value) => getNumeric(value, 0) === 0);
+    if (isNoop) {
+      return sourceCanvas;
+    }
+  }
+
+  let adjustedCanvas = sourceCanvas;
+  if (effect.id === 'hue-sat') {
+    const targetCanvas = ensureDisplayFilterCanvas(
+      filterState.workCanvasA,
+      sourceCanvas.width,
+      sourceCanvas.height,
+    );
+    filterState.workCanvasA = targetCanvas;
+    if (targetCanvas) {
+      adjustedCanvas = applyHueSatAdjustment({
+        sourceCanvas,
+        targetCanvas,
+        settings: effect.settings,
+      });
+    }
+  } else if (
+    effect.id === 'color-grade'
+    || effect.id === 'pixelate'
+    || effect.id === 'bloom'
+  ) {
+    adjustedCanvas = applyDisplayFilterStack({
+      sourceCanvas,
+      displayFilters: [{ id: effect.id, enabled: true, settings: effect.settings }],
+      filterState,
+      visibleRect,
+      lengthScale,
+    });
+  }
+
+  if (resolvedMix >= 1 || adjustedCanvas === sourceCanvas) {
+    return adjustedCanvas;
+  }
+  const mixCanvas = ensureDisplayFilterCanvas(
+    filterState.adjustmentMixCanvas,
+    sourceCanvas.width,
+    sourceCanvas.height,
+  );
+  filterState.adjustmentMixCanvas = mixCanvas;
+  const mixCtx = clearDisplayFilterCanvas(mixCanvas);
+  if (!mixCanvas || !mixCtx) {
+    return adjustedCanvas;
+  }
+  mixCtx.globalAlpha = 1 - resolvedMix;
+  mixCtx.drawImage(sourceCanvas, 0, 0);
+  mixCtx.globalCompositeOperation = 'lighter';
+  mixCtx.globalAlpha = resolvedMix;
+  mixCtx.drawImage(adjustedCanvas, 0, 0);
+  mixCtx.globalAlpha = 1;
+  mixCtx.globalCompositeOperation = 'source-over';
+  return mixCanvas;
 };

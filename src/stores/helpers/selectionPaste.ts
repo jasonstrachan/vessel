@@ -581,6 +581,16 @@ export const createSelectionPasteHelpers = ({
     if (!activeLayer) {
       return;
     }
+    if (activeLayer.layerType === 'adjustment') {
+      showAppFeedback("Can't paste into an Adjustment layer. Switch to a paint layer.");
+      state.addNotification?.({
+        type: 'warning',
+        title: 'Paste blocked',
+        message: 'Adjustment layers cannot contain pixels. Select a paint layer and try again.',
+        timestamp: new Date(),
+      });
+      return;
+    }
     let targetLayer = activeLayer;
 
     if (

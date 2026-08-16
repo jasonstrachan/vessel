@@ -245,6 +245,42 @@ export type DisplayFilterConfig =
   | NoiseDisplayFilter
   | FilmNoiseDisplayFilter;
 
+export type AdjustmentEffectId =
+  | 'hue-sat'
+  | 'color-grade'
+  | 'pixelate'
+  | 'bloom';
+
+export interface HueSatAdjustmentEffect {
+  id: 'hue-sat';
+  settings: ColorAdjustParams;
+}
+
+export interface ColorGradeAdjustmentEffect {
+  id: 'color-grade';
+  settings: ColorGradeDisplayFilter['settings'];
+}
+
+export interface PixelateAdjustmentEffect {
+  id: 'pixelate';
+  settings: PixelateDisplayFilter['settings'];
+}
+
+export interface BloomAdjustmentEffect {
+  id: 'bloom';
+  settings: BloomDisplayFilter['settings'];
+}
+
+export type AdjustmentEffect =
+  | HueSatAdjustmentEffect
+  | ColorGradeAdjustmentEffect
+  | PixelateAdjustmentEffect
+  | BloomAdjustmentEffect;
+
+export interface AdjustmentLayerData {
+  effect: AdjustmentEffect;
+}
+
 export type BrushPanelSectionId = 'tool' | 'filters' | 'interlace';
 
 export type SettingsSectionId =
@@ -720,7 +756,11 @@ export interface Layer {
   groupId?: string;
   
   // Layer type system for supporting different rendering modes
-  layerType: 'normal' | 'color-cycle' | 'sequential'; // REQUIRED - not optional
+  layerType: 'normal' | 'color-cycle' | 'sequential' | 'adjustment'; // REQUIRED - not optional
+
+  // Adjustment layers contain no authored pixels. They transform the composed
+  // artwork beneath them and use layer opacity as the non-destructive mix.
+  adjustmentData?: AdjustmentLayerData;
   
   // Color cycle specific data (only present for CC layers)
   colorCycleData?: LayerColorCycleData;

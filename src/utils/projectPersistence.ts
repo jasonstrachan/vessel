@@ -2,7 +2,7 @@ import { brushStateHasRuntimeStrokeBufferAuthority } from '@/lib/colorCycle/docu
 
 export const PROJECT_ARCHIVE_MANIFEST_VERSION = 1;
 
-export type PersistedLayerType = 'normal' | 'color-cycle' | 'colorCycle' | 'sequential';
+export type PersistedLayerType = 'normal' | 'color-cycle' | 'colorCycle' | 'sequential' | 'adjustment';
 
 export type ArchiveBinaryRef = `zip:${string}`;
 
@@ -72,10 +72,18 @@ export interface PersistedSequentialLayerEnvelope extends PersistedLayerEnvelope
   colorCycleData?: undefined;
 }
 
+export interface PersistedAdjustmentLayerEnvelope extends PersistedLayerEnvelopeBase {
+  layerType: 'adjustment';
+  adjustmentData: Record<string, unknown>;
+  colorCycleData?: undefined;
+  sequentialData?: undefined;
+}
+
 export type PersistedLayerEnvelope =
   | PersistedNormalLayerEnvelope
   | PersistedColorCycleLayerEnvelope
-  | PersistedSequentialLayerEnvelope;
+  | PersistedSequentialLayerEnvelope
+  | PersistedAdjustmentLayerEnvelope;
 
 export interface VesselProjectArchive {
   version: string;
@@ -379,11 +387,13 @@ export function inferBinaryManifestDType(path: string): BinaryManifestDType {
   return 'unknown';
 }
 
-export function normalizePersistedLayerType(layerType: PersistedLayerType | undefined): 'normal' | 'color-cycle' | 'sequential' {
+export function normalizePersistedLayerType(
+  layerType: PersistedLayerType | undefined,
+): 'normal' | 'color-cycle' | 'sequential' | 'adjustment' {
   if (layerType === 'colorCycle') {
     return 'color-cycle';
   }
-  if (layerType === 'color-cycle' || layerType === 'sequential') {
+  if (layerType === 'color-cycle' || layerType === 'sequential' || layerType === 'adjustment') {
     return layerType;
   }
   return 'normal';

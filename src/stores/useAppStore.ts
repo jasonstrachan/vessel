@@ -175,6 +175,7 @@ const colorCycleBrushManager = getColorCycleBrushManager();
 
 // Helper to store brush instance separately (now delegates to manager)
 import type {
+  AdjustmentEffect,
   Project,
   Layer,
   LayerGroup,
@@ -659,6 +660,9 @@ export interface AppState {
   removeLayer: (id: string) => void;
   removeLayers: (layerIds: string[]) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
+  beginAdjustmentLayerEdit: (layerId: string) => void;
+  updateAdjustmentLayerEffect: (layerId: string, effect: AdjustmentEffect) => void;
+  commitAdjustmentLayerEdit: (layerId: string) => void;
   appendSequentialLayerEvent: (
     layerId: string,
     event: SequentialStrokeEvent,

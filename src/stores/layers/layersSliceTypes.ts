@@ -12,6 +12,7 @@ import type {
   VesselWindow,
 } from '@/stores/useAppStore';
 import type {
+  AdjustmentEffect,
   Layer,
   LayerAlignmentSettings,
   LayerGroup,
@@ -93,6 +94,9 @@ export interface LayersSlice {
   removeLayer: (id: string) => void;
   removeLayers: (layerIds: string[]) => void;
   updateLayer: (id: string, updates: Partial<Layer>, options?: UpdateLayerOptions) => void;
+  beginAdjustmentLayerEdit: (layerId: string) => void;
+  updateAdjustmentLayerEffect: (layerId: string, effect: AdjustmentEffect) => void;
+  commitAdjustmentLayerEdit: (layerId: string) => void;
   appendSequentialLayerEvent: (
     layerId: string,
     event: SequentialStrokeEvent,

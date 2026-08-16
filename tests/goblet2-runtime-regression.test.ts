@@ -96,7 +96,9 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).toContain('getNoiseOnlyDisplayFilter:getNoiseOnlyDisplayFilter');
     expect(runtime).toContain('ensureDisplayNoiseOverlay:ensureDisplayNoiseOverlay');
     expect(runtime).toContain('applyDisplayNoiseOverlay:applyDisplayNoiseOverlay');
-    expect(runtime).toContain('applyDisplayFilterStack:applyDisplayFilterStack}=(()=>{');
+    expect(runtime).toContain(
+      'applyDisplayFilterStack:applyDisplayFilterStack,applyAdjustmentEffect:applyAdjustmentEffect}=(()=>{',
+    );
   });
 
   it('keeps the shared direct-overlay contract and legacy Noise-only selector', () => {

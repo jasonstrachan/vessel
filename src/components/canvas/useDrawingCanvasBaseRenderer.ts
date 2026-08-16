@@ -22,6 +22,7 @@ import { drawCanvasOutlineLayer } from './drawingCanvasOutline';
 import {
   drawFloatingPasteMarquee,
   drawFloatingPastePixels,
+  renderFloatingPasteLayerOverlay,
 } from './drawingCanvasFloatingPaste';
 import { drawCanvasOverlayLayer } from './drawingCanvasOverlay';
 import { drawSelectionLayer } from './drawingCanvasSelection';
@@ -29,6 +30,7 @@ import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasSh
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { debugLog, recordBreadcrumb } from '@/utils/debug';
 import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { hasVisibleAdjustmentLayers } from '@/stores/layers/adjustmentLayerCompositor';
 import { strokeFinalizeProbeMark } from '@/utils/strokeFinalizeProbe';
 
 const CANVAS_CHECKER_LIGHT = '#2a2a2e';
@@ -203,6 +205,7 @@ export const useDrawingCanvasBaseRenderer = ({
   const displayFilterStateRef = useRef(createDisplayFilterPipelineState());
   const lastInvalidCompositeBitmapRef = useRef<ImageBitmap | null>(null);
   const lastCcDirectionRenderDebugAtRef = useRef(0);
+  const adjustmentPasteOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const applyDisplayFilterStack = useCallback((
     sourceCanvas: HTMLCanvasElement,
@@ -361,7 +364,39 @@ export const useDrawingCanvasBaseRenderer = ({
       }
       const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
       const floatingPasteActive = Boolean(floatingPaste && floatingPaste.imageData);
-      const splitCompositeRequested = overlayEligibleForSplit || floatingPasteActive;
+      const adjustmentsVisible = hasVisibleAdjustmentLayers(layers);
+      const drawingLiveLayerOverlay = adjustmentsVisible && overlayActive && activeLayer && overlayCanvasElement
+        ? {
+            layerId: activeLayer.id,
+            canvas: overlayCanvasElement,
+            mode: isActivelyErasing ? 'replace' as const : 'over' as const,
+          }
+        : undefined;
+      const adjustmentPasteOverlay = adjustmentsVisible
+        && floatingPaste?.imageData
+        && activeLayer
+        && activeLayer.layerType !== 'adjustment'
+        ? renderFloatingPasteLayerOverlay({
+            outputCanvasRef: adjustmentPasteOverlayCanvasRef,
+            baseOverlay: drawingLiveLayerOverlay?.canvas,
+            floatingPaste,
+            project,
+            pasteCanvasRef,
+            lastPasteInfoRef,
+            activeCanvasShape,
+            applyCanvasShapeClip,
+          })
+        : null;
+      const floatingPasteIntegrated = Boolean(adjustmentPasteOverlay);
+      const liveLayerOverlay = adjustmentPasteOverlay && activeLayer
+        ? {
+            layerId: activeLayer.id,
+            canvas: adjustmentPasteOverlay,
+            mode: drawingLiveLayerOverlay?.mode ?? 'over' as const,
+          }
+        : drawingLiveLayerOverlay;
+      const splitCompositeRequested = (overlayEligibleForSplit || floatingPasteActive)
+        && !adjustmentsVisible;
 
       if (splitCompositeRequested) {
         const sequentialFrame = getSequentialRenderFrame(runtimeState);
@@ -430,6 +465,7 @@ export const useDrawingCanvasBaseRenderer = ({
         layerMap: layerMapRef.current,
         compositeBitmap,
         compositeCanvas: compositeCanvasRef.current,
+        liveLayerOverlay,
       });
       strokeFinalizeProbeMark('baseRenderer:drawVisibleCompositeStack', 'end', probeMeta);
       if (invalidCompositeBitmap) {
@@ -460,7 +496,7 @@ export const useDrawingCanvasBaseRenderer = ({
           }
         }
       }
-      if (floatingPaste && floatingPaste.imageData) {
+      if (floatingPaste && floatingPaste.imageData && !floatingPasteIntegrated) {
         drawFloatingPastePixels({
           ctx: compositeTargetCtx ?? ctx,
           floatingPaste,
@@ -522,7 +558,7 @@ export const useDrawingCanvasBaseRenderer = ({
         activeLayer,
         visibleRect,
         overlayCanvasElement,
-        overlayActive: Boolean(overlayActive),
+        overlayActive: Boolean(overlayActive && !adjustmentsVisible),
         isDrawing,
         colorCycleManager: colorCycleManagerRef.current,
         selectionStart,

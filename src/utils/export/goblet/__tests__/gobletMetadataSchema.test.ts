@@ -21,6 +21,9 @@ const criticalKeys = [
   'coverageBoundsSourcePx',
   'alphaMask',
   'softEdgeMask',
+  'adjustmentGroups',
+  'adjustment',
+  'effect',
 ];
 
 const readRuntime = (runtime: 'goblet' | 'goblet2'): string => (
@@ -57,10 +60,13 @@ describe('goblet metadata schema', () => {
     });
   });
 
-  it('keeps Goblet 1 and Goblet 2 runtime unminify maps in contract for critical CC keys', () => {
+  it('keeps Goblet runtimes in contract for their supported minified fields', () => {
     for (const runtime of ['goblet', 'goblet2'] as const) {
       const source = readRuntime(runtime);
       for (const key of criticalKeys) {
+        if (runtime === 'goblet' && ['adjustmentGroups', 'adjustment', 'effect'].includes(key)) {
+          continue;
+        }
         const minified = GOBLET_PROPERTY_MINIFY_MAP[key as keyof typeof GOBLET_PROPERTY_MINIFY_MAP];
         expect(source).toContain(`${minified}: '${key}'`);
       }

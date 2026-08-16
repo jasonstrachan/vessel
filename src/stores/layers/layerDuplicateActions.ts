@@ -8,6 +8,7 @@ import {
   type ColorCycleBrushLayerSnapshotRuntimeReader,
   type ColorCycleBrushLayerSnapshotRuntimeWriter,
 } from '@/lib/colorCycle/document';
+import { cloneAdjustmentLayerData } from '@/lib/adjustmentLayers';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type {
@@ -135,6 +136,7 @@ export const createLayerDuplicateActions = ({
         framebuffer: clonedFramebuffer || targetLayer.framebuffer,
         alignment: cloneLayerAlignment(targetLayer.alignment),
         colorCycleData: duplicateColorCycleData,
+        adjustmentData: cloneAdjustmentLayerData(targetLayer.adjustmentData),
         layerType: treatAsColorCycle ? 'color-cycle' : targetLayer.layerType,
         order: 0,
         transparencyLocked: targetLayer.transparencyLocked === true,

@@ -1,4 +1,5 @@
 import type { LayerContentMetrics } from '@/utils/layerMetrics';
+import { sanitizeAdjustmentLayerData } from '@/lib/adjustmentLayers';
 import { toNum } from '@/utils/num';
 import type { Layer, Project } from '@/types';
 import type {
@@ -116,6 +117,9 @@ export const createLayerMetadata = ({
     : undefined,
   colorCycle,
   sequential,
+  adjustment: layer.layerType === 'adjustment'
+    ? sanitizeAdjustmentLayerData(layer.adjustmentData)
+    : undefined,
   stackIndex: Number.isFinite(layer.order) ? layer.order : index,
   version: layer.version
 });

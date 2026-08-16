@@ -219,6 +219,18 @@ const createColorCycleLayerInput = (name: string): Omit<Layer, 'id' | 'order'> =
   },
 });
 
+const createAdjustmentLayerInput = (name: string): Omit<Layer, 'id' | 'order'> => ({
+  ...createNormalLayerInput(name),
+  layerType: 'adjustment',
+  imageData: null,
+  adjustmentData: {
+    effect: {
+      id: 'pixelate',
+      settings: { cellSize: 4 },
+    },
+  },
+});
+
 const createSourceCanvas = (width: number, height: number) => {
   const imageData = new ImageData(width, height);
   imageData.data.fill(180);
@@ -1332,6 +1344,66 @@ describe('layers slice integration', () => {
     expect(nextState.layerGroups).toEqual([]);
     expect(nextState.layers.find((layer) => layer.id === layerA)?.groupId).toBeUndefined();
     expect(nextState.layers.find((layer) => layer.id === layerB)?.groupId).toBeUndefined();
+  });
+
+  it('makes selected visual-group members contiguous for isolated adjustment scope', () => {
+    const store = useAppStore.getState();
+    const bottom = store.addLayer(createNormalLayerInput('Bottom'));
+    const between = store.addLayer(createNormalLayerInput('Between'));
+    const top = store.addLayer(createAdjustmentLayerInput('Adjust'));
+
+    const groupId = useAppStore.getState().createLayerGroupFromSelection([bottom, top]);
+    const next = useAppStore.getState();
+    const groupedIndices = next.layers
+      .map((layer, index) => (layer.groupId === groupId ? index : -1))
+      .filter((index) => index >= 0);
+
+    expect(groupedIndices).toHaveLength(2);
+    expect(groupedIndices[1] - groupedIndices[0]).toBe(1);
+    expect(next.layers.find((layer) => layer.id === between)?.groupId).toBeUndefined();
+  });
+
+  it('does not admit adjustment layers into Interlace groups', () => {
+    const store = useAppStore.getState();
+    const pose = store.addLayer(createNormalLayerInput('Pose'));
+    const adjustment = store.addLayer(createAdjustmentLayerInput('Adjust'));
+
+    expect(useAppStore.getState().createInterlaceGroupFromSelection([pose, adjustment])).toBeNull();
+  });
+
+  it('edits adjustment effects and mix as one undoable transaction', async () => {
+    const adjustment = useAppStore.getState().addLayer(createAdjustmentLayerInput('Adjust'));
+    historyManager.clear();
+
+    useAppStore.getState().beginAdjustmentLayerEdit(adjustment);
+    useAppStore.getState().updateAdjustmentLayerEffect(adjustment, {
+      id: 'pixelate',
+      settings: { cellSize: 12 },
+    });
+    useAppStore.getState().updateLayer(adjustment, { opacity: 0.4 });
+    useAppStore.getState().commitAdjustmentLayerEdit(adjustment);
+
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(useAppStore.getState().layers.find((layer) => layer.id === adjustment)).toMatchObject({
+      opacity: 0.4,
+      adjustmentData: { effect: { id: 'pixelate', settings: { cellSize: 12 } } },
+    });
+
+    await useAppStore.getState().undo();
+
+    expect(useAppStore.getState().layers.find((layer) => layer.id === adjustment)).toMatchObject({
+      opacity: 1,
+      adjustmentData: { effect: { id: 'pixelate', settings: { cellSize: 4 } } },
+    });
+  });
+
+  it('refuses to merge adjustment layers into raster content', () => {
+    const paint = useAppStore.getState().addLayer(createNormalLayerInput('Paint'));
+    const adjustment = useAppStore.getState().addLayer(createAdjustmentLayerInput('Adjust'));
+    const beforeIds = useAppStore.getState().layers.map((layer) => layer.id);
+
+    expect(useAppStore.getState().mergeLayers([paint, adjustment])).toBeNull();
+    expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(beforeIds);
   });
 
   it('creates and updates an ordered Interlace group with undoable settings', async () => {

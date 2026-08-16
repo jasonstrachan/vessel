@@ -30,6 +30,8 @@ const resetStore = () => {
     selectionStart: null,
     selectionEnd: null,
     selectionLastAction: null,
+    floatingPaste: null,
+    floatingPasteHistoryContext: null,
     layersNeedRecomposition: false,
     currentCompositeBitmap: null,
     compositeSegments: [],
@@ -43,6 +45,43 @@ describe('selection delete updates framebuffer', () => {
     historyManager.clear();
     clearSequentialLayerRendererAll();
     window.localStorage.clear();
+  });
+
+  it('keeps adjustment layers non-paintable for selection delete and extract', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const layer: Layer = {
+      id: 'adjustment-1',
+      name: 'Pixelate',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'adjustment',
+      adjustmentData: {
+        effect: { id: 'pixelate', settings: { cellSize: 4 } },
+      },
+    };
+    useAppStore.setState((state) => ({
+      ...state,
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 4 },
+    }));
+
+    useAppStore.getState().deleteSelectedPixels();
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(false);
+
+    const next = useAppStore.getState();
+    expect(next.layers[0]?.imageData).toBeNull();
+    expect(next.layersNeedRecomposition).toBe(false);
+    expect(next.floatingPaste).toBeNull();
   });
 
   it('clears pixels on framebuffer and imageData, flags recomposition, and clears selection', () => {

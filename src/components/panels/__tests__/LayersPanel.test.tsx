@@ -83,6 +83,8 @@ type StoreState = {
   moveLayersToGroup: jest.Mock;
   removeLayerGroup: jest.Mock;
   setLayerGroupVisibility: jest.Mock;
+  beginAdjustmentLayerEdit: jest.Mock;
+  commitAdjustmentLayerEdit: jest.Mock;
 };
 
 const listeners = new Set<() => void>();
@@ -224,6 +226,8 @@ const state: StoreState = {
       layer.groupId === groupId ? { ...layer, visible: false } : layer
     );
   }),
+  beginAdjustmentLayerEdit: jest.fn(),
+  commitAdjustmentLayerEdit: jest.fn(),
 };
 
 jest.mock('@/stores/useAppStore', () => {
@@ -1513,16 +1517,36 @@ describe('LayersPanel interactions', () => {
     expect(payload?.groupId).toBe('group-1');
   });
 
-  it('places the sequence layer button after the more commonly used layer types', () => {
+  it('exposes adjustment layers alongside the other layer types', () => {
     render(<LayersPanel />);
 
     const addButtons = [
       screen.getByTitle('Add Regular Layer'),
       screen.getByTitle('Add CC Layer'),
       screen.getByTitle('Add Sequence Layer'),
+      screen.getByTitle('Add Adjustment Layer'),
     ];
 
     expect(Array.from(addButtons[0].parentElement?.children ?? [])).toEqual(addButtons);
+  });
+
+  it('creates a non-raster adjustment layer with Hue/Sat defaults', () => {
+    render(<LayersPanel />);
+
+    fireEvent.click(screen.getByTitle('Add Adjustment Layer'));
+
+    expect(state.addLayer).toHaveBeenCalledTimes(1);
+    expect(state.addLayer.mock.calls[0]?.[0]).toMatchObject({
+      layerType: 'adjustment',
+      imageData: null,
+      opacity: 1,
+      adjustmentData: {
+        effect: {
+          id: 'hue-sat',
+          settings: { hue: 0, saturation: 0, hueRangeEnd: 360 },
+        },
+      },
+    });
   });
 
   it('preserves an active temporary color-cycle custom brush when adding a color-cycle layer', () => {

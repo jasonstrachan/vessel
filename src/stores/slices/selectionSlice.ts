@@ -1678,6 +1678,15 @@ export const createSelectionSlice = ({
       if (!activeLayer || !activeLayerId) {
         return;
       }
+      if (activeLayer.layerType === 'adjustment') {
+        state.addNotification?.({
+          type: 'warning',
+          title: 'Delete blocked',
+          message: 'Adjustment layers cannot contain pixels.',
+          timestamp: new Date(),
+        });
+        return;
+      }
 
       let deleteBounds: Rectangle | null = null;
 
@@ -2047,7 +2056,7 @@ export const createSelectionSlice = ({
       }
 
       const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
-      if (!activeLayer) {
+      if (!activeLayer || activeLayer.layerType === 'adjustment') {
         return false;
       }
 
@@ -2547,7 +2556,7 @@ export const createSelectionSlice = ({
 
       if (selectionStart && selectionEnd && project && activeLayerId) {
         const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
-        if (activeLayer) {
+        if (activeLayer && activeLayer.layerType !== 'adjustment') {
           const capture = state.selectionMask && state.selectionMaskBounds
             ? captureSelectionBitmapFromMask({
                 mask: state.selectionMask,

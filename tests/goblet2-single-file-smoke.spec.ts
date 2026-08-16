@@ -91,6 +91,109 @@ const createSierraTravelBundle = (revealTexture?: string) => {
   return interlaceBundle;
 };
 
+const createAdjustmentBundle = (mix = 1) => {
+  const width = 16;
+  const height = 16;
+  const bundle = createGoblet2Bundle({
+    layers: [
+      {
+        id: 'paint',
+        name: 'Paint',
+        type: 'normal',
+        source: { width, height },
+        documentBoundsPx: { x: 0, y: 0, width, height },
+        documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+        alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+        assets: { texture: createSolidTexture('#ff0000', width, height) },
+        visible: true,
+        opacity: 1,
+        blendMode: 'source-over',
+        stackIndex: 0,
+      },
+      {
+        id: 'hue-shift',
+        name: 'Hue Shift',
+        type: 'adjustment',
+        source: { width, height },
+        documentBoundsPx: { x: 0, y: 0, width, height },
+        documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+        alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+        visible: true,
+        opacity: mix,
+        blendMode: 'source-over',
+        stackIndex: 1,
+        adjustment: {
+          effect: {
+            id: 'hue-sat',
+            settings: {
+              hue: 120,
+              saturation: 0,
+              vibrance: 0,
+              lightness: 0,
+              contrast: 0,
+              red: 0,
+              green: 0,
+              blue: 0,
+              hueRangeEnabled: false,
+              hueRangeStart: 0,
+              hueRangeEnd: 360,
+            },
+          },
+        },
+      },
+    ],
+  } as Parameters<typeof createGoblet2Bundle>[0]);
+  bundle.project.width = width;
+  bundle.project.height = height;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = width;
+  bundle.viewport.designHeight = height;
+  return bundle;
+};
+
+const createTransparentAdjustmentBundle = () => {
+  const bundle = createAdjustmentBundle();
+  const paint = bundle.layers[0];
+  const adjustment = bundle.layers[1];
+  if (paint) {
+    paint.assets = { texture: createSolidTexture('#00ff00', 16, 16) };
+    paint.documentBoundsPx = { x: 0, y: 0, width: 8, height: 16 };
+    paint.documentBoundsPercent = { x: 0, y: 0, width: 50, height: 100 };
+  }
+  if (adjustment?.adjustment?.effect.id === 'hue-sat') {
+    adjustment.adjustment.effect.settings.hue = 0;
+    adjustment.adjustment.effect.settings.red = 100;
+  }
+  return bundle;
+};
+
+const createScopedAdjustmentBundle = () => {
+  const bundle = createTransparentAdjustmentBundle();
+  const groupPaint = bundle.layers[0];
+  const adjustment = bundle.layers[1];
+  if (groupPaint) groupPaint.stackIndex = 1;
+  if (adjustment) adjustment.stackIndex = 2;
+  bundle.layers.unshift({
+    id: 'base',
+    name: 'Base',
+    type: 'normal',
+    source: { width: 16, height: 16 },
+    documentBoundsPx: { x: 0, y: 0, width: 16, height: 16 },
+    documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+    alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+    assets: { texture: createSolidTexture('#0000ff', 16, 16) },
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    stackIndex: 0,
+  });
+  bundle.adjustmentGroups = [{
+    id: 'scoped-group',
+    layerIds: ['paint', 'hue-shift'],
+  }];
+  return bundle;
+};
+
 const buildSingleFileGoblet2Html = (bundle: Goblet2Bundle = createGoblet2Bundle()) => {
   const runtime = read('public/goblet2/goblet2-inline.js');
   const metadata = JSON.stringify(bundle);
@@ -350,6 +453,87 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     });
     expect((smoke as { nonZeroAlpha: number }).nonZeroAlpha).toBeGreaterThan(0);
     expect((smoke as { nonZeroRgba: number }).nonZeroRgba).toBeGreaterThan(0);
+  });
+
+  test('applies an exported adjustment layer in stack order', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createAdjustmentBundle()));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { ready?: boolean } }).__gobletSmoke?.ready
+    ))).toBe(true);
+
+    const pixel = await page.locator('#preview-canvas').evaluate((canvas) => {
+      const target = canvas as HTMLCanvasElement;
+      const context = target.getContext('2d', { willReadFrequently: true });
+      return Array.from(context?.getImageData(
+        Math.floor(target.width / 2),
+        Math.floor(target.height / 2),
+        1,
+        1,
+      ).data ?? []);
+    });
+
+    expect(pixel[1]).toBeGreaterThan(200);
+    expect(pixel[0]).toBeLessThan(30);
+    expect(pixel[2]).toBeLessThan(30);
+  });
+
+  test('uses adjustment-layer opacity as the effect mix', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createAdjustmentBundle(0.5)));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { ready?: boolean } }).__gobletSmoke?.ready
+    ))).toBe(true);
+
+    const pixel = await page.locator('#preview-canvas').evaluate((canvas) => {
+      const target = canvas as HTMLCanvasElement;
+      const context = target.getContext('2d', { willReadFrequently: true });
+      return Array.from(context?.getImageData(8, 8, 1, 1).data ?? []);
+    });
+
+    expect(pixel[0]).toBeGreaterThanOrEqual(126);
+    expect(pixel[0]).toBeLessThanOrEqual(129);
+    expect(pixel[1]).toBeGreaterThanOrEqual(126);
+    expect(pixel[1]).toBeLessThanOrEqual(129);
+    expect(pixel[2]).toBeLessThan(3);
+  });
+
+  test('does not adjust the transparent-project viewer background', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createTransparentAdjustmentBundle()));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { ready?: boolean } }).__gobletSmoke?.ready
+    ))).toBe(true);
+
+    const pixels = await page.locator('#preview-canvas').evaluate((canvas) => {
+      const target = canvas as HTMLCanvasElement;
+      const context = target.getContext('2d', { willReadFrequently: true });
+      return {
+        artwork: Array.from(context?.getImageData(4, 8, 1, 1).data ?? []),
+        viewer: Array.from(context?.getImageData(12, 8, 1, 1).data ?? []),
+      };
+    });
+
+    expect(pixels.artwork[0]).toBeGreaterThan(200);
+    expect(pixels.artwork[1]).toBeGreaterThan(200);
+    expect(pixels.viewer.slice(0, 4)).toEqual([42, 42, 46, 255]);
+  });
+
+  test('isolates a grouped adjustment to lower siblings in that group', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createScopedAdjustmentBundle()));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { ready?: boolean } }).__gobletSmoke?.ready
+    ))).toBe(true);
+
+    const pixels = await page.locator('#preview-canvas').evaluate((canvas) => {
+      const target = canvas as HTMLCanvasElement;
+      const context = target.getContext('2d', { willReadFrequently: true });
+      return {
+        grouped: Array.from(context?.getImageData(4, 8, 1, 1).data ?? []),
+        ungrouped: Array.from(context?.getImageData(12, 8, 1, 1).data ?? []),
+      };
+    });
+
+    expect(pixels.grouped[0]).toBeGreaterThan(200);
+    expect(pixels.grouped[1]).toBeGreaterThan(200);
+    expect(pixels.ungrouped.slice(0, 4)).toEqual([0, 0, 255, 255]);
   });
 
   test('translates one unchanged Sierra plate rigidly across every band', async ({ browser }) => {

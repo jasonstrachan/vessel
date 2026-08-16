@@ -40,6 +40,11 @@ export const runStrokeStartLayerGuards = ({
     return false;
   }
 
+  if (activeLayer.layerType === 'adjustment') {
+    feedbackMessageRef.current?.("Can't draw on an Adjustment layer. Switch to a paint layer.");
+    return false;
+  }
+
   const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
   const isSequentialLayer = activeLayer.layerType === 'sequential';
   const canUseColorCycleBrush = isColorCycleLayer || isSequentialLayer;

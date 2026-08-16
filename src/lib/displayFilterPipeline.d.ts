@@ -1,4 +1,4 @@
-import type { DisplayFilterConfig } from '@/types';
+import type { AdjustmentEffect, DisplayFilterConfig } from '@/types';
 
 export interface CrtWebGLPipelineState {
   canvas: HTMLCanvasElement;
@@ -23,6 +23,7 @@ export interface NtseCrtWebGLPipelineState extends CrtWebGLPipelineState {
 
 export interface DisplayFilterPipelineState {
   filterSurfaceCanvas: HTMLCanvasElement | null;
+  adjustmentMixCanvas: HTMLCanvasElement | null;
   workCanvasA: HTMLCanvasElement | null;
   workCanvasB: HTMLCanvasElement | null;
   auxCanvas: HTMLCanvasElement | null;
@@ -210,4 +211,12 @@ export function applyDisplayFilterStack(args: {
     rect: { x: number; y: number; width: number; height: number };
     documentOrigin?: { x: number; y: number };
   };
+}): HTMLCanvasElement;
+export function applyAdjustmentEffect(args: {
+  sourceCanvas: HTMLCanvasElement;
+  effect: AdjustmentEffect;
+  mix?: number;
+  filterState: DisplayFilterPipelineState;
+  visibleRect?: { x: number; y: number; width?: number; height?: number } | null;
+  lengthScale?: number;
 }): HTMLCanvasElement;

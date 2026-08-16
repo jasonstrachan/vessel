@@ -14,6 +14,7 @@ import type {
   SequentialStrokeEvent,
   CustomBrush,
   BrushSettings,
+  AdjustmentLayerData,
   LayerAlignmentSettings,
   ExportContainerLayout,
   PaletteState
@@ -31,6 +32,7 @@ import {
   type SerializedCustomBrushColorCycle,
 } from '@/utils/customBrushColorCycle';
 import { cloneDisplayFilters, sanitizeDisplayFilters } from '@/lib/displayFilters';
+import { sanitizeAdjustmentLayerData } from '@/lib/adjustmentLayers';
 import {
   decodeSequentialChunksToEvents,
   encodeSequentialEventsToChunks,
@@ -731,12 +733,13 @@ interface SerializedLayer {
   transparencyLocked?: boolean;
   order: number;
   imageDataUrl: string; // Base64 encoded ImageData
-  layerType?: 'normal' | 'color-cycle' | 'colorCycle' | 'sequential';
+  layerType?: 'normal' | 'color-cycle' | 'colorCycle' | 'sequential' | 'adjustment';
   alignment?: LayerAlignmentSettings;
   groupId?: string;
   state?: SerializedLayerState;
   colorCycleData?: SerializedColorCycleLayerData;
   sequentialData?: SerializedSequentialLayerData;
+  adjustmentData?: AdjustmentLayerData;
   [COLOR_CYCLE_STATE_SOURCE]?: SerializedColorCycleStateSource;
 }
 
@@ -3307,6 +3310,9 @@ const snapshotLooksLikeDuplicatedLegacyPayload = (
 
 
 const resolveLayerImageDataForSave = (layer: Layer): ImageData | null => {
+  if (layer.layerType === 'adjustment') {
+    return null;
+  }
   const layerImageData = layer.imageData ?? null;
   const framebufferImageData = captureCanvasImageData(layer.framebuffer ?? null) ?? null;
 
@@ -3406,6 +3412,9 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
     layerType: layer.layerType,
     alignment: cloneLayerAlignment(layer.alignment),
     groupId: layer.groupId,
+    adjustmentData: layer.layerType === 'adjustment'
+      ? sanitizeAdjustmentLayerData(layer.adjustmentData)
+      : undefined,
   };
 
   if (layer.layerType === 'normal') {
@@ -3794,6 +3803,10 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
     ),
     version: Date.now()
   };
+
+  if (layer.layerType === 'adjustment') {
+    layer.adjustmentData = sanitizeAdjustmentLayerData(serializedLayer.adjustmentData);
+  }
 
   if (layer.layerType === 'sequential') {
     layer.sequentialData = sanitizeSequentialLayerData(serializedLayer.sequentialData);
@@ -4742,7 +4755,11 @@ const validateLayerEnvelope = (layer: SerializedLayer, binaryPaths: Set<string>)
         throw new Error(`Invalid Vessel project layer envelope for ${layer.id}`);
       }
     }
-  } else if (!isImplicitLegacyColorCycle && !isImplicitLegacySequential && (layer.colorCycleData || layer.sequentialData)) {
+  } else if (normalizedLayerType === 'adjustment') {
+    if (!layer.adjustmentData || layer.colorCycleData || layer.sequentialData || layer.state) {
+      throw new Error(`Invalid Vessel project adjustment layer envelope for ${layer.id}`);
+    }
+  } else if (!isImplicitLegacyColorCycle && !isImplicitLegacySequential && (layer.colorCycleData || layer.sequentialData || layer.adjustmentData)) {
     throw new Error(`Invalid Vessel project layer envelope for ${layer.id}`);
   }
 
@@ -4789,6 +4806,25 @@ const validateSerializedProjectEnvelope = (vesselProject: VesselProject): void =
   }
   if (serializedProject.layers.length > MAX_PROJECT_LAYERS) {
     throw new Error('Project has too many layers');
+  }
+
+  if (serializedProject.layerGroups !== undefined && !Array.isArray(serializedProject.layerGroups)) {
+    throw new Error('Invalid Vessel project layer groups');
+  }
+  const interlaceGroupIds = new Set(
+    (serializedProject.layerGroups ?? [])
+      .filter((group) => group?.kind === 'interlace')
+      .map((group) => group.id),
+  );
+  const invalidInterlaceAdjustment = serializedProject.layers.find((layer) => (
+    normalizePersistedLayerType(layer.layerType) === 'adjustment'
+    && typeof layer.groupId === 'string'
+    && interlaceGroupIds.has(layer.groupId)
+  ));
+  if (invalidInterlaceAdjustment) {
+    throw new Error(
+      `Adjustment layer ${invalidInterlaceAdjustment.id} cannot belong to an Interlace group`,
+    );
   }
 
   if (!Array.isArray(serializedProject.customBrushes)) {

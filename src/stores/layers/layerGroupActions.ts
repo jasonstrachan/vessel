@@ -4,6 +4,7 @@ import type { InterlaceGroupSettings, Layer } from '@/types';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import {
   DEFAULT_INTERLACE_SETTINGS,
+  isInterlaceGroup,
   sanitizeInterlaceSettings,
 } from '@/lib/interlace/interlaceSettings';
 import type {
@@ -57,14 +58,18 @@ export const createLayerGroupFromSelectionAction = (
 
   const newGroupId = `group-${Date.now()}-${Math.random()}`;
   const nextGroupName = generateLayerGroupName(stateBeforeChange.layerGroups);
+  const destinationIndex = Math.min(...targetIds.map((id) => (
+    stateBeforeChange.layers.findIndex((layer) => layer.id === id)
+  )));
 
   set((state) => {
     const targetIdSet = new Set(targetIds);
-    const nextLayers = state.layers.map((layer) => (
+    const reordered = reorderLayerBlock(state.layers, targetIds, destinationIndex).layers;
+    const nextLayers = normalizeLayerOrder(reordered.map((layer) => (
       targetIdSet.has(layer.id)
         ? { ...layer, groupId: newGroupId }
         : layer
-    ));
+    )));
     const nextGroups = [
       ...state.layerGroups,
       { id: newGroupId, name: nextGroupName },
@@ -74,8 +79,10 @@ export const createLayerGroupFromSelectionAction = (
       layers: nextLayers,
       layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
       hiddenLayerGroupIds: state.hiddenLayerGroupIds,
+      layersNeedRecomposition: true,
     };
   });
+  get().markAllCompositeSegmentsDirty();
 
   const stateAfterChange = get();
   const afterSnapshot = captureLayerStructureSnapshot(stateAfterChange, {
@@ -109,6 +116,7 @@ export const createInterlaceGroupFromSelectionAction = (
     .filter((layer) => (
       layerIds.includes(layer.id)
       && layer.layerType !== 'sequential'
+      && layer.layerType !== 'adjustment'
     ))
     .map((layer) => layer.id);
   if (targetIds.length < 2) {
@@ -389,6 +397,17 @@ export const moveLayersToGroupAction = (
     stateBeforeChange.layers.some((layer) => layer.id === layerId)
   ));
   if (targetLayerIds.length === 0) {
+    return;
+  }
+  const targetGroup = groupId
+    ? stateBeforeChange.layerGroups.find((group) => group.id === groupId)
+    : undefined;
+  if (
+    isInterlaceGroup(targetGroup)
+    && targetLayerIds.some((layerId) => (
+      stateBeforeChange.layers.find((layer) => layer.id === layerId)?.layerType === 'adjustment'
+    ))
+  ) {
     return;
   }
 

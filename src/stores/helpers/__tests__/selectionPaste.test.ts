@@ -318,6 +318,31 @@ describe('selection paste commit', () => {
     jest.clearAllMocks();
   });
 
+  it('blocks committing pixels into an adjustment layer', async () => {
+    const { helpers, state, captureCanvasToActiveLayer } = setupHelpers(
+      { sourceLayerId: null },
+      {
+        layerType: 'adjustment',
+        imageData: null,
+        adjustmentData: {
+          effect: { id: 'pixelate', settings: { cellSize: 4 } },
+        },
+      },
+    );
+
+    await helpers.commitFloatingPaste();
+
+    expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+    expect(commitLayerHistory).not.toHaveBeenCalled();
+    expect(showAppFeedback).toHaveBeenCalledWith(
+      "Can't paste into an Adjustment layer. Switch to a paint layer.",
+    );
+    expect(state.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Paste blocked',
+    }));
+    expect(state.floatingPaste).not.toBeNull();
+  });
+
   it('captures the shared baked bitmap ROI when the rect extends past the canvas', async () => {
     const { helpers, captureCanvasToActiveLayer } = setupHelpers({
       position: { x: -10, y: -6 },

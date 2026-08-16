@@ -251,6 +251,12 @@ export const buildProjectGobletArtifact = async (
     const gobletRuntimeAsset: GobletAssetName = gobletVersion === 'goblet2' ? 'goblet2.js' : 'goblet.js';
     const gobletInlineAsset: GobletAssetName = gobletVersion === 'goblet2' ? 'goblet2-inline.js' : 'goblet-inline.js';
     const gobletRuntimeModulePath = gobletVersion === 'goblet2' ? './goblet2.js' : './goblet.js';
+    if (
+      gobletVersion === 'goblet1'
+      && options.layers.some((layer) => layer.layerType === 'adjustment')
+    ) {
+      throw new Error('Adjustment layers require Goblet 2 export.');
+    }
 
   const metricsMap = new Map<string, LayerExportMetrics>();
   options.layers.forEach((layer) => {
@@ -370,7 +376,9 @@ export const buildProjectGobletArtifact = async (
       documentBoundsPx = sequentialContentBounds;
     }
 
-    let textureInfo = await captureLayerTextureInfo(layer);
+    let textureInfo = layer.layerType === 'adjustment'
+      ? undefined
+      : await captureLayerTextureInfo(layer);
     throwIfExportAborted(options.signal);
     let texture = textureInfo?.dataUrl;
     const sequentialFrameCount = Math.max(
@@ -613,23 +621,25 @@ export const buildProjectGobletArtifact = async (
       offsetPx: undefined
     };
 
-    layoutInputs.push({
-      layerId: layer.id,
-      surface: {
-        width: Math.max(1, surfaceSize.width),
-        height: Math.max(1, surfaceSize.height)
-      },
-      document: {
-        width: Math.max(1, options.project.width),
-        height: Math.max(1, options.project.height)
-      },
-      content: {
-        width: Math.max(1, documentBoundsPx.width),
-        height: Math.max(1, documentBoundsPx.height)
-      },
-      alignment: layoutAlignment,
-      hidden: !options.includeHiddenLayers && !layer.visible
-    });
+    if (layer.layerType !== 'adjustment') {
+      layoutInputs.push({
+        layerId: layer.id,
+        surface: {
+          width: Math.max(1, surfaceSize.width),
+          height: Math.max(1, surfaceSize.height)
+        },
+        document: {
+          width: Math.max(1, options.project.width),
+          height: Math.max(1, options.project.height)
+        },
+        content: {
+          width: Math.max(1, documentBoundsPx.width),
+          height: Math.max(1, documentBoundsPx.height)
+        },
+        alignment: layoutAlignment,
+        hidden: !options.includeHiddenLayers && !layer.visible
+      });
+    }
 
     const brushPayload = colorCycle?.brushState?.indexBuffer as ArrayLike<number> | string | undefined;
     const brushEnc = Array.isArray(brushPayload) ? 'array' : (typeof brushPayload === 'string' ? 'b64z' : 'none');
@@ -939,6 +949,19 @@ export const buildProjectGobletArtifact = async (
         };
       })
       .filter((group) => group.layerIds.length >= 2),
+    adjustmentGroups: (options.project.layerGroups ?? [])
+      .filter((group) => !isInterlaceGroup(group))
+      .map((group) => ({
+        id: group.id,
+        layerIds: metadataLayers
+          .filter((layer) => layer.visible !== false && options.layers.find(
+            (sourceLayer) => sourceLayer.id === layer.id,
+          )?.groupId === group.id)
+          .map((layer) => layer.id),
+      }))
+      .filter((group) => group.layerIds.some((layerId) => (
+        metadataLayers.find((layer) => layer.id === layerId)?.type === 'adjustment'
+      ))),
   };
 
   if (preview) {

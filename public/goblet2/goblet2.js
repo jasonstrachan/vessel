@@ -1,5 +1,6 @@
 import { clamp, posInt, round3, toNum } from './num.js';
 import {
+  applyAdjustmentEffect,
   applyDisplayFilterStack,
   clearDisplayFilterCanvas,
   createDisplayFilterPipelineState,
@@ -1482,6 +1483,9 @@ const PROPERTY_UNMINIFY_MAP = {
   an: 'animation',
   s: 'settings',
   l: 'layers',
+  ag: 'adjustmentGroups',
+  adj: 'adjustment',
+  ef: 'effect',
   grl: 'gradients',
   fb: 'fallback',
   csv: 'schemaVersion',
@@ -1618,6 +1622,15 @@ const paintGobletBackground = (ctx, width, height, metadata) => {
       }
     }
   }
+};
+
+const paintGobletArtworkBackground = (ctx, width, height, metadata) => {
+  const backgroundColor = metadata?.project?.backgroundColor;
+  if (!ctx || width <= 0 || height <= 0 || !hasRenderableBackgroundColor(backgroundColor)) {
+    return;
+  }
+  ctx.fillStyle = rgbaToCss(parseColor(backgroundColor));
+  ctx.fillRect(0, 0, width, height);
 };
 
 const expandMinifiedProperties = (value) => {
@@ -5383,6 +5396,11 @@ class VesselGoblet {
     this.interlaceLayerIdSet = new Set();
     this.interlaceElapsedSeconds = 0;
     this.interlaceScratch = new Map();
+    this.adjustmentGroups = [];
+    this.adjustmentLayerIdSet = new Set();
+    this.adjustmentScratch = new Map();
+    this.adjustmentGroupSurfaces = new Map();
+    this.adjustmentArtworkSurface = null;
     this.canUseStaticComposite = false;
     this.staticCompositeLayerKey = '';
     this.staticCompositeCanvas = null;
@@ -5634,7 +5652,7 @@ class VesselGoblet {
         }
       }
 
-      if (!source && !player && !sequentialPlayer) {
+      if (!source && !player && !sequentialPlayer && !layerClone.adjustment) {
         diagnostics.warn('[goblet] Layer has no drawable source', {
           id: layerClone.id,
           hasTextureProp: Boolean(layerClone.assets?.texture),
@@ -5682,6 +5700,20 @@ class VesselGoblet {
     this.interlaceLayerIdSet = new Set(
       this.interlaceGroups.flatMap((group) => group.entries.map((entry) => entry.layer.id)),
     );
+    this.adjustmentGroups = (Array.isArray(this.metadata?.adjustmentGroups)
+      ? this.metadata.adjustmentGroups
+      : [])
+      .map((group) => ({
+        ...group,
+        entries: (Array.isArray(group?.layerIds) ? group.layerIds : [])
+          .map((id) => entryById.get(id))
+          .filter((entry) => entry?.layer?.visible !== false)
+          .sort((a, b) => toNum(a.layer.stackIndex, 0) - toNum(b.layer.stackIndex, 0)),
+      }))
+      .filter((group) => group.entries.some((entry) => Boolean(entry.layer.adjustment)));
+    this.adjustmentLayerIdSet = new Set(
+      this.adjustmentGroups.flatMap((group) => group.entries.map((entry) => entry.layer.id)),
+    );
     if (this.interlaceGroups.length > 0) {
       this.dynamicPlayers.push({
         hasAnimation: () => true,
@@ -5718,6 +5750,9 @@ class VesselGoblet {
       }
     }
     if (this.interlaceGroups.length > 0) this.canUseStaticComposite = false;
+    if (this.sortedLayerEntries.some((entry) => Boolean(entry.layer.adjustment))) {
+      this.canUseStaticComposite = false;
+    }
     this.staticCompositeLayerKey = JSON.stringify(this.staticLayerEntries.map((entry) => [
       entry.layer.id,
       entry.layer.stackIndex,
@@ -5768,7 +5803,12 @@ class VesselGoblet {
 
     const textureless = entries
       .filter((entry) => entry.layer.visible !== false)
-      .filter((entry) => !entry.source && !entry.player && !entry.sequentialPlayer);
+      .filter((entry) => (
+        !entry.source
+        && !entry.player
+        && !entry.sequentialPlayer
+        && !entry.layer.adjustment
+      ));
     if (textureless.length > 0) {
       diagnostics.warn('Some layers are missing textures', textureless.map((entry) => entry.layer.id));
     }
@@ -6007,6 +6047,108 @@ class VesselGoblet {
       });
     }
 
+    renderCtx.restore();
+    return true;
+  }
+
+  ensureAdjustmentScratch(layerId, width, height) {
+    let scratch = this.adjustmentScratch.get(layerId);
+    if (!scratch) {
+      const input = document.createElement('canvas');
+      const inputCtx = input.getContext('2d', { willReadFrequently: true });
+      if (!inputCtx) return null;
+      scratch = {
+        input,
+        inputCtx,
+        filterState: createDisplayFilterPipelineState(),
+      };
+      this.adjustmentScratch.set(layerId, scratch);
+    }
+    if (scratch.input.width !== width) scratch.input.width = width;
+    if (scratch.input.height !== height) scratch.input.height = height;
+    return scratch;
+  }
+
+  ensureAdjustmentArtworkSurface(width, height) {
+    let surface = this.adjustmentArtworkSurface;
+    if (!surface) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      surface = { canvas, ctx };
+      this.adjustmentArtworkSurface = surface;
+    }
+    if (surface.canvas.width !== width) surface.canvas.width = width;
+    if (surface.canvas.height !== height) surface.canvas.height = height;
+    surface.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    surface.ctx.globalAlpha = 1;
+    surface.ctx.globalCompositeOperation = 'source-over';
+    surface.ctx.clearRect(0, 0, width, height);
+    paintGobletArtworkBackground(surface.ctx, width, height, this.metadata);
+    return surface;
+  }
+
+  applyAdjustmentEntry(entry, renderCtx, renderOptions) {
+    const effect = entry?.layer?.adjustment?.effect;
+    if (!effect || entry.layer.visible === false) return false;
+    const width = Math.max(1, Math.round(renderOptions.renderWidth));
+    const height = Math.max(1, Math.round(renderOptions.renderHeight));
+    const scratch = this.ensureAdjustmentScratch(entry.layer.id, width, height);
+    if (!scratch) return false;
+    scratch.inputCtx.setTransform(1, 0, 0, 1, 0, 0);
+    scratch.inputCtx.globalAlpha = 1;
+    scratch.inputCtx.globalCompositeOperation = 'source-over';
+    scratch.inputCtx.clearRect(0, 0, width, height);
+    scratch.inputCtx.drawImage(renderCtx.canvas, 0, 0);
+    const result = applyAdjustmentEffect({
+      sourceCanvas: scratch.input,
+      effect,
+      mix: Number.isFinite(entry.layer.opacity) ? clamp(entry.layer.opacity, 0, 1) : 1,
+      filterState: scratch.filterState,
+      visibleRect: { x: 0, y: 0, width, height },
+      lengthScale: renderOptions.isFixed ? Math.max(renderOptions.dpr, 1e-4) : 1,
+    });
+    renderCtx.save();
+    renderCtx.setTransform(1, 0, 0, 1, 0, 0);
+    renderCtx.globalAlpha = 1;
+    renderCtx.globalCompositeOperation = 'source-over';
+    renderCtx.clearRect(0, 0, width, height);
+    renderCtx.drawImage(result, 0, 0);
+    renderCtx.restore();
+    return true;
+  }
+
+  paintAdjustmentGroup(group, renderCtx, renderOptions) {
+    const width = Math.max(1, Math.round(renderOptions.renderWidth));
+    const height = Math.max(1, Math.round(renderOptions.renderHeight));
+    let surface = this.adjustmentGroupSurfaces.get(group.id);
+    if (!surface) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return false;
+      surface = { canvas, ctx };
+      this.adjustmentGroupSurfaces.set(group.id, surface);
+    }
+    if (surface.canvas.width !== width) surface.canvas.width = width;
+    if (surface.canvas.height !== height) surface.canvas.height = height;
+    surface.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    surface.ctx.globalAlpha = 1;
+    surface.ctx.globalCompositeOperation = 'source-over';
+    surface.ctx.clearRect(0, 0, width, height);
+    let painted = false;
+    group.entries.forEach((entry, index) => {
+      if (entry.layer.adjustment) {
+        painted = this.applyAdjustmentEntry(entry, surface.ctx, renderOptions) || painted;
+      } else {
+        painted = this.paintLayerEntry(entry, index, surface.ctx, renderOptions) || painted;
+      }
+    });
+    if (!painted) return false;
+    renderCtx.save();
+    renderCtx.setTransform(1, 0, 0, 1, 0, 0);
+    renderCtx.globalAlpha = 1;
+    renderCtx.globalCompositeOperation = 'source-over';
+    renderCtx.drawImage(surface.canvas, 0, 0);
     renderCtx.restore();
     return true;
   }
@@ -6294,6 +6436,9 @@ class VesselGoblet {
       height: Math.max(1, toNum(this.metadata.project?.height, cssH))
     };
     const displayFilters = getGobletDisplayFilters(this.metadata);
+    const hasAdjustmentLayers = this.sortedLayerEntries.some((entry) => (
+      entry.layer.visible !== false && Boolean(entry.layer.adjustment)
+    ));
     const hasEnabledDisplayFilters = hasEnabledDisplayFiltersInList(displayFilters);
     const shouldApplyDirectOverlayFilter = hasEnabledDisplayFiltersInList(
       displayFilters,
@@ -6315,9 +6460,16 @@ class VesselGoblet {
       this.displayFilterState.filterSurfaceCanvas = filterSurfaceCanvas;
     }
     if (filterCtx) {
-      paintGobletBackground(filterCtx, clearWidth, clearHeight, this.metadata);
+      if (hasAdjustmentLayers) {
+        paintGobletArtworkBackground(filterCtx, clearWidth, clearHeight, this.metadata);
+      } else {
+        paintGobletBackground(filterCtx, clearWidth, clearHeight, this.metadata);
+      }
     }
-    const renderCtx = filterCtx ?? ctx;
+    const adjustmentArtworkSurface = hasAdjustmentLayers && !filterCtx
+      ? this.ensureAdjustmentArtworkSurface(clearWidth, clearHeight)
+      : null;
+    const renderCtx = filterCtx ?? adjustmentArtworkSurface?.ctx ?? ctx;
 
     const sorted = this.sortedLayerEntries;
 
@@ -6368,7 +6520,18 @@ class VesselGoblet {
     } else {
       const dynamicStart = profile.enabled ? profile.now() : 0;
       const paintedInterlaceGroupIds = new Set();
+      const paintedAdjustmentGroupIds = new Set();
       sorted.forEach((entry, index) => {
+        if (this.adjustmentLayerIdSet.has(entry.layer.id)) {
+          const group = this.adjustmentGroups.find((candidate) => (
+            candidate.entries.some((member) => member.layer.id === entry.layer.id)
+          ));
+          if (group && !paintedAdjustmentGroupIds.has(group.id)) {
+            if (this.paintAdjustmentGroup(group, renderCtx, renderOptions)) painted += 1;
+            paintedAdjustmentGroupIds.add(group.id);
+          }
+          return;
+        }
         if (this.interlaceLayerIdSet.has(entry.layer.id)) {
           const group = this.interlaceGroups.find((candidate) => (
             candidate.entries.some((member) => member.layer.id === entry.layer.id)
@@ -6377,6 +6540,10 @@ class VesselGoblet {
             if (this.paintInterlaceGroup(group, renderCtx, renderOptions)) painted += 1;
             paintedInterlaceGroupIds.add(group.id);
           }
+          return;
+        }
+        if (entry.layer.adjustment) {
+          if (this.applyAdjustmentEntry(entry, renderCtx, renderOptions)) painted += 1;
           return;
         }
         if (this.paintLayerEntry(entry, index, renderCtx, renderOptions)) {
@@ -6418,6 +6585,9 @@ class VesselGoblet {
         profile.blitMs += profile.now() - blitStart;
       }
     } else if (shouldApplyDirectOverlayFilter) {
+      if (adjustmentArtworkSurface) {
+        ctx.drawImage(adjustmentArtworkSurface.canvas, 0, 0);
+      }
       const filterStart = profile.enabled ? profile.now() : 0;
       applyDisplayFilterStack({
         sourceCanvas: this.canvas,
@@ -6436,6 +6606,8 @@ class VesselGoblet {
       if (profile.enabled) {
         profile.filterMs += profile.now() - filterStart;
       }
+    } else if (adjustmentArtworkSurface) {
+      ctx.drawImage(adjustmentArtworkSurface.canvas, 0, 0);
     }
 
     logSummary(painted, sorted.length, startTime);
@@ -6553,6 +6725,9 @@ class VesselGoblet {
     this.dynamicPlayers.forEach((player) => player?.destroy());
     this.layerEntries = [];
     this.dynamicPlayers = [];
+    this.adjustmentScratch.clear();
+    this.adjustmentGroupSurfaces.clear();
+    this.adjustmentArtworkSurface = null;
 
     if (this.canvas) {
       const guard = this.canvas[POINTER_GUARD_KEY];

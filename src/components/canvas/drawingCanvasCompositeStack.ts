@@ -20,6 +20,8 @@ import {
   drawSierraLiteInterlace,
   type InterlaceRenderSource,
 } from '@/lib/interlace/interlaceRenderer';
+import { hasVisibleAdjustmentLayers } from '@/stores/layers/adjustmentLayerCompositor';
+import { drawAdjustmentCompositeStack } from './drawingCanvasAdjustmentStack';
 import {
   getColorCyclePresentationCanvas,
   resolveColorCyclePresentation,
@@ -51,6 +53,11 @@ interface DrawVisibleCompositeStackOptions {
   layerMap: Map<string, Layer>;
   compositeBitmap: ImageBitmap | null;
   compositeCanvas: HTMLCanvasElement | null;
+  liveLayerOverlay?: {
+    layerId: string;
+    canvas: HTMLCanvasElement;
+    mode: 'over' | 'replace';
+  };
 }
 
 interface DrawVisibleCompositeStackResult {
@@ -59,7 +66,6 @@ interface DrawVisibleCompositeStackResult {
 
 const compositeDebug = createDevDebugOverlayLogger('visible-composite');
 const lastCompositeProbeSignatures = new Map<string, string>();
-
 const sampleCanvasAlpha = (
   canvas: HTMLCanvasElement,
   rect: VisibleRect,
@@ -187,6 +193,7 @@ export const drawVisibleCompositeStack = ({
   layerMap,
   compositeBitmap,
   compositeCanvas,
+  liveLayerOverlay,
 }: DrawVisibleCompositeStackOptions): DrawVisibleCompositeStackResult => {
   const storeState = getAppStoreState() as AppState;
   const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
@@ -208,6 +215,22 @@ export const drawVisibleCompositeStack = ({
   const { x, y, width, height } = visibleRect;
   const destination = targetRect ?? visibleRect;
   if (width <= 0 || height <= 0) {
+    return { invalidCompositeBitmap };
+  }
+
+  const sortedLayers = [...layerMap.values()].sort((a, b) => a.order - b.order);
+  if (
+    hasVisibleAdjustmentLayers(sortedLayers)
+    && drawAdjustmentCompositeStack({
+      ctx,
+      visibleRect,
+      destination,
+      sortedLayers,
+      storeState,
+      shouldHoldPreviousSequentialFrame,
+      liveLayerOverlay,
+    })
+  ) {
     return { invalidCompositeBitmap };
   }
 

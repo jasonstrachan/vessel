@@ -1,6 +1,6 @@
 import type { PersistedLayerType } from '@/utils/projectPersistence';
 
-export type LegacyLayerType = 'normal' | 'color-cycle' | 'sequential' | 'unknown';
+export type LegacyLayerType = 'normal' | 'color-cycle' | 'sequential' | 'adjustment' | 'unknown';
 
 export interface LegacySerializedLayerLike {
   id: string;
