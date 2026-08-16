@@ -116,6 +116,103 @@
 
       const summarizeMetadata = () => {};
 
+      let txtShapeResizeObserver = null;
+      const mountTxtShapes = (metadata) => {
+        txtShapeResizeObserver?.disconnect();
+        txtShapeResizeObserver = null;
+        document.getElementById('vessel-txt-shapes')?.remove();
+        const shapes = Array.isArray(metadata?.textShapes) ? metadata.textShapes : [];
+        if (!(canvas instanceof HTMLCanvasElement) || shapes.length === 0) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'vessel-txt-shapes';
+        overlay.style.position = 'fixed';
+        overlay.style.pointerEvents = 'none';
+        overlay.style.zIndex = '10';
+        const stage = document.createElement('div');
+        stage.style.position = 'absolute';
+        stage.style.left = '0';
+        stage.style.top = '0';
+        stage.style.width = `${Math.max(1, Number(metadata.project?.width) || 1)}px`;
+        stage.style.height = `${Math.max(1, Number(metadata.project?.height) || 1)}px`;
+        stage.style.transformOrigin = 'top left';
+        const style = document.createElement('style');
+        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); }';
+        overlay.appendChild(style);
+        shapes.forEach((shape) => {
+          const box = document.createElement('div');
+          box.dataset.txtShapeId = String(shape.id || '');
+          box.style.position = 'absolute';
+          box.style.left = `${Number(shape.x) || 0}px`;
+          box.style.top = `${Number(shape.y) || 0}px`;
+          box.style.width = `${Math.max(1, Number(shape.width) || 1)}px`;
+          box.style.height = `${Math.max(1, Number(shape.height) || 1)}px`;
+          box.style.overflow = 'hidden';
+          box.style.whiteSpace = 'pre-wrap';
+          box.style.wordBreak = 'break-all';
+          box.style.pointerEvents = 'auto';
+          box.style.userSelect = 'text';
+          box.style.cursor = 'text';
+          box.style.color = String(shape.color || '#000000');
+          box.style.fontFamily = shape.fontFamily === 'serif'
+            ? "Georgia, 'Times New Roman', serif"
+            : shape.fontFamily === 'sans-serif'
+              ? 'Arial, Helvetica, sans-serif'
+              : "'IBM Plex Mono', 'Courier New', monospace";
+          box.style.fontSize = `${Math.max(6, Number(shape.fontSize) || 24)}px`;
+          box.style.lineHeight = String(Number(shape.lineHeight) || 1.2);
+          box.style.textAlign = ['left', 'center', 'right'].includes(shape.textAlign)
+            ? shape.textAlign
+            : 'left';
+          box.style.setProperty('--txt-selection-color', String(shape.selectionColor || '#ffffff'));
+          box.style.setProperty('--txt-selection-bg', String(shape.selectionBackgroundColor || '#000000'));
+          const content = String(shape.content || '');
+          const ranges = Array.isArray(shape.selections) ? shape.selections : [];
+          const boundaries = new Set([0, content.length]);
+          ranges.forEach((range) => {
+            boundaries.add(Math.max(0, Math.min(content.length, Number(range.start) || 0)));
+            boundaries.add(Math.max(0, Math.min(content.length, Number(range.end) || 0)));
+          });
+          const ordered = [...boundaries].sort((a, b) => a - b);
+          for (let index = 0; index < ordered.length - 1; index += 1) {
+            const start = ordered[index];
+            const end = ordered[index + 1];
+            const span = document.createElement('span');
+            span.textContent = content.slice(start, end);
+            const selected = ranges.some((range) => start >= Number(range.start) && start < Number(range.end));
+            if (selected) {
+              span.dataset.canonicalSelected = 'true';
+              span.style.color = String(shape.selectionColor || '#ffffff');
+              span.style.background = String(shape.selectionBackgroundColor || '#000000');
+            }
+            box.appendChild(span);
+          }
+          box.addEventListener('pointerdown', () => {
+            box.querySelectorAll('[data-canonical-selected]').forEach((span) => {
+              span.removeAttribute('style');
+              span.removeAttribute('data-canonical-selected');
+            });
+          });
+          stage.appendChild(box);
+        });
+        overlay.appendChild(stage);
+        document.body.appendChild(overlay);
+        const position = () => {
+          const rect = canvas.getBoundingClientRect();
+          const width = Math.max(1, Number(metadata.project?.width) || 1);
+          const height = Math.max(1, Number(metadata.project?.height) || 1);
+          overlay.style.left = `${rect.left}px`;
+          overlay.style.top = `${rect.top}px`;
+          overlay.style.width = `${rect.width}px`;
+          overlay.style.height = `${rect.height}px`;
+          stage.style.transform = `scale(${rect.width / width}, ${rect.height / height})`;
+        };
+        position();
+        if (typeof ResizeObserver === 'function') {
+          txtShapeResizeObserver = new ResizeObserver(position);
+          txtShapeResizeObserver.observe(canvas);
+        }
+      };
+
       const computeScale = (metadata) => {
         const viewport = metadata?.viewport ?? {};
         const viewportPreset = metadata?.settings?.viewportPreset;
@@ -185,6 +282,7 @@
               ? {}
               : { scale };
             const summary = await renderVesselWebGL(current, canvas, opts);
+            mountTxtShapes(current);
             debugLog('[DEBUG] drawMetadata render summary', summary);
             lastMetadata = current;
           } catch (error) {

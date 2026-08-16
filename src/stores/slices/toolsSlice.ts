@@ -304,6 +304,13 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   mosaicSegmentJitter: settings.mosaicSegmentJitter,
   mosaicDitherEnabled: settings.mosaicDitherEnabled,
   mosaicSeed: settings.mosaicSeed,
+  txtContent: settings.txtContent,
+  txtFontFamily: settings.txtFontFamily,
+  txtTextAlign: settings.txtTextAlign,
+  txtColorSource: settings.txtColorSource,
+  txtColor: settings.txtColor,
+  txtSelectionColor: settings.txtSelectionColor,
+  txtSelectionBackgroundColor: settings.txtSelectionBackgroundColor,
 });
 
 const COLOR_ADJUST_TOOL: Tool = 'color-adjust';

@@ -1,16 +1,21 @@
-import type { Tool } from '@/types';
-import CropOverlay from './CropOverlay';
-import FloatingPasteOverlay from './FloatingPasteOverlay';
-import GridOverlay from './GridOverlay';
-import SelectionMarqueeHandles from './SelectionMarqueeHandles';
-import { useAppStore } from '@/stores/useAppStore';
-import { selectGridState } from '@/stores/selectors/stateSelectors';
+import type React from 'react';
+
 import {
   stopVesselMultiplayerSession,
   useVesselMultiplayerSnapshot,
 } from '@/collaboration/vesselMultiplayerSession';
+import { useAppStore } from '@/stores/useAppStore';
+import { selectGridState } from '@/stores/selectors/stateSelectors';
+import type { Tool } from '@/types';
+
+import CropOverlay from './CropOverlay';
+import FloatingPasteOverlay from './FloatingPasteOverlay';
+import GridOverlay from './GridOverlay';
+import SelectionMarqueeHandles from './SelectionMarqueeHandles';
+import { TxtShapeOverlay } from './TxtShapeOverlay';
 
 interface DrawingCanvasOverlaysProps {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
   project: { width: number; height: number } | null;
   floatingPaste: unknown;
   canvasZoom: number;
@@ -22,6 +27,7 @@ interface DrawingCanvasOverlaysProps {
 }
 
 export const DrawingCanvasOverlays = ({
+  canvasRef,
   project,
   floatingPaste,
   canvasZoom,
@@ -45,6 +51,15 @@ export const DrawingCanvasOverlays = ({
 
   return (
     <>
+      {project ? (
+        <TxtShapeOverlay
+          canvasRef={canvasRef}
+          zoom={canvasZoom || 1}
+          offsetX={offsetX}
+          offsetY={offsetY}
+        />
+      ) : null}
+
       {project && floatingPaste ? (
         <FloatingPasteOverlay
           projectWidth={project.width}

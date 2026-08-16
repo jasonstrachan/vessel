@@ -15,6 +15,7 @@ import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 import { normalizeCanvasShape } from '@/utils/canvasShape';
 import { normalizeCcCustomTilePatternPack } from '@/utils/colorCycle/ccCustomTilePattern';
 import { DEFAULT_GRADIENT_ID, GRADIENT_PRESETS } from '@/utils/gradientPresets';
+import { normalizeTxtShapes } from '@/utils/txtShape';
 import {
   normalizeReferenceAssets,
   normalizeReferenceSamplingSource,
@@ -364,6 +365,7 @@ export const normalizeProject = (project: Project): Project => {
     layerGroups: normalizedLayerGroups,
     palette: normalizePalette(project.palette),
     canvasShape: normalizeCanvasShape(project.canvasShape, project.width, project.height),
+    txtShapes: normalizeTxtShapes(project.txtShapes, project.width, project.height),
     referenceAssets,
     referenceSamplingSource,
   };

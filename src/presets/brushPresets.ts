@@ -1209,6 +1209,47 @@ export const spamBrushPreset: BrushPreset = {
   }
 };
 
+const txtShapeBrushComponents: BrushComponent[] = [
+  {
+    id: 'txt-shape-renderer',
+    type: ComponentType.SHAPE_RENDERER,
+    parameters: {
+      shape: BrushShape.TXT_SHAPE,
+    },
+    priority: 40,
+    enabled: true,
+  },
+];
+
+export const txtShapeBrushPreset: BrushPreset = {
+  id: 'txt-shape',
+  name: 'TXT Shape',
+  category: 'Text',
+  components: txtShapeBrushComponents,
+  thumbnail: '/assets/images/Brush.png',
+  tags: ['text', 'shape', 'selection', 'semantic', 'typography'],
+  isDefault: false,
+  createdAt: new Date(),
+  modifiedAt: new Date(),
+  capabilities: {
+    canDither: false,
+  },
+  preferredSettings: {
+    size: 24,
+    opacity: 1,
+    pressureEnabled: false,
+    shapeEnabled: true,
+    brushShape: BrushShape.TXT_SHAPE,
+    txtContent: 'SELECTED TEXT',
+    txtFontFamily: 'monospace',
+    txtTextAlign: 'left',
+    txtColorSource: 'palette',
+    txtColor: '#000000',
+    txtSelectionColor: '#ffffff',
+    txtSelectionBackgroundColor: '#000000',
+  },
+};
+
 // Resampler Brush Components
 const resamplerBrushComponents: BrushComponent[] = [
   {
@@ -1402,6 +1443,7 @@ export const brushPresets: BrushPreset[] = [
   rectangleGradientBrushPreset,
   shapeFillBrushPreset,
   spamBrushPreset,
+  txtShapeBrushPreset,
   resamplerBrushPreset
 ];
 

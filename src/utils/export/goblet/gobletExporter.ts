@@ -99,6 +99,7 @@ import {
   updateGobletSizeReportPayloadTotals,
   type GobletBinaryPayloadEntry,
 } from '@/utils/export/goblet/gobletSizeReport';
+import { normalizeTxtShapes } from '@/utils/txtShape';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 import { cloneDisplayFilters } from '@/lib/displayFilters';
 import { clampRectToDocument as clampBoundsToDocument } from '@/utils/export/colorCycleBounds';
@@ -930,6 +931,11 @@ export const buildProjectGobletArtifact = async (
       htmlBackgroundColor: resolvedHtmlBackgroundColor,
       transparencyBackgroundMode,
     },
+    textShapes: normalizeTxtShapes(
+      options.project.txtShapes,
+      options.project.width,
+      options.project.height,
+    ),
     layers: metadataLayers,
     interlaceGroups: (options.project.layerGroups ?? [])
       .filter(isInterlaceGroup)

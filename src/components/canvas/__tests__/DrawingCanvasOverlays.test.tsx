@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { DrawingCanvasOverlays } from '../DrawingCanvasOverlays';
 
 const setZoom = jest.fn();
+const canvasRef = React.createRef<HTMLCanvasElement>();
 const stopVesselMultiplayerSession = jest.fn();
 let multiplayer = {
   sessionId: null as string | null,
@@ -28,6 +29,7 @@ jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
 
 jest.mock('../SelectionMarqueeHandles', () => () => null);
 jest.mock('../GridOverlay', () => () => null);
+jest.mock('../TxtShapeOverlay', () => ({ TxtShapeOverlay: () => null }));
 
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: (selector?: (state: unknown) => unknown) => {
@@ -78,6 +80,7 @@ describe('DrawingCanvasOverlays', () => {
 
     render(
       <DrawingCanvasOverlays
+        canvasRef={canvasRef}
         project={{ width: 100, height: 100 }}
         floatingPaste={null}
         canvasZoom={2}
@@ -109,6 +112,7 @@ describe('DrawingCanvasOverlays', () => {
 
     render(
       <DrawingCanvasOverlays
+        canvasRef={canvasRef}
         project={{ width: 100, height: 100 }}
         floatingPaste={null}
         canvasZoom={1}
@@ -130,6 +134,7 @@ describe('DrawingCanvasOverlays', () => {
   it('resets canvas zoom to 100% when the zoom badge is double-clicked', () => {
     render(
       <DrawingCanvasOverlays
+        canvasRef={canvasRef}
         project={null}
         floatingPaste={null}
         canvasZoom={2.5}
@@ -158,6 +163,7 @@ describe('DrawingCanvasOverlays', () => {
         onDoubleClick={handleDoubleClick}
       >
         <DrawingCanvasOverlays
+          canvasRef={canvasRef}
           project={null}
           floatingPaste={null}
           canvasZoom={2.5}

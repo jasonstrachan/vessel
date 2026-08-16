@@ -8,6 +8,7 @@ export const GOBLET_PROPERTY_MINIFY_MAP = {
   animation: 'an',
   settings: 's',
   layers: 'l',
+  textShapes: 'ts',
   adjustmentGroups: 'ag',
   adjustment: 'adj',
   effect: 'ef',

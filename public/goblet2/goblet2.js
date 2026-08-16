@@ -1483,6 +1483,7 @@ const PROPERTY_UNMINIFY_MAP = {
   an: 'animation',
   s: 'settings',
   l: 'layers',
+  ts: 'textShapes',
   ag: 'adjustmentGroups',
   adj: 'adjustment',
   ef: 'effect',

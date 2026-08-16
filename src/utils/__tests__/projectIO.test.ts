@@ -7165,6 +7165,25 @@ describe('projectIO serialize/deserialize layering', () => {
         radius: 1,
         bounds: { x: 0, y: 0, width: 2, height: 2 },
       },
+      txtShapes: [{
+        id: 'txt-1',
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 16,
+        content: 'AB',
+        fontFamily: 'monospace',
+        fontSize: 12,
+        lineHeight: 1.2,
+        textAlign: 'left',
+        colorSource: 'palette',
+        color: '#111111',
+        selectionColor: '#ffffff',
+        selectionBackgroundColor: '#111111',
+        selections: [{ start: 1, end: 2 }],
+        createdAt: 1,
+        updatedAt: 2,
+      }],
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
       updatedAt: new Date('2025-01-01T00:00:00.000Z'),
     };
@@ -7178,6 +7197,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(readPixel(restoredLayer1.imageData, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(readPixel(restoredLayer2.imageData, 0, 0)).toEqual([0, 0, 255, 255]);
     expect(restored.canvasShape?.kind).toBe('circle');
+    expect(restored.txtShapes).toEqual(project.txtShapes);
     expect(restored.referenceLayerId).toBe('layer-2');
   });
 

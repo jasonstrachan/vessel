@@ -1399,6 +1399,7 @@ const PROPERTY_UNMINIFY_MAP = {
   an: 'animation',
   s: 'settings',
   l: 'layers',
+  ts: 'textShapes',
   grl: 'gradients',
   fb: 'fallback',
   i: 'id',

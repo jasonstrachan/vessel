@@ -348,6 +348,40 @@ describe('webglExporter bundle contracts', () => {
     expect(artifact.blob.type).toBe('text/html');
     expect(artifact.blob.size).toBe(artifact.sizeReport.totalBytes);
     expect(artifact.metadata.format).toBe('vessel-goblet2');
+    await expect(readBlobText(artifact.blob)).resolves.toContain(
+      "typeof mountTxtShapes === 'function'",
+    );
+  });
+
+  it('exports canonical TXT Shape content and selection ranges', async () => {
+    const project = createProject();
+    project.txtShapes = [{
+      id: 'txt-portrait',
+      x: 4,
+      y: 5,
+      width: 40,
+      height: 18,
+      content: 'LIGHT DARK',
+      fontFamily: 'monospace',
+      fontSize: 12,
+      lineHeight: 1.2,
+      textAlign: 'left',
+      colorSource: 'palette',
+      color: '#111111',
+      selectionColor: '#eeeeee',
+      selectionBackgroundColor: '#222222',
+      selections: [{ start: 6, end: 10 }],
+      createdAt: 1,
+      updatedAt: 2,
+    }];
+
+    const metadata = await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      bundleFormat: 'json',
+    });
+
+    expect(metadata.textShapes).toEqual(project.txtShapes);
   });
 
   it('serializes ordered Interlace groups into Goblet metadata', async () => {

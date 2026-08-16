@@ -282,6 +282,9 @@ const appendZipAutoloadSnippet = (
           ? {}
           : { scale };
         const renderResult = await renderVesselWebGL(normalizedMetadata, canvas, opts);
+        if (typeof mountTxtShapes === 'function') {
+          mountTxtShapes(normalizedMetadata);
+        }
         summarizeMetadata(normalizedMetadata, renderResult);
         lastMetadata = normalizedMetadata;
         const rendererHandle = canvas && canvas[Symbol.for('VesselRenderer')];
@@ -610,6 +613,9 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
             ? {}
             : { scale };
           const renderResult = await renderVesselWebGL(packagedMetadata, canvas, opts);
+          if (typeof mountTxtShapes === 'function') {
+            mountTxtShapes(packagedMetadata);
+          }
           if (enableDiagnostics) {
             emitLog('[goblet] Render complete:', renderResult);
           }

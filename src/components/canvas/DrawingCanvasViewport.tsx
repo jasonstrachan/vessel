@@ -102,6 +102,7 @@ export const DrawingCanvasViewport = ({
     />
 
     <DrawingCanvasOverlays
+      canvasRef={canvasRef}
       project={project}
       floatingPaste={floatingPaste}
       canvasZoom={canvasZoom || 1}

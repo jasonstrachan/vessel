@@ -311,6 +311,35 @@ export interface CanvasFreehandShape {
 
 export type CanvasShape = CanvasRectangleShape | CanvasCircleShape | CanvasFreehandShape;
 
+export type TxtShapeFontFamily = 'monospace' | 'sans-serif' | 'serif';
+export type TxtShapeTextAlign = 'left' | 'center' | 'right';
+export type TxtShapeColorSource = 'foreground' | 'palette' | 'sample' | 'manual';
+
+export interface TxtShapeSelectionRange {
+  start: number;
+  end: number;
+}
+
+export interface TxtShape {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  content: string;
+  fontFamily: TxtShapeFontFamily;
+  fontSize: number;
+  lineHeight: number;
+  textAlign: TxtShapeTextAlign;
+  colorSource: TxtShapeColorSource;
+  color: string;
+  selectionColor: string;
+  selectionBackgroundColor: string;
+  selections: TxtShapeSelectionRange[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type InterlaceDirection = 'left' | 'right';
 export type InterlaceMotionMode = 'fixed' | 'travel';
 export type InterlacePatternPreset =
@@ -402,6 +431,7 @@ export interface Project {
   ccCustomTilePatternPacks?: CcCustomTilePatternPack[];
   defaultCustomBrushId?: string | null;
   canvasShape?: CanvasShape;
+  txtShapes?: TxtShape[];
   // Canvas view state
   viewState?: {
     zoom: number;
@@ -905,6 +935,7 @@ export enum BrushShape {
   COLOR_CYCLE_SHAPE = 'color_cycle_shape',
   MOSAIC = 'mosaic',
   SPAM_TEXT = 'spam_text',
+  TXT_SHAPE = 'txt_shape',
   SHAPE_FILL = 'shape_fill'
 }
 
@@ -1441,6 +1472,14 @@ export interface BrushSettings {
   spamFont?: string; // Font ID for the Spam Text brush
   spamContentType?: string; // Type of spam content to use
   spamCustomText?: string; // Custom text to use instead of preset content
+  // TXT Shape semantic text-box settings
+  txtContent?: string;
+  txtFontFamily?: TxtShapeFontFamily;
+  txtTextAlign?: TxtShapeTextAlign;
+  txtColorSource?: TxtShapeColorSource;
+  txtColor?: string;
+  txtSelectionColor?: string;
+  txtSelectionBackgroundColor?: string;
   // Particle brush settings
   particleDensity?: number; // 1-200 particles per stamp (pressure-scaled)
   particleScatterRadius?: number; // 0.1-5x brush size

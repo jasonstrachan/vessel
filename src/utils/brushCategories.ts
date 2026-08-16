@@ -32,7 +32,8 @@ export const SHAPE_FILL_BRUSHES: BrushShape[] = [
   BrushShape.CONTOUR_POLYGON,
   BrushShape.CONTOUR_LINES2,
   BrushShape.COLOR_CYCLE_SHAPE,
-  BrushShape.SHAPE_FILL
+  BrushShape.SHAPE_FILL,
+  BrushShape.TXT_SHAPE,
 ];
 
 /**
@@ -90,7 +91,7 @@ export function supportsDither(brushShape: BrushShape | string): boolean {
   const shape = typeof brushShape === 'string' ? brushShape : String(brushShape);
 
   // Exclude text/resampler by default; they can opt-in via preset capabilities.
-  if (shape === BrushShape.SPAM_TEXT || shape === BrushShape.RESAMPLER) {
+  if (shape === BrushShape.SPAM_TEXT || shape === BrushShape.TXT_SHAPE || shape === BrushShape.RESAMPLER) {
     return false;
   }
   if (shape === BrushShape.MOSAIC) {

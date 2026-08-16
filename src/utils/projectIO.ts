@@ -23,6 +23,7 @@ import JSZip from 'jszip';
 import { gunzipSync } from 'fflate';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
+import { drawTxtShapesToCanvas, normalizeTxtShapes } from '@/utils/txtShape';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
@@ -473,6 +474,7 @@ export interface VesselProject {
     exportLayout?: ExportContainerLayout;
     palette?: PaletteState;
     canvasShape?: Project['canvasShape'];
+    txtShapes?: Project['txtShapes'];
     viewState?: Project['viewState'];
   };
   binaries?: {
@@ -4183,6 +4185,10 @@ export function generateProjectThumbnail(
     }
   }
 
+  fullCtx.globalAlpha = 1;
+  fullCtx.globalCompositeOperation = 'source-over';
+  drawTxtShapesToCanvas(fullCtx, project.txtShapes);
+
   const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
   applyCanvasShapeMask(fullCtx, shape);
 
@@ -4575,6 +4581,7 @@ const buildSerializedProjectArtifacts = async (
       exportLayout: cloneExportLayout(project.exportLayout),
       palette: normalizePalette(project.palette),
       canvasShape: project.canvasShape,
+      txtShapes: normalizeTxtShapes(project.txtShapes, project.width, project.height),
       viewState: project.viewState
         ? {
             zoom: project.viewState.zoom,
@@ -5862,6 +5869,11 @@ export async function deserializeProjectWithReport(
     exportLayout: cloneExportLayout(serializedProject.exportLayout),
     palette: normalizePalette(serializedProject.palette),
     canvasShape: serializedProject.canvasShape,
+    txtShapes: normalizeTxtShapes(
+      serializedProject.txtShapes,
+      serializedProject.width,
+      serializedProject.height,
+    ),
     viewState: serializedProject.viewState
       ? {
           zoom: toFiniteNumber(serializedProject.viewState.zoom, 1),
@@ -6764,6 +6776,10 @@ export async function exportProjectAsPNG(
       ctx.drawImage(layerCanvas, 0, 0);
     }
   }
+
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+  drawTxtShapesToCanvas(ctx, project.txtShapes);
 
   const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
   applyCanvasShapeMask(ctx, shape);
