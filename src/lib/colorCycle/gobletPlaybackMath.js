@@ -201,14 +201,29 @@ const resolveSierraLiteInitialError = (x, y, identityKey, seed, variant, pattern
 };
 
 const SIERRA_LITE_VARIETY_ERROR_SCALE = 8;
-const SIERRA_LITE_CLASSIC_ERROR_SCALE = 1.25;
-const SIERRA_LITE_CLASSIC_PATTERN_KEY = 0x534c434c;
+const SIERRA_LITE_ZERO_VARIETY_ROW_PHASES = Object.freeze([
+  0, 1, 0, 1,
+  0, 0, 0, 0,
+  1, 0, 1,
+]);
+
+/**
+ * Resolve the fixed, manually registered Variety 0 mask.
+ * The eleven-row sequence is A B A B | A A A A | B A B, creating one
+ * uniform four-row vertical interruption before the checker resumes.
+ * Positive Variety continues to use Sierra Lite error diffusion below.
+ */
+const resolveSierraLiteZeroVarietyBit = (x, y) => {
+  const period = SIERRA_LITE_ZERO_VARIETY_ROW_PHASES.length;
+  const localY = ((y % period) + period) % period;
+  const rowPhase = SIERRA_LITE_ZERO_VARIETY_ROW_PHASES[localY];
+  return (x + rowPhase) & 1;
+};
 
 /**
  * Build deterministic, zero-centred perturbations around canonical Sierra
- * Lite. Zero Variety keeps one seed-free near-checker baseline with sparse
- * stacks; increasing Variety fades that baseline into seeded alternatives.
- * The diffusion kernel still owns quantization, tone, and error spread.
+ * Lite. Variety only perturbs the diffusion input. The exact zero-Variety
+ * pattern is owned separately by resolveSierraLiteZeroVarietyBit.
  */
 export const createSierraLiteVarietyResolver = ({
   mix,
@@ -240,19 +255,10 @@ export const createSierraLiteVarietyResolver = ({
     0x51f15e,
   ) & 7;
   const variationScale = Math.sqrt(diversity01) * SIERRA_LITE_VARIETY_ERROR_SCALE;
-  const classicScale = (1 - diversity01) * SIERRA_LITE_CLASSIC_ERROR_SCALE;
   const resolveClassic = (x, y) => {
-    if (classicScale <= 0) {
-      return 0;
-    }
-    return resolveSierraLiteInitialError(
-      x + phaseX,
-      y + phaseY,
-      0,
-      0,
-      0,
-      SIERRA_LITE_CLASSIC_PATTERN_KEY,
-    ) * classicScale;
+    void x;
+    void y;
+    return 0;
   };
   const resolveVariation = (x, y) => {
     if (diversity01 <= 0) {
@@ -328,8 +334,24 @@ export const resolveSierraLiteBinaryField = ({
   if (gridWidth === 0 || gridHeight === 0) {
     return output;
   }
-  const errors = new Float32Array(output.length);
   const diversity01 = clamp01(Number.isFinite(diversity) ? diversity : 1);
+  if (diversity01 === 0) {
+    const baseMix = clamp01(Number.isFinite(mix) ? mix : 0.5);
+    for (let y = 0; y < gridHeight; y += 1) {
+      for (let x = 0; x < gridWidth; x += 1) {
+        const index = y * gridWidth + x;
+        const cellMix = mixField && Number.isFinite(mixField[index])
+          ? clamp01(mixField[index])
+          : baseMix;
+        output[index] = cellMix <= 0 || cellMix >= 1
+          ? (cellMix >= 1 ? 1 : 0)
+          : resolveSierraLiteZeroVarietyBit(x + phaseX, y + phaseY);
+      }
+    }
+    return output;
+  }
+
+  const errors = new Float32Array(output.length);
   const variety = createSierraLiteVarietyResolver({
     mix,
     seed,
@@ -376,6 +398,7 @@ export const resolveSierraLiteBinaryField = ({
       }
     }
   }
+
   return output;
 };
 

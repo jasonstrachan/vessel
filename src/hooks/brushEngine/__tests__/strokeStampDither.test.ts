@@ -1,3 +1,6 @@
+import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
+import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
+
 import * as stampDither from '../strokeStampDither';
 import {
   clearStampDitherRuntime,
@@ -6,7 +9,6 @@ import {
 } from '../strokeStampDither/runtime';
 import { getStampDitherTile } from '../strokeStampDither/tile';
 import type { StampDitherState } from '../strokeStampDither';
-import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 
 describe('strokeStampDither', () => {
   const buildAnimator = (width: number, height: number) => {
@@ -26,7 +28,7 @@ describe('strokeStampDither', () => {
     };
   };
 
-  it('uses the classic near-checker Sierra field at zero Variety and varies it deterministically', () => {
+  it('uses the shared four-row Sierra interruption at zero Variety and varies it deterministically', () => {
     const runtime = createStampDitherRuntime(0);
     const tileSize = 64;
     const build = (diversity: number) => getStampDitherTile(
@@ -59,15 +61,13 @@ describe('strokeStampDither', () => {
 
     expect(full).toEqual(build(1));
     expect(Array.from(full)).not.toEqual(Array.from(zero));
-    let horizontalAlternations = 0;
-    for (let y = 0; y < tileSize; y += 1) {
-      for (let x = 0; x < tileSize - 1; x += 1) {
-        if (zero[y * tileSize + x] !== zero[y * tileSize + x + 1]) {
-          horizontalAlternations += 1;
-        }
-      }
-    }
-    expect(horizontalAlternations / (tileSize * (tileSize - 1))).toBeGreaterThan(0.99);
+    const expected = resolveSierraLiteBinaryField({
+      width: tileSize,
+      height: tileSize,
+      mix: 0.5,
+      diversity: 0,
+    });
+    expect(zero).toEqual(Uint8Array.from(expected, (bit) => bit === 1 ? 0 : 255));
     expect(countVerticalTriples(zero)).toBeGreaterThan(0);
     expect(countVerticalTriples(full)).toBeGreaterThan(0);
   });

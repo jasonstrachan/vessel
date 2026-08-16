@@ -1,10 +1,11 @@
+import { buildCcStrokeShapeGeometry } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
+import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
+import type { BrushSettings } from '@/types';
 import {
   fillCcGradientDither,
   resolveCcSampledFlatPatternPayload,
   resolveSampledFlatPositionMix,
 } from '@/utils/colorCycle/ccGradientDither';
-import { buildCcStrokeShapeGeometry } from '@/hooks/canvas/handlers/shapes/ccStrokeShapeGeometry';
-import type { BrushSettings } from '@/types';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import type { CumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
@@ -1467,10 +1468,10 @@ describe('fillCcGradientDither', () => {
     expect(hasAlternation).toBe(true);
     expect(seedA).toEqual(seedB);
     expect(new Set(seedA)).toEqual(new Set([28, 36]));
-    expect(highCount).toBeGreaterThan(lowCount);
+    expect(highCount).toBe(lowCount);
   });
 
-  it('preserves resolved band occupancy for zero-diversity CC flat fills', async () => {
+  it('uses balanced occupancy for the registered zero-Variety CC flat mask', async () => {
     const width = 8;
     const height = 8;
     const run = async (flatSeed: number) => {
@@ -1511,10 +1512,10 @@ describe('fillCcGradientDither', () => {
 
     expect(seedA).toEqual(seedB);
     expect(new Set(nonZero)).toEqual(new Set([low, high]));
-    expect(highCount).toBeGreaterThan(lowCount);
+    expect(highCount).toBe(lowCount);
   });
 
-  it('keeps occupancy stable while Variety changes the Sierra topology', () => {
+  it('switches from the balanced zero-Variety mask to requested positive-Variety occupancy', () => {
     const run = (ditherPatternDiversity: number) => {
       const gridW = 16;
       const gridH = 16;
@@ -1550,8 +1551,10 @@ describe('fillCcGradientDither', () => {
 
     expect(lowDiversity.output).not.toEqual(zeroDiversity.output);
     expect(fullDiversity.output).not.toEqual(lowDiversity.output);
-    expect(Math.abs(lowDiversity.highCount - zeroDiversity.highCount)).toBeLessThanOrEqual(16);
-    expect(Math.abs(fullDiversity.highCount - zeroDiversity.highCount)).toBeLessThanOrEqual(16);
+    expect(zeroDiversity.highCount).toBe(128);
+    expect(lowDiversity.highCount).toBeGreaterThan(zeroDiversity.highCount);
+    expect(fullDiversity.highCount).toBeGreaterThan(zeroDiversity.highCount);
+    expect(Math.abs(fullDiversity.highCount - lowDiversity.highCount)).toBeLessThanOrEqual(16);
   });
 
   it('uses two separated inks for each Sierra Lite flat tone band', () => {
@@ -2131,6 +2134,12 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     });
     const zero = await render(0);
     const full = await render(100);
+    const expectedZeroField = resolveSierraLiteBinaryField({
+      width,
+      height,
+      mix: 0.5,
+      diversity: 0,
+    });
     const countInteriorVerticalTriples = (output: Uint8Array) => {
       let count = 0;
       for (let y = 1; y < height - 3; y += 1) {
@@ -2153,6 +2162,21 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     expect(Array.from(full)).not.toEqual(Array.from(zero));
     expect(countInteriorVerticalTriples(zero)).toBeGreaterThan(0);
     expect(countInteriorVerticalTriples(full)).toBeGreaterThan(0);
+    for (let x = 1; x < width - 1; x += 1) {
+      const valueByBit = new Map<number, number>();
+      for (let y = 1; y < height - 1; y += 1) {
+        const index = y * width + x;
+        const bit = expectedZeroField[index];
+        const value = zero[index];
+        expect(value).toBeGreaterThan(0);
+        if (valueByBit.has(bit)) {
+          expect(value).toBe(valueByBit.get(bit));
+        } else {
+          valueByBit.set(bit, value);
+        }
+      }
+      expect(valueByBit.size).toBe(2);
+    }
   });
 
   it('keeps the zero-Variety Sierra field independent of Free versus Rect clipping', async () => {

@@ -3,7 +3,10 @@
  * Implements Floyd-Steinberg and Bayer matrix dithering with pressure control
  */
 
-import { createSierraLiteVarietyResolver } from '@/lib/colorCycle/gobletPlaybackMath';
+import {
+  createSierraLiteVarietyResolver,
+  resolveSierraLiteBinaryField,
+} from '@/lib/colorCycle/gobletPlaybackMath';
 import { debugWarn } from '@/utils/debug';
 import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
@@ -827,16 +830,60 @@ export const applySierraLitePressureDither = (
   ));
   const lowInk = paletteByLuminance[0] ?? [0, 0, 0];
   const highInk = paletteByLuminance[paletteByLuminance.length - 1] ?? lowInk;
+  const lowInkKey = Math.round(0.2126 * lowInk[0] + 0.7152 * lowInk[1] + 0.0722 * lowInk[2]);
+  const highInkKey = Math.round(0.2126 * highInk[0] + 0.7152 * highInk[1] + 0.0722 * highInk[2]);
+  const varietyStrength = Math.max(0, Math.min(1, settings.sierraLiteVariety?.diversity ?? 0));
+
+  if (varietyStrength === 0 && paletteByLuminance.length === 2) {
+    const mixField = new Float32Array(width * height);
+    const redRange = highInk[0] - lowInk[0];
+    const greenRange = highInk[1] - lowInk[1];
+    const blueRange = highInk[2] - lowInk[2];
+    const rangeSquared =
+      redRange * redRange + greenRange * greenRange + blueRange * blueRange;
+    for (let index = 0; index < width * height; index += 1) {
+      const dataIndex = index * 4;
+      mixField[index] = rangeSquared > 0
+        ? Math.max(0, Math.min(1, (
+          (data[dataIndex] - lowInk[0]) * redRange +
+          (data[dataIndex + 1] - lowInk[1]) * greenRange +
+          (data[dataIndex + 2] - lowInk[2]) * blueRange
+        ) / rangeSquared))
+        : 0;
+    }
+    const bits = resolveSierraLiteBinaryField({
+      width,
+      height,
+      mix: 0.5,
+      phaseX: settings.phaseOffset?.x ?? 0,
+      phaseY: settings.phaseOffset?.y ?? 0,
+      lowKey: lowInkKey,
+      highKey: highInkKey,
+      diversity: 0,
+      mixField,
+    });
+    for (let index = 0; index < bits.length; index += 1) {
+      const dataIndex = index * 4;
+      if (data[dataIndex + 3] === 0) {
+        continue;
+      }
+      const ink = bits[index] === 1 ? highInk : lowInk;
+      data[dataIndex] = ink[0];
+      data[dataIndex + 1] = ink[1];
+      data[dataIndex + 2] = ink[2];
+    }
+    return new ImageData(data, width, height);
+  }
+
   const variety = createSierraLiteVarietyResolver({
     mix: 0.5,
     seed: settings.sierraLiteVariety?.seed ?? 0,
     phaseX: settings.phaseOffset?.x ?? 0,
     phaseY: settings.phaseOffset?.y ?? 0,
-    lowKey: Math.round(0.2126 * lowInk[0] + 0.7152 * lowInk[1] + 0.0722 * lowInk[2]),
-    highKey: Math.round(0.2126 * highInk[0] + 0.7152 * highInk[1] + 0.0722 * highInk[2]),
+    lowKey: lowInkKey,
+    highKey: highInkKey,
     diversity: settings.sierraLiteVariety?.diversity ?? 0,
   });
-  const varietyStrength = Math.max(0, Math.min(1, settings.sierraLiteVariety?.diversity ?? 0));
 
   // Pressure affects error diffusion intensity
   const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
@@ -1124,7 +1171,10 @@ export const applySierraLiteLostEdgeMask = (
       palette: [
         [0, 0, 0],
         [255, 255, 255]
-      ]
+      ],
+      // Lost Edge uses Sierra diffusion as a density ramp; it is not a brush
+      // Variety 0 surface and must not inherit the registered display mask.
+      sierraLiteVariety: { diversity: 1, seed: 0 },
     },
     false // keep directional diffusion for predictable edge masks
   );

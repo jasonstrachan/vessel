@@ -80,7 +80,7 @@ describe('Interlace Sierra Lite playback', () => {
     expect(high.every((value) => value === 1)).toBe(true);
   });
 
-  it('produces the seed-free classic Sierra near-checker at zero Variety', () => {
+  it('produces the exact seed-free four-row interruption at zero Variety', () => {
     const width = 64;
     const height = 64;
     const field = resolveSierraLiteBinaryField({
@@ -91,29 +91,15 @@ describe('Interlace Sierra Lite playback', () => {
       diversity: 0,
     });
 
-    let horizontalAlternations = 0;
-    let verticalTriples = 0;
+    const rowPhases = [0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1];
+    const expected = new Uint8Array(width * height);
     for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width - 1; x += 1) {
-        if (field[y * width + x] !== field[y * width + x + 1]) {
-          horizontalAlternations += 1;
-        }
-      }
-    }
-    for (let y = 0; y < height - 2; y += 1) {
       for (let x = 0; x < width; x += 1) {
-        const value = field[y * width + x];
-        if (
-          field[(y + 1) * width + x] === value &&
-          field[(y + 2) * width + x] === value
-        ) {
-          verticalTriples += 1;
-        }
+        expected[y * width + x] = (x + rowPhases[y % rowPhases.length]) & 1;
       }
     }
 
-    expect(horizontalAlternations / (height * (width - 1))).toBeGreaterThan(0.99);
-    expect(verticalTriples).toBeGreaterThan(0);
+    expect(field).toEqual(expected);
     expect(field).toEqual(resolveSierraLiteBinaryField({
       width,
       height,

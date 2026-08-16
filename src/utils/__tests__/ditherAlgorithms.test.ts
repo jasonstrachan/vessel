@@ -531,6 +531,36 @@ describe('Dithering Algorithms', () => {
       expect(Array.from(result.data.slice(0, 4))).toEqual([0, 0, 0, 0]);
       expect(Array.from(result.data.slice(4, 8))).toEqual([200, 200, 200, 255]);
     });
+
+    it('keeps solid palette endpoints solid at zero Variety', () => {
+      const renderSolid = (value: number) => {
+        const data = new Uint8ClampedArray(4 * 4 * 4);
+        for (let index = 0; index < data.length; index += 4) {
+          data[index] = value;
+          data[index + 1] = value;
+          data[index + 2] = value;
+          data[index + 3] = 255;
+        }
+        return applySierraLitePressureDither(
+          new ImageData(data, 4, 4),
+          {
+            ...testSettings,
+            palette: [
+              [100, 100, 100],
+              [200, 200, 200],
+            ],
+            sierraLiteVariety: { diversity: 0, seed: 8128 },
+          },
+        );
+      };
+
+      expect(Array.from(renderSolid(100).data).every((value, index) => (
+        index % 4 === 3 ? value === 255 : value === 100
+      ))).toBe(true);
+      expect(Array.from(renderSolid(200).data).every((value, index) => (
+        index % 4 === 3 ? value === 255 : value === 200
+      ))).toBe(true);
+    });
     
     it('should respect pressure settings', () => {
       const imageData = createTestImageData(4, 4);

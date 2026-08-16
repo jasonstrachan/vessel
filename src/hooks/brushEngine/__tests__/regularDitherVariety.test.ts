@@ -1,3 +1,4 @@
+import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import { BrushShape } from '@/types';
 
 import { computeStrokeDitherPaletteForSettings } from '../engineShared';
@@ -71,18 +72,6 @@ const countVerticalTriples = (imageData: ImageData): number => {
   return count;
 };
 
-const countHorizontalAlternations = (imageData: ImageData): number => {
-  let count = 0;
-  for (let y = 0; y < imageData.height; y += 1) {
-    for (let x = 0; x < imageData.width - 1; x += 1) {
-      if (colorKeyAt(imageData, x, y) !== colorKeyAt(imageData, x + 1, y)) {
-        count += 1;
-      }
-    }
-  }
-  return count;
-};
-
 const countChangedPixels = (left: ImageData, right: ImageData): number => {
   let count = 0;
   for (let index = 0; index < left.data.length; index += 4) {
@@ -122,12 +111,23 @@ describe('regularDitherVariety', () => {
     }).seed);
   });
 
-  it('uses the classic Sierra near-checker at zero Variety without horizontal runs', () => {
+  it('uses the shared four-row Sierra interruption at zero Variety', () => {
     const output = render(0);
-    const horizontalEdges = output.height * (output.width - 1);
+    const lowInk = colorKeyAt(output, 0, 0);
+    const actual = new Uint8Array(output.width * output.height);
+    for (let y = 0; y < output.height; y += 1) {
+      for (let x = 0; x < output.width; x += 1) {
+        actual[y * output.width + x] = colorKeyAt(output, x, y) === lowInk ? 0 : 1;
+      }
+    }
 
     expect(countVerticalTriples(output)).toBeGreaterThan(0);
-    expect(countHorizontalAlternations(output) / horizontalEdges).toBeGreaterThan(0.99);
+    expect(actual).toEqual(resolveSierraLiteBinaryField({
+      width: output.width,
+      height: output.height,
+      mix: 0.5,
+      diversity: 0,
+    }));
   });
 
   it('adds deterministic Sierra vertical runs as Variety increases', () => {
