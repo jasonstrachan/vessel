@@ -597,6 +597,10 @@ const BrushControls = () => {
         : 'concentric';
   const ccGradientDrawingShapeValue = activeSettings.ccGradientDrawingShape ?? 'freehand';
   const isColorCycleGradientStrokeMode = isColorCycleGradientPreset && colorCycleFillModeValue === 'stroke';
+  const shouldShowColorCycleSize =
+    !isColorCycleGradientPreset ||
+    ccGradientDrawingShapeValue === 'line' ||
+    (isColorCycleGradientStrokeMode && ccGradientDrawingShapeValue === 'freehand');
   const fgDerivedLightness = activeSettings.colorCycleFgLightness ?? 50;
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
@@ -1719,25 +1723,27 @@ const BrushControls = () => {
           </div>
         )}
 
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              {sizeLabel}
-            </label>
-            <NonCcSlider
-              value={sizeSlider.value}
-              min={1}
-              max={500}
-              step={1}
-              onChange={(value) => {
-                sizeSlider.onChange(Math.min(500, Math.max(1, Math.round(value))));
-              }}
-              onCommit={sizeSlider.onCommit}
-              aria-label={`Brush Size (${sizeUnit})`}
-              className="flex-1"
-            />
+        {shouldShowColorCycleSize && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                {sizeLabel}
+              </label>
+              <NonCcSlider
+                value={sizeSlider.value}
+                min={1}
+                max={500}
+                step={1}
+                onChange={(value) => {
+                  sizeSlider.onChange(Math.min(500, Math.max(1, Math.round(value))));
+                }}
+                onCommit={sizeSlider.onCommit}
+                aria-label={`Brush Size (${sizeUnit})`}
+                className="flex-1"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mb-2">
           <div className="flex items-center gap-2">

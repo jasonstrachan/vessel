@@ -452,6 +452,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     render(<BrushControls />);
 
     expect(screen.queryByTestId('gradient-editor')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Brush Size (px)')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
@@ -967,6 +968,106 @@ describe('BrushControls – Custom brush captured data mode', () => {
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {
+  it.each([
+    {
+      id: 'color-cycle-gradient',
+      name: 'CC Gradient',
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'freehand',
+    },
+    {
+      id: 'color-cycle-flat-dither',
+      name: 'CC Flat Dither',
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'freehand',
+    },
+    {
+      id: 'color-cycle-gradient',
+      name: 'CC Gradient',
+      colorCycleFillMode: 'stroke',
+      ccGradientDrawingShape: 'rectangle',
+    },
+    {
+      id: 'color-cycle-flat-dither',
+      name: 'CC Flat Dither',
+      colorCycleFillMode: 'stroke',
+      ccGradientDrawingShape: 'polygon',
+    },
+  ] as const)(
+    'hides brush size for shape-defined geometry in $id using $colorCycleFillMode/$ccGradientDrawingShape',
+    ({ id, name, colorCycleFillMode, ccGradientDrawingShape }) => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+            colorCycleFillMode,
+            ccGradientDrawingShape,
+            ditherEnabled: true,
+          },
+        },
+        brushPresets: [{ id, name } as AppState['brushPresets'][number]],
+        currentBrushPreset: { id, name } as AppState['currentBrushPreset'],
+      }));
+
+      render(<BrushControls />);
+
+      expect(screen.queryByLabelText('Brush Size (px)')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Dither Resolution')).toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    {
+      id: 'color-cycle-gradient',
+      name: 'CC Gradient',
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'line',
+    },
+    {
+      id: 'color-cycle-gradient',
+      name: 'CC Gradient',
+      colorCycleFillMode: 'stroke',
+      ccGradientDrawingShape: 'freehand',
+    },
+    {
+      id: 'color-cycle-flat-dither',
+      name: 'CC Flat Dither',
+      colorCycleFillMode: 'linear',
+      ccGradientDrawingShape: 'line',
+    },
+    {
+      id: 'color-cycle-flat-dither',
+      name: 'CC Flat Dither',
+      colorCycleFillMode: 'stroke',
+      ccGradientDrawingShape: 'freehand',
+    },
+  ] as const)(
+    'shows brush size for width-defined geometry in $id using $colorCycleFillMode/$ccGradientDrawingShape',
+    ({ id, name, colorCycleFillMode, ccGradientDrawingShape }) => {
+      useAppStore.setState((state) => ({
+        ...state,
+        tools: {
+          ...state.tools,
+          brushSettings: {
+            ...state.tools.brushSettings,
+            brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+            colorCycleFillMode,
+            ccGradientDrawingShape,
+          },
+        },
+        brushPresets: [{ id, name } as AppState['brushPresets'][number]],
+        currentBrushPreset: { id, name } as AppState['currentBrushPreset'],
+      }));
+
+      render(<BrushControls />);
+
+      expect(screen.getByLabelText('Brush Size (px)')).toBeInTheDocument();
+    },
+  );
+
   it('does not expose rounded corner controls', () => {
     useAppStore.setState((state) => ({
       ...state,
