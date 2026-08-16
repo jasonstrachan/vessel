@@ -622,6 +622,8 @@ describe('LayersPanel interactions', () => {
 
     expect(rowLayerA?.className).toContain('bg-[#E8F2FF]');
     expect(rowLayerA?.className).not.toContain('bg-[#2C3B47]');
+    expect(rowLayerA?.className).not.toContain('border-l-4');
+    expect(rowLayerA?.className).not.toContain('inset_4px_0_0');
     expect(rowLayerC?.className).toContain('bg-[#E8F2FF]');
     expect(screen.getByTitle('Hide group: Foreground').className).toContain('text-[#1A1A1A]');
   });
@@ -1528,6 +1530,13 @@ describe('LayersPanel interactions', () => {
     ];
 
     expect(Array.from(addButtons[0].parentElement?.children ?? [])).toEqual(addButtons);
+    expect(addButtons[0].parentElement).toHaveClass('gap-1', 'p-1');
+    addButtons.forEach((button) => {
+      expect(button).toHaveClass('h-7', 'border', 'border-[#3F3F3F]', 'bg-[#252525]');
+      expect(button).not.toHaveClass('border-r');
+    });
+    expect(screen.getByTitle('Add Sequence Layer')).toHaveTextContent('Seq');
+    expect(screen.getByTitle('Add Sequence Layer')).not.toHaveTextContent('Sequence');
   });
 
   it('creates a non-raster adjustment layer with Hue/Sat defaults', () => {

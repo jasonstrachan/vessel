@@ -1090,38 +1090,39 @@ const LayersPanel: React.FC = () => {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[#1A1A1A]">
-      <div className="flex-shrink-0 flex border-b border-[#404040]">
+      <div className="flex-shrink-0 flex gap-1 border-b border-[#404040] bg-[#202020] p-1">
         <button
           onClick={handleAddRegularLayer}
-          className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add Regular Layer"
         >
-          <Plus size={14} className="text-[#D9D9D9]" />
+          <Plus size={12} className="text-[#D9D9D9]" />
           <span>Layer</span>
         </button>
         <button
           onClick={handleAddColorCycleLayer}
-          className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add CC Layer"
         >
-          <Plus size={14} className="text-[#D9D9D9]" />
+          <Plus size={12} className="text-[#D9D9D9]" />
           <span>CC</span>
         </button>
         <button
           onClick={handleAddSequentialLayer}
-          className="flex-1 flex items-center justify-center gap-1 py-2 border-r border-[#424242] text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add Sequence Layer"
+          aria-label="Add Sequence Layer"
         >
-          <Plus size={14} className="text-[#D9D9D9]" />
-          <span>Sequence</span>
+          <Plus size={12} className="text-[#D9D9D9]" />
+          <span>Seq</span>
         </button>
         <button
           onClick={handleAddAdjustmentLayer}
-          className="flex-1 flex items-center justify-center gap-1 py-2 text-[11px] text-[#D9D9D9] hover:bg-[#353535] transition-colors"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add Adjustment Layer"
           aria-label="Add Adjustment Layer"
         >
-          <Plus size={14} className="text-[#D9D9D9]" />
+          <Plus size={12} className="text-[#D9D9D9]" />
           <span>Adjust</span>
         </button>
       </div>
@@ -1156,8 +1157,8 @@ const LayersPanel: React.FC = () => {
             ? (isGroupSelected ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
             : (isGroupSelected ? 'text-[#5A5A5A]' : 'text-[#666]');
           const rowVisualClass = isHighlighted
-            ? 'bg-[#E8F2FF] text-[#0F172A] border-l-4 border-[#0EA5E9] shadow-[0_0_0_1px_rgba(14,165,233,0.25),inset_4px_0_0_#0EA5E922]'
-            : 'hover:bg-[#383838]/20 text-[#D9D9D9] border-l-4 border-transparent';
+            ? 'bg-[#E8F2FF] text-[#0F172A] shadow-[0_0_0_1px_rgba(14,165,233,0.25)]'
+            : 'hover:bg-[#383838]/20 text-[#D9D9D9]';
           const visibleIconClass = layer.visible
             ? (isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
             : (isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]');
