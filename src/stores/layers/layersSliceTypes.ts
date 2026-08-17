@@ -39,6 +39,7 @@ export type RenderStaticCompositeOptions = {
 
 export type MarkCompositeSegmentsDirtyOptions = {
   dirtyRectsByLayerId?: Map<string, ColorCycleDirtyRect[]>;
+  requestRecomposition?: boolean;
 };
 
 export type UpdateLayerOptions = {

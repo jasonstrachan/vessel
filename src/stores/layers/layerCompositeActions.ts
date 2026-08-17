@@ -88,6 +88,7 @@ export const createLayerCompositeActions = ({
     const markCompositeSegmentsDirtyByLayerIdsWithRects = (
       layerIds: string[],
       dirtyRectsByLayerId?: Map<string, ColorCycleDirtyRect[]>,
+      requestRecomposition = false,
     ): void => {
       if (!layerIds.length) {
         return;
@@ -102,6 +103,7 @@ export const createLayerCompositeActions = ({
           layerIds,
           dirtyRectsByLayerId,
         ),
+        ...(requestRecomposition ? { layersNeedRecomposition: true } : {}),
       }));
     };
 
@@ -211,6 +213,7 @@ export const createLayerCompositeActions = ({
         markCompositeSegmentsDirtyByLayerIdsWithRects(
           layerIds,
           options?.dirtyRectsByLayerId,
+          options?.requestRecomposition,
         );
       },
       markAllCompositeSegmentsDirty: () => {

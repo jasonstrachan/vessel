@@ -30,6 +30,8 @@ describe('static vs animated compositor', () => {
   let previousVersion = useAppStore.getState().staticCompositeVersion;
   let previousSegments = useAppStore.getState().compositeSegments;
   let previousSegmentsVersion = useAppStore.getState().compositeSegmentsVersion;
+  const previousLayersNeedRecomposition = useAppStore.getState().layersNeedRecomposition;
+  const previousPendingDirtyBatches = useAppStore.getState().pendingCompositeDirtyBatches;
 
   afterEach(() => {
     useAppStore.setState((state) => ({
@@ -39,8 +41,39 @@ describe('static vs animated compositor', () => {
       currentCompositeBitmap: previousBitmap,
       staticCompositeVersion: previousVersion,
       compositeSegments: previousSegments,
-      compositeSegmentsVersion: previousSegmentsVersion
+      compositeSegmentsVersion: previousSegmentsVersion,
+      layersNeedRecomposition: previousLayersNeedRecomposition,
+      pendingCompositeDirtyBatches: previousPendingDirtyBatches,
     }));
+  });
+
+  it('requests a rebuild while dirtying only the named static segment', () => {
+    const createSegment = (id: string, layerId: string): StaticSegment => ({
+      kind: 'static',
+      id,
+      layerIds: [layerId],
+      includeBackground: false,
+      orderRange: { start: 0, end: 0 },
+      canvas: document.createElement('canvas'),
+      bitmap: null,
+      dirty: false,
+    });
+    const ownerSegment = createSegment('owner-segment', 'txt-owner');
+    const otherSegment = createSegment('other-segment', 'other-layer');
+    useAppStore.setState({
+      compositeSegments: [ownerSegment, otherSegment],
+      layersNeedRecomposition: false,
+      pendingCompositeDirtyBatches: [],
+    });
+
+    useAppStore.getState().markCompositeSegmentsDirtyByLayerIds(['txt-owner'], {
+      requestRecomposition: true,
+    });
+
+    const state = useAppStore.getState();
+    expect(state.layersNeedRecomposition).toBe(true);
+    expect(expectStaticSegment(state.compositeSegments[0]).dirty).toBe(true);
+    expect(state.compositeSegments[1]).toBe(otherSegment);
   });
 
   it('builds composite segments that respect layer ordering', () => {

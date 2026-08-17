@@ -9,21 +9,29 @@ import {
   getTxtShapeFlowInsetPath,
   getTxtShapeHorizontalSpan,
   getTxtShapeHorizontalSpanForBand,
+  getTxtShapeLineHeightPx,
   getTxtShapePadding,
   getTxtShapeRegionPathArea,
   getTxtShapeTextLayout,
+  getTxtShapeTransientSelectionRevision,
   normalizeTxtShapeSelections,
   normalizeTxtShapes,
   setTxtShapeTransientSelectionOverrides,
   splitTxtShapeSegments,
+  thresholdTxtShapePixelAlpha,
   updateTxtShapeSelectionsForContent,
 } from '@/utils/txtShape';
 import { layoutTxtShapeText } from '@/utils/txtShapeLayout';
 import {
   createTxtShapeFontFaceCss,
   getTxtShapeFontMinimumSize,
+  getTxtShapeFontSizeStep,
+  getTxtShapeNativePixelSize,
+  getTxtShapePixelScale,
   isTxtShapeFontFamily,
+  isTxtShapePixelFont,
   loadTxtShapeFont,
+  normalizeTxtShapeFontSize,
   TXT_SHAPE_FONT_DEFINITIONS,
 } from '@/utils/txtShapeFonts';
 
@@ -63,7 +71,24 @@ describe('TXT Shape document helpers', () => {
     ]);
     expect(isTxtShapeFontFamily('mek-mono')).toBe(true);
     expect(isTxtShapeFontFamily('missing-font')).toBe(false);
+    expect(isTxtShapePixelFont('mek-sans')).toBe(true);
+    expect(isTxtShapePixelFont('mek-mono')).toBe(true);
+    expect(isTxtShapePixelFont('departure-mono')).toBe(true);
+    expect(isTxtShapePixelFont('jetbrains-mono')).toBe(false);
+    expect(isTxtShapePixelFont('ibm-plex-mono')).toBe(false);
+    expect(getTxtShapeFontMinimumSize('mek-sans')).toBe(15);
+    expect(getTxtShapeNativePixelSize('mek-sans')).toBe(15);
+    expect(getTxtShapeFontMinimumSize('mek-mono')).toBe(12);
+    expect(getTxtShapeNativePixelSize('mek-mono')).toBe(12);
     expect(getTxtShapeFontMinimumSize('departure-mono')).toBe(11);
+    expect(getTxtShapeNativePixelSize('departure-mono')).toBe(11);
+    expect(getTxtShapeFontSizeStep('departure-mono')).toBe(11);
+    expect(getTxtShapeFontSizeStep('jetbrains-mono')).toBe(1);
+    expect(normalizeTxtShapeFontSize('departure-mono', 24)).toBe(22);
+    expect(normalizeTxtShapeFontSize('departure-mono', 29)).toBe(33);
+    expect(normalizeTxtShapeFontSize('mek-sans', 24)).toBe(30);
+    expect(normalizeTxtShapeFontSize('mek-mono', 24)).toBe(24);
+    expect(getTxtShapePixelScale('departure-mono', 33)).toBe(3);
     expect(createTxtShapeFontFaceCss('/vessel')).toContain(
       "url('/vessel/assets/fonts/DEPARTURE-MONO-REGULAR.WOFF2')",
     );
@@ -77,8 +102,11 @@ describe('TXT Shape document helpers', () => {
     ], 200, 100);
 
     expect(departure?.fontSize).toBe(11);
-    expect(mekSans?.fontSize).toBe(8);
+    expect(mekSans?.fontSize).toBe(15);
     expect(system?.fontSize).toBe(6);
+    expect(normalizeTxtShapes([
+      createShape({ fontFamily: 'departure-mono', fontSize: 24 }),
+    ], 200, 100)[0]?.fontSize).toBe(22);
   });
 
   it('activates a bundled face with its effective minimum descriptor', async () => {
@@ -272,7 +300,7 @@ describe('TXT Shape document helpers', () => {
       lineTo: jest.fn(),
       closePath: jest.fn(),
       clip: jest.fn(),
-      measureText: jest.fn(() => ({ width: 5 })),
+      measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
       fillRect: jest.fn(),
       fillText: jest.fn(),
       font: '',
@@ -284,8 +312,65 @@ describe('TXT Shape document helpers', () => {
 
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
     expect(ctx.fillRect).toHaveBeenCalledWith(10, 6, 5, 12);
-    expect(ctx.fillText).toHaveBeenNthCalledWith(1, 'A', 5, 6);
-    expect(ctx.fillText).toHaveBeenNthCalledWith(2, 'B', 10, 6);
+    expect(ctx.fillText).toHaveBeenNthCalledWith(1, 'AB', 5, 6);
+    expect(ctx.fillText).toHaveBeenNthCalledWith(2, 'AB', 5, 6);
+    expect(ctx.rect).toHaveBeenCalledWith(5, 6, 5, 50);
+    expect(ctx.rect).toHaveBeenCalledWith(10, 6, 5, 50);
+  });
+
+  it('collapses pixel-font coverage to fully on or fully off document pixels', () => {
+    const pixels = new Uint8ClampedArray([
+      80, 90, 100, 0,
+      80, 90, 100, 127,
+      80, 90, 100, 128,
+      80, 90, 100, 220,
+    ]);
+
+    thresholdTxtShapePixelAlpha(pixels);
+
+    expect([...pixels]).toEqual([
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      80, 90, 100, 255,
+      80, 90, 100, 255,
+    ]);
+  });
+
+  it('prepares one native strike per line and reuses it across selection colours', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 50;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    const drawImage = jest.spyOn(ctx!, 'drawImage');
+    const fillText = jest.spyOn(ctx!, 'fillText');
+    const getImageData = jest.spyOn(CanvasRenderingContext2D.prototype, 'getImageData');
+    const shape = createShape({
+      x: 5.4,
+      y: 6.4,
+      content: 'PIXEL',
+      fontFamily: 'departure-mono',
+      fontSize: 33,
+      selections: [{ start: 1, end: 4 }],
+    });
+
+    drawTxtShapesToCanvas(ctx!, [shape]);
+
+    const drawCall = drawImage.mock.calls[0] as unknown as [
+      CanvasImageSource, number, number, number, number, number, number, number, number,
+    ];
+    expect(drawCall[1]).toBe(0);
+    expect(drawCall[2]).toBe(0);
+    expect(drawCall[5]).toBe(-1);
+    expect(drawCall[6]).toBe(6);
+    expect(drawCall[7]).toBe(drawCall[3] * 3);
+    expect(drawCall[8]).toBe(drawCall[4] * 3);
+    expect(drawImage).toHaveBeenCalledTimes(3);
+    expect(getImageData).toHaveBeenCalledTimes(1);
+    expect(fillText).not.toHaveBeenCalled();
+    expect(getTxtShapeLineHeightPx(shape)).toBe(39);
+    expect(getTxtShapeTextLayout(shape).lineHeightPx).toBe(39);
+    getImageData.mockRestore();
   });
 
   it('reuses the live layer raster surfaces across compositor frames', () => {
@@ -321,7 +406,7 @@ describe('TXT Shape document helpers', () => {
     const ctx = {
       save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
       ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
-      clip: jest.fn(), measureText: jest.fn(() => ({ width: 5 })),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
       fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
     } as unknown as CanvasRenderingContext2D;
     const padded = createShape({
@@ -332,7 +417,7 @@ describe('TXT Shape document helpers', () => {
 
     drawTxtShapesToCanvas(ctx, [padded]);
 
-    expect(ctx.fillText).toHaveBeenNthCalledWith(1, 'A', 9, 10);
+    expect(ctx.fillText).toHaveBeenNthCalledWith(1, 'AB', 9, 10);
     expect(ctx.fillRect).toHaveBeenCalledWith(14, 10, 5, 12);
     expect(getTxtShapeTextLayout(padded).didOverflow).toBe(false);
     expect(getTxtShapeTextLayout(createShape({
@@ -347,7 +432,7 @@ describe('TXT Shape document helpers', () => {
     const ctx = {
       save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
       ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
-      clip: jest.fn(), measureText: jest.fn(() => ({ width: 5 })),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
       fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
     } as unknown as CanvasRenderingContext2D;
     const shape = createShape({ content: 'AB', selections: [{ start: 0, end: 2 }] });
@@ -364,11 +449,27 @@ describe('TXT Shape document helpers', () => {
     }
   });
 
+  it('does not invalidate the raster cache for an unchanged transient projection', () => {
+    clearTxtShapeTransientSelectionOverrides();
+    const before = getTxtShapeTransientSelectionRevision();
+    const first = setTxtShapeTransientSelectionOverrides(new Map([
+      ['txt-1', [{ start: 0, end: 2 }]],
+    ]));
+    const repeated = setTxtShapeTransientSelectionOverrides(new Map([
+      ['txt-1', [{ start: 0, end: 2 }]],
+    ]));
+
+    expect(first).toBe(before + 1);
+    expect(repeated).toBe(first);
+    expect(clearTxtShapeTransientSelectionOverrides()).toBe(first + 1);
+    expect(clearTxtShapeTransientSelectionOverrides()).toBe(first + 1);
+  });
+
   it('clips and flows raster text inside an oval region', () => {
     const ctx = {
       save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
       ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
-      clip: jest.fn(), measureText: jest.fn(() => ({ width: 5 })),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
       fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
     } as unknown as CanvasRenderingContext2D;
 
@@ -382,7 +483,7 @@ describe('TXT Shape document helpers', () => {
     const ctx = {
       save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
       ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
-      clip: jest.fn(), measureText: jest.fn(() => ({ width: 5 })),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
       fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
     } as unknown as CanvasRenderingContext2D;
 

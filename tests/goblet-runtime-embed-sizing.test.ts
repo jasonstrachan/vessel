@@ -71,7 +71,12 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("'jetbrains-mono': \"'JetBrains Mono', monospace\"");
       expect(viewer).toContain("'ibm-plex-mono': \"'IBM Plex Mono', monospace\"");
       expect(viewer).toContain("'departure-mono': \"'Departure Mono', monospace\"");
-      expect(viewer).toContain("const fontMinimumSizes = { 'mek-sans': 8, 'departure-mono': 11 };");
+      expect(viewer).toContain("const fontMinimumSizes = { 'mek-sans': 15, 'mek-mono': 12, 'departure-mono': 11 };");
+      expect(viewer).toContain("const pixelFontSizes = { 'mek-sans': 15, 'mek-mono': 12, 'departure-mono': 11 };");
+      expect(viewer).toContain("if (isPixelFont) box.dataset.pixelFont = 'true';");
+      expect(viewer).toContain('[data-pixel-font="true"]::selection');
+      expect(viewer).toContain('Math.round(requestedFontSize / nativePixelSize)');
+      expect(viewer).toContain('Math.round(nativePixelSize * lineHeight)) * pixelScale');
     }
   });
 });
