@@ -161,6 +161,61 @@ describe('global brush persistence', () => {
     );
   });
 
+  it('restores and persists generic extension settings between sessions', async () => {
+    loadMock.mockReturnValue({
+      brushSpecificSettings: {
+        'pixel-square': {
+          extensionId: 'test-extension',
+          extensionSettings: {
+            testExtension: {
+              content: 'FIRST SESSION',
+              regionKind: 'oval',
+              fontSize: 31,
+            },
+          },
+        },
+      },
+      lastBrushId: 'pixel-square',
+    });
+
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    expect(store.tools.brushSettings.extensionId).toBe('test-extension');
+    expect(store.tools.brushSettings.extensionSettings).toEqual({
+      testExtension: {
+        content: 'FIRST SESSION',
+        regionKind: 'oval',
+        fontSize: 31,
+      },
+    });
+
+    store.setBrushSettings({
+      extensionId: 'test-extension',
+      extensionSettings: {
+        testExtension: {
+          content: 'NEXT SESSION',
+          regionKind: 'freehand',
+          fontSize: 47,
+        },
+      },
+    });
+    jest.advanceTimersByTime(300);
+
+    expect(saveMock.mock.calls.at(-1)?.[0]?.brushSpecificSettings?.['pixel-square']).toEqual(
+      expect.objectContaining({
+        extensionId: 'test-extension',
+        extensionSettings: {
+          testExtension: {
+            content: 'NEXT SESSION',
+            regionKind: 'freehand',
+            fontSize: 47,
+          },
+        },
+      }),
+    );
+  });
+
   it('saves when brush-specific settings change', async () => {
     loadMock.mockReturnValue(null);
 

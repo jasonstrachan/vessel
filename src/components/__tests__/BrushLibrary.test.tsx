@@ -231,6 +231,14 @@ const shapeGradientPreset = {
     category: 'Special',
     components: [{ type: 'shape', parameters: { shape: BrushShape.SHAPE_FILL } }],
   };
+  const anchoredStudioPreset = {
+    id: 'studio-extension-brush',
+    name: 'Studio Extension Brush',
+    isDefault: false,
+    category: 'Studio',
+    libraryOrderAfter: 'shape-fill',
+    components: [{ type: 'shape', parameters: { shape: BrushShape.EXTENSION } }],
+  };
   const checkeredStaticPreset = {
     id: 'checkered',
     name: 'Checkered',
@@ -415,6 +423,26 @@ describe('BrushLibrary', () => {
     const stroke = screen.getByText('Color Cycle Stroke');
     const relation = shapeFill.compareDocumentPosition(stroke);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('places an anchored extension brush directly after its library anchor', () => {
+    useAppStore.setState({
+      ...useAppStore.getState(),
+      currentBrushPreset: anchoredStudioPreset as any,
+      brushPresets: [
+        basePreset as any,
+        ccStrokePreset as any,
+        anchoredStudioPreset as any,
+        shapeFillPreset as any,
+        ccGradientPreset as any,
+      ],
+    });
+
+    render(<BrushLibrary />);
+
+    const shapeRow = screen.getByText('Shape Pattern').closest('.group');
+    const studioRow = screen.getByText('Studio Extension Brush').closest('.group');
+    expect(shapeRow?.nextElementSibling).toBe(studioRow);
   });
 
   it('orders Checkered directly after Color Cycle Gradient', () => {

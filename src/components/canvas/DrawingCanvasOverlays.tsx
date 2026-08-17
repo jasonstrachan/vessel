@@ -53,12 +53,22 @@ export const DrawingCanvasOverlays = ({
   return (
     <>
       {project && StudioCanvasOverlay ? (
-        <StudioCanvasOverlay
-          canvasRef={canvasRef}
-          zoom={canvasZoom || 1}
-          offsetX={offsetX}
-          offsetY={offsetY}
-        />
+        <div
+          className="pointer-events-none absolute inset-0"
+          data-testid="studio-extension-input-boundary"
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerMove={(event) => event.stopPropagation()}
+          onPointerUp={(event) => event.stopPropagation()}
+          onPointerCancel={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          <StudioCanvasOverlay
+            canvasRef={canvasRef}
+            zoom={canvasZoom || 1}
+            offsetX={offsetX}
+            offsetY={offsetY}
+          />
+        </div>
       ) : null}
 
       {project && floatingPaste ? (

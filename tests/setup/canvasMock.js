@@ -229,6 +229,7 @@ class MockCanvasRenderingContext2D {
   bezierCurveTo() {}
   quadraticCurveTo() {}
   arc() {}
+  ellipse() {}
   stroke() {}
   fill() {}
   clip() {}
@@ -243,6 +244,12 @@ class MockCanvasRenderingContext2D {
     const sizeMatch = /([0-9]+)px/.exec(this._font);
     const size = sizeMatch ? Number(sizeMatch[1]) : 10;
     return { width: text.length * (size * 0.6) };
+  }
+
+  fillText(text, x, y) {
+    const sizeMatch = /([0-9]+)px/.exec(this._font);
+    const size = sizeMatch ? Number(sizeMatch[1]) : 10;
+    this.fillRect(x, y, this.measureText(String(text)).width, size);
   }
 
   createLinearGradient() {

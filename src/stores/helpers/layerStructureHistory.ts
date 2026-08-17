@@ -39,6 +39,11 @@ export const captureLayerStructureSnapshot = (
       ...group,
       interlace: group.interlace ? { ...group.interlace } : undefined,
     })),
+    txtShapes: state.project?.txtShapes?.map((shape) => ({
+      ...shape,
+      regionPath: shape.regionPath?.map((point) => ({ ...point })),
+      selections: shape.selections.map((selection) => ({ ...selection })),
+    })) ?? [],
   };
 };
 

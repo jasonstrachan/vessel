@@ -365,7 +365,12 @@ export const normalizeProject = (project: Project): Project => {
     layerGroups: normalizedLayerGroups,
     palette: normalizePalette(project.palette),
     canvasShape: normalizeCanvasShape(project.canvasShape, project.width, project.height),
-    txtShapes: normalizeTxtShapes(project.txtShapes, project.width, project.height),
+    txtShapes: normalizeTxtShapes(
+      project.txtShapes,
+      project.width,
+      project.height,
+      layersWithValidGroups,
+    ),
     referenceAssets,
     referenceSamplingSource,
   };

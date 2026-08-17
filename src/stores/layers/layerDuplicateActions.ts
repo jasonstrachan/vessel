@@ -147,11 +147,30 @@ export const createLayerDuplicateActions = ({
       const normalizedLayers = normalizeLayerOrder(updatedLayers);
       trackLayerChanges('duplicateLayer RETURN', normalizedLayers);
       const syncedLayers = syncPercentOffsetsFromPixels(normalizedLayers, state.project ?? null);
+      const duplicatedAt = Date.now();
+      const duplicatedTxtShapes = state.project?.txtShapes
+        ?.filter((shape) => shape.layerId === layerId)
+        .map((shape, index) => ({
+          ...shape,
+          id: `txt-${duplicatedAt}-${index}-${Math.random()}`,
+          layerId: newLayerId,
+          regionPath: shape.regionPath?.map((point) => ({ ...point })),
+          selections: shape.selections.map((selection) => ({ ...selection })),
+          createdAt: duplicatedAt,
+          updatedAt: duplicatedAt,
+        })) ?? [];
 
       return {
         layers: syncedLayers,
         activeLayerId: newLayerId,
         selectedLayerIds: [newLayerId],
+        project: state.project
+          ? {
+              ...state.project,
+              txtShapes: [...(state.project.txtShapes ?? []), ...duplicatedTxtShapes],
+              updatedAt: new Date(),
+            }
+          : state.project,
       };
     });
 

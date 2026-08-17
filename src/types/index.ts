@@ -311,21 +311,42 @@ export interface CanvasFreehandShape {
 
 export type CanvasShape = CanvasRectangleShape | CanvasCircleShape | CanvasFreehandShape;
 
-export type TxtShapeFontFamily = 'monospace' | 'sans-serif' | 'serif';
+export type TxtShapeFontFamily =
+  | 'monospace'
+  | 'sans-serif'
+  | 'serif'
+  | 'mek-sans'
+  | 'mek-mono'
+  | 'jetbrains-mono'
+  | 'ibm-plex-mono'
+  | 'departure-mono';
 export type TxtShapeTextAlign = 'left' | 'center' | 'right';
 export type TxtShapeColorSource = 'foreground' | 'palette' | 'sample' | 'manual';
+export type TxtShapeRegionKind = 'rectangle' | 'oval' | 'freehand';
+
+export interface TxtShapeRegionPoint {
+  x: number;
+  y: number;
+}
 
 export interface TxtShapeSelectionRange {
   start: number;
   end: number;
 }
 
-export interface TxtShape {
+export interface LayerOwnedProjectObject {
+  layerId: string;
+}
+
+export interface TxtShape extends LayerOwnedProjectObject {
   id: string;
   x: number;
   y: number;
   width: number;
   height: number;
+  padding?: number;
+  regionKind?: TxtShapeRegionKind;
+  regionPath?: TxtShapeRegionPoint[];
   content: string;
   fontFamily: TxtShapeFontFamily;
   fontSize: number;
@@ -870,6 +891,8 @@ export interface BrushPreset {
   id: string;
   name: string;
   category: string;
+  /** Optional stable preset id that this brush should follow in the visible library. */
+  libraryOrderAfter?: string;
   components: BrushComponent[];
   thumbnail: string;
   tags: string[];

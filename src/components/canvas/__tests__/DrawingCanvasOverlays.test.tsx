@@ -29,6 +29,17 @@ jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
 
 jest.mock('../SelectionMarqueeHandles', () => () => null);
 jest.mock('../GridOverlay', () => () => null);
+jest.mock('@/extensions/studioExtension', () => ({
+  __esModule: true,
+  default: {
+    brushPresets: [],
+    CanvasOverlay: () => (
+      <button type="button" className="pointer-events-auto" aria-label="Studio extension canvas control">
+        Extension
+      </button>
+    ),
+  },
+}));
 
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: (selector?: (state: unknown) => unknown) => {
@@ -184,5 +195,40 @@ describe('DrawingCanvasOverlays', () => {
     expect(handleClick).not.toHaveBeenCalled();
     expect(handleDoubleClick).not.toHaveBeenCalled();
     expect(setZoom).toHaveBeenCalledWith(1);
+  });
+
+  it('keeps studio extension gestures out of the canvas drawing handlers', () => {
+    const handlePointerDown = jest.fn();
+    const handlePointerMove = jest.fn();
+    const handlePointerUp = jest.fn();
+
+    render(
+      <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      >
+        <DrawingCanvasOverlays
+          canvasRef={canvasRef}
+          project={{ width: 100, height: 100 }}
+          floatingPaste={null}
+          canvasZoom={1}
+          offsetX={0}
+          offsetY={0}
+          currentTool="brush"
+          isSpacePressed={false}
+          displayProjectName="Demo"
+        />
+      </div>
+    );
+
+    const extensionControl = screen.getByRole('button', { name: 'Studio extension canvas control' });
+    fireEvent.pointerDown(extensionControl);
+    fireEvent.pointerMove(extensionControl);
+    fireEvent.pointerUp(extensionControl);
+
+    expect(handlePointerDown).not.toHaveBeenCalled();
+    expect(handlePointerMove).not.toHaveBeenCalled();
+    expect(handlePointerUp).not.toHaveBeenCalled();
   });
 });

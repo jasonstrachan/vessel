@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Vessel Goblet 2 Viewer</title>
     <style>
+      @font-face { font-family: 'MEK Sans'; src: url('../assets/fonts/MEKSANS-REGULAR.OTF') format('opentype'); font-display: block; }
+      @font-face { font-family: 'MEK Mono'; src: url('../assets/fonts/MEK-MONO-REGULAR.OTF') format('opentype'); font-display: block; }
+      @font-face { font-family: 'JetBrains Mono'; src: url('../assets/fonts/JETBRAINS-MONO-REGULAR.WOFF2') format('woff2'); font-display: block; }
+      @font-face { font-family: 'IBM Plex Mono'; src: url('../assets/fonts/IBM-PLEX-MONO-REGULAR.WOFF2') format('woff2'); font-display: block; }
+      @font-face { font-family: 'Departure Mono'; src: url('../assets/fonts/DEPARTURE-MONO-REGULAR.WOFF2') format('woff2'); font-display: block; }
       :root {
         color-scheme: dark;
       }
@@ -121,7 +126,24 @@
         txtShapeResizeObserver?.disconnect();
         txtShapeResizeObserver = null;
         document.getElementById('vessel-txt-shapes')?.remove();
-        const shapes = Array.isArray(metadata?.textShapes) ? metadata.textShapes : [];
+        const layerById = new Map((Array.isArray(metadata?.layers) ? metadata.layers : [])
+          .map((layer) => [String(layer?.id || ''), layer]));
+        const shapes = (Array.isArray(metadata?.textShapes) ? metadata.textShapes : [])
+          .filter((shape) => {
+            const owner = layerById.get(String(shape?.layerId || ''));
+            return owner && owner.visible !== false;
+          });
+        const fontStacks = {
+          monospace: "ui-monospace, 'Courier New', monospace",
+          'sans-serif': 'Arial, Helvetica, sans-serif',
+          serif: "Georgia, 'Times New Roman', serif",
+          'mek-sans': "'MEK Sans', sans-serif",
+          'mek-mono': "'MEK Mono', monospace",
+          'jetbrains-mono': "'JetBrains Mono', monospace",
+          'ibm-plex-mono': "'IBM Plex Mono', monospace",
+          'departure-mono': "'Departure Mono', monospace",
+        };
+        const fontMinimumSizes = { 'mek-sans': 8, 'departure-mono': 11 };
         if (!(canvas instanceof HTMLCanvasElement) || shapes.length === 0) return;
         const overlay = document.createElement('div');
         overlay.id = 'vessel-txt-shapes';
@@ -136,9 +158,71 @@
         stage.style.height = `${Math.max(1, Number(metadata.project?.height) || 1)}px`;
         stage.style.transformOrigin = 'top left';
         const style = document.createElement('style');
-        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); }';
+        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); } #vessel-txt-shapes [data-semantic-fallback="true"] [data-canonical-selected] { color: var(--txt-selection-color); background: var(--txt-selection-bg); }';
         overlay.appendChild(style);
+        const getRegionSpan = (shape, y) => {
+          const width = Math.max(1, Number(shape.width) || 1);
+          const height = Math.max(1, Number(shape.height) || 1);
+          if (shape.regionKind === 'oval') {
+            const normalizedY = (y / height - 0.5) * 2;
+            const halfSpan = Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY)) * width / 2;
+            return { left: width / 2 - halfSpan, right: width / 2 + halfSpan };
+          }
+          const path = Array.isArray(shape.regionPath) ? shape.regionPath : [];
+          if (shape.regionKind !== 'freehand' || path.length < 3) return { left: 0, right: width };
+          const normalizedY = y / height;
+          const intersections = [];
+          path.forEach((point, index) => {
+            const next = path[(index + 1) % path.length];
+            if (!next || Number(point.y) === Number(next.y)) return;
+            const pointY = Number(point.y) || 0;
+            const nextY = Number(next.y) || 0;
+            const crosses = (pointY <= normalizedY && nextY > normalizedY)
+              || (nextY <= normalizedY && pointY > normalizedY);
+            if (!crosses) return;
+            const ratio = (normalizedY - pointY) / (nextY - pointY);
+            intersections.push(((Number(point.x) || 0) + ((Number(next.x) || 0) - (Number(point.x) || 0)) * ratio) * width);
+          });
+          intersections.sort((a, b) => a - b);
+          let widest = null;
+          for (let index = 0; index + 1 < intersections.length; index += 2) {
+            const candidate = { left: intersections[index], right: intersections[index + 1] };
+            if (!widest || candidate.right - candidate.left > widest.right - widest.left) widest = candidate;
+          }
+          return widest;
+        };
+        const getPadding = (shape) => {
+          const width = Math.max(1, Number(shape.width) || 1);
+          const height = Math.max(1, Number(shape.height) || 1);
+          return Math.max(0, Math.min(Math.min(width, height) / 2 - 0.5, Number(shape.padding) || 0));
+        };
+        const getFlowInsetPath = (shape, side) => {
+          const width = Math.max(1, Number(shape.width) || 1);
+          const height = Math.max(1, Number(shape.height) || 1);
+          const padding = getPadding(shape);
+          const contentWidth = Math.max(1, width - padding * 2);
+          const contentHeight = Math.max(1, height - padding * 2);
+          const lineHeight = Math.max(1, (Number(shape.fontSize) || 24) * (Number(shape.lineHeight) || 1.2));
+          const bands = Math.max(1, Math.ceil(contentHeight / lineHeight));
+          const points = [side === 'left' ? '0% 0%' : '100% 0%'];
+          for (let index = 0; index <= bands; index += 1) {
+            const y = Math.min(contentHeight, index * lineHeight);
+            const span = getRegionSpan(shape, Math.min(height - padding, padding + y + lineHeight / 2));
+            const inset = side === 'left'
+              ? Math.max(0, (span?.left ?? width / 2) - padding)
+              : Math.max(0, width - padding - (span?.right ?? width / 2));
+            const amount = Math.max(0, Math.min(100, inset / Math.max(1, contentWidth / 2) * 100));
+            points.push(`${side === 'left' ? amount : 100 - amount}% ${y / contentHeight * 100}%`);
+          }
+          points.push(side === 'left' ? '0% 100%' : '100% 100%');
+          return `polygon(${points.join(', ')})`;
+        };
         shapes.forEach((shape) => {
+          const owner = layerById.get(String(shape.layerId || ''));
+          const hasOwnerTexture = Boolean(
+            owner?.assets?.texture
+            || (Array.isArray(owner?.assets?.textureFrames) && owner.assets.textureFrames.length > 0)
+          );
           const box = document.createElement('div');
           box.dataset.txtShapeId = String(shape.id || '');
           box.style.position = 'absolute';
@@ -146,19 +230,24 @@
           box.style.top = `${Number(shape.y) || 0}px`;
           box.style.width = `${Math.max(1, Number(shape.width) || 1)}px`;
           box.style.height = `${Math.max(1, Number(shape.height) || 1)}px`;
+          if (shape.regionKind === 'oval') {
+            box.style.clipPath = 'ellipse(50% 50% at 50% 50%)';
+          } else if (shape.regionKind === 'freehand' && Array.isArray(shape.regionPath) && shape.regionPath.length >= 3) {
+            box.style.clipPath = `polygon(${shape.regionPath.map((point) => `${Math.max(0, Math.min(1, Number(point.x) || 0)) * 100}% ${Math.max(0, Math.min(1, Number(point.y) || 0)) * 100}%`).join(', ')})`;
+          }
           box.style.overflow = 'hidden';
+          box.style.boxSizing = 'border-box';
+          box.style.padding = `${getPadding(shape)}px`;
           box.style.whiteSpace = 'pre-wrap';
-          box.style.wordBreak = 'break-all';
+          box.style.wordBreak = 'normal';
+          box.style.overflowWrap = 'break-word';
           box.style.pointerEvents = 'auto';
           box.style.userSelect = 'text';
           box.style.cursor = 'text';
-          box.style.color = String(shape.color || '#000000');
-          box.style.fontFamily = shape.fontFamily === 'serif'
-            ? "Georgia, 'Times New Roman', serif"
-            : shape.fontFamily === 'sans-serif'
-              ? 'Arial, Helvetica, sans-serif'
-              : "'IBM Plex Mono', 'Courier New', monospace";
-          box.style.fontSize = `${Math.max(6, Number(shape.fontSize) || 24)}px`;
+          box.style.color = hasOwnerTexture ? 'transparent' : String(shape.color || '#000000');
+          if (!hasOwnerTexture) box.dataset.semanticFallback = 'true';
+          box.style.fontFamily = fontStacks[shape.fontFamily] || fontStacks.monospace;
+          box.style.fontSize = `${Math.max(fontMinimumSizes[shape.fontFamily] || 6, Number(shape.fontSize) || 24)}px`;
           box.style.lineHeight = String(Number(shape.lineHeight) || 1.2);
           box.style.textAlign = ['left', 'center', 'right'].includes(shape.textAlign)
             ? shape.textAlign
@@ -173,6 +262,18 @@
             boundaries.add(Math.max(0, Math.min(content.length, Number(range.end) || 0)));
           });
           const ordered = [...boundaries].sort((a, b) => a - b);
+          if (shape.regionKind === 'oval' || shape.regionKind === 'freehand') {
+            ['left', 'right'].forEach((side) => {
+              const inset = document.createElement('span');
+              inset.dataset.flowInset = side;
+              inset.setAttribute('aria-hidden', 'true');
+              inset.style.cssFloat = side;
+              inset.style.width = '50%';
+              inset.style.height = '100%';
+              inset.style.shapeOutside = getFlowInsetPath(shape, side);
+              box.appendChild(inset);
+            });
+          }
           for (let index = 0; index < ordered.length - 1; index += 1) {
             const start = ordered[index];
             const end = ordered[index + 1];
@@ -181,17 +282,9 @@
             const selected = ranges.some((range) => start >= Number(range.start) && start < Number(range.end));
             if (selected) {
               span.dataset.canonicalSelected = 'true';
-              span.style.color = String(shape.selectionColor || '#ffffff');
-              span.style.background = String(shape.selectionBackgroundColor || '#000000');
             }
             box.appendChild(span);
           }
-          box.addEventListener('pointerdown', () => {
-            box.querySelectorAll('[data-canonical-selected]').forEach((span) => {
-              span.removeAttribute('style');
-              span.removeAttribute('data-canonical-selected');
-            });
-          });
           stage.appendChild(box);
         });
         overlay.appendChild(stage);

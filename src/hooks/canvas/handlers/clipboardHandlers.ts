@@ -4,6 +4,33 @@ import type { ClipboardHandlers, EventHandlerDependencies } from '../utils/types
 const cloneClipboardImageData = (imageData: ImageData): ImageData =>
   new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
 
+const isTextPasteTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement) {
+    return ['text', 'search', 'email', 'url', 'password', 'tel', 'number'].includes(
+      (target.type || 'text').toLowerCase(),
+    );
+  }
+
+  let current: HTMLElement | null = target;
+  while (current) {
+    const contentEditable = current.getAttribute('contenteditable');
+    if (
+      current.isContentEditable
+      || current.contentEditable === 'true'
+      || current.contentEditable === 'plaintext-only'
+      || contentEditable === ''
+      || contentEditable === 'true'
+      || contentEditable === 'plaintext-only'
+    ) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+};
+
 export const createClipboardHandlers = (
   deps: EventHandlerDependencies
 ): Pick<ClipboardHandlers, 'handlePaste'> => {
@@ -59,6 +86,9 @@ export const createClipboardHandlers = (
   };
 
   const handlePaste = async (event: ClipboardEvent) => {
+    if (isTextPasteTarget(event.target)) {
+      return;
+    }
     const getViewportPastePosition = deps.getViewportPastePosition;
     const selectionClipboardRef = deps.selectionClipboardRef;
     if (!getViewportPastePosition || !selectionClipboardRef) {

@@ -15,6 +15,11 @@ import {
 } from '@/stores/layers/adjustmentLayerCompositor';
 import type { Layer, Project } from '@/types';
 import { logError } from '@/utils/debug';
+import {
+  composeTxtShapesIntoLayerSource,
+  drawTxtShapesForLayer,
+  getTxtShapesForLayer,
+} from '@/utils/txtShape';
 
 export interface LayerCompositeDrawingDeps {
   createLayerTransferCanvas: (
@@ -99,12 +104,12 @@ export const createLayerCompositeDrawing = ({
           source = layerCanvas as CanvasImageSource;
         }
 
-        if (!source) {
-          continue;
-        }
         ctx.globalCompositeOperation = layer.blendMode;
         ctx.globalAlpha = layer.opacity;
-        ctx.drawImage(source, 0, 0);
+        if (source) {
+          ctx.drawImage(source, 0, 0);
+        }
+        drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
       }
 
       if (shouldPartialDraw) {
@@ -170,6 +175,15 @@ export const createLayerCompositeDrawing = ({
           ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
           transferContext?.putImageData(layer.imageData, 0, 0);
           source = transfer as CanvasImageSource | null;
+        }
+        if (layer.layerType === 'normal') {
+          source = composeTxtShapesIntoLayerSource({
+            source,
+            shapes: project.txtShapes,
+            layerId: layer.id,
+            width: project.width,
+            height: project.height,
+          });
         }
         return source
           ? { source, opacity: layer.opacity, blendMode: layer.blendMode }
@@ -240,13 +254,18 @@ export const createLayerCompositeDrawing = ({
           source = layerCanvas as CanvasImageSource | null;
         }
         const liveOverlay = liveLayerOverlay?.layerId === layer.id ? liveLayerOverlay.canvas : null;
-        if (!source && !liveOverlay) return;
+        const hasTxtShapes = layer.layerType === 'normal'
+          && getTxtShapesForLayer(project.txtShapes, layer.id).length > 0;
+        if (!source && !liveOverlay && !hasTxtShapes) return;
         targetContext.globalCompositeOperation = layer.blendMode;
         targetContext.globalAlpha = layer.opacity;
         if (source && (!liveOverlay || liveLayerOverlay?.mode !== 'replace')) {
           targetContext.drawImage(source, 0, 0);
         }
         if (liveOverlay) targetContext.drawImage(liveOverlay, 0, 0);
+        if (layer.layerType === 'normal') {
+          drawTxtShapesForLayer(targetContext, project.txtShapes, layer.id);
+        }
       };
 
       if (hasVisibleAdjustmentLayers(sortedLayers)) {

@@ -6,6 +6,11 @@
   "scripts": {
     "dev": "node scripts/dev-server.js",
     "dev:studio": "VESSEL_STUDIO=1 NEXT_DIST_DIR=.next-studio-dev node scripts/dev-server.js",
+    "studio:install": "node scripts/studio-service.mjs install",
+    "studio:status": "node scripts/studio-service.mjs status",
+    "studio:restart": "node scripts/studio-service.mjs restart",
+    "studio:logs": "node scripts/studio-service.mjs logs",
+    "studio:uninstall": "node scripts/studio-service.mjs uninstall",
     "dev:watch": "node scripts/dev-monitor.js",
     "dev:raw": "next dev",
     "dev:clean": "rm -rf .next && next dev",
@@ -47,6 +52,7 @@
     "audit:full:summary": "node scripts/audit-summary.mjs audit-full.json audit-full-summary.md",
     "test": "jest",
     "test:studio": "jest --config jest.studio.config.js --runInBand",
+    "test:studio-service": "node --test tests/scripts/studio-service.test.mjs",
     "test:e2e:load-project-modal": "playwright test tests/load-project-modal.spec.ts --reporter=line",
     "test:goblet2:single-file-smoke": "playwright test tests/goblet2-single-file-smoke.spec.ts --reporter=line",
     "test:goblet2:cc-gradient-shapes-perf": "playwright test tests/goblet2-cc-gradient-shapes-perf.spec.ts --reporter=line",
@@ -77,6 +83,7 @@
     "cc": "clear && node scripts/auto-commit.js"
   },
   "dependencies": {
+    "@chenglou/pretext": "0.0.8",
     "@heroui/react": "^2.8.2",
     "@heroui/slider": "^2.4.21",
     "@heroui/system": "^2.4.20",

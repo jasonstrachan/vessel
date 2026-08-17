@@ -1,7 +1,12 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { useCallback, useEffect } from 'react';
-import { BrushShape, type Layer } from '@/types';
+import { BrushShape, type Layer, type Project } from '@/types';
+import {
+  composeTxtShapesIntoLayerSource,
+  drawTxtShapesForLayer,
+  getTxtShapesForLayer,
+} from '@/utils/txtShape';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
 import type { RenderStaticCompositeOptions } from '@/stores/slices/layersSlice';
 import {
@@ -19,7 +24,7 @@ import {
 } from './resolveColorCyclePresentation';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
-  project: { width: number; height: number } | null;
+  project: Pick<Project, 'width' | 'height' | 'txtShapes'> | null;
   layers: Layer[];
   activeLayerId: string | null;
   brushShape: BrushShape | undefined;
@@ -186,6 +191,15 @@ export const useDrawingCanvasCompositeBuffers = ({
             } else if (member.imageData) {
               source = getLayerTransferCanvas(member, layerTransferCacheRef.current);
             }
+            if (member.layerType === 'normal') {
+              source = composeTxtShapesIntoLayerSource({
+                source,
+                shapes: project.txtShapes,
+                layerId: member.id,
+                width: project.width,
+                height: project.height,
+              });
+            }
             return source
               ? [{ source, opacity: member.opacity, blendMode: member.blendMode }]
               : [];
@@ -290,6 +304,14 @@ export const useDrawingCanvasCompositeBuffers = ({
           } catch {
             // ignore draw errors for transient states
           }
+        }
+      }
+
+      if (layer.layerType === 'normal') {
+        const layerTxtShapes = getTxtShapesForLayer(project.txtShapes, layer.id);
+        if (layerTxtShapes.length > 0) {
+          drawTxtShapesForLayer(targetCtx, project.txtShapes, layer.id);
+          drewLayer = true;
         }
       }
 

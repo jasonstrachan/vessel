@@ -107,6 +107,40 @@ describe('brushSettingsStorage', () => {
     });
   });
 
+  it('round-trips serializable extension brush settings', () => {
+    saveGlobalBrushSettings({
+      brushSpecificSettings: {
+        'private-extension': {
+          extensionId: 'private-extension',
+          extensionSettings: {
+            privateExtension: {
+              content: 'REMEMBER ME',
+              mode: 'edit',
+              fontSize: 42,
+            },
+          },
+        },
+      },
+      lastBrushId: 'private-extension',
+    });
+
+    expect(loadGlobalBrushSettings()).toEqual({
+      brushSpecificSettings: {
+        'private-extension': {
+          extensionId: 'private-extension',
+          extensionSettings: {
+            privateExtension: {
+              content: 'REMEMBER ME',
+              mode: 'edit',
+              fontSize: 42,
+            },
+          },
+        },
+      },
+      lastBrushId: 'private-extension',
+    });
+  });
+
   it('does not persist deprecated brush-specific keys', () => {
     saveGlobalBrushSettings({
       brushSpecificSettings: {

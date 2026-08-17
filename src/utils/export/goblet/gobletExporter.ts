@@ -99,7 +99,15 @@ import {
   updateGobletSizeReportPayloadTotals,
   type GobletBinaryPayloadEntry,
 } from '@/utils/export/goblet/gobletSizeReport';
-import { normalizeTxtShapes } from '@/utils/txtShape';
+import {
+  createTxtShapeLayerRasterCache,
+  getTxtShapesForLayer,
+  normalizeTxtShapes,
+} from '@/utils/txtShape';
+import {
+  ensureTxtShapeFontsReadyForRaster,
+  inlineTxtShapeFontsInGobletTemplate,
+} from '@/utils/export/goblet/gobletTxtShapeFonts';
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 import { cloneDisplayFilters } from '@/lib/displayFilters';
 import { clampRectToDocument as clampBoundsToDocument } from '@/utils/export/colorCycleBounds';
@@ -259,10 +267,31 @@ export const buildProjectGobletArtifact = async (
       throw new Error('Adjustment layers require Goblet 2 export.');
     }
 
+  const normalizedTextShapes = normalizeTxtShapes(
+    options.project.txtShapes,
+    options.project.width,
+    options.project.height,
+    options.layers,
+  );
+  await ensureTxtShapeFontsReadyForRaster(normalizedTextShapes);
+  throwIfExportAborted(options.signal);
   const metricsMap = new Map<string, LayerExportMetrics>();
   options.layers.forEach((layer) => {
     try {
-      metricsMap.set(layer.id, computeLayerExportMetrics(layer, options.project));
+      metricsMap.set(
+        layer.id,
+        getTxtShapesForLayer(normalizedTextShapes, layer.id).length > 0
+          ? {
+              surfaceSize: { width: options.project.width, height: options.project.height },
+              contentBounds: {
+                x: 0,
+                y: 0,
+                width: options.project.width,
+                height: options.project.height,
+              },
+            }
+          : computeLayerExportMetrics(layer, options.project),
+      );
     } catch (error) {
       debugWarn('raw-console', '[webglExporter] Failed to compute export metrics for layer', layer.id, error);
       const fallbackSurface = getLayerSurfaceSize(layer, options.project);
@@ -377,9 +406,19 @@ export const buildProjectGobletArtifact = async (
       documentBoundsPx = sequentialContentBounds;
     }
 
+    const txtRasterCache = layer.layerType === 'normal'
+      ? createTxtShapeLayerRasterCache({
+          layer,
+          shapes: normalizedTextShapes,
+          width: options.project.width,
+          height: options.project.height,
+        })
+      : null;
     let textureInfo = layer.layerType === 'adjustment'
       ? undefined
-      : await captureLayerTextureInfo(layer);
+      : await captureLayerTextureInfo(txtRasterCache
+          ? { ...layer, framebuffer: txtRasterCache, imageData: null }
+          : layer);
     throwIfExportAborted(options.signal);
     let texture = textureInfo?.dataUrl;
     const sequentialFrameCount = Math.max(
@@ -931,11 +970,9 @@ export const buildProjectGobletArtifact = async (
       htmlBackgroundColor: resolvedHtmlBackgroundColor,
       transparencyBackgroundMode,
     },
-    textShapes: normalizeTxtShapes(
-      options.project.txtShapes,
-      options.project.width,
-      options.project.height,
-    ),
+    textShapes: normalizedTextShapes.filter((shape) => (
+      metadataLayers.some((layer) => layer.id === shape.layerId && layer.visible !== false)
+    )),
     layers: metadataLayers,
     interlaceGroups: (options.project.layerGroups ?? [])
       .filter(isInterlaceGroup)
@@ -1056,8 +1093,16 @@ export const buildProjectGobletArtifact = async (
     const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
       throw new Error(`[webglExporter] Failed to load Goblet template: ${message}`);
   }
+  const indexHtmlWithTxtFonts = await inlineTxtShapeFontsInGobletTemplate({
+    template: indexHtml,
+    shapes: normalizedTextShapes,
+    assetPrefix: options.assetPrefix,
+    gobletAssetRoot,
+    signal: options.signal,
+  });
+  throwIfExportAborted(options.signal);
   const indexHtmlWithPresentation = applyHtmlBackgroundColorToTemplate(
-    applyHtmlTitleToTemplate(indexHtml, resolvedHtmlTitle),
+    applyHtmlTitleToTemplate(indexHtmlWithTxtFonts, resolvedHtmlTitle),
     resolvedHtmlBackgroundColor
   );
 

@@ -7167,10 +7167,18 @@ describe('projectIO serialize/deserialize layering', () => {
       },
       txtShapes: [{
         id: 'txt-1',
+        layerId: 'layer-1',
         x: 0,
         y: 0,
         width: 16,
         height: 16,
+        padding: 3,
+        regionKind: 'freehand',
+        regionPath: [
+          { x: 0.5, y: 0 },
+          { x: 1, y: 1 },
+          { x: 0, y: 1 },
+        ],
         content: 'AB',
         fontFamily: 'monospace',
         fontSize: 12,

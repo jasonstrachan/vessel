@@ -142,7 +142,7 @@ const BrushLibrary = () => {
     ];
     
     // Sort brushes: Pixel Art first (with square brushes prioritized), then other categories
-    return combined.sort((a, b) => {
+    const ordered = combined.sort((a, b) => {
       const getSortCategory = (preset: BrushPreset) =>
         preset.id === 'dither-grad' ? 'Pixel Art' : preset.category;
       const aCategory = getSortCategory(a);
@@ -188,6 +188,26 @@ const BrushLibrary = () => {
       // Keep original order for other brushes
       return 0;
     });
+
+    const anchoredPresets = ordered.filter((preset) => preset.libraryOrderAfter);
+    const insertionOffsets = new Map<string, number>();
+    anchoredPresets.forEach((preset) => {
+      const anchorId = preset.libraryOrderAfter;
+      if (!anchorId || anchorId === preset.id) return;
+      const currentIndex = ordered.findIndex((candidate) => candidate.id === preset.id);
+      if (currentIndex < 0) return;
+      ordered.splice(currentIndex, 1);
+      const anchorIndex = ordered.findIndex((candidate) => candidate.id === anchorId);
+      if (anchorIndex < 0) {
+        ordered.splice(currentIndex, 0, preset);
+        return;
+      }
+      const offset = insertionOffsets.get(anchorId) ?? 0;
+      ordered.splice(anchorIndex + 1 + offset, 0, preset);
+      insertionOffsets.set(anchorId, offset + 1);
+    });
+
+    return ordered;
   }, [brushPresets, customBrushPresets]);
 
   const { brushShape, selectedCustomBrush } = brushSettings;

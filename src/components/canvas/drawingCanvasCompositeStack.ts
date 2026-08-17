@@ -1,5 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn, recordBreadcrumb } from '@/utils/debug';
+import { composeTxtShapesIntoLayerSource } from '@/utils/txtShape';
 import {
   createDevDebugOverlayLogger,
   isDevDebugOverlayEnabled,
@@ -324,6 +325,15 @@ export const drawVisibleCompositeStack = ({
             source = getColorCyclePresentationCanvas(presentation, layer);
           } else if (layer.framebuffer) {
             source = layer.framebuffer as CanvasImageSource;
+          }
+          if (layer.layerType === 'normal') {
+            source = composeTxtShapesIntoLayerSource({
+              source,
+              shapes: storeState.project?.txtShapes,
+              layerId: layer.id,
+              width: projectWidth,
+              height: projectHeight,
+            });
           }
           return source
             ? [{ source, opacity: layer.opacity, blendMode: layer.blendMode }]

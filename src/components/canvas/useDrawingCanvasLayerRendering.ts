@@ -1,7 +1,11 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { useCallback } from 'react';
-import { BrushShape, type Layer } from '@/types';
+import { BrushShape, type Layer, type Project } from '@/types';
+import {
+  composeTxtShapesIntoLayerSource,
+  drawTxtShapesForLayer,
+} from '@/utils/txtShape';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
@@ -17,7 +21,7 @@ import {
 } from './resolveColorCyclePresentation';
 
 interface UseDrawingCanvasLayerRenderingOptions {
-  project: { width: number; height: number; backgroundColor?: string | null } | null;
+  project: Pick<Project, 'width' | 'height' | 'backgroundColor' | 'txtShapes'> | null;
   layers: Layer[];
   activeLayerId: string | null;
   brushShape: BrushShape | undefined;
@@ -100,6 +104,15 @@ export const useDrawingCanvasLayerRendering = ({
             } else if (member.imageData) {
               source = getLayerTransferCanvas(member, layerTransferCacheRef.current);
             }
+            if (member.layerType === 'normal') {
+              source = composeTxtShapesIntoLayerSource({
+                source,
+                shapes: project.txtShapes,
+                layerId: member.id,
+                width: project.width,
+                height: project.height,
+              });
+            }
             return source
               ? [{ source, opacity: member.opacity, blendMode: member.blendMode }]
               : [];
@@ -166,6 +179,10 @@ export const useDrawingCanvasLayerRendering = ({
             // ignore transient draw errors
           }
         }
+      }
+
+      if (layer.layerType === 'normal') {
+        drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
       }
 
       ctx.restore();

@@ -76,6 +76,9 @@ next-env.d.ts
 /.vessel-studio/
 /.next-studio/
 /.next-studio-dev/
+/.next-studio-service/
+/.next-studio-service-a/
+/.next-studio-service-b/
 *.vpatternpack
 *.tmp
 *.temp

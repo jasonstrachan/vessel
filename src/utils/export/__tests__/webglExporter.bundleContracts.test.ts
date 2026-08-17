@@ -355,8 +355,11 @@ describe('webglExporter bundle contracts', () => {
 
   it('exports canonical TXT Shape content and selection ranges', async () => {
     const project = createProject();
+    const ownerLayer = createNormalLayer('layer-1', 0);
+    project.layers = [ownerLayer];
     project.txtShapes = [{
       id: 'txt-portrait',
+      layerId: ownerLayer.id,
       x: 4,
       y: 5,
       width: 40,
@@ -378,6 +381,7 @@ describe('webglExporter bundle contracts', () => {
     const metadata = await exportProjectAsWebGL({
       ...baseExportRequest(),
       project,
+      layers: [ownerLayer],
       bundleFormat: 'json',
     });
 

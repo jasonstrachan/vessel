@@ -83,6 +83,61 @@ describe('layerCompositeDrawing multiplayer overlay', () => {
       .toEqual([lower, active, live, upper]);
   });
 
+  it('composites semantic text inside its owner layer stack position', () => {
+    const lower = makeCanvas();
+    const upper = makeCanvas();
+    const events: string[] = [];
+    const context = {
+      clearRect: jest.fn(),
+      drawImage: jest.fn((source) => events.push(source === lower ? 'lower' : 'upper')),
+      save: jest.fn(),
+      restore: jest.fn(),
+      beginPath: jest.fn(),
+      rect: jest.fn(),
+      clip: jest.fn(),
+      measureText: jest.fn((text: string) => ({ width: text.length * 6 })),
+      fillRect: jest.fn(),
+      fillText: jest.fn((text: string) => events.push(`text:${text}`)),
+      globalCompositeOperation: 'source-over',
+      globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const lowerLayer = { ...makeLayer('lower', 0, lower), opacity: 0.5 };
+    const textProject = {
+      ...project,
+      txtShapes: [{
+        id: 'txt-owned',
+        layerId: 'lower',
+        x: 1,
+        y: 1,
+        width: 20,
+        height: 10,
+        content: 'TXT',
+        fontFamily: 'monospace' as const,
+        fontSize: 8,
+        lineHeight: 1,
+        textAlign: 'left' as const,
+        colorSource: 'palette' as const,
+        color: '#000000',
+        selectionColor: '#ffffff',
+        selectionBackgroundColor: '#000000',
+        selections: [],
+        createdAt: 1,
+        updatedAt: 1,
+      }],
+    };
+
+    createSubject().drawAllLayersInOrder(
+      context,
+      [lowerLayer, makeLayer('upper', 1, upper)],
+      textProject,
+      null,
+      0,
+    );
+
+    expect(events).toEqual(['lower', 'text:TXT', 'upper']);
+    expect(context.fillText).toHaveBeenCalledWith('TXT', expect.any(Number), expect.any(Number));
+  });
+
   it('uses the live eraser surface as the complete active-layer replacement', () => {
     const lower = makeCanvas();
     const active = makeCanvas();

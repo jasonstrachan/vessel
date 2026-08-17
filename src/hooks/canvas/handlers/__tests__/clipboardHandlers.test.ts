@@ -31,6 +31,28 @@ describe('createClipboardHandlers', () => {
     jest.restoreAllMocks();
   });
 
+  it.each([
+    ['textarea', document.createElement('textarea')],
+    ['contenteditable text', Object.assign(document.createElement('div'), {
+      contentEditable: 'plaintext-only',
+    })],
+  ])('leaves native paste alone for %s', async (_label, target) => {
+    const deps = createDeps();
+    const event = {
+      target,
+      preventDefault: jest.fn(),
+      clipboardData: {
+        items: [{ type: 'text/plain', getAsFile: jest.fn(() => null) }],
+      },
+    } as unknown as ClipboardEvent;
+
+    const handlers = createClipboardHandlers(deps);
+    await handlers.handlePaste(event);
+
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(deps.setFloatingPaste).not.toHaveBeenCalled();
+  });
+
   it('prefers internal clipboard payload with CC indices over image clipboard items', async () => {
     const deps = createDeps();
     const ccIndices = new Uint8Array([5, 6, 7, 8]);

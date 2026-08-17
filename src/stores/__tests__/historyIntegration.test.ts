@@ -392,6 +392,26 @@ describe('history integration', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         customBrushes: [],
+        txtShapes: [{
+          id: 'txt-on-layer-b',
+          layerId: layerB.id,
+          x: 1,
+          y: 1,
+          width: 4,
+          height: 4,
+          content: 'B',
+          fontFamily: 'monospace',
+          fontSize: 8,
+          lineHeight: 1.2,
+          textAlign: 'left',
+          colorSource: 'palette',
+          color: '#000000',
+          selectionColor: '#ffffff',
+          selectionBackgroundColor: '#000000',
+          selections: [{ start: 0, end: 1 }],
+          createdAt: 1,
+          updatedAt: 1,
+        }],
       },
     }));
 
@@ -399,15 +419,20 @@ describe('history integration', () => {
     store.removeLayer(layerB.id);
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A']);
     expect(useAppStore.getState().referenceLayerId).toBeNull();
+    expect(useAppStore.getState().project?.txtShapes).toEqual([]);
 
     await store.undo();
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A', 'layer-B']);
     expect(useAppStore.getState().activeLayerId).toBe(layerB.id);
     expect(useAppStore.getState().referenceLayerId).toBe(layerB.id);
+    expect(useAppStore.getState().project?.txtShapes).toEqual([
+      expect.objectContaining({ id: 'txt-on-layer-b', layerId: layerB.id }),
+    ]);
 
     await store.redo();
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(['layer-A']);
     expect(useAppStore.getState().referenceLayerId).toBeNull();
+    expect(useAppStore.getState().project?.txtShapes).toEqual([]);
   });
 
   it('restores color-cycle brush buffers when undoing layer removal', async () => {

@@ -4,6 +4,7 @@ import type {
   Layer,
   LayerGroup,
   ReferenceSamplingSource,
+  TxtShape,
 } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { cloneAdjustmentLayerData } from '@/lib/adjustmentLayers';
@@ -23,6 +24,7 @@ export interface LayerStructureSnapshot {
   referenceLayerId: string | null;
   referenceSamplingSource?: ReferenceSamplingSource;
   layerGroups: LayerGroup[];
+  txtShapes?: TxtShape[];
 }
 
 const cloneImageData = (imageData: ImageData | null | undefined): ImageData | null => {
@@ -38,6 +40,12 @@ const cloneLayerGroups = (groups: LayerGroup[]): LayerGroup[] => (
     interlace: group.interlace ? { ...group.interlace } : undefined,
   }))
 );
+
+const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((shape) => ({
+  ...shape,
+  regionPath: shape.regionPath?.map((point) => ({ ...point })),
+  selections: shape.selections.map((selection) => ({ ...selection })),
+}));
 
 const cloneLayerForReplay = (layer: Layer): Layer => ({
   ...layer,
@@ -158,6 +166,7 @@ class LayerStructureDelta implements HistoryDelta {
         )) ||
         !Object.is(current.project?.layers, projectSnapshot?.layers) ||
         !Object.is(current.project?.layerGroups, projectSnapshot?.layerGroups) ||
+        !Object.is(current.project?.txtShapes, projectSnapshot?.txtShapes) ||
         current.project?.referenceLayerId !== projectSnapshot?.referenceLayerId ||
         !Object.is(
           current.project?.referenceSamplingSource,
@@ -182,6 +191,7 @@ class LayerStructureDelta implements HistoryDelta {
             ? restoreOwnedProperties(current.project, projectSnapshot, [
                 'layers',
                 'layerGroups',
+                'txtShapes',
                 'referenceLayerId',
                 'referenceSamplingSource',
                 'updatedAt',
@@ -249,6 +259,7 @@ class LayerStructureDelta implements HistoryDelta {
           ...state.project,
           layers: resolvedProjectLayers,
           layerGroups: cloneLayerGroups(target.layerGroups),
+          ...(target.txtShapes ? { txtShapes: cloneTxtShapes(target.txtShapes) } : {}),
           updatedAt: new Date(),
         },
       };

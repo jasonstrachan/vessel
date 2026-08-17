@@ -11,6 +11,7 @@ import {
 } from '@/stores/layers/adjustmentLayerCompositor';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
+import { composeTxtShapesIntoLayerSource } from '@/utils/txtShape';
 
 import {
   getColorCyclePresentationCanvas,
@@ -121,6 +122,15 @@ export const drawAdjustmentCompositeStack = ({
     } else if (layer.framebuffer) {
       source = layer.framebuffer as CanvasImageSource;
     }
+    if (layer.layerType === 'normal') {
+      source = composeTxtShapesIntoLayerSource({
+        source,
+        shapes: project?.txtShapes,
+        layerId: layer.id,
+        width: project?.width ?? renderRect.width,
+        height: project?.height ?? renderRect.height,
+      });
+    }
     const overlay = liveLayerOverlay?.layerId === layer.id ? liveLayerOverlay : null;
     if (!source && !overlay) return;
     target.save();
@@ -176,6 +186,15 @@ export const drawAdjustmentCompositeStack = ({
           source = getColorCyclePresentationCanvas(presentation, member);
         } else if (member.framebuffer) {
           source = member.framebuffer as CanvasImageSource;
+        }
+        if (member.layerType === 'normal') {
+          source = composeTxtShapesIntoLayerSource({
+            source,
+            shapes: project?.txtShapes,
+            layerId: member.id,
+            width: project?.width ?? renderRect.width,
+            height: project?.height ?? renderRect.height,
+          });
         }
         return source
           ? [{ source, opacity: member.opacity, blendMode: member.blendMode }]

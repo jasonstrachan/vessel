@@ -23,7 +23,7 @@ import JSZip from 'jszip';
 import { gunzipSync } from 'fflate';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
-import { drawTxtShapesToCanvas, normalizeTxtShapes } from '@/utils/txtShape';
+import { drawTxtShapesForLayer, normalizeTxtShapes } from '@/utils/txtShape';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
@@ -4164,30 +4164,29 @@ export function generateProjectThumbnail(
       }
     };
 
+    let drewRaster = false;
     if (layer.layerType !== 'color-cycle') {
       const resolvedImageData = resolveLayerImageDataForSave(layer);
       if (resolvedImageData) {
         drawImageData(resolvedImageData);
-        continue;
+        drewRaster = true;
       }
     }
 
-    if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
+    if (!drewRaster && layer.layerType === 'color-cycle' && layer.colorCycleData) {
       const { colorCycleData } = layer;
       if (colorCycleData.canvasImageData) {
         drawImageData(colorCycleData.canvasImageData);
-        continue;
-      }
-
-      if (colorCycleData.canvas) {
+      } else if (colorCycleData.canvas) {
         fullCtx.drawImage(colorCycleData.canvas, 0, 0);
       }
     }
+
+    drawTxtShapesForLayer(fullCtx, project.txtShapes, layer.id);
   }
 
   fullCtx.globalAlpha = 1;
   fullCtx.globalCompositeOperation = 'source-over';
-  drawTxtShapesToCanvas(fullCtx, project.txtShapes);
 
   const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
   applyCanvasShapeMask(fullCtx, shape);
@@ -4581,7 +4580,12 @@ const buildSerializedProjectArtifacts = async (
       exportLayout: cloneExportLayout(project.exportLayout),
       palette: normalizePalette(project.palette),
       canvasShape: project.canvasShape,
-      txtShapes: normalizeTxtShapes(project.txtShapes, project.width, project.height),
+      txtShapes: normalizeTxtShapes(
+        project.txtShapes,
+        project.width,
+        project.height,
+        layersToSerialize,
+      ),
       viewState: project.viewState
         ? {
             zoom: project.viewState.zoom,
@@ -5873,6 +5877,7 @@ export async function deserializeProjectWithReport(
       serializedProject.txtShapes,
       serializedProject.width,
       serializedProject.height,
+      layers,
     ),
     viewState: serializedProject.viewState
       ? {
@@ -6761,25 +6766,27 @@ export async function exportProjectAsPNG(
   // Draw layers in order
   const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
   for (const layer of sortedLayers) {
-    if (!layer.visible || !layer.imageData) continue;
+    if (!layer.visible) continue;
 
     ctx.globalAlpha = layer.opacity;
     ctx.globalCompositeOperation = layer.blendMode;
 
-    // Create temporary canvas for the layer
-    const layerCanvas = document.createElement('canvas');
-    layerCanvas.width = layer.imageData.width;
-    layerCanvas.height = layer.imageData.height;
-    const layerCtx = layerCanvas.getContext('2d', { colorSpace: 'srgb' });
-    if (layerCtx) {
-      layerCtx.putImageData(layer.imageData, 0, 0);
-      ctx.drawImage(layerCanvas, 0, 0);
+    if (layer.imageData) {
+      const layerCanvas = document.createElement('canvas');
+      layerCanvas.width = layer.imageData.width;
+      layerCanvas.height = layer.imageData.height;
+      const layerCtx = layerCanvas.getContext('2d', { colorSpace: 'srgb' });
+      if (layerCtx) {
+        layerCtx.putImageData(layer.imageData, 0, 0);
+        ctx.drawImage(layerCanvas, 0, 0);
+      }
     }
+
+    drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
   }
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
-  drawTxtShapesToCanvas(ctx, project.txtShapes);
 
   const shape = normalizeCanvasShape(project.canvasShape, project.width, project.height);
   applyCanvasShapeMask(ctx, shape);

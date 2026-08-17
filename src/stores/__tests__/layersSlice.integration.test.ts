@@ -1754,6 +1754,33 @@ describe('layers slice integration', () => {
   it('duplicates a regular layer and focuses the copy', () => {
     const store = useAppStore.getState();
     const originalId = store.addLayer(createNormalLayerInput('Layer 1'));
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? {
+            ...state.project,
+            txtShapes: [{
+              id: 'txt-owned',
+              layerId: originalId,
+              x: 1,
+              y: 2,
+              width: 20,
+              height: 10,
+              content: 'OWNED',
+              fontFamily: 'monospace',
+              fontSize: 8,
+              lineHeight: 1.2,
+              textAlign: 'left',
+              colorSource: 'palette',
+              color: '#000000',
+              selectionColor: '#ffffff',
+              selectionBackgroundColor: '#000000',
+              selections: [{ start: 0, end: 5 }],
+              createdAt: 1,
+              updatedAt: 1,
+            }],
+          }
+        : null,
+    }));
 
     const duplicatedId = useAppStore.getState().duplicateLayer(originalId);
     expect(duplicatedId).toBeTruthy();
@@ -1771,6 +1798,13 @@ describe('layers slice integration', () => {
     expect(duplicatedLayer.framebuffer).not.toBe(originalLayer.framebuffer);
     expect(nextState.activeLayerId).toBe(duplicatedId);
     expect(nextState.selectedLayerIds).toEqual([duplicatedId]);
+    expect(nextState.project?.txtShapes).toHaveLength(2);
+    expect(nextState.project?.txtShapes?.find((shape) => shape.layerId === duplicatedId)).toEqual(
+      expect.objectContaining({ content: 'OWNED' }),
+    );
+    expect(nextState.project?.txtShapes?.map((shape) => shape.id)).toEqual(
+      expect.arrayContaining(['txt-owned', expect.not.stringMatching(/^txt-owned$/)]),
+    );
   });
 
   it('duplicates multiple selected layers and selects the duplicated block', () => {

@@ -1142,6 +1142,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       ) {
         settingsToSave.colorCycleGradientVersion = newSettings.colorCycleGradientVersion;
       }
+      if (settings.extensionId !== undefined) {
+        settingsToSave.extensionId = newSettings.extensionId;
+      }
+      if (settings.extensionSettings !== undefined) {
+        settingsToSave.extensionSettings = newSettings.extensionSettings
+          ? { ...newSettings.extensionSettings }
+          : undefined;
+      }
 
       sanitizeBrushSpecificDitherPatternSettings(currentBrushId, settingsToSave);
       brushSettingsToSave = [{ brushId: currentBrushId, settings: settingsToSave }];

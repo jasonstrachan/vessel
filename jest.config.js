@@ -14,6 +14,7 @@ const config = {
   transform: {
     '^.+\\.(t|j)sx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.jest.json' }],
   },
+  transformIgnorePatterns: ['/node_modules/(?!@chenglou/pretext/)'],
   collectCoverageFrom: [
     'src/**/*.{ts,tsx}',
     '!src/**/*.d.ts',

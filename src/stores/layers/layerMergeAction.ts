@@ -487,6 +487,13 @@ export const mergeLayersAction = (
             ...state.project,
             referenceLayerId: nextReferenceLayerId,
             referenceSamplingSource: nextReferenceSamplingSource,
+            txtShapes: mergedLayer.layerType === 'normal'
+              ? (state.project.txtShapes ?? []).map((shape) => (
+                  uniqueIds.includes(shape.layerId)
+                    ? { ...shape, layerId: mergedLayerId as string, updatedAt: Date.now() }
+                    : shape
+                ))
+              : state.project.txtShapes,
             updatedAt: new Date(),
           }
         : state.project,

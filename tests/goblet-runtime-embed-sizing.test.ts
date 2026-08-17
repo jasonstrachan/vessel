@@ -41,4 +41,37 @@ describe('Goblet embed sizing runtime', () => {
     expect(viewerHtml).toContain('const viewportBox = getViewportBox();');
     expect(viewerHtml).toContain('viewportBox: getViewportBox()');
   });
+
+  it('keeps semantic text clipped and flowing inside shaped regions in both viewers', () => {
+    const goblet1 = read('public/goblet/index.html');
+    const goblet2 = read('public/goblet2/index.html');
+
+    for (const viewer of [goblet1, goblet2]) {
+      expect(viewer).toContain("shape.regionKind === 'oval'");
+      expect(viewer).toContain("shape.regionKind === 'freehand'");
+      expect(viewer).toContain('inset.style.shapeOutside = getFlowInsetPath(shape, side);');
+      expect(viewer).toContain("box.style.clipPath = 'ellipse(50% 50% at 50% 50%)';");
+      expect(viewer).toContain("box.style.wordBreak = 'normal';");
+      expect(viewer).toContain("box.style.overflowWrap = 'break-word';");
+      expect(viewer).toContain("box.style.boxSizing = 'border-box';");
+      expect(viewer).toContain('Number(shape.padding) || 0');
+      expect(viewer).toContain('data-semantic-fallback');
+      expect(viewer).toContain("box.dataset.semanticFallback = 'true'");
+      expect(viewer).not.toContain("span.removeAttribute('data-canonical-selected')");
+    }
+  });
+
+  it('keeps bundled TXT font names and minimum sizes in both semantic mirrors', () => {
+    const goblet1 = read('public/goblet/index.html');
+    const goblet2 = read('public/goblet2/index.html');
+
+    for (const viewer of [goblet1, goblet2]) {
+      expect(viewer).toContain("'mek-sans': \"'MEK Sans', sans-serif\"");
+      expect(viewer).toContain("'mek-mono': \"'MEK Mono', monospace\"");
+      expect(viewer).toContain("'jetbrains-mono': \"'JetBrains Mono', monospace\"");
+      expect(viewer).toContain("'ibm-plex-mono': \"'IBM Plex Mono', monospace\"");
+      expect(viewer).toContain("'departure-mono': \"'Departure Mono', monospace\"");
+      expect(viewer).toContain("const fontMinimumSizes = { 'mek-sans': 8, 'departure-mono': 11 };");
+    }
+  });
 });
