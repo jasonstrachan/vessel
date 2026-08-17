@@ -92,8 +92,10 @@ export function generateBrushThumbnail(
       generateColorCycleThumbnail(ctx, opts, baseStrokeWidth);
       break;
     case BrushShape.SPAM_TEXT:
-    case BrushShape.TXT_SHAPE:
       generateSpamTextThumbnail(ctx, opts, baseStrokeWidth);
+      break;
+    case BrushShape.EXTENSION:
+      generateSquareThumbnail(ctx, opts, isAntialiased, baseStrokeWidth);
       break;
     case BrushShape.MOSAIC:
       generateMosaicThumbnail(ctx, opts, baseStrokeWidth);

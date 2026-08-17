@@ -39,7 +39,7 @@ export const resolveDefaultCursorStyle = ({
       brushShape === BrushShape.CONTOUR_LINES2 ||
       brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
       brushShape === BrushShape.SPAM_TEXT ||
-      brushShape === BrushShape.TXT_SHAPE ||
+      brushShape === BrushShape.EXTENSION ||
       brushShape === BrushShape.SHAPE_FILL
     )
   ) {

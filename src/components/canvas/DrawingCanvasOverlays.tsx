@@ -4,6 +4,7 @@ import {
   stopVesselMultiplayerSession,
   useVesselMultiplayerSnapshot,
 } from '@/collaboration/vesselMultiplayerSession';
+import studioExtension from '@/extensions/studioExtension';
 import { useAppStore } from '@/stores/useAppStore';
 import { selectGridState } from '@/stores/selectors/stateSelectors';
 import type { Tool } from '@/types';
@@ -12,7 +13,6 @@ import CropOverlay from './CropOverlay';
 import FloatingPasteOverlay from './FloatingPasteOverlay';
 import GridOverlay from './GridOverlay';
 import SelectionMarqueeHandles from './SelectionMarqueeHandles';
-import { TxtShapeOverlay } from './TxtShapeOverlay';
 
 interface DrawingCanvasOverlaysProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -37,6 +37,7 @@ export const DrawingCanvasOverlays = ({
   isSpacePressed,
   displayProjectName,
 }: DrawingCanvasOverlaysProps) => {
+  const StudioCanvasOverlay = studioExtension.CanvasOverlay;
   const grid = useAppStore(selectGridState);
   const setZoom = useAppStore((state) => state.setZoom);
   const multiplayer = useVesselMultiplayerSnapshot();
@@ -51,8 +52,8 @@ export const DrawingCanvasOverlays = ({
 
   return (
     <>
-      {project ? (
-        <TxtShapeOverlay
+      {project && StudioCanvasOverlay ? (
+        <StudioCanvasOverlay
           canvasRef={canvasRef}
           zoom={canvasZoom || 1}
           offsetX={offsetX}

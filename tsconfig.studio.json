@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".vessel-studio/extension/**/*.ts",
+    ".vessel-studio/extension/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "tests/**/*",
+    "assembly/**/*",
+    "src/testing/**/*",
+    "src/workers/**/*",
+    "**/__tests__/**/*",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "out/**/*"
+  ]
+}

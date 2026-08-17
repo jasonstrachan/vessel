@@ -18,6 +18,12 @@ import {
   localPatternLibrary,
   type LocalPatternPackSummary,
 } from '@/utils/ditherPatterns/localPatternLibrary';
+import { LOCAL_PATTERN_LIBRARY_CHANGED_EVENT } from '@/utils/ditherPatterns/localPatternAutoSync';
+import {
+  isLocalPatternDirectorySupported,
+  localPatternDirectory,
+  type LocalPatternDirectoryStatus,
+} from '@/utils/ditherPatterns/localPatternDirectory';
 
 import { PATTERN_STYLES } from './patternOptions';
 
@@ -32,6 +38,7 @@ type Props = {
 
 const ADD_NEW_VALUE = '__add_cc_tile_pattern__';
 const IMPORT_LOCAL_PACK_VALUE = '__import_local_pattern_pack__';
+const SYNC_LOCAL_FOLDER_VALUE = '__sync_local_pattern_folder__';
 const LOCAL_PATTERN_PREFIX = 'local:';
 const LOCAL_PACK_GROUP_PREFIX = 'local-pack:';
 const NEW_PACK_VALUE = '__new_cc_tile_pattern_pack__';
@@ -664,6 +671,7 @@ export const CcPatternDropdown = ({
   const [localPacks, setLocalPacks] = useState<readonly LocalPatternPackSummary[]>([]);
   const [hasLoadedLocalPacks, setHasLoadedLocalPacks] = useState(false);
   const [localLibraryError, setLocalLibraryError] = useState<string | null>(null);
+  const [localFolderStatus, setLocalFolderStatus] = useState<LocalPatternDirectoryStatus>('unsupported');
   const localPackInputRef = useRef<HTMLInputElement>(null);
   const tilePatterns = useAppStore(selectCcCustomTilePatterns);
   const patternPacks = useAppStore(selectCcCustomTilePatternPacks);
@@ -677,10 +685,28 @@ export const CcPatternDropdown = ({
       return;
     }
     let isMounted = true;
-    void localPatternLibrary.hydrate()
-      .then((packs) => {
+    const refresh = async () => {
+      const [packs, status] = await Promise.all([
+        localPatternLibrary.list(),
+        localPatternDirectory.status(),
+      ]);
+      return { packs, status };
+    };
+    const handleLibraryChanged = () => {
+      void refresh()
+        .then(({ packs, status }) => {
+          if (!isMounted) return;
+          setLocalPacks(packs);
+          setLocalFolderStatus(status);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener(LOCAL_PATTERN_LIBRARY_CHANGED_EVENT, handleLibraryChanged);
+    void refresh()
+      .then(({ packs, status }) => {
         if (!isMounted) return;
         setLocalPacks(packs);
+        setLocalFolderStatus(status);
         setLocalLibraryError(null);
       })
       .catch((error: unknown) => {
@@ -692,6 +718,7 @@ export const CcPatternDropdown = ({
       });
     return () => {
       isMounted = false;
+      window.removeEventListener(LOCAL_PATTERN_LIBRARY_CHANGED_EVENT, handleLibraryChanged);
     };
   }, []);
 
@@ -710,6 +737,15 @@ export const CcPatternDropdown = ({
   const options = useMemo(() => [
     { value: ADD_NEW_VALUE, label: '+ Add New', isAction: true },
     { value: IMPORT_LOCAL_PACK_VALUE, label: '+ Import Private Pack', isAction: true },
+    ...(isLocalPatternDirectorySupported() ? [{
+      value: SYNC_LOCAL_FOLDER_VALUE,
+      label: localFolderStatus === 'not-connected'
+        ? '+ Connect Private Folder'
+        : localFolderStatus === 'permission-required'
+          ? '+ Reconnect Private Folder'
+          : '+ Sync Private Folder',
+      isAction: true,
+    }] : []),
     ...PATTERN_STYLES.map((option) => ({ value: option.value, label: option.label })),
     ...tilePatterns.map((pattern) => ({
       value: `tile:${pattern.id}`,
@@ -724,7 +760,7 @@ export const CcPatternDropdown = ({
       label: pattern.name,
       group: `${LOCAL_PACK_GROUP_PREFIX}${pack.packId}`,
     }))),
-  ], [localPacks, patternPacks, tilePatterns]);
+  ], [localFolderStatus, localPacks, patternPacks, tilePatterns]);
 
   const isMissingLocalPattern = hasLoadedLocalPacks
     && value === 'image-tile'
@@ -758,6 +794,26 @@ export const CcPatternDropdown = ({
       setLocalLibraryError(error instanceof Error ? error.message : 'Could not import local pattern pack.');
     }
   }, [refreshLocalPacks, selectLocalPattern]);
+
+  const handleLocalFolderSync = useCallback(async () => {
+    try {
+      const result = localFolderStatus === 'permission-required'
+        ? await localPatternDirectory.reconnect()
+        : localFolderStatus === 'connected'
+          ? await localPatternDirectory.sync()
+          : await localPatternDirectory.connect();
+      setLocalFolderStatus(result.status);
+      await refreshLocalPacks();
+      setLocalLibraryError(
+        result.failedPacks > 0
+          ? `${result.failedPacks} private pattern pack${result.failedPacks === 1 ? '' : 's'} could not be loaded.`
+          : null,
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setLocalLibraryError('Could not connect or synchronize the private pattern folder.');
+    }
+  }, [localFolderStatus, refreshLocalPacks]);
 
   const removeLocalPack = useCallback(async (packId: string) => {
     try {
@@ -794,6 +850,8 @@ export const CcPatternDropdown = ({
             setIsAdding(true);
           } else if (action === IMPORT_LOCAL_PACK_VALUE) {
             localPackInputRef.current?.click();
+          } else if (action === SYNC_LOCAL_FOLDER_VALUE) {
+            void handleLocalFolderSync();
           }
         }}
         onChange={(nextValue) => {

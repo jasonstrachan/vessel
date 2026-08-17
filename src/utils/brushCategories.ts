@@ -33,7 +33,7 @@ export const SHAPE_FILL_BRUSHES: BrushShape[] = [
   BrushShape.CONTOUR_LINES2,
   BrushShape.COLOR_CYCLE_SHAPE,
   BrushShape.SHAPE_FILL,
-  BrushShape.TXT_SHAPE,
+  BrushShape.EXTENSION,
 ];
 
 /**
@@ -90,8 +90,8 @@ export function supportsSpacing(brushShape: BrushShape | string): boolean {
 export function supportsDither(brushShape: BrushShape | string): boolean {
   const shape = typeof brushShape === 'string' ? brushShape : String(brushShape);
 
-  // Exclude text/resampler by default; they can opt-in via preset capabilities.
-  if (shape === BrushShape.SPAM_TEXT || shape === BrushShape.TXT_SHAPE || shape === BrushShape.RESAMPLER) {
+  // Exclude text, extension, and resampler brushes by default; presets can opt in.
+  if (shape === BrushShape.SPAM_TEXT || shape === BrushShape.EXTENSION || shape === BrushShape.RESAMPLER) {
     return false;
   }
   if (shape === BrushShape.MOSAIC) {

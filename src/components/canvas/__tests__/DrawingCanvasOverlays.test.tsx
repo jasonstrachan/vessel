@@ -29,7 +29,6 @@ jest.mock('@/collaboration/vesselMultiplayerSession', () => ({
 
 jest.mock('../SelectionMarqueeHandles', () => () => null);
 jest.mock('../GridOverlay', () => () => null);
-jest.mock('../TxtShapeOverlay', () => ({ TxtShapeOverlay: () => null }));
 
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: (selector?: (state: unknown) => unknown) => {

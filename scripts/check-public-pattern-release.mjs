@@ -11,7 +11,11 @@ const sourceRoots = ['src', 'public', 'assets', 'scripts'];
 const artifactRoots = ['out', '.next-build'];
 const denylistPath = path.join(projectRoot, '.private-pattern-denylist');
 const forbiddenExtensions = ['.vpatternpack', '.thresholds.bin'];
-const forbiddenDirectoryNames = new Set(['.private-pattern-packs', 'private-pattern-packs']);
+const forbiddenDirectoryNames = new Set([
+  '.private-pattern-packs',
+  'private-pattern-packs',
+  '.vessel-studio',
+]);
 const allowedLocalScopeFiles = new Set([
   'scripts/check-public-pattern-release.mjs',
   'src/utils/ditherPatterns/cumulativeThresholdPattern.ts',
@@ -19,6 +23,10 @@ const allowedLocalScopeFiles = new Set([
 ]);
 
 const failures = [];
+
+if (process.env.VESSEL_STUDIO === '1') {
+  failures.push('VESSEL_STUDIO: studio mode cannot pass the public release check');
+}
 
 const toRelative = (filePath) => path.relative(projectRoot, filePath).split(path.sep).join('/');
 

@@ -73,6 +73,9 @@ next-env.d.ts
 /scripts/tmp/
 /.private-pattern-denylist
 /.private-pattern-packs/
+/.vessel-studio/
+/.next-studio/
+/.next-studio-dev/
 *.vpatternpack
 *.tmp
 *.temp

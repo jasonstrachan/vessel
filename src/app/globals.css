@@ -11,12 +11,6 @@ canvas {
   display: block;
 }
 
-.txt-shape-text::selection,
-.txt-shape-text *::selection {
-  color: var(--txt-selection-color, #ffffff);
-  background: var(--txt-selection-bg, #000000);
-}
-
 /* Ensure UI panels have default cursor */
 .toolbar, .controls-panel, .layer-panel, [role="toolbar"], [role="panel"] {
   cursor: default !important;

@@ -5,6 +5,7 @@ import React from 'react';
 import { preloadHistoryRehydrationModule } from '@/history/historyManager';
 import { BrushEngineProvider } from '@/hooks/BrushEngineProvider';
 import { initializeAppStoreRuntime } from '@/stores/useAppStore';
+import { startLocalPatternLibraryAutoSync } from '@/utils/ditherPatterns/localPatternAutoSync';
 
 import HomeClient from './HomeClient';
 
@@ -15,6 +16,7 @@ export default function HomeClientMount() {
     initializeAppStoreRuntime();
     setMounted(true);
     void preloadHistoryRehydrationModule();
+    return startLocalPatternLibraryAutoSync();
   }, []);
 
   if (!mounted) {

@@ -935,7 +935,7 @@ export enum BrushShape {
   COLOR_CYCLE_SHAPE = 'color_cycle_shape',
   MOSAIC = 'mosaic',
   SPAM_TEXT = 'spam_text',
-  TXT_SHAPE = 'txt_shape',
+  EXTENSION = 'extension',
   SHAPE_FILL = 'shape_fill'
 }
 
@@ -1472,14 +1472,9 @@ export interface BrushSettings {
   spamFont?: string; // Font ID for the Spam Text brush
   spamContentType?: string; // Type of spam content to use
   spamCustomText?: string; // Custom text to use instead of preset content
-  // TXT Shape semantic text-box settings
-  txtContent?: string;
-  txtFontFamily?: TxtShapeFontFamily;
-  txtTextAlign?: TxtShapeTextAlign;
-  txtColorSource?: TxtShapeColorSource;
-  txtColor?: string;
-  txtSelectionColor?: string;
-  txtSelectionBackgroundColor?: string;
+  // Optional serializable settings owned by a locally installed studio extension.
+  extensionId?: string;
+  extensionSettings?: Record<string, unknown>;
   // Particle brush settings
   particleDensity?: number; // 1-200 particles per stamp (pressure-scaled)
   particleScatterRadius?: number; // 0.1-5x brush size

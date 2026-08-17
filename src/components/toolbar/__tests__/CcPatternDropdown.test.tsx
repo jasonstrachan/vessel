@@ -11,14 +11,28 @@ import {
   localPatternLibrary,
   type LocalPatternPackSummary,
 } from '@/utils/ditherPatterns/localPatternLibrary';
+import {
+  isLocalPatternDirectorySupported,
+  localPatternDirectory,
+} from '@/utils/ditherPatterns/localPatternDirectory';
 
 jest.mock('@/utils/ditherPatterns/localPatternLibrary', () => ({
   localPatternLibrary: {
-    hydrate: jest.fn(),
     list: jest.fn(),
     install: jest.fn(),
     remove: jest.fn(),
     exportBackup: jest.fn(),
+  },
+}));
+
+jest.mock('@/utils/ditherPatterns/localPatternDirectory', () => ({
+  isLocalPatternDirectorySupported: jest.fn(),
+  localPatternDirectory: {
+    status: jest.fn(),
+    connect: jest.fn(),
+    sync: jest.fn(),
+    reconnect: jest.fn(),
+    disconnect: jest.fn(),
   },
 }));
 
@@ -37,11 +51,13 @@ const localPack: LocalPatternPackSummary = {
   }],
 };
 
-const mockHydrate = localPatternLibrary.hydrate as jest.MockedFunction<typeof localPatternLibrary.hydrate>;
 const mockList = localPatternLibrary.list as jest.MockedFunction<typeof localPatternLibrary.list>;
 const mockInstall = localPatternLibrary.install as jest.MockedFunction<typeof localPatternLibrary.install>;
 const mockRemove = localPatternLibrary.remove as jest.MockedFunction<typeof localPatternLibrary.remove>;
 const mockExportBackup = localPatternLibrary.exportBackup as jest.MockedFunction<typeof localPatternLibrary.exportBackup>;
+const mockDirectorySupported = isLocalPatternDirectorySupported as jest.MockedFunction<typeof isLocalPatternDirectorySupported>;
+const mockDirectoryStatus = localPatternDirectory.status as jest.MockedFunction<typeof localPatternDirectory.status>;
+const mockDirectoryConnect = localPatternDirectory.connect as jest.MockedFunction<typeof localPatternDirectory.connect>;
 
 const chooseDropdownOption = (label: string) => {
   const option = screen.getByText(label).closest('[role="option"]');
@@ -63,9 +79,10 @@ describe('CcPatternDropdown', () => {
       configurable: true,
       value: {},
     });
-    mockHydrate.mockImplementation(() => new Promise(() => {}));
-    mockList.mockResolvedValue([]);
+    mockList.mockImplementation(() => new Promise(() => {}));
     mockRemove.mockResolvedValue();
+    mockDirectorySupported.mockReturnValue(false);
+    mockDirectoryStatus.mockResolvedValue('unsupported');
     global.createImageBitmap = jest.fn(async () => ({
       width: 1,
       height: 1,
@@ -317,7 +334,7 @@ describe('CcPatternDropdown', () => {
   });
 
   it('loads local patterns in a marked group and selects through the shared image-tile seam', async () => {
-    mockHydrate.mockResolvedValueOnce([localPack]);
+    mockList.mockResolvedValueOnce([localPack]);
     const onChange = jest.fn();
     render(
       <CcPatternDropdown
@@ -327,7 +344,7 @@ describe('CcPatternDropdown', () => {
       />
     );
 
-    await waitFor(() => expect(mockHydrate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button'));
     expect(await screen.findByText('Local')).toBeInTheDocument();
     expect(screen.getByText('Private Pack')).toBeInTheDocument();
@@ -346,7 +363,9 @@ describe('CcPatternDropdown', () => {
 
   it('imports a private pack and selects its first local pattern', async () => {
     mockInstall.mockResolvedValueOnce(localPack);
-    mockList.mockResolvedValueOnce([localPack]);
+    mockList
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([localPack]);
     const onChange = jest.fn();
     render(
       <CcPatternDropdown
@@ -378,8 +397,35 @@ describe('CcPatternDropdown', () => {
     });
   });
 
+  it('connects a private folder once and refreshes locally discovered packs', async () => {
+    mockDirectorySupported.mockReturnValue(true);
+    mockDirectoryStatus.mockResolvedValueOnce('not-connected');
+    mockDirectoryConnect.mockResolvedValueOnce({
+      status: 'connected',
+      loadedPacks: 1,
+      failedPacks: 0,
+    });
+    mockList
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([localPack]);
+    render(
+      <CcPatternDropdown
+        value="dots"
+        patternTileId={null}
+        onChange={jest.fn()}
+      />
+    );
+
+    await waitFor(() => expect(mockDirectoryStatus).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button'));
+    chooseDropdownOption('+ Connect Private Folder');
+
+    await waitFor(() => expect(mockDirectoryConnect).toHaveBeenCalledTimes(1));
+    expect(mockList).toHaveBeenCalledTimes(2);
+  });
+
   it('preserves a missing local reference and shows an unavailable-replay warning', async () => {
-    mockHydrate.mockResolvedValueOnce([]);
+    mockList.mockResolvedValueOnce([]);
     render(
       <CcPatternDropdown
         value="image-tile"
@@ -392,8 +438,9 @@ describe('CcPatternDropdown', () => {
   });
 
   it('backs up and removes an installed local pack from its group header', async () => {
-    mockHydrate.mockResolvedValueOnce([localPack]);
-    mockList.mockResolvedValueOnce([]);
+    mockList
+      .mockResolvedValueOnce([localPack])
+      .mockResolvedValueOnce([]);
     mockExportBackup.mockResolvedValueOnce(Uint8Array.from([4, 5, 6]));
     const createObjectUrl = jest.fn(() => 'blob:local-pack');
     const revokeObjectUrl = jest.fn();
@@ -409,7 +456,7 @@ describe('CcPatternDropdown', () => {
       />
     );
 
-    await waitFor(() => expect(mockHydrate).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole('button'));
     fireEvent.click(screen.getByLabelText('Back up Private Pack'));
     await waitFor(() => expect(mockExportBackup).toHaveBeenCalledWith('private-pack'));

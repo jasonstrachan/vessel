@@ -24,6 +24,7 @@ import {
   createEraserTipSettingsPatch,
   resolveEraserTipOption,
 } from '@/stores/helpers/eraserSettings';
+import studioExtension from '@/extensions/studioExtension';
 import { BrushShape, type BrushSettings } from "@/types";
 import CommittedNumberInput from "../ui/CommittedNumberInput";
 import Input from "../ui/Input";
@@ -41,7 +42,6 @@ import { CcSampledGradientPreview } from '@/components/toolbar/CcSampledGradient
 import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { drawTestSwatches } from "@/utils/drawTestSwatches";
-import { getContrastingTxtColor } from '@/utils/txtShape';
 import { GradientEditor, type GradientEditorHandle } from "../ui/GradientEditor";
 import CustomSwitch from "../ui/CustomSwitch";
 import {
@@ -2446,122 +2446,12 @@ const BrushControls = () => {
     );
   }
 
-  if (activeSettings.brushShape === BrushShape.TXT_SHAPE) {
-    const colorField = (
-      label: string,
-      value: string,
-      key: 'txtColor' | 'txtSelectionColor' | 'txtSelectionBackgroundColor',
-    ) => (
-      <label className="flex items-center gap-2 text-[#D9D9D9]" style={{ fontSize: '13px' }}>
-        <span className="w-20">{label}</span>
-        <input
-          type="color"
-          value={value}
-          onChange={(event) => setActiveSettings({
-            [key]: event.target.value,
-            txtColorSource: 'manual',
-          })}
-          className="h-7 w-10 cursor-pointer border border-[#5a5a5a] bg-transparent p-0"
-          aria-label={label}
-        />
-        <span className="font-mono text-[11px] uppercase">{value}</span>
-      </label>
-    );
-
-    return (
-      <div className="space-y-3 p-4 text-[#D9D9D9]">
-        <p className="text-[11px] leading-4 text-[#A8A8A8]">
-          Drag on the canvas to create a selectable text box. Drag its top edge to move and its corner to resize.
-        </p>
-        <textarea
-          value={activeSettings.txtContent ?? 'SELECTED TEXT'}
-          onChange={(event) => setActiveSettings({ txtContent: event.target.value.slice(0, 20_000) })}
-          maxLength={20_000}
-          className="h-20 w-full resize-none border border-[#5a5a5a] bg-transparent p-2 font-mono text-xs focus:border-[#F3F3F7] focus:outline-none"
-          aria-label="TXT Shape content"
-        />
-        <div className="flex items-center gap-2">
-          <label className="w-16 text-[13px]">Font</label>
-          <Dropdown
-            value={activeSettings.txtFontFamily ?? 'monospace'}
-            onChange={(value) => setActiveSettings({
-              txtFontFamily: value as NonNullable<BrushSettings['txtFontFamily']>,
-            })}
-            options={[
-              { label: 'Monospace', value: 'monospace' },
-              { label: 'Sans serif', value: 'sans-serif' },
-              { label: 'Serif', value: 'serif' },
-            ]}
-            className="flex-1"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="w-16 text-[13px]">Align</label>
-          <Dropdown
-            value={activeSettings.txtTextAlign ?? 'left'}
-            onChange={(value) => setActiveSettings({
-              txtTextAlign: value as NonNullable<BrushSettings['txtTextAlign']>,
-            })}
-            options={[
-              { label: 'Left', value: 'left' },
-              { label: 'Centre', value: 'center' },
-              { label: 'Right', value: 'right' },
-            ]}
-            className="flex-1"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="w-16 text-[13px]">Source</label>
-          <Dropdown
-            value={activeSettings.txtColorSource ?? 'palette'}
-            onChange={(value) => {
-              const source = value as NonNullable<BrushSettings['txtColorSource']>;
-              if (source === 'palette') {
-                setActiveSettings({
-                  txtColorSource: source,
-                  txtColor: palette.foregroundColor,
-                  txtSelectionColor: palette.foregroundColor,
-                  txtSelectionBackgroundColor: palette.backgroundColor,
-                });
-              } else if (source === 'foreground') {
-                setActiveSettings({
-                  txtColorSource: source,
-                  txtColor: palette.foregroundColor,
-                  txtSelectionBackgroundColor: palette.foregroundColor,
-                  txtSelectionColor: getContrastingTxtColor(palette.foregroundColor),
-                });
-              } else {
-                setActiveSettings({ txtColorSource: source });
-              }
-            }}
-            options={[
-              { label: 'FG colour', value: 'foreground' },
-              { label: 'Palette pair', value: 'palette' },
-              { label: 'Sample canvas', value: 'sample' },
-              { label: 'Manual', value: 'manual' },
-            ]}
-            className="flex-1"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="w-16 text-[13px]">Size px</label>
-          <NonCcSlider
-            value={effectiveGlobalBrushSize}
-            min={6}
-            max={256}
-            step={1}
-            onChange={(value) => setGlobalBrushSize(Math.max(6, value))}
-            aria-label="TXT Shape font size"
-            className="flex-1"
-          />
-        </div>
-        <div className="space-y-2 border-t border-[#3f3f3f] pt-3">
-          {colorField('Text', activeSettings.txtColor ?? '#000000', 'txtColor')}
-          {colorField('Selected text', activeSettings.txtSelectionColor ?? '#ffffff', 'txtSelectionColor')}
-          {colorField('Selection', activeSettings.txtSelectionBackgroundColor ?? '#000000', 'txtSelectionBackgroundColor')}
-        </div>
-      </div>
-    );
+  const StudioBrushControls = studioExtension.BrushControls;
+  const isStudioBrush = studioExtension.brushPresets.some(
+    (preset) => preset.id === currentBrushPresetId,
+  );
+  if (StudioBrushControls && isStudioBrush) {
+    return <StudioBrushControls />;
   }
 
   // Show special controls for the Spam Text brush

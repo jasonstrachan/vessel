@@ -114,6 +114,25 @@ describe('local pattern packs and library', () => {
     expect(await library.list()).toEqual([]);
   });
 
+  it('registers an unchanged pack without rewriting its persisted archive', async () => {
+    const archive = await buildSyntheticPack();
+    const memoryStorage = createMemoryStorage();
+    const put = jest.fn(memoryStorage.put);
+    const storage: LocalPatternLibraryStorage = {
+      ...memoryStorage,
+      put,
+    };
+    const registry = createDitherPatternRegistry();
+    const library = createLocalPatternLibrary({ storage, registry });
+
+    await library.install(archive);
+    registry.clear();
+    await library.install(archive);
+
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(registry.resolve('synthetic-pattern')).not.toBeNull();
+  });
+
   it('rejects duplicate ids and hashes before changing storage or registry', async () => {
     const storage = createMemoryStorage();
     const registry = createDitherPatternRegistry();

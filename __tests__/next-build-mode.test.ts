@@ -56,6 +56,13 @@ describe('Next static export build mode', () => {
     });
   });
 
+  it('fails closed when studio mode is requested for a public static export', () => {
+    expect(() => buildVesselNextConfig({
+      VESSEL_STATIC_EXPORT: '1',
+      VESSEL_STUDIO: '1',
+    })).toThrow('Studio extensions cannot be included in a public static export.');
+  });
+
   it('keeps package build scripts on the stable static export command', () => {
     const packageJson = JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')) as {
       scripts: Record<string, string>;
@@ -64,6 +71,7 @@ describe('Next static export build mode', () => {
     expect(packageJson.scripts.build).toBe('npm run build:next');
     expect(packageJson.scripts['build:next']).toBe('node scripts/github-pages-build.mjs');
     expect(packageJson.scripts['build:clean']).toContain('npm run build:next');
+    expect(packageJson.scripts['dev:studio']).toContain('VESSEL_STUDIO=1');
   });
 
   it('keeps local pushes and CI on the same deployment verification commands', () => {

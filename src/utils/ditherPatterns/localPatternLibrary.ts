@@ -50,6 +50,15 @@ export const createLocalPatternLibrary = ({
   install: async (archive: Uint8Array | ArrayBuffer): Promise<LocalPatternPackSummary> => {
     const parsed = await parseLocalPatternPack(archive);
     const existingPacks = await storage.list();
+    const identical = existingPacks.find((pack) => (
+      pack.packId === parsed.packId && pack.contentHash === parsed.contentHash
+    ));
+    if (identical) {
+      for (const pattern of identical.patterns) {
+        registry.register(pattern);
+      }
+      return toSummary(identical);
+    }
     for (const existing of existingPacks) {
       if (existing.packId === parsed.packId) continue;
       const existingIds = new Set(existing.patterns.map(({ definition }) => definition.id));

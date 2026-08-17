@@ -1,5 +1,7 @@
-import type { NextConfig } from 'next';
+import { existsSync } from 'node:fs';
 import path from 'path';
+
+import type { NextConfig } from 'next';
 
 export interface VesselNextBuildMode {
   isStaticExport: boolean;
@@ -10,6 +12,7 @@ export interface VesselNextBuildEnv {
   NODE_ENV?: string;
   VESSEL_STATIC_EXPORT?: string;
   VESSEL_VERIFIED_BUILD?: string;
+  VESSEL_STUDIO?: string;
   NEXT_DIST_DIR?: string;
 }
 
@@ -32,6 +35,18 @@ export const buildVesselNextConfig = (
 ): NextConfig => {
   const { isStaticExport, distDir } = resolveVesselNextBuildMode(env);
   const isExternallyVerifiedBuild = env.VESSEL_VERIFIED_BUILD === '1';
+  const isStudioBuild = env.VESSEL_STUDIO === '1';
+  if (isStaticExport && isStudioBuild) {
+    throw new Error('Studio extensions cannot be included in a public static export.');
+  }
+  const studioExtensionEntry = isStudioBuild
+    ? path.resolve('.vessel-studio/extension/index.tsx')
+    : path.resolve('src/extensions/noopStudioExtension.ts');
+  if (isStudioBuild && !existsSync(studioExtensionEntry)) {
+    throw new Error(
+      'Studio extension is not connected. Expected .vessel-studio/extension/index.tsx.',
+    );
+  }
 
   return {
     distDir,
@@ -59,7 +74,14 @@ export const buildVesselNextConfig = (
     },
 
     // Ensure proper development server configuration
-    webpack: (config, { dev }) => {
+    webpack: (config, { dev, webpack }) => {
+      if (isStudioBuild) {
+        config.plugins = config.plugins ?? [];
+        config.plugins.push(new webpack.NormalModuleReplacementPlugin(
+          /activeStudioExtension$/,
+          studioExtensionEntry,
+        ));
+      }
       if (dev) {
         // WSL2-optimized watch configuration to prevent cache corruption
         config.watchOptions = {
@@ -135,6 +157,7 @@ export const buildVesselNextConfig = (
     experimental: {
       cpus: 1,
       workerThreads: false,
+      externalDir: isStudioBuild,
     },
   };
 };
