@@ -33,9 +33,37 @@ interface PreparedEntry {
   segmentOffsets: number[];
 }
 
+interface GraphemeSegment {
+  index: number;
+  segment: string;
+}
+
+interface GraphemeSegmenter {
+  segment: (input: string) => Iterable<GraphemeSegment>;
+}
+
+type GraphemeSegmenterConstructor = new (
+  locales?: string | readonly string[],
+  options?: { granularity: 'grapheme' },
+) => GraphemeSegmenter;
+
 const MAX_PREPARED_TEXTS = 64;
 const preparedCache = new Map<string, PreparedEntry>();
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const Segmenter = (Intl as typeof Intl & {
+  Segmenter?: GraphemeSegmenterConstructor;
+}).Segmenter;
+const graphemeSegmenter: GraphemeSegmenter = Segmenter
+  ? new Segmenter(undefined, { granularity: 'grapheme' })
+  : {
+      segment: (input) => {
+        let index = 0;
+        return Array.from(input, (segment) => {
+          const entry = { index, segment };
+          index += segment.length;
+          return entry;
+        });
+      },
+    };
 
 const getPreparedEntry = (content: string, font: string): PreparedEntry => {
   const key = `${font}\u0000${content}`;
