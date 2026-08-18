@@ -104,4 +104,54 @@ describe('useDrawingCanvasColorCycleSegmentRefresh', () => {
     expect(firstPresenter).toHaveBeenCalledTimes(1);
     expect(secondPresenter).toHaveBeenCalledTimes(1);
   });
+
+  it('does not republish color-cycle canvases for a static-only segment update', () => {
+    const presenter = jest.fn();
+    const surfaceBrush = {
+      isPlaying: () => false,
+      presentCurrentFrameToCanvas: presenter,
+    };
+    const manager = {
+      getSurfaceBrush: jest.fn(() => surfaceBrush),
+      getInitBrush: jest.fn(() => null),
+    } as unknown as ColorCycleBrushManager;
+    const layers = [makeLayer('cc-layer', false)];
+    let segments: CompositeSegment[] = [makeSegment('cc-layer')];
+    const layerMapRef = { current: new Map<string, Layer>() };
+    const compositeSegmentsRef = { current: [] as CompositeSegment[] };
+    const pendingColorCycleRefreshRef = { current: false };
+    const colorCycleBrushManagerRef = { current: manager };
+    const getCompositeSegmentsSnapshot = () => segments;
+    const { rerender } = renderHook(({ version }) => (
+      useDrawingCanvasColorCycleSegmentRefresh({
+        layers,
+        compositeSegmentsVersion: version,
+        getCompositeSegmentsSnapshot,
+        layerMapRef,
+        compositeSegmentsRef,
+        pendingColorCycleRefreshRef,
+        colorCycleBrushManagerRef,
+      })
+    ), { initialProps: { version: 1 } });
+    expect(presenter).toHaveBeenCalledTimes(1);
+
+    presenter.mockClear();
+    segments = [
+      {
+        kind: 'static',
+        id: 'static-updated',
+        layerIds: ['normal-layer'],
+        includeBackground: false,
+        orderRange: { start: 0, end: 0 },
+        canvas: document.createElement('canvas'),
+        bitmap: null,
+        dirty: false,
+      },
+      makeSegment('cc-layer'),
+    ];
+    rerender({ version: 2 });
+
+    expect(compositeSegmentsRef.current).toBe(segments);
+    expect(presenter).not.toHaveBeenCalled();
+  });
 });

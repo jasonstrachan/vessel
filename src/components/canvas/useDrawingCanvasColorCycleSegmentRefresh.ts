@@ -46,8 +46,7 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
 
   useEffect(() => {
     compositeSegmentsRef.current = getCompositeSegmentsSnapshot();
-    pendingColorCycleRefreshRef.current = true;
-  }, [compositeSegmentsRef, compositeSegmentsVersion, getCompositeSegmentsSnapshot, pendingColorCycleRefreshRef]);
+  }, [compositeSegmentsRef, compositeSegmentsVersion, getCompositeSegmentsSnapshot]);
 
   const refreshColorCycleSegments = useCallback((
     request?: ColorCycleSegmentRefreshRequest,
