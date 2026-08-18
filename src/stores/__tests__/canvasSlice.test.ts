@@ -5,6 +5,7 @@ import {
   DEFAULT_FRAME_COLOR,
   getStoredDisplayFilterDefaults,
   getStoredFrameColor,
+  getStoredShowPixelGridAtMaxZoom,
   getStoredTransparencyBackgroundMode,
 } from '@/stores/slices/canvasSlice';
 
@@ -19,6 +20,7 @@ describe('canvas slice invariants', () => {
         offsetY: 0,
         showRulers: false,
         showFPSMeter: true,
+        showPixelGridAtMaxZoom: true,
         transparencyBackgroundMode: 'checker',
         frameColor: DEFAULT_FRAME_COLOR,
       },
@@ -72,6 +74,27 @@ describe('canvas slice invariants', () => {
 
     useAppStore.getState().setShowFPSMeter(false);
     expect(useAppStore.getState().canvas.showFPSMeter).toBe(false);
+  });
+
+  it('persists pixel grid visibility at maximum zoom', () => {
+    const before = useAppStore.getState().canvas;
+    useAppStore.getState().setShowPixelGridAtMaxZoom(true);
+    expect(useAppStore.getState().canvas).toBe(before);
+
+    useAppStore.getState().setShowPixelGridAtMaxZoom(false);
+    expect(useAppStore.getState().canvas.showPixelGridAtMaxZoom).toBe(false);
+    expect(readLocalSettings().canvas?.showPixelGridAtMaxZoom).toBe(false);
+    expect(getStoredShowPixelGridAtMaxZoom()).toBe(false);
+  });
+
+  it('shows the pixel grid at maximum zoom by default', () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({
+      canvas: {
+        showPixelGridAtMaxZoom: 'invalid',
+      },
+    }));
+
+    expect(getStoredShowPixelGridAtMaxZoom()).toBe(true);
   });
 
   it('keeps transparency background mode setter idempotent when unchanged', () => {

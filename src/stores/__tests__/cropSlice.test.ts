@@ -90,6 +90,7 @@ const seedCropState = () => {
       gridSize: 8,
       showRulers: true,
       showFPSMeter: false,
+      showPixelGridAtMaxZoom: true,
       transparencyBackgroundMode: 'checker',
       frameColor: state.canvas.frameColor,
       displayMode: 'smooth',

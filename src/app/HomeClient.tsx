@@ -55,6 +55,7 @@ export default function Home() {
   const setAutosaveInterval = useAppStore((state) => state.setAutosaveInterval);
   const toggleRulers = useAppStore((state) => state.toggleRulers);
   const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
+  const setShowPixelGridAtMaxZoom = useAppStore((state) => state.setShowPixelGridAtMaxZoom);
   const setHistorySize = useAppStore((state) => state.setHistorySize);
   const newProject = useAppStore((state) => state.newProject);
   const ensureCustomBrushHydrated = useAppStore((state) => state.ensureCustomBrushHydrated);
@@ -132,6 +133,9 @@ export default function Home() {
           if (typeof settings.canvas.showFPSMeter === 'boolean') {
             setShowFPSMeter(settings.canvas.showFPSMeter);
           }
+          if (typeof settings.canvas.showPixelGridAtMaxZoom === 'boolean') {
+            setShowPixelGridAtMaxZoom(settings.canvas.showPixelGridAtMaxZoom);
+          }
           if (
             settings.canvas.transparencyBackgroundMode === 'checker' ||
             settings.canvas.transparencyBackgroundMode === 'gray'
@@ -153,7 +157,7 @@ export default function Home() {
     } finally {
       setIsSettingsHydrated(true);
     }
-  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setTransparencyBackgroundMode, toggleRulers]);
+  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setShowPixelGridAtMaxZoom, setTransparencyBackgroundMode, toggleRulers]);
 
   useEffect(() => {
     if (!isAutosaveEnabled) {

@@ -21,6 +21,7 @@ export interface CanvasSlice {
   setCanvasViewport: (viewport: { left: number; top: number; width: number; height: number }) => void;
   toggleRulers: () => void;
   setShowFPSMeter: (visible: boolean) => void;
+  setShowPixelGridAtMaxZoom: (visible: boolean) => void;
   setTransparencyBackgroundMode: (mode: CanvasState['transparencyBackgroundMode']) => void;
   setFrameColor: (color: string) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
@@ -49,6 +50,11 @@ export const getStoredTransparencyBackgroundMode = (): CanvasState['transparency
   return storedMode === 'gray' || storedMode === 'checker' ? storedMode : 'checker';
 };
 
+export const getStoredShowPixelGridAtMaxZoom = (): boolean => {
+  const storedValue = readLocalSettings().canvas?.showPixelGridAtMaxZoom;
+  return typeof storedValue === 'boolean' ? storedValue : true;
+};
+
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 export const DEFAULT_FRAME_COLOR = '#1A1A1A';
 
@@ -73,6 +79,7 @@ export const defaultCanvasState: CanvasState = {
   gridSize: 16,
   showRulers: false,
   showFPSMeter: true,
+  showPixelGridAtMaxZoom: getStoredShowPixelGridAtMaxZoom(),
   transparencyBackgroundMode: getStoredTransparencyBackgroundMode(),
   frameColor: getStoredFrameColor(),
   displayMode: 'pixelated',
@@ -147,6 +154,20 @@ export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (s
       }
       return {
         canvas: { ...state.canvas, showFPSMeter: visible },
+      };
+    }),
+  setShowPixelGridAtMaxZoom: (visible) =>
+    set((state) => {
+      if (state.canvas.showPixelGridAtMaxZoom === visible) {
+        return state;
+      }
+      mergeLocalSettings({
+        canvas: {
+          showPixelGridAtMaxZoom: visible,
+        },
+      });
+      return {
+        canvas: { ...state.canvas, showPixelGridAtMaxZoom: visible },
       };
     }),
   setTransparencyBackgroundMode: (mode) =>

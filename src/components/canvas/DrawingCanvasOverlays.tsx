@@ -39,6 +39,7 @@ export const DrawingCanvasOverlays = ({
 }: DrawingCanvasOverlaysProps) => {
   const StudioCanvasOverlay = studioExtension.CanvasOverlay;
   const grid = useAppStore(selectGridState);
+  const showPixelGridAtMaxZoom = useAppStore((state) => state.canvas.showPixelGridAtMaxZoom);
   const setZoom = useAppStore((state) => state.setZoom);
   const multiplayer = useVesselMultiplayerSnapshot();
   const aiCursor = multiplayer.aiCursor;
@@ -101,6 +102,7 @@ export const DrawingCanvasOverlays = ({
           offsetY={offsetY}
           rows={grid.rows}
           columns={grid.columns}
+          showPixelGridAtMaxZoom={showPixelGridAtMaxZoom}
         />
       ) : null}
 

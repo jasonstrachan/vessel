@@ -45,6 +45,9 @@ jest.mock('@/stores/useAppStore', () => ({
   useAppStore: (selector?: (state: unknown) => unknown) => {
     const state = {
       setZoom,
+      canvas: {
+        showPixelGridAtMaxZoom: true,
+      },
       ui: {
         grid: {
           enabled: false,

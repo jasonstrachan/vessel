@@ -8,6 +8,7 @@ export interface VesselLocalSettings {
   canvas?: {
     showRulers?: boolean;
     showFPSMeter?: boolean;
+    showPixelGridAtMaxZoom?: boolean;
     transparencyBackgroundMode?: CanvasState['transparencyBackgroundMode'];
     frameColor?: string;
     displayFilterDefaults?: DisplayFilterConfig[];

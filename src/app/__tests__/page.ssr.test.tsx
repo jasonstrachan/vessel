@@ -156,6 +156,7 @@ function createMockStore() {
     canvas: {
       showRulers: false,
       showFPSMeter: true,
+      showPixelGridAtMaxZoom: true,
       transparencyBackgroundMode: 'checker',
       displayFilters: [] as DisplayFilterConfig[],
     },
@@ -165,6 +166,9 @@ function createMockStore() {
     toggleRulers: jest.fn(),
     setShowFPSMeter: jest.fn((visible: boolean) => {
       store.canvas.showFPSMeter = visible;
+    }),
+    setShowPixelGridAtMaxZoom: jest.fn((visible: boolean) => {
+      store.canvas.showPixelGridAtMaxZoom = visible;
     }),
     setTransparencyBackgroundMode: jest.fn((mode: 'checker' | 'gray') => {
       store.canvas.transparencyBackgroundMode = mode;
@@ -298,6 +302,19 @@ describe('Home page client rendering', () => {
     render(<Home />);
 
     expect(mockStore.setShowFPSMeter).toHaveBeenCalledWith(false);
+  });
+
+  it('applies persisted pixel grid visibility preference from settings', () => {
+    localStorage.setItem(
+      'vessel-settings',
+      JSON.stringify({
+        canvas: { showPixelGridAtMaxZoom: false },
+      })
+    );
+
+    render(<Home />);
+
+    expect(mockStore.setShowPixelGridAtMaxZoom).toHaveBeenCalledWith(false);
   });
 
   it('applies persisted transparency background preference from settings', () => {

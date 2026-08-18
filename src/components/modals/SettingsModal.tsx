@@ -51,6 +51,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const showRulers = useAppStore((state) => state.canvas.showRulers);
   const showFPSMeter = useAppStore((state) => state.canvas.showFPSMeter);
+  const showPixelGridAtMaxZoom = useAppStore((state) => state.canvas.showPixelGridAtMaxZoom);
   const transparencyBackgroundMode = useAppStore((state) => state.canvas.transparencyBackgroundMode);
   const frameColor = useAppStore((state) => state.canvas.frameColor);
   const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
@@ -62,6 +63,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const setHistorySize = useAppStore((state) => state.setHistorySize);
   const toggleRulers = useAppStore((state) => state.toggleRulers);
   const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
+  const setShowPixelGridAtMaxZoom = useAppStore((state) => state.setShowPixelGridAtMaxZoom);
   const setTransparencyBackgroundMode = useAppStore((state) => state.setTransparencyBackgroundMode);
   const setFrameColor = useAppStore((state) => state.setFrameColor);
   const setSettingsSection = useAppStore((state) => state.setSettingsSection);
@@ -88,6 +90,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       canvas: {
         showRulers: currentState.canvas.showRulers,
         showFPSMeter: currentState.canvas.showFPSMeter,
+        showPixelGridAtMaxZoom: currentState.canvas.showPixelGridAtMaxZoom,
         transparencyBackgroundMode: currentState.canvas.transparencyBackgroundMode,
         frameColor: currentState.canvas.frameColor,
       },
@@ -284,6 +287,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     id="show-fps-meter"
                     checked={showFPSMeter}
                     onChange={(enabled) => setShowFPSMeter(enabled)}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="show-pixel-grid-at-max-zoom" className="text-base text-[#888]">
+                    Pixel Grid at Max Zoom
+                  </label>
+                  <Switch
+                    id="show-pixel-grid-at-max-zoom"
+                    checked={showPixelGridAtMaxZoom}
+                    onChange={(enabled) => setShowPixelGridAtMaxZoom(enabled)}
                   />
                 </div>
                 {isDevBuild && (
