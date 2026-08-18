@@ -13,7 +13,7 @@ const createShape = (content: string): TxtShape => ({
   width: 100,
   height: 40,
   content,
-  fontFamily: 'monospace',
+  fontFamily: 'mek-mono',
   fontSize: 12,
   lineHeight: 1.2,
   textAlign: 'left',

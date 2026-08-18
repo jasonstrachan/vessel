@@ -5,43 +5,24 @@ export interface TxtShapeFontDefinition {
   label: string;
   stack: string;
   minimumSize: number;
-  rendering: 'smooth' | 'pixel';
+  sizeStep: number;
   nativePixelSize?: number;
-  asset?: {
+  asset: {
     fileName: string;
     format: 'opentype' | 'woff2';
   };
 }
 
+export const TXT_SHAPE_MAX_FONT_SIZE = 40;
+export const TXT_SHAPE_DEFAULT_FONT_FAMILY: TxtShapeFontFamily = 'mek-mono';
+
 export const TXT_SHAPE_FONT_DEFINITIONS: readonly TxtShapeFontDefinition[] = [
-  {
-    family: 'monospace',
-    label: 'Monospace',
-    stack: "ui-monospace, 'Courier New', monospace",
-    minimumSize: 6,
-    rendering: 'smooth',
-  },
-  {
-    family: 'sans-serif',
-    label: 'Sans serif',
-    stack: 'Arial, Helvetica, sans-serif',
-    minimumSize: 6,
-    rendering: 'smooth',
-  },
-  {
-    family: 'serif',
-    label: 'Serif',
-    stack: "Georgia, 'Times New Roman', serif",
-    minimumSize: 6,
-    rendering: 'smooth',
-  },
   {
     family: 'mek-sans',
     label: 'MEK Sans',
     stack: "'MEK Sans', sans-serif",
-    minimumSize: 15,
-    rendering: 'pixel',
-    nativePixelSize: 15,
+    minimumSize: 10,
+    sizeStep: 1,
     asset: {
       fileName: 'MEKSANS-REGULAR.OTF',
       format: 'opentype',
@@ -52,8 +33,7 @@ export const TXT_SHAPE_FONT_DEFINITIONS: readonly TxtShapeFontDefinition[] = [
     label: 'MEK Mono',
     stack: "'MEK Mono', monospace",
     minimumSize: 12,
-    rendering: 'pixel',
-    nativePixelSize: 12,
+    sizeStep: 1,
     asset: {
       fileName: 'MEK-MONO-REGULAR.OTF',
       format: 'opentype',
@@ -63,8 +43,8 @@ export const TXT_SHAPE_FONT_DEFINITIONS: readonly TxtShapeFontDefinition[] = [
     family: 'jetbrains-mono',
     label: 'JetBrains Mono',
     stack: "'JetBrains Mono', monospace",
-    minimumSize: 6,
-    rendering: 'smooth',
+    minimumSize: 8,
+    sizeStep: 1,
     asset: {
       fileName: 'JETBRAINS-MONO-REGULAR.WOFF2',
       format: 'woff2',
@@ -74,8 +54,8 @@ export const TXT_SHAPE_FONT_DEFINITIONS: readonly TxtShapeFontDefinition[] = [
     family: 'ibm-plex-mono',
     label: 'IBM Plex Mono',
     stack: "'IBM Plex Mono', monospace",
-    minimumSize: 6,
-    rendering: 'smooth',
+    minimumSize: 8,
+    sizeStep: 1,
     asset: {
       fileName: 'IBM-PLEX-MONO-REGULAR.WOFF2',
       format: 'woff2',
@@ -86,7 +66,7 @@ export const TXT_SHAPE_FONT_DEFINITIONS: readonly TxtShapeFontDefinition[] = [
     label: 'Departure Mono',
     stack: "'Departure Mono', monospace",
     minimumSize: 11,
-    rendering: 'pixel',
+    sizeStep: 11,
     nativePixelSize: 11,
     asset: {
       fileName: 'DEPARTURE-MONO-REGULAR.WOFF2',
@@ -102,49 +82,59 @@ const FONT_DEFINITIONS_BY_FAMILY = new Map(
 export const isTxtShapeFontFamily = (value: unknown): value is TxtShapeFontFamily =>
   typeof value === 'string' && FONT_DEFINITIONS_BY_FAMILY.has(value as TxtShapeFontFamily);
 
+export const normalizeTxtShapeFontFamily = (value: unknown): TxtShapeFontFamily =>
+  isTxtShapeFontFamily(value) ? value : TXT_SHAPE_DEFAULT_FONT_FAMILY;
+
 export const getTxtShapeFontDefinition = (
   family: TxtShapeFontFamily,
 ): TxtShapeFontDefinition => FONT_DEFINITIONS_BY_FAMILY.get(family)
-  ?? FONT_DEFINITIONS_BY_FAMILY.get('monospace')!;
+  ?? FONT_DEFINITIONS_BY_FAMILY.get(TXT_SHAPE_DEFAULT_FONT_FAMILY)!;
 
 export const getTxtShapeFontMinimumSize = (family: TxtShapeFontFamily): number =>
   getTxtShapeFontDefinition(family).minimumSize;
 
-export const isTxtShapePixelFont = (family: TxtShapeFontFamily): boolean =>
-  getTxtShapeFontDefinition(family).rendering === 'pixel';
-
-export const getTxtShapeNativePixelSize = (family: TxtShapeFontFamily): number | null =>
-  getTxtShapeFontDefinition(family).nativePixelSize ?? null;
-
 export const getTxtShapeFontSizeStep = (family: TxtShapeFontFamily): number =>
-  getTxtShapeNativePixelSize(family) ?? 1;
+  getTxtShapeFontDefinition(family).sizeStep;
 
 export const normalizeTxtShapeFontSize = (
   family: TxtShapeFontFamily,
   requestedSize: number,
-  maximumSize = 512,
+  maximumSize = TXT_SHAPE_MAX_FONT_SIZE,
 ): number => {
   const definition = getTxtShapeFontDefinition(family);
   const finiteSize = Number.isFinite(requestedSize) ? requestedSize : definition.minimumSize;
-  const nativePixelSize = definition.nativePixelSize;
-  if (!nativePixelSize) {
-    return Math.max(
-      definition.minimumSize,
-      Math.min(maximumSize, Math.round(finiteSize)),
+  const effectiveMaximum = Math.max(definition.minimumSize, Math.floor(maximumSize));
+  if (definition.nativePixelSize) {
+    const maximumScale = Math.max(1, Math.floor(effectiveMaximum / definition.nativePixelSize));
+    const scale = Math.max(
+      1,
+      Math.min(maximumScale, Math.round(finiteSize / definition.nativePixelSize)),
     );
+    return definition.nativePixelSize * scale;
   }
-  const maximumScale = Math.max(1, Math.floor(maximumSize / nativePixelSize));
-  const scale = Math.max(1, Math.min(maximumScale, Math.round(finiteSize / nativePixelSize)));
-  return nativePixelSize * scale;
+
+  const step = Math.max(1, definition.sizeStep);
+  const steppedSize = definition.minimumSize
+    + Math.round((finiteSize - definition.minimumSize) / step) * step;
+  return Math.max(definition.minimumSize, Math.min(effectiveMaximum, steppedSize));
+};
+
+export const getTxtShapeRasterFontSize = (
+  family: TxtShapeFontFamily,
+  fontSize: number,
+): number => {
+  const definition = getTxtShapeFontDefinition(family);
+  return definition.nativePixelSize ?? normalizeTxtShapeFontSize(family, fontSize);
 };
 
 export const getTxtShapePixelScale = (
   family: TxtShapeFontFamily,
   fontSize: number,
-): number | null => {
-  const nativePixelSize = getTxtShapeNativePixelSize(family);
-  if (!nativePixelSize) return null;
-  return normalizeTxtShapeFontSize(family, fontSize) / nativePixelSize;
+): number => {
+  const definition = getTxtShapeFontDefinition(family);
+  return definition.nativePixelSize
+    ? normalizeTxtShapeFontSize(family, fontSize) / definition.nativePixelSize
+    : 1;
 };
 
 export const loadTxtShapeFont = async (
@@ -154,7 +144,7 @@ export const loadTxtShapeFont = async (
   if (typeof document === 'undefined' || !document.fonts) return false;
   const definition = getTxtShapeFontDefinition(family);
   const familyName = definition.stack.match(/^'([^']+)'/)?.[1];
-  if (!definition.asset || !familyName) return true;
+  if (!familyName) return false;
   const descriptor = `${Math.max(definition.minimumSize, size)}px "${familyName}"`;
   try {
     await document.fonts.load(descriptor);
@@ -167,7 +157,6 @@ export const loadTxtShapeFont = async (
 export const createTxtShapeFontFaceCss = (basePath = ''): string => {
   const normalizedBasePath = basePath.trim().replace(/\/$/, '');
   return TXT_SHAPE_FONT_DEFINITIONS.flatMap((definition) => {
-    if (!definition.asset) return [];
     const familyName = definition.stack.match(/^'([^']+)'/)?.[1];
     if (!familyName) return [];
     const source = `${normalizedBasePath}/assets/fonts/${definition.asset.fileName}`;

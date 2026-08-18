@@ -26,11 +26,11 @@ import {
   createTxtShapeFontFaceCss,
   getTxtShapeFontMinimumSize,
   getTxtShapeFontSizeStep,
-  getTxtShapeNativePixelSize,
   getTxtShapePixelScale,
+  getTxtShapeRasterFontSize,
   isTxtShapeFontFamily,
-  isTxtShapePixelFont,
   loadTxtShapeFont,
+  normalizeTxtShapeFontFamily,
   normalizeTxtShapeFontSize,
   TXT_SHAPE_FONT_DEFINITIONS,
 } from '@/utils/txtShapeFonts';
@@ -43,8 +43,8 @@ const createShape = (updates: Partial<TxtShape> = {}): TxtShape => ({
   width: 100,
   height: 50,
   content: 'LIGHT DARK',
-  fontFamily: 'monospace',
-  fontSize: 10,
+  fontFamily: 'departure-mono',
+  fontSize: 11,
   lineHeight: 1.2,
   textAlign: 'left',
   colorSource: 'palette',
@@ -60,9 +60,6 @@ const createShape = (updates: Partial<TxtShape> = {}): TxtShape => ({
 describe('TXT Shape document helpers', () => {
   it('keeps bundled font metadata and minimum sizes authoritative', () => {
     expect(TXT_SHAPE_FONT_DEFINITIONS.map((font) => font.family)).toEqual([
-      'monospace',
-      'sans-serif',
-      'serif',
       'mek-sans',
       'mek-mono',
       'jetbrains-mono',
@@ -71,39 +68,47 @@ describe('TXT Shape document helpers', () => {
     ]);
     expect(isTxtShapeFontFamily('mek-mono')).toBe(true);
     expect(isTxtShapeFontFamily('missing-font')).toBe(false);
-    expect(isTxtShapePixelFont('mek-sans')).toBe(true);
-    expect(isTxtShapePixelFont('mek-mono')).toBe(true);
-    expect(isTxtShapePixelFont('departure-mono')).toBe(true);
-    expect(isTxtShapePixelFont('jetbrains-mono')).toBe(false);
-    expect(isTxtShapePixelFont('ibm-plex-mono')).toBe(false);
-    expect(getTxtShapeFontMinimumSize('mek-sans')).toBe(15);
-    expect(getTxtShapeNativePixelSize('mek-sans')).toBe(15);
+    expect(normalizeTxtShapeFontFamily('serif')).toBe('mek-mono');
+    expect(getTxtShapeFontMinimumSize('mek-sans')).toBe(10);
+    expect(getTxtShapeFontSizeStep('mek-sans')).toBe(1);
     expect(getTxtShapeFontMinimumSize('mek-mono')).toBe(12);
-    expect(getTxtShapeNativePixelSize('mek-mono')).toBe(12);
+    expect(getTxtShapeFontSizeStep('mek-mono')).toBe(1);
+    expect(getTxtShapeFontMinimumSize('jetbrains-mono')).toBe(8);
+    expect(getTxtShapeFontMinimumSize('ibm-plex-mono')).toBe(8);
     expect(getTxtShapeFontMinimumSize('departure-mono')).toBe(11);
-    expect(getTxtShapeNativePixelSize('departure-mono')).toBe(11);
     expect(getTxtShapeFontSizeStep('departure-mono')).toBe(11);
-    expect(getTxtShapeFontSizeStep('jetbrains-mono')).toBe(1);
     expect(normalizeTxtShapeFontSize('departure-mono', 24)).toBe(22);
     expect(normalizeTxtShapeFontSize('departure-mono', 29)).toBe(33);
-    expect(normalizeTxtShapeFontSize('mek-sans', 24)).toBe(30);
-    expect(normalizeTxtShapeFontSize('mek-mono', 24)).toBe(24);
+    expect(normalizeTxtShapeFontSize('mek-sans', 24)).toBe(24);
+    expect(normalizeTxtShapeFontSize('mek-mono', 25)).toBe(25);
+    expect(normalizeTxtShapeFontSize('jetbrains-mono', 2)).toBe(8);
+    expect(normalizeTxtShapeFontSize('ibm-plex-mono', 25)).toBe(25);
+    expect(normalizeTxtShapeFontSize('departure-mono', 512)).toBe(33);
+    expect(getTxtShapeRasterFontSize('mek-sans', 24)).toBe(24);
+    expect(getTxtShapeRasterFontSize('departure-mono', 33)).toBe(11);
+    expect(getTxtShapePixelScale('mek-sans', 24)).toBe(1);
     expect(getTxtShapePixelScale('departure-mono', 33)).toBe(3);
     expect(createTxtShapeFontFaceCss('/vessel')).toContain(
       "url('/vessel/assets/fonts/DEPARTURE-MONO-REGULAR.WOFF2')",
     );
+    expect(createTxtShapeFontFaceCss('/vessel')).toContain(
+      "url('/vessel/assets/fonts/JETBRAINS-MONO-REGULAR.WOFF2')",
+    );
   });
 
   it('clamps font size against the selected face minimum', () => {
-    const [departure, mekSans, system] = normalizeTxtShapes([
+    const [departure, mekSans, legacySmooth] = normalizeTxtShapes([
       createShape({ id: 'departure', fontFamily: 'departure-mono', fontSize: 2 }),
       createShape({ id: 'mek-sans', fontFamily: 'mek-sans', fontSize: 2 }),
-      createShape({ id: 'system', fontFamily: 'monospace', fontSize: 2 }),
+      { ...createShape({ id: 'legacy-smooth', fontSize: 2 }), fontFamily: 'monospace' },
     ], 200, 100);
 
     expect(departure?.fontSize).toBe(11);
-    expect(mekSans?.fontSize).toBe(15);
-    expect(system?.fontSize).toBe(6);
+    expect(mekSans?.fontSize).toBe(10);
+    expect(legacySmooth).toEqual(expect.objectContaining({
+      fontFamily: 'mek-mono',
+      fontSize: 12,
+    }));
     expect(normalizeTxtShapes([
       createShape({ fontFamily: 'departure-mono', fontSize: 24 }),
     ], 200, 100)[0]?.fontSize).toBe(22);
@@ -311,7 +316,7 @@ describe('TXT Shape document helpers', () => {
     drawTxtShapesToCanvas(ctx, [createShape({ content: 'AB', selections: [{ start: 1, end: 2 }] })]);
 
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
-    expect(ctx.fillRect).toHaveBeenCalledWith(10, 6, 5, 12);
+    expect(ctx.fillRect).toHaveBeenCalledWith(10, 6, 5, 13);
     expect(ctx.fillText).toHaveBeenNthCalledWith(1, 'AB', 5, 6);
     expect(ctx.fillText).toHaveBeenNthCalledWith(2, 'AB', 5, 6);
     expect(ctx.rect).toHaveBeenCalledWith(5, 6, 5, 50);
@@ -373,6 +378,32 @@ describe('TXT Shape document helpers', () => {
     getImageData.mockRestore();
   });
 
+  it('rasterizes MEK at its requested size without enlarging a smaller strike', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 200;
+    canvas.height = 80;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    const drawImage = jest.spyOn(ctx!, 'drawImage');
+    const shape = createShape({
+      content: 'MEK',
+      fontFamily: 'mek-sans',
+      fontSize: 24,
+      selections: [],
+    });
+
+    drawTxtShapesToCanvas(ctx!, [shape]);
+
+    const drawCall = drawImage.mock.calls[0] as unknown as [
+      CanvasImageSource, number, number, number, number, number, number, number, number,
+    ];
+    const rasterSurface = drawCall[0] as HTMLCanvasElement;
+    expect(rasterSurface.getContext('2d')?.font).toBe("24px 'MEK Sans', sans-serif");
+    expect(drawCall[7]).toBe(drawCall[3]);
+    expect(drawCall[8]).toBe(drawCall[4]);
+    expect(getTxtShapeLineHeightPx(shape)).toBe(29);
+  });
+
   it('reuses the live layer raster surfaces across compositor frames', () => {
     const shapes = [createShape({ id: 'txt-cache', layerId: 'cache-layer' })];
     const createElement = jest.spyOn(document, 'createElement');
@@ -418,7 +449,7 @@ describe('TXT Shape document helpers', () => {
     drawTxtShapesToCanvas(ctx, [padded]);
 
     expect(ctx.fillText).toHaveBeenNthCalledWith(1, 'AB', 9, 10);
-    expect(ctx.fillRect).toHaveBeenCalledWith(14, 10, 5, 12);
+    expect(ctx.fillRect).toHaveBeenCalledWith(14, 10, 5, 13);
     expect(getTxtShapeTextLayout(padded).didOverflow).toBe(false);
     expect(getTxtShapeTextLayout(createShape({
       width: 20,

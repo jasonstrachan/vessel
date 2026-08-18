@@ -64,7 +64,7 @@ describe('Goblet TXT Shape fonts', () => {
     });
     const html = await inlineTxtShapeFontsInGobletTemplate({
       template: '<style></style>',
-      shapes: [{ ...shape, fontFamily: 'monospace' }],
+      shapes: [],
       gobletAssetRoot: 'goblet',
     });
 

@@ -1766,7 +1766,7 @@ describe('layers slice integration', () => {
               width: 20,
               height: 10,
               content: 'OWNED',
-              fontFamily: 'monospace',
+              fontFamily: 'mek-mono',
               fontSize: 8,
               lineHeight: 1.2,
               textAlign: 'left',

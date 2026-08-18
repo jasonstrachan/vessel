@@ -354,6 +354,14 @@ describe('webglExporter bundle contracts', () => {
   });
 
   it('exports canonical TXT Shape content and selection ranges', async () => {
+    const originalFonts = document.fonts;
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: {
+        load: jest.fn().mockResolvedValue([]),
+        check: jest.fn().mockReturnValue(true),
+      },
+    });
     const project = createProject();
     const ownerLayer = createNormalLayer('layer-1', 0);
     project.layers = [ownerLayer];
@@ -365,7 +373,7 @@ describe('webglExporter bundle contracts', () => {
       width: 40,
       height: 18,
       content: 'LIGHT DARK',
-      fontFamily: 'monospace',
+      fontFamily: 'mek-mono',
       fontSize: 12,
       lineHeight: 1.2,
       textAlign: 'left',
@@ -378,14 +386,21 @@ describe('webglExporter bundle contracts', () => {
       updatedAt: 2,
     }];
 
-    const metadata = await exportProjectAsWebGL({
-      ...baseExportRequest(),
-      project,
-      layers: [ownerLayer],
-      bundleFormat: 'json',
-    });
+    try {
+      const metadata = await exportProjectAsWebGL({
+        ...baseExportRequest(),
+        project,
+        layers: [ownerLayer],
+        bundleFormat: 'json',
+      });
 
-    expect(metadata.textShapes).toEqual(project.txtShapes);
+      expect(metadata.textShapes).toEqual(project.txtShapes);
+    } finally {
+      Object.defineProperty(document, 'fonts', {
+        configurable: true,
+        value: originalFonts,
+      });
+    }
   });
 
   it('serializes ordered Interlace groups into Goblet metadata', async () => {

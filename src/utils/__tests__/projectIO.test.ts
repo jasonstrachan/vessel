@@ -7180,7 +7180,7 @@ describe('projectIO serialize/deserialize layering', () => {
           { x: 0, y: 1 },
         ],
         content: 'AB',
-        fontFamily: 'monospace',
+        fontFamily: 'mek-mono',
         fontSize: 12,
         lineHeight: 1.2,
         textAlign: 'left',

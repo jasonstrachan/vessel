@@ -21,13 +21,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   const basePath = process.env.VESSEL_BASE_PATH ?? '';
-  const bundledFonts = TXT_SHAPE_FONT_DEFINITIONS.filter((font) => font.asset);
-
   return (
     <html lang="en">
       <head>
         <style dangerouslySetInnerHTML={{ __html: createTxtShapeFontFaceCss(basePath) }} />
-        {bundledFonts.map((font) => (
+        {TXT_SHAPE_FONT_DEFINITIONS.map((font) => (
           <link
             key={font.family}
             rel="preload"

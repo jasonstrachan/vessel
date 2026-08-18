@@ -400,7 +400,7 @@ describe('history integration', () => {
           width: 4,
           height: 4,
           content: 'B',
-          fontFamily: 'monospace',
+          fontFamily: 'mek-mono',
           fontSize: 8,
           lineHeight: 1.2,
           textAlign: 'left',

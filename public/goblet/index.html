@@ -133,18 +133,43 @@
             const owner = layerById.get(String(shape?.layerId || ''));
             return owner && owner.visible !== false;
           });
-        const fontStacks = {
-          monospace: "ui-monospace, 'Courier New', monospace",
-          'sans-serif': 'Arial, Helvetica, sans-serif',
-          serif: "Georgia, 'Times New Roman', serif",
-          'mek-sans': "'MEK Sans', sans-serif",
-          'mek-mono': "'MEK Mono', monospace",
-          'jetbrains-mono': "'JetBrains Mono', monospace",
-          'ibm-plex-mono': "'IBM Plex Mono', monospace",
-          'departure-mono': "'Departure Mono', monospace",
+        const textFonts = {
+          'mek-sans': { stack: "'MEK Sans', sans-serif", minimumSize: 10, sizeStep: 1 },
+          'mek-mono': { stack: "'MEK Mono', monospace", minimumSize: 12, sizeStep: 1 },
+          'jetbrains-mono': { stack: "'JetBrains Mono', monospace", minimumSize: 8, sizeStep: 1 },
+          'ibm-plex-mono': { stack: "'IBM Plex Mono', monospace", minimumSize: 8, sizeStep: 1 },
+          'departure-mono': {
+            stack: "'Departure Mono', monospace",
+            minimumSize: 11,
+            sizeStep: 11,
+            nativeSize: 11,
+          },
         };
-        const fontMinimumSizes = { 'mek-sans': 15, 'mek-mono': 12, 'departure-mono': 11 };
-        const pixelFontSizes = { 'mek-sans': 15, 'mek-mono': 12, 'departure-mono': 11 };
+        const getTextFontMetrics = (shape) => {
+          const font = textFonts[shape.fontFamily] || textFonts['mek-mono'];
+          const requestedSize = Number(shape.fontSize) || 24;
+          const maximumSize = Math.max(font.minimumSize, 40);
+          let fontSize;
+          if (font.nativeSize) {
+            const maximumScale = Math.max(1, Math.floor(maximumSize / font.nativeSize));
+            const scale = Math.max(
+              1,
+              Math.min(maximumScale, Math.round(requestedSize / font.nativeSize)),
+            );
+            fontSize = font.nativeSize * scale;
+          } else {
+            const steppedSize = font.minimumSize
+              + Math.round((requestedSize - font.minimumSize) / font.sizeStep) * font.sizeStep;
+            fontSize = Math.max(font.minimumSize, Math.min(maximumSize, steppedSize));
+          }
+          const rasterSize = font.nativeSize || fontSize;
+          const rasterScale = font.nativeSize ? fontSize / font.nativeSize : 1;
+          const lineHeight = Math.max(
+            1,
+            Math.round(rasterSize * (Number(shape.lineHeight) || 1.2)),
+          ) * rasterScale;
+          return { font, fontSize, lineHeight };
+        };
         if (!(canvas instanceof HTMLCanvasElement) || shapes.length === 0) return;
         const overlay = document.createElement('div');
         overlay.id = 'vessel-txt-shapes';
@@ -159,7 +184,7 @@
         stage.style.height = `${Math.max(1, Number(metadata.project?.height) || 1)}px`;
         stage.style.transformOrigin = 'top left';
         const style = document.createElement('style');
-        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); } #vessel-txt-shapes [data-pixel-font="true"]::selection, #vessel-txt-shapes [data-pixel-font="true"] *::selection { color: transparent; } #vessel-txt-shapes [data-semantic-fallback="true"] [data-canonical-selected] { color: var(--txt-selection-color); background: var(--txt-selection-bg); }';
+        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: transparent; background: var(--txt-selection-bg); } #vessel-txt-shapes [data-semantic-fallback="true"] [data-canonical-selected] { color: var(--txt-selection-color); background: var(--txt-selection-bg); }';
         overlay.appendChild(style);
         const getRegionSpan = (shape, y) => {
           const width = Math.max(1, Number(shape.width) || 1);
@@ -203,14 +228,7 @@
           const padding = getPadding(shape);
           const contentWidth = Math.max(1, width - padding * 2);
           const contentHeight = Math.max(1, height - padding * 2);
-          const requestedFontSize = Number(shape.fontSize) || 24;
-          const nativePixelSize = pixelFontSizes[shape.fontFamily];
-          const pixelScale = nativePixelSize
-            ? Math.max(1, Math.round(requestedFontSize / nativePixelSize))
-            : 1;
-          const lineHeight = nativePixelSize
-            ? Math.max(1, Math.round(nativePixelSize * (Number(shape.lineHeight) || 1.2))) * pixelScale
-            : Math.max(1, requestedFontSize * (Number(shape.lineHeight) || 1.2));
+          const { lineHeight } = getTextFontMetrics(shape);
           const bands = Math.max(1, Math.ceil(contentHeight / lineHeight));
           const points = [side === 'left' ? '0% 0%' : '100% 0%'];
           for (let index = 0; index <= bands; index += 1) {
@@ -254,20 +272,10 @@
           box.style.cursor = 'text';
           box.style.color = hasOwnerTexture ? 'transparent' : String(shape.color || '#000000');
           if (!hasOwnerTexture) box.dataset.semanticFallback = 'true';
-          const requestedFontSize = Math.max(fontMinimumSizes[shape.fontFamily] || 6, Number(shape.fontSize) || 24);
-          const nativePixelSize = pixelFontSizes[shape.fontFamily];
-          const pixelScale = nativePixelSize
-            ? Math.max(1, Math.round(requestedFontSize / nativePixelSize))
-            : 1;
-          const fontSize = nativePixelSize ? nativePixelSize * pixelScale : requestedFontSize;
-          const lineHeight = Number(shape.lineHeight) || 1.2;
-          const isPixelFont = Boolean(nativePixelSize);
-          box.style.fontFamily = fontStacks[shape.fontFamily] || fontStacks.monospace;
+          const { font, fontSize, lineHeight } = getTextFontMetrics(shape);
+          box.style.fontFamily = font.stack;
           box.style.fontSize = `${fontSize}px`;
-          box.style.lineHeight = isPixelFont
-            ? `${Math.max(1, Math.round(nativePixelSize * lineHeight)) * pixelScale}px`
-            : String(lineHeight);
-          if (isPixelFont) box.dataset.pixelFont = 'true';
+          box.style.lineHeight = `${lineHeight}px`;
           box.style.textAlign = ['left', 'center', 'right'].includes(shape.textAlign)
             ? shape.textAlign
             : 'left';

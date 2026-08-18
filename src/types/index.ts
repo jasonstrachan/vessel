@@ -312,9 +312,6 @@ export interface CanvasFreehandShape {
 export type CanvasShape = CanvasRectangleShape | CanvasCircleShape | CanvasFreehandShape;
 
 export type TxtShapeFontFamily =
-  | 'monospace'
-  | 'sans-serif'
-  | 'serif'
   | 'mek-sans'
   | 'mek-mono'
   | 'jetbrains-mono'

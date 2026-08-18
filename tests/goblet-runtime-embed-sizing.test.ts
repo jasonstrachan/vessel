@@ -61,22 +61,20 @@ describe('Goblet embed sizing runtime', () => {
     }
   });
 
-  it('keeps bundled TXT font names and minimum sizes in both semantic mirrors', () => {
+  it('keeps the pixel-only TXT font contract in both semantic mirrors', () => {
     const goblet1 = read('public/goblet/index.html');
     const goblet2 = read('public/goblet2/index.html');
 
     for (const viewer of [goblet1, goblet2]) {
-      expect(viewer).toContain("'mek-sans': \"'MEK Sans', sans-serif\"");
-      expect(viewer).toContain("'mek-mono': \"'MEK Mono', monospace\"");
-      expect(viewer).toContain("'jetbrains-mono': \"'JetBrains Mono', monospace\"");
-      expect(viewer).toContain("'ibm-plex-mono': \"'IBM Plex Mono', monospace\"");
-      expect(viewer).toContain("'departure-mono': \"'Departure Mono', monospace\"");
-      expect(viewer).toContain("const fontMinimumSizes = { 'mek-sans': 15, 'mek-mono': 12, 'departure-mono': 11 };");
-      expect(viewer).toContain("const pixelFontSizes = { 'mek-sans': 15, 'mek-mono': 12, 'departure-mono': 11 };");
-      expect(viewer).toContain("if (isPixelFont) box.dataset.pixelFont = 'true';");
-      expect(viewer).toContain('[data-pixel-font="true"]::selection');
-      expect(viewer).toContain('Math.round(requestedFontSize / nativePixelSize)');
-      expect(viewer).toContain('Math.round(nativePixelSize * lineHeight)) * pixelScale');
+      expect(viewer).toContain("'mek-sans': { stack: \"'MEK Sans', sans-serif\", minimumSize: 10, sizeStep: 1 }");
+      expect(viewer).toContain("'mek-mono': { stack: \"'MEK Mono', monospace\", minimumSize: 12, sizeStep: 1 }");
+      expect(viewer).toContain("'jetbrains-mono': { stack: \"'JetBrains Mono', monospace\", minimumSize: 8, sizeStep: 1 }");
+      expect(viewer).toContain("'ibm-plex-mono': { stack: \"'IBM Plex Mono', monospace\", minimumSize: 8, sizeStep: 1 }");
+      expect(viewer).toContain("minimumSize: 11,\n            sizeStep: 11,\n            nativeSize: 11");
+      expect(viewer).toContain("const font = textFonts[shape.fontFamily] || textFonts['mek-mono'];");
+      expect(viewer).toContain('const rasterSize = font.nativeSize || fontSize;');
+      expect(viewer).toContain('const rasterScale = font.nativeSize ? fontSize / font.nativeSize : 1;');
+      expect(viewer).toContain('::selection { color: transparent;');
     }
   });
 });

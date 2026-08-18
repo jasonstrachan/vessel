@@ -12,9 +12,9 @@ import {
 } from '@/utils/txtShapeLayout';
 import {
   getTxtShapeFontDefinition,
-  getTxtShapeNativePixelSize,
   getTxtShapePixelScale,
-  isTxtShapeFontFamily,
+  getTxtShapeRasterFontSize,
+  normalizeTxtShapeFontFamily,
   normalizeTxtShapeFontSize,
 } from '@/utils/txtShapeFonts';
 
@@ -192,9 +192,7 @@ export const normalizeTxtShape = (
     Math.max(TXT_SHAPE_MIN_SIZE, projectHeight),
   );
   const now = Date.now();
-  const fontFamily = isTxtShapeFontFamily(candidate.fontFamily)
-    ? candidate.fontFamily
-    : 'monospace';
+  const fontFamily = normalizeTxtShapeFontFamily(candidate.fontFamily);
   const textAlign: TxtShapeTextAlign = candidate.textAlign === 'center' || candidate.textAlign === 'right'
     ? candidate.textAlign
     : 'left';
@@ -528,13 +526,12 @@ const prepareHardEdgedTxtShapeText = ({
   fontSize: number;
   lineHeightPx: number;
 }): PreparedHardEdgedTxtShapeText | null => {
-  const nativePixelSize = getTxtShapeNativePixelSize(fontFamily);
+  const rasterFontSize = getTxtShapeRasterFontSize(fontFamily, fontSize);
   const pixelScale = getTxtShapePixelScale(fontFamily, fontSize);
-  if (!nativePixelSize || !pixelScale) return null;
   const nativeWidth = Math.max(0, Math.round(width / pixelScale));
-  const nativeLineHeight = Math.max(1, Math.round(lineHeightPx / pixelScale));
+  const rasterLineHeight = Math.max(1, Math.round(lineHeightPx / pixelScale));
   const maskWidth = Math.max(1, nativeWidth + PIXEL_TEXT_MASK_PADDING * 2);
-  const maskHeight = Math.max(1, Math.ceil(Math.max(nativeLineHeight, nativePixelSize * 1.5)) + 2);
+  const maskHeight = Math.max(1, Math.ceil(Math.max(rasterLineHeight, rasterFontSize * 1.5)) + 2);
   if (!pixelTextMaskSurface) {
     pixelTextMaskSurface = createTxtShapeCanvasSurface(maskWidth, maskHeight);
   }
@@ -548,7 +545,7 @@ const prepareHardEdgedTxtShapeText = ({
   maskContext.globalAlpha = 1;
   maskContext.globalCompositeOperation = 'source-over';
   maskContext.imageSmoothingEnabled = false;
-  maskContext.font = `${nativePixelSize}px ${getTxtShapeFontDefinition(fontFamily).stack}`;
+  maskContext.font = `${rasterFontSize}px ${getTxtShapeFontDefinition(fontFamily).stack}`;
   maskContext.textBaseline = 'top';
   maskContext.fillStyle = '#ffffff';
   maskContext.fillText(text, PIXEL_TEXT_MASK_PADDING, 0);
@@ -638,24 +635,22 @@ export interface TxtShapeTextLayout {
 export const getTxtShapeLineHeightPx = (
   shape: Pick<TxtShape, 'fontFamily' | 'fontSize' | 'lineHeight'>,
 ): number => {
-  const nativePixelSize = getTxtShapeNativePixelSize(shape.fontFamily);
+  const rasterFontSize = getTxtShapeRasterFontSize(shape.fontFamily, shape.fontSize);
   const pixelScale = getTxtShapePixelScale(shape.fontFamily, shape.fontSize);
-  return nativePixelSize && pixelScale
-    ? Math.max(1, Math.round(nativePixelSize * shape.lineHeight)) * pixelScale
-    : Math.max(1, shape.fontSize * shape.lineHeight);
+  return Math.max(1, Math.round(rasterFontSize * shape.lineHeight)) * pixelScale;
 };
 
 export const getTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
   const padding = getTxtShapePadding(shape);
-  const nativePixelSize = getTxtShapeNativePixelSize(shape.fontFamily);
+  const rasterFontSize = getTxtShapeRasterFontSize(shape.fontFamily, shape.fontSize);
   const pixelScale = getTxtShapePixelScale(shape.fontFamily, shape.fontSize);
   const lineHeightPx = getTxtShapeLineHeightPx(shape);
   const contentHeight = Math.max(0, shape.height - padding * 2);
   const maxLines = lineHeightPx > 0 ? Math.max(0, Math.floor(contentHeight / lineHeightPx)) : 0;
-  const layoutScale = pixelScale ?? 1;
+  const layoutScale = pixelScale;
   const lines = layoutTxtShapeText({
     content: shape.content,
-    font: `${nativePixelSize ?? shape.fontSize}px ${getTxtShapeFontDefinition(shape.fontFamily).stack}`,
+    font: `${rasterFontSize}px ${getTxtShapeFontDefinition(shape.fontFamily).stack}`,
     lineCount: maxLines,
     getSpan: (lineIndex) => {
       const lineTop = padding + lineIndex * lineHeightPx;
@@ -708,17 +703,19 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       : shape;
     ctx.save();
     clipTxtShapeRegion(ctx, renderedShape);
-    const nativePixelSize = getTxtShapeNativePixelSize(renderedShape.fontFamily);
+    const rasterFontSize = getTxtShapeRasterFontSize(
+      renderedShape.fontFamily,
+      renderedShape.fontSize,
+    );
     const pixelScale = getTxtShapePixelScale(renderedShape.fontFamily, renderedShape.fontSize);
-    const font = `${nativePixelSize ?? renderedShape.fontSize}px ${getTxtShapeFontDefinition(renderedShape.fontFamily).stack}`;
-    const shouldRenderHardEdges = Boolean(nativePixelSize && pixelScale);
+    const font = `${rasterFontSize}px ${getTxtShapeFontDefinition(renderedShape.fontFamily).stack}`;
     ctx.font = font;
     ctx.textBaseline = 'top';
     const { lines, padding, lineHeightPx } = getTxtShapeTextLayout(renderedShape);
 
     lines.forEach((line) => {
       const rawY = shape.y + padding + line.lineIndex * lineHeightPx;
-      const y = shouldRenderHardEdges ? Math.round(rawY) : rawY;
+      const y = Math.round(rawY);
       const availableWidth = line.span.right - line.span.left;
       const boundaries = new Set<number>([0, line.text.length]);
       renderedShape.selections.forEach((selection) => {
@@ -740,12 +737,8 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         if (start === end) continue;
         const startWidth = ctx.measureText(line.text.slice(0, start)).width;
         const endWidth = ctx.measureText(line.text.slice(0, end)).width;
-        const measuredWidth = shouldRenderHardEdges
-          ? (Math.round(endWidth) - Math.round(startWidth)) * pixelScale!
-          : endWidth - startWidth;
-        const width = shouldRenderHardEdges
-          ? Math.max(0, measuredWidth)
-          : Math.max(0.01, measuredWidth);
+        const measuredWidth = (Math.round(endWidth) - Math.round(startWidth)) * pixelScale;
+        const width = Math.max(0, measuredWidth);
         const selected = isTxtShapeIndexSelected(renderedShape.selections, line.sourceStart + start);
         fragments.push({ selected, width });
       }
@@ -754,18 +747,16 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       let lineX = renderedShape.x + line.span.left;
       if (renderedShape.textAlign === 'center') lineX += (availableWidth - paintedWidth) / 2;
       if (renderedShape.textAlign === 'right') lineX += availableWidth - paintedWidth;
-      if (shouldRenderHardEdges) lineX = Math.round(lineX);
-      const preparedPixelText = shouldRenderHardEdges
-        ? prepareHardEdgedTxtShapeText({
-            text: line.text,
-            x: lineX,
-            y,
-            width: paintedWidth,
-            fontFamily: renderedShape.fontFamily,
-            fontSize: renderedShape.fontSize,
-            lineHeightPx,
-          })
-        : null;
+      lineX = Math.round(lineX);
+      const preparedPixelText = prepareHardEdgedTxtShapeText({
+        text: line.text,
+        x: lineX,
+        y,
+        width: paintedWidth,
+        fontFamily: renderedShape.fontFamily,
+        fontSize: renderedShape.fontSize,
+        lineHeightPx,
+      });
       let fragmentX = lineX;
       fragments.forEach(({ selected, width }) => {
         if (selected) {
@@ -783,7 +774,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         }
         ctx.restore();
         fragmentX += width;
-        if (shouldRenderHardEdges) fragmentX = Math.round(fragmentX);
+        fragmentX = Math.round(fragmentX);
       });
     });
     ctx.restore();

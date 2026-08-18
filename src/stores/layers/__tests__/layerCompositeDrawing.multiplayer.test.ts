@@ -89,7 +89,9 @@ describe('layerCompositeDrawing multiplayer overlay', () => {
     const events: string[] = [];
     const context = {
       clearRect: jest.fn(),
-      drawImage: jest.fn((source) => events.push(source === lower ? 'lower' : 'upper')),
+      drawImage: jest.fn((source) => events.push(
+        source === lower ? 'lower' : source === upper ? 'upper' : 'text:TXT',
+      )),
       save: jest.fn(),
       restore: jest.fn(),
       beginPath: jest.fn(),
@@ -109,11 +111,11 @@ describe('layerCompositeDrawing multiplayer overlay', () => {
         layerId: 'lower',
         x: 1,
         y: 1,
-        width: 20,
-        height: 10,
+        width: 30,
+        height: 20,
         content: 'TXT',
-        fontFamily: 'monospace' as const,
-        fontSize: 8,
+        fontFamily: 'mek-mono' as const,
+        fontSize: 12,
         lineHeight: 1,
         textAlign: 'left' as const,
         colorSource: 'palette' as const,
@@ -135,7 +137,7 @@ describe('layerCompositeDrawing multiplayer overlay', () => {
     );
 
     expect(events).toEqual(['lower', 'text:TXT', 'upper']);
-    expect(context.fillText).toHaveBeenCalledWith('TXT', expect.any(Number), expect.any(Number));
+    expect(context.drawImage).toHaveBeenCalledTimes(3);
   });
 
   it('uses the live eraser surface as the complete active-layer replacement', () => {
