@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 
 import GridOverlay from '@/components/canvas/GridOverlay';
-import { MAX_CANVAS_ZOOM } from '@/constants/canvas';
+import { PIXEL_GRID_ZOOM_THRESHOLD } from '@/constants/canvas';
 
 describe('GridOverlay', () => {
   it('does not render when disabled', () => {
@@ -46,13 +46,13 @@ describe('GridOverlay', () => {
     expect(lines).toHaveLength(14);
   });
 
-  it('renders a pixel grid only at maximum zoom when enabled', () => {
+  it('renders a pixel grid from 2000% zoom when enabled', () => {
     const { rerender } = render(
       <GridOverlay
         enabled={false}
         projectWidth={100}
         projectHeight={50}
-        zoom={MAX_CANVAS_ZOOM - 0.01}
+        zoom={PIXEL_GRID_ZOOM_THRESHOLD - 0.01}
         offsetX={15}
         offsetY={20}
         rows={5}
@@ -68,7 +68,7 @@ describe('GridOverlay', () => {
         enabled={false}
         projectWidth={100}
         projectHeight={50}
-        zoom={MAX_CANVAS_ZOOM}
+        zoom={PIXEL_GRID_ZOOM_THRESHOLD}
         offsetX={15}
         offsetY={20}
         rows={5}
@@ -78,9 +78,9 @@ describe('GridOverlay', () => {
     );
 
     const pixelGrid = screen.getByTestId('pixel-grid-overlay');
-    expect(pixelGrid).toHaveAttribute('viewBox', '0 0 4000 2000');
-    expect(pixelGrid).toHaveStyle({ left: '15px', top: '20px', width: '4000px', height: '2000px' });
-    expect(pixelGrid.querySelector('pattern')).toHaveAttribute('width', String(MAX_CANVAS_ZOOM));
+    expect(pixelGrid).toHaveAttribute('viewBox', '0 0 2000 1000');
+    expect(pixelGrid).toHaveStyle({ left: '15px', top: '20px', width: '2000px', height: '1000px' });
+    expect(pixelGrid.querySelector('pattern')).toHaveAttribute('width', String(PIXEL_GRID_ZOOM_THRESHOLD));
     const pixelGridPaths = pixelGrid.querySelectorAll('path');
     expect(pixelGridPaths).toHaveLength(1);
     expect(pixelGridPaths[0]).toHaveAttribute('stroke', 'rgba(255, 255, 255, 0.5)');

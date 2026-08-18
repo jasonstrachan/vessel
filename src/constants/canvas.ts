@@ -6,6 +6,7 @@ export const DEFAULT_CANVAS_HEIGHT = 1000;
 // Canvas zoom boundaries – min avoids numerical instability, max keeps transforms precise
 export const MIN_CANVAS_ZOOM = 0.1;
 export const MAX_CANVAS_ZOOM = 40;
+export const PIXEL_GRID_ZOOM_THRESHOLD = 20;
 
 // Canvas rendering settings
 export const CANVAS_CONTEXT_SETTINGS = {

@@ -291,7 +291,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </div>
                 <div className="flex items-center justify-between">
                   <label htmlFor="show-pixel-grid-at-max-zoom" className="text-base text-[#888]">
-                    Pixel Grid at Max Zoom
+                    Pixel Grid at 2000%
                   </label>
                   <Switch
                     id="show-pixel-grid-at-max-zoom"

@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-import { MAX_CANVAS_ZOOM } from '@/constants/canvas';
+import { PIXEL_GRID_ZOOM_THRESHOLD } from '@/constants/canvas';
 
 interface GridOverlayProps {
   enabled: boolean;
@@ -32,7 +32,7 @@ const GridOverlay: React.FC<GridOverlayProps> = ({
   showPixelGridAtMaxZoom = false,
 }) => {
   const pixelPatternId = `pixel-grid-${React.useId().replace(/:/g, '')}`;
-  const isPixelGridVisible = showPixelGridAtMaxZoom && zoom >= MAX_CANVAS_ZOOM;
+  const isPixelGridVisible = showPixelGridAtMaxZoom && zoom >= PIXEL_GRID_ZOOM_THRESHOLD;
 
   if ((!enabled && !isPixelGridVisible) || projectWidth <= 0 || projectHeight <= 0) {
     return null;
