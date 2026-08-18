@@ -342,7 +342,7 @@ describe('static vs animated compositor', () => {
     expect(useAppStore.getState().pendingCompositeDirtyBatches).toEqual([]);
   });
 
-  it('uses dirty batches to repaint only matching static composite segments', () => {
+  it('uses dirty batches to repaint matching segments and can skip the aggregate target', () => {
     const makeCanvasSource = () => {
       const canvas = document.createElement('canvas');
       canvas.width = 2;
@@ -500,5 +500,36 @@ describe('static vs animated compositor', () => {
     expect(targetCtx.rect).toHaveBeenCalledWith(0, 0, 1, 1);
     expect(useAppStore.getState().compositeSegmentsVersion).toBe(11);
     expect(useAppStore.getState().currentCompositeBitmap).toBeNull();
+
+    (bottomSegmentCtx.clearRect as jest.Mock).mockClear();
+    (bottomSegmentCtx.drawImage as jest.Mock).mockClear();
+    (topSegmentCtx.clearRect as jest.Mock).mockClear();
+    (topSegmentCtx.drawImage as jest.Mock).mockClear();
+    (targetCtx.clearRect as jest.Mock).mockClear();
+    (targetCtx.drawImage as jest.Mock).mockClear();
+    (targetCanvas.getContext as jest.Mock).mockClear();
+    targetCanvas.width = 99;
+    targetCanvas.height = 99;
+
+    expect(useAppStore.getState().renderStaticComposite(targetCanvas, {
+      captureBitmap: false,
+      updateTargetCanvas: false,
+      dirtyBatches: [{
+        layerId: topLayer.id,
+        version: 13,
+        rects: [{ x: 0, y: 0, width: 1, height: 1 }],
+      }],
+    })).toBe(true);
+
+    expect(bottomSegmentCtx.clearRect).not.toHaveBeenCalled();
+    expect(bottomSegmentCtx.drawImage).not.toHaveBeenCalled();
+    expect(topSegmentCtx.clearRect).toHaveBeenCalledWith(0, 0, 1, 1);
+    expect(topSegmentCtx.drawImage).toHaveBeenCalledWith(topLayer.framebuffer, 0, 0);
+    expect(targetCanvas.getContext).not.toHaveBeenCalled();
+    expect(targetCanvas.width).toBe(99);
+    expect(targetCanvas.height).toBe(99);
+    expect(targetCtx.clearRect).not.toHaveBeenCalled();
+    expect(targetCtx.drawImage).not.toHaveBeenCalled();
+    expect(useAppStore.getState().compositeSegmentsVersion).toBe(12);
   });
 });

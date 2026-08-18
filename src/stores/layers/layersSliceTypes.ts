@@ -35,6 +35,8 @@ export type CompositeLayersToCanvasOptions = {
 export type RenderStaticCompositeOptions = {
   captureBitmap?: boolean;
   dirtyBatches?: ColorCycleLayerDirtyBatch[];
+  /** Skip the aggregate target when transient presentation reads segment canvases directly. */
+  updateTargetCanvas?: boolean;
 };
 
 export type MarkCompositeSegmentsDirtyOptions = {

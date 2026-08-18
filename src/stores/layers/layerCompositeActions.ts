@@ -388,13 +388,16 @@ export const createLayerCompositeActions = ({
       const state = get();
       const dirtyBatches = options?.dirtyBatches ?? state.pendingCompositeDirtyBatches;
       const shouldClearPendingDirtyBatches = !options?.dirtyBatches;
+      const shouldUpdateTargetCanvas = options?.updateTargetCanvas !== false;
 
       if (!state.project) {
-        const ctx = targetCanvas.getContext(
-          '2d',
-          { willReadFrequently: true } as CanvasRenderingContext2DSettings
-        );
-        ctx?.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        if (shouldUpdateTargetCanvas) {
+          const ctx = targetCanvas.getContext(
+            '2d',
+            { willReadFrequently: true } as CanvasRenderingContext2DSettings
+          );
+          ctx?.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+        }
         get().setCurrentCompositeBitmap(null);
         set({ compositeSegments: [], compositeSegmentsVersion: 0 });
         return false;
@@ -411,17 +414,20 @@ export const createLayerCompositeActions = ({
         return false;
       }
 
-      if (targetCanvas.width !== expectedWidth || targetCanvas.height !== expectedHeight) {
-        targetCanvas.width = expectedWidth;
-        targetCanvas.height = expectedHeight;
-      }
+      let staticCtx: CanvasRenderingContext2D | null = null;
+      if (shouldUpdateTargetCanvas) {
+        if (targetCanvas.width !== expectedWidth || targetCanvas.height !== expectedHeight) {
+          targetCanvas.width = expectedWidth;
+          targetCanvas.height = expectedHeight;
+        }
 
-      const staticCtx = targetCanvas.getContext(
-        '2d',
-        { willReadFrequently: true } as CanvasRenderingContext2DSettings
-      ) as CanvasRenderingContext2D | null;
-      if (!staticCtx) {
-        return false;
+        staticCtx = targetCanvas.getContext(
+          '2d',
+          { willReadFrequently: true } as CanvasRenderingContext2DSettings
+        ) as CanvasRenderingContext2D | null;
+        if (!staticCtx) {
+          return false;
+        }
       }
 
       const sortedLayers = [...state.layers].sort((a, b) => a.order - b.order);
@@ -465,15 +471,17 @@ export const createLayerCompositeActions = ({
         state.tools.brushSettings.brushShape === 'pixel_round' ||
         (state.tools.brushSettings.brushShape === 'square' &&
           !state.tools.brushSettings.antialiasing);
-      staticCtx.imageSmoothingEnabled = !isPixelBrush;
-      drawStaticLayers(
-        staticCtx,
-        sortedLayers,
-        project,
-        !fullStaticRedrawNeeded ? staticDirtyRects : undefined,
-      );
+      if (staticCtx) {
+        staticCtx.imageSmoothingEnabled = !isPixelBrush;
+        drawStaticLayers(
+          staticCtx,
+          sortedLayers,
+          project,
+          !fullStaticRedrawNeeded ? staticDirtyRects : undefined,
+        );
+      }
 
-      if (options?.captureBitmap === false) {
+      if (!shouldUpdateTargetCanvas || options?.captureBitmap === false) {
         staticBitmapCaptureToken += 1;
         state.setCurrentCompositeBitmap(null);
       } else if (
