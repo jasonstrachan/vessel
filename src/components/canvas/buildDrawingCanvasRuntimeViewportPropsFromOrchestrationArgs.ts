@@ -29,6 +29,7 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationArgs = ({
   },
   orchestration: {
     visualRuntime: orchestration.visualRuntime,
+    renderRuntime: orchestration.renderRuntime,
     interactionRuntime: orchestration.interactionRuntime,
     brushCursorHandleRef: orchestration.brushCursorHandleRef,
   },

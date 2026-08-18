@@ -5,6 +5,7 @@ import { DrawingCanvasOverlays } from '../DrawingCanvasOverlays';
 const setZoom = jest.fn();
 const canvasRef = React.createRef<HTMLCanvasElement>();
 const stopVesselMultiplayerSession = jest.fn();
+const sampleColorAtPosition = jest.fn(() => '#123456');
 let multiplayer = {
   sessionId: null as string | null,
   projectId: null as string | null,
@@ -33,12 +34,19 @@ jest.mock('@/extensions/studioExtension', () => ({
   __esModule: true,
   default: {
     brushPresets: [],
-    CanvasOverlay: ({ isSpacePressed }: { isSpacePressed: boolean }) => (
+    CanvasOverlay: ({
+      isSpacePressed,
+      sampleColorAtPosition: sample,
+    }: {
+      isSpacePressed: boolean;
+      sampleColorAtPosition: (x: number, y: number) => string;
+    }) => (
       <button
         type="button"
         className="pointer-events-auto"
         aria-label="Studio extension canvas control"
         data-space-pressed={isSpacePressed}
+        data-sample={sample(4, 6)}
       >
         Extension
       </button>
@@ -70,6 +78,7 @@ describe('DrawingCanvasOverlays', () => {
   beforeEach(() => {
     setZoom.mockClear();
     stopVesselMultiplayerSession.mockClear();
+    sampleColorAtPosition.mockClear();
     multiplayer = {
       sessionId: null,
       projectId: null,
@@ -107,6 +116,7 @@ describe('DrawingCanvasOverlays', () => {
         currentTool="brush"
         isSpacePressed={false}
         displayProjectName="Portrait"
+        sampleColorAtPosition={sampleColorAtPosition}
       />
     );
 
@@ -139,6 +149,7 @@ describe('DrawingCanvasOverlays', () => {
         currentTool="brush"
         isSpacePressed={false}
         displayProjectName="Portrait"
+        sampleColorAtPosition={sampleColorAtPosition}
       />
     );
 
@@ -161,6 +172,7 @@ describe('DrawingCanvasOverlays', () => {
         currentTool="brush"
         isSpacePressed={false}
         displayProjectName="Demo"
+        sampleColorAtPosition={sampleColorAtPosition}
       />
     );
 
@@ -190,6 +202,7 @@ describe('DrawingCanvasOverlays', () => {
           currentTool="brush"
           isSpacePressed={false}
           displayProjectName="Demo"
+          sampleColorAtPosition={sampleColorAtPosition}
         />
       </div>
     );
@@ -226,6 +239,7 @@ describe('DrawingCanvasOverlays', () => {
           currentTool="brush"
           isSpacePressed={false}
           displayProjectName="Demo"
+          sampleColorAtPosition={sampleColorAtPosition}
         />
       </div>
     );
@@ -252,11 +266,16 @@ describe('DrawingCanvasOverlays', () => {
         currentTool="brush"
         isSpacePressed
         displayProjectName="Demo"
+        sampleColorAtPosition={sampleColorAtPosition}
       />
     );
 
     expect(screen.getByRole('button', {
       name: 'Studio extension canvas control',
     })).toHaveAttribute('data-space-pressed', 'true');
+    expect(screen.getByRole('button', {
+      name: 'Studio extension canvas control',
+    })).toHaveAttribute('data-sample', '#123456');
+    expect(sampleColorAtPosition).toHaveBeenCalledWith(4, 6);
   });
 });

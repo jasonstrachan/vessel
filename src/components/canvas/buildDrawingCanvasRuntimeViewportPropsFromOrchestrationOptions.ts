@@ -22,7 +22,7 @@ interface BuildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptionsArgs {
   >;
   orchestration: Pick<
     RuntimeOrchestration,
-    'visualRuntime' | 'interactionRuntime' | 'brushCursorHandleRef'
+    'visualRuntime' | 'renderRuntime' | 'interactionRuntime' | 'brushCursorHandleRef'
   >;
 }
 
@@ -59,6 +59,7 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions = ({
     currentTool: state.tools.currentTool,
     isSpacePressed: orchestration.interactionRuntime.stateMachine.state.isSpacePressed,
     displayProjectName: state.displayProjectName,
+    sampleColorAtPosition: orchestration.renderRuntime.sampleColorAtPosition,
     brushCursorHandleRef: orchestration.brushCursorHandleRef,
   },
 });

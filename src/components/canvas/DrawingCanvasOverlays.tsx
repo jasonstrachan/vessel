@@ -24,6 +24,7 @@ interface DrawingCanvasOverlaysProps {
   currentTool: Tool;
   isSpacePressed: boolean;
   displayProjectName: string;
+  sampleColorAtPosition: (x: number, y: number) => string;
 }
 
 export const DrawingCanvasOverlays = ({
@@ -36,6 +37,7 @@ export const DrawingCanvasOverlays = ({
   currentTool,
   isSpacePressed,
   displayProjectName,
+  sampleColorAtPosition,
 }: DrawingCanvasOverlaysProps) => {
   const StudioCanvasOverlay = studioExtension.CanvasOverlay;
   const grid = useAppStore(selectGridState);
@@ -69,6 +71,7 @@ export const DrawingCanvasOverlays = ({
             offsetX={offsetX}
             offsetY={offsetY}
             isSpacePressed={isSpacePressed}
+            sampleColorAtPosition={sampleColorAtPosition}
           />
         </div>
       ) : null}

@@ -9,6 +9,7 @@ export interface StudioCanvasOverlayProps {
   offsetX: number;
   offsetY: number;
   isSpacePressed: boolean;
+  sampleColorAtPosition: (x: number, y: number) => string;
 }
 
 export interface StudioBracketShortcutContext {

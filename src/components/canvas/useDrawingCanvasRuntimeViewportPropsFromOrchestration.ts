@@ -22,7 +22,7 @@ interface UseDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions {
   >;
   orchestration: Pick<
     RuntimeOrchestration,
-    'visualRuntime' | 'interactionRuntime' | 'brushCursorHandleRef'
+    'visualRuntime' | 'renderRuntime' | 'interactionRuntime' | 'brushCursorHandleRef'
   >;
 }
 

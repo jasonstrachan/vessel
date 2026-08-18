@@ -29,6 +29,7 @@ export interface DrawingCanvasViewportProps {
   currentTool: Tool;
   isSpacePressed: boolean;
   displayProjectName: string;
+  sampleColorAtPosition: (x: number, y: number) => string;
   brushCursorHandleRef: React.RefObject<BrushCursorHandle | null>;
   cursorDescriptor: BrushCursorDescriptor;
   brushCursorVisible: boolean;
@@ -58,6 +59,7 @@ export const DrawingCanvasViewport = ({
   currentTool,
   isSpacePressed,
   displayProjectName,
+  sampleColorAtPosition,
   brushCursorHandleRef,
   cursorDescriptor,
   brushCursorVisible,
@@ -111,6 +113,7 @@ export const DrawingCanvasViewport = ({
       currentTool={currentTool}
       isSpacePressed={isSpacePressed}
       displayProjectName={displayProjectName}
+      sampleColorAtPosition={sampleColorAtPosition}
     />
 
     <BrushCursor
