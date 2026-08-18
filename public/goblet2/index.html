@@ -201,7 +201,7 @@
         stage.style.height = `${Math.max(1, Number(metadata.project?.height) || 1)}px`;
         stage.style.transformOrigin = 'top left';
         const style = document.createElement('style');
-        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: transparent; background: var(--txt-selection-bg); } #vessel-txt-shapes [data-semantic-fallback="true"] [data-canonical-selected] { color: var(--txt-selection-color); background: var(--txt-selection-bg); }';
+        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); } #vessel-txt-shapes [data-canonical-selected] { color: var(--txt-selection-color); background: var(--txt-selection-bg); } #vessel-txt-shapes ::highlight(vessel-txt-shape-selection) { color: var(--txt-selection-color); background-color: var(--txt-selection-bg); }';
         overlay.appendChild(style);
         const getRegionSpan = (shape, y) => {
           const width = Math.max(1, Number(shape.width) || 1);

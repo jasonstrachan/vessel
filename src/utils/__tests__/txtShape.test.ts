@@ -4,6 +4,7 @@ import {
   composeTxtShapesIntoLayerSource,
   drawCanonicalTxtShapesToCanvas,
   drawTxtShapesToCanvas,
+  drawUnselectedTxtShapesToCanvas,
   getContrastingTxtColor,
   getTxtShapeClipPath,
   getTxtShapeFlowInsetPath,
@@ -581,6 +582,26 @@ describe('TXT Shape document helpers', () => {
     } finally {
       clearTxtShapeTransientSelectionOverrides();
     }
+  });
+
+  it('renders an unselected base raster for Goblet selection projection', () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
+    } as unknown as CanvasRenderingContext2D;
+    const shape = createShape({
+      content: 'AB',
+      selections: [{ start: 0, end: 2 }],
+      backgroundColor: '#336699',
+    });
+
+    drawUnselectedTxtShapesToCanvas(ctx, [shape]);
+
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
+    expect(ctx.fillRect).toHaveBeenCalledWith(5, 6, 100, 50);
+    expect(shape.selections).toEqual([{ start: 0, end: 2 }]);
   });
 
   it('reuses immutable text layout while transient selections advance', () => {

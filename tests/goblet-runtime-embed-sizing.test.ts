@@ -55,8 +55,9 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("box.style.overflowWrap = 'break-word';");
       expect(viewer).toContain("box.style.boxSizing = 'border-box';");
       expect(viewer).toContain('Number(shape.padding) || 0');
-      expect(viewer).toContain('data-semantic-fallback');
       expect(viewer).toContain("box.dataset.semanticFallback = 'true'");
+      expect(viewer).toContain('#vessel-txt-shapes [data-canonical-selected]');
+      expect(viewer).toContain('::highlight(vessel-txt-shape-selection)');
       expect(viewer).not.toContain("span.removeAttribute('data-canonical-selected')");
     }
   });
@@ -80,7 +81,7 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("const font = textFonts[shape.fontFamily] || textFonts['mek-mono'];");
       expect(viewer).toContain('const rasterSize = font.nativeSize || fontSize;');
       expect(viewer).toContain('const rasterScale = font.nativeSize ? fontSize / font.nativeSize : 1;');
-      expect(viewer).toContain('::selection { color: transparent;');
+      expect(viewer).toContain('::selection { color: var(--txt-selection-color);');
     }
   });
 });

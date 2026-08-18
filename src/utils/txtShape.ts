@@ -793,16 +793,18 @@ export const getTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
 const drawTxtShapesToCanvasWithSelectionMode = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
-  useTransientSelections: boolean,
+  selectionMode: 'canonical' | 'none' | 'transient',
 ): void => {
   if (!shapes?.length) {
     return;
   }
 
   shapes.forEach((shape) => {
-    const selections = useTransientSelections && transientSelectionOverrides.has(shape.id)
-      ? normalizeTxtShapeSelections(resolveTxtShapeSelections(shape), shape.content.length)
-      : shape.selections;
+    const selections = selectionMode === 'none'
+      ? []
+      : selectionMode === 'transient' && transientSelectionOverrides.has(shape.id)
+        ? normalizeTxtShapeSelections(resolveTxtShapeSelections(shape), shape.content.length)
+        : shape.selections;
     ctx.save();
     clipTxtShapeRegion(ctx, shape);
     if (shape.backgroundColor) {
@@ -905,12 +907,17 @@ const drawTxtShapesToCanvasWithSelectionMode = (
 export const drawTxtShapesToCanvas = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
-): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, true);
+): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, 'transient');
 
 export const drawCanonicalTxtShapesToCanvas = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
-): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, false);
+): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, 'canonical');
+
+export const drawUnselectedTxtShapesToCanvas = (
+  ctx: TxtShapeCanvasContext,
+  shapes: readonly TxtShape[] | undefined,
+): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, 'none');
 
 export const drawTxtShapesForLayer = (
   ctx: TxtShapeCanvasContext,
@@ -1023,7 +1030,7 @@ export const createTxtShapeLayerRasterCache = ({
   } else if (layer.imageData) {
     context.putImageData(layer.imageData, 0, 0);
   }
-  drawCanonicalTxtShapesToCanvas(
+  drawUnselectedTxtShapesToCanvas(
     context,
     getTxtShapesForLayer(shapes, layer.id),
   );
