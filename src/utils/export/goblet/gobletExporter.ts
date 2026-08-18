@@ -111,6 +111,7 @@ import {
 import { ccLog, ccWarn, ccSample } from '@/utils/colorCycle/ccDebug';
 import { cloneDisplayFilters } from '@/lib/displayFilters';
 import { clampRectToDocument as clampBoundsToDocument } from '@/utils/export/colorCycleBounds';
+import studioExtension from '@/extensions/studioExtension';
 
 export type {
   WebGLExportMetadata,
@@ -1105,6 +1106,10 @@ export const buildProjectGobletArtifact = async (
     applyHtmlTitleToTemplate(indexHtmlWithTxtFonts, resolvedHtmlTitle),
     resolvedHtmlBackgroundColor
   );
+  const indexHtmlWithStudioExtension = studioExtension.transformGobletTemplate?.(
+    indexHtmlWithPresentation,
+    { metadata },
+  ) ?? indexHtmlWithPresentation;
 
   let baseRuntimeAssetsPromise: Promise<[string, string, string, string, string, string]> | null = null;
   let payloadContractAssetPromise: Promise<string | null> | null = null;
@@ -1145,7 +1150,7 @@ export const buildProjectGobletArtifact = async (
     throwIfExportAborted(options.signal);
     if (bundledRuntime) {
       const singleHtmlArtifact = createSingleFileGobletHtmlArtifactFromBundledRuntime(
-        indexHtmlWithPresentation,
+        indexHtmlWithStudioExtension,
         bundledRuntime,
         gobletRuntimeModulePath,
         json,
@@ -1192,7 +1197,7 @@ export const buildProjectGobletArtifact = async (
     }
 
     const singleHtmlArtifact = createSingleFileGobletHtmlArtifact(
-      indexHtmlWithPresentation,
+      indexHtmlWithStudioExtension,
       gobletJs,
       gobletRuntimeModulePath,
       alignJs,
@@ -1251,7 +1256,7 @@ export const buildProjectGobletArtifact = async (
 
     const runtimeBytes = [gobletJs, alignJs, displayFilterJs, payloadContractJs ?? '', playbackMathJs, numJs, inflateJs]
       .reduce((sum, asset) => sum + new TextEncoder().encode(asset).byteLength, 0);
-    const htmlBytes = new TextEncoder().encode(indexHtmlWithPresentation).byteLength;
+    const htmlBytes = new TextEncoder().encode(indexHtmlWithStudioExtension).byteLength;
     const zipMetadataSource = bundleFormat === 'zip'
       ? createGobletZipPayloadPlan({
           metadata,
@@ -1283,7 +1288,7 @@ export const buildProjectGobletArtifact = async (
     }
 
     const zipBlob = await createGobletZipBlob({
-      indexHtml: indexHtmlWithPresentation,
+      indexHtml: indexHtmlWithStudioExtension,
       metadataFilename: jsonFilename,
       metadataJson: zipJson,
       diagnosticsEnabled,

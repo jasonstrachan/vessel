@@ -160,7 +160,7 @@ describe('useDrawingCanvasInputHandlers', () => {
     ).toBe(true);
   });
 
-  it('does not trust a stale dither gradient preset id when the active brush is regular', () => {
+  it('allows regular brush pointer down outside the canvas shape', () => {
     renderHook(() =>
       useDrawingCanvasInputHandlers(
         buildOptions({
@@ -173,7 +173,7 @@ describe('useDrawingCanvasInputHandlers', () => {
 
     expect(
       mockUseDrawingCanvasPointerHandlers.mock.calls.at(-1)?.[0]?.allowPointerDownOutsideCanvasShape
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it('allows pointer down outside canvas shape for color-cycle-gradient shape mode', () => {
@@ -191,13 +191,37 @@ describe('useDrawingCanvasInputHandlers', () => {
     ).toBe(true);
   });
 
-  it('keeps outside pointer-down blocked for non-shape brush presets', () => {
+  it('allows non-shape brush pointer down outside the canvas shape', () => {
     renderHook(() =>
       useDrawingCanvasInputHandlers(
         buildOptions({
           tools: buildTools({ shapeMode: false }),
           currentBrushPresetId: 'dither-shape',
         })
+      )
+    );
+
+    expect(
+      mockUseDrawingCanvasPointerHandlers.mock.calls.at(-1)?.[0]?.allowPointerDownOutsideCanvasShape
+    ).toBe(true);
+  });
+
+  it('allows eraser pointer down outside the canvas shape', () => {
+    renderHook(() =>
+      useDrawingCanvasInputHandlers(
+        buildOptions({ tools: buildTools({ currentTool: 'eraser' }) })
+      )
+    );
+
+    expect(
+      mockUseDrawingCanvasPointerHandlers.mock.calls.at(-1)?.[0]?.allowPointerDownOutsideCanvasShape
+    ).toBe(true);
+  });
+
+  it('keeps outside pointer-down blocked for click tools', () => {
+    renderHook(() =>
+      useDrawingCanvasInputHandlers(
+        buildOptions({ tools: buildTools({ currentTool: 'fill' }) })
       )
     );
 

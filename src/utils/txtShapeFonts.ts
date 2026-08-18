@@ -9,7 +9,7 @@ export interface TxtShapeFontDefinition {
   nativePixelSize?: number;
   asset: {
     fileName: string;
-    format: 'opentype' | 'woff2';
+    format: 'opentype' | 'truetype' | 'woff2';
   };
 }
 
@@ -73,6 +73,78 @@ export const TXT_SHAPE_FONT_DEFINITIONS: readonly TxtShapeFontDefinition[] = [
       format: 'woff2',
     },
   },
+  {
+    family: 'tiny5',
+    label: 'Tiny5',
+    stack: "'Tiny5', monospace",
+    minimumSize: 8,
+    sizeStep: 8,
+    nativePixelSize: 8,
+    asset: {
+      fileName: 'TINY5-REGULAR.WOFF2',
+      format: 'woff2',
+    },
+  },
+  {
+    family: 'm3x6',
+    label: 'm3x6',
+    stack: "'m3x6', monospace",
+    minimumSize: 16,
+    sizeStep: 16,
+    nativePixelSize: 16,
+    asset: {
+      fileName: 'M3X6-REGULAR.TTF',
+      format: 'truetype',
+    },
+  },
+  {
+    family: 'monogram',
+    label: 'Monogram',
+    stack: "'Monogram', monospace",
+    minimumSize: 16,
+    sizeStep: 16,
+    nativePixelSize: 16,
+    asset: {
+      fileName: 'MONOGRAM-REGULAR.TTF',
+      format: 'truetype',
+    },
+  },
+  {
+    family: 'silkscreen',
+    label: 'Silkscreen',
+    stack: "'Silkscreen', monospace",
+    minimumSize: 8,
+    sizeStep: 8,
+    nativePixelSize: 8,
+    asset: {
+      fileName: 'SILKSCREEN-REGULAR.TTF',
+      format: 'truetype',
+    },
+  },
+  {
+    family: 'spleen-6x12',
+    label: 'Spleen 6x12',
+    stack: "'Spleen 6x12', monospace",
+    minimumSize: 12,
+    sizeStep: 12,
+    nativePixelSize: 12,
+    asset: {
+      fileName: 'SPLEEN-6X12.WOFF2',
+      format: 'woff2',
+    },
+  },
+  {
+    family: 'fusion-pixel-8px-mono',
+    label: 'Fusion Pixel 8px Mono',
+    stack: "'Fusion Pixel 8px Mono', monospace",
+    minimumSize: 8,
+    sizeStep: 8,
+    nativePixelSize: 8,
+    asset: {
+      fileName: 'FUSION-PIXEL-8PX-MONO-LATIN.WOFF2',
+      format: 'woff2',
+    },
+  },
 ] as const;
 
 const FONT_DEFINITIONS_BY_FAMILY = new Map(
@@ -95,6 +167,13 @@ export const getTxtShapeFontMinimumSize = (family: TxtShapeFontFamily): number =
 
 export const getTxtShapeFontSizeStep = (family: TxtShapeFontFamily): number =>
   getTxtShapeFontDefinition(family).sizeStep;
+
+export const getTxtShapeFontMimeType = (
+  format: TxtShapeFontDefinition['asset']['format'],
+): 'font/otf' | 'font/ttf' | 'font/woff2' => {
+  if (format === 'woff2') return 'font/woff2';
+  return format === 'truetype' ? 'font/ttf' : 'font/otf';
+};
 
 export const normalizeTxtShapeFontSize = (
   family: TxtShapeFontFamily,

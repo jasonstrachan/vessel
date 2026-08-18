@@ -1,6 +1,7 @@
 import type { TxtShape } from '@/types';
 import {
   getTxtShapeFontDefinition,
+  getTxtShapeFontMimeType,
   loadTxtShapeFont,
 } from '@/utils/txtShapeFonts';
 import { ensureTxtShapeMonoFonts } from '@/utils/txtShapeMonoRenderer';
@@ -90,7 +91,7 @@ export const inlineTxtShapeFontsInGobletTemplate = async ({
         `Failed to bundle TXT Shape font ${definition.asset.fileName} from ${url} (${response.status})`,
       );
     }
-    const mimeType = definition.asset.format === 'woff2' ? 'font/woff2' : 'font/otf';
+    const mimeType = getTxtShapeFontMimeType(definition.asset.format);
     const dataUrl = `data:${mimeType};base64,${bytesToBase64(new Uint8Array(await response.arrayBuffer()))}`;
     inlined = inlined.replaceAll(`../assets/fonts/${definition.asset.fileName}`, dataUrl);
   }

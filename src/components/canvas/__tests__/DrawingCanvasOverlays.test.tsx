@@ -33,8 +33,13 @@ jest.mock('@/extensions/studioExtension', () => ({
   __esModule: true,
   default: {
     brushPresets: [],
-    CanvasOverlay: () => (
-      <button type="button" className="pointer-events-auto" aria-label="Studio extension canvas control">
+    CanvasOverlay: ({ isSpacePressed }: { isSpacePressed: boolean }) => (
+      <button
+        type="button"
+        className="pointer-events-auto"
+        aria-label="Studio extension canvas control"
+        data-space-pressed={isSpacePressed}
+      >
         Extension
       </button>
     ),
@@ -233,5 +238,25 @@ describe('DrawingCanvasOverlays', () => {
     expect(handlePointerDown).not.toHaveBeenCalled();
     expect(handlePointerMove).not.toHaveBeenCalled();
     expect(handlePointerUp).not.toHaveBeenCalled();
+  });
+
+  it('forwards the Space-pan state to the studio extension overlay', () => {
+    render(
+      <DrawingCanvasOverlays
+        canvasRef={canvasRef}
+        project={{ width: 100, height: 100 }}
+        floatingPaste={null}
+        canvasZoom={1}
+        offsetX={0}
+        offsetY={0}
+        currentTool="brush"
+        isSpacePressed
+        displayProjectName="Demo"
+      />
+    );
+
+    expect(screen.getByRole('button', {
+      name: 'Studio extension canvas control',
+    })).toHaveAttribute('data-space-pressed', 'true');
   });
 });

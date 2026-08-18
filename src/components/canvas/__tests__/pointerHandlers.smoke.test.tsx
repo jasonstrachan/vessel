@@ -227,7 +227,7 @@ describe('pointerHandlers smoke', () => {
     deps.dynamicDepsRef.current.tools.brushSettings.brushShape = BrushShape.PIXEL_DITHER;
 
     expect(
-      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools, 'saved-dither-variant')
+      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools)
     ).toBe(true);
   });
 
@@ -266,7 +266,7 @@ describe('pointerHandlers smoke', () => {
     deps.dynamicDepsRef.current.tools.brushSettings.brushShape = BrushShape.SHAPE_FILL;
 
     expect(
-      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools, 'color-cycle-gradient')
+      shouldAllowOutOfBoundsPointerDown(deps.dynamicDepsRef.current.tools)
     ).toBe(true);
   });
 });

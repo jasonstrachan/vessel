@@ -434,6 +434,7 @@ describe('static vs animated compositor', () => {
       height: 2,
       getContext: jest.fn(() => targetCtx),
     } as unknown as HTMLCanvasElement;
+    const staleBitmap = { close: jest.fn() } as unknown as ImageBitmap;
 
     const snapshot = useAppStore.getState();
     previousProject = snapshot.project;
@@ -448,6 +449,7 @@ describe('static vs animated compositor', () => {
       project,
       layers,
       activeLayerId: topLayer.id,
+      currentCompositeBitmap: staleBitmap,
       compositeSegments: [
         {
           kind: 'static',
@@ -497,5 +499,6 @@ describe('static vs animated compositor', () => {
     expect(targetCtx.clearRect).toHaveBeenCalledWith(0, 0, 1, 1);
     expect(targetCtx.rect).toHaveBeenCalledWith(0, 0, 1, 1);
     expect(useAppStore.getState().compositeSegmentsVersion).toBe(11);
+    expect(useAppStore.getState().currentCompositeBitmap).toBeNull();
   });
 });

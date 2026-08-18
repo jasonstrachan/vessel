@@ -1,5 +1,8 @@
 import { layoutTxtShapeText } from '@/utils/txtShapeLayout';
-import { getTxtShapeMonoBitmapRuns } from '@/utils/txtShapeMonoRenderer';
+import {
+  calculateTxtShapeMonoBaseline,
+  getTxtShapeMonoBitmapRuns,
+} from '@/utils/txtShapeMonoRenderer';
 
 describe('TXT Shape monochrome rendering', () => {
   it('unpacks FreeType 1-bit rows into horizontal paint runs', () => {
@@ -31,6 +34,23 @@ describe('TXT Shape monochrome rendering', () => {
       { x: 1, y: 0, width: 1 },
       { x: 0, y: 1, width: 1 },
     ]);
+  });
+
+  it('centers the real face box inside the configured line height', () => {
+    expect(calculateTxtShapeMonoBaseline({
+      ascender: 1_000,
+      descender: -300,
+      unitsPerEm: 1_000,
+      fontSize: 24,
+      lineHeight: 29,
+    })).toBe(23);
+    expect(calculateTxtShapeMonoBaseline({
+      ascender: 800,
+      descender: -200,
+      unitsPerEm: 1_000,
+      fontSize: 12,
+      lineHeight: 14,
+    })).toBe(11);
   });
 
   it('uses renderer metrics to keep only complete words on each line', () => {

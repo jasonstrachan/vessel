@@ -7188,6 +7188,7 @@ describe('projectIO serialize/deserialize layering', () => {
         color: '#111111',
         selectionColor: '#ffffff',
         selectionBackgroundColor: '#111111',
+        backgroundColor: '#336699',
         selections: [{ start: 1, end: 2 }],
         createdAt: 1,
         updatedAt: 2,

@@ -4,6 +4,7 @@ import GlobalErrorBoundary from '../components/GlobalErrorBoundary';
 import GlobalErrorHooks from '../components/GlobalErrorHooks';
 import {
   createTxtShapeFontFaceCss,
+  getTxtShapeFontMimeType,
   TXT_SHAPE_FONT_DEFINITIONS,
 } from '@/utils/txtShapeFonts';
 
@@ -31,7 +32,7 @@ export default function RootLayout({
             rel="preload"
             href={`${basePath}/assets/fonts/${font.asset!.fileName}`}
             as="font"
-            type={font.asset!.format === 'woff2' ? 'font/woff2' : 'font/otf'}
+            type={getTxtShapeFontMimeType(font.asset!.format)}
             crossOrigin="anonymous"
           />
         ))}

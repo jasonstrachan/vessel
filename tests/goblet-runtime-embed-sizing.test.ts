@@ -71,6 +71,12 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("'jetbrains-mono': { stack: \"'JetBrains Mono', monospace\", minimumSize: 8, sizeStep: 1 }");
       expect(viewer).toContain("'ibm-plex-mono': { stack: \"'IBM Plex Mono', monospace\", minimumSize: 8, sizeStep: 1 }");
       expect(viewer).toContain("minimumSize: 11,\n            sizeStep: 11,\n            nativeSize: 11");
+      expect(viewer).toContain("'tiny5': { stack: \"'Tiny5', monospace\", minimumSize: 8, sizeStep: 8, nativeSize: 8 }");
+      expect(viewer).toContain("'m3x6': { stack: \"'m3x6', monospace\", minimumSize: 16, sizeStep: 16, nativeSize: 16 }");
+      expect(viewer).toContain("'monogram': { stack: \"'Monogram', monospace\", minimumSize: 16, sizeStep: 16, nativeSize: 16 }");
+      expect(viewer).toContain("'silkscreen': { stack: \"'Silkscreen', monospace\", minimumSize: 8, sizeStep: 8, nativeSize: 8 }");
+      expect(viewer).toContain("'spleen-6x12': { stack: \"'Spleen 6x12', monospace\", minimumSize: 12, sizeStep: 12, nativeSize: 12 }");
+      expect(viewer).toContain("stack: \"'Fusion Pixel 8px Mono', monospace\",\n            minimumSize: 8,\n            sizeStep: 8,\n            nativeSize: 8");
       expect(viewer).toContain("const font = textFonts[shape.fontFamily] || textFonts['mek-mono'];");
       expect(viewer).toContain('const rasterSize = font.nativeSize || fontSize;');
       expect(viewer).toContain('const rasterScale = font.nativeSize ? fontSize / font.nativeSize : 1;');

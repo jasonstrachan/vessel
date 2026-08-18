@@ -426,6 +426,9 @@ const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
   brushShape === BrushShape.COLOR_CYCLE_SHAPE ||
   brushShape === BrushShape.SHAPE_FILL;
 
+const isOverlayExtensionBrush = (tools: EventHandlerDynamicDeps['tools']): boolean =>
+  tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.EXTENSION;
+
 const blurFocusedEditableElement = (): void => {
   if (typeof document === 'undefined') {
     return;
@@ -450,12 +453,9 @@ const blurFocusedEditableElement = (): void => {
 
 export const shouldAllowOutOfBoundsPointerDown = (
   tools: EventHandlerDynamicDeps['tools'],
-  brushPresetId: string | null
 ): boolean =>
-  tools.brushSettings.brushShape === BrushShape.DITHER_GRADIENT ||
-  (tools.shapeMode &&
-    (isDitherShapeMode(tools.brushSettings.brushShape, tools.shapeMode) ||
-      isCcGradientPreset(brushPresetId))) ||
+  tools.currentTool === 'brush' ||
+  tools.currentTool === 'eraser' ||
   (tools.currentTool === 'selection' && (tools.selectionMode ?? 'marquee') === 'marquee');
 
 const shouldUseMagicWandSelectionMode = (tools: EventHandlerDynamicDeps['tools']): boolean =>
@@ -2539,6 +2539,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return; // Skip everything else - we're panning
     }
 
+    if (event.button === 0 && isOverlayExtensionBrush(tools)) {
+      isMouseDownRef.current = false;
+      suppressBootstrapUntilPointerUpRef.current = true;
+      return;
+    }
+
     // Middle or right click cancels a pending linear direction stage.
     if (event.button === 1 || event.button === 2) {
       if (drawingHandlers.isSelectingDirectionRef?.current) {
@@ -2591,12 +2597,9 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    // If press starts outside the project, leave mouse-down false so move can bootstrap later.
-    // Exceptions:
-    // - Dither Gradient shapes can start outside to position gradients freely.
-    // - Marquee selection can start outside so users can drag into the canvas.
-    const brushPresetId = getDynamicDeps().currentBrushPresetId;
-    const allowOutOfBoundsPointerDown = shouldAllowOutOfBoundsPointerDown(tools, brushPresetId);
+    // Brush geometry keeps its real outside-document anchor and is clipped by the renderer.
+    // Click tools still reject outside-document starts; marquee selection remains continuous.
+    const allowOutOfBoundsPointerDown = shouldAllowOutOfBoundsPointerDown(tools);
     const isPointerOutOfProject = Boolean(
       project &&
       (worldPos.x < 0 || worldPos.x > project.width ||
@@ -3467,6 +3470,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       !suppressBootstrapUntilPointerUpRef.current &&
       !pan.panState.isPanning &&
       !isSpaceInteractionActive() &&
+      !isOverlayExtensionBrush(tools) &&
       !tools.shapeMode &&
       (tools.currentTool === 'brush' || tools.currentTool === 'eraser')
     ) {

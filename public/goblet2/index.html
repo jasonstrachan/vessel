@@ -10,6 +10,12 @@
       @font-face { font-family: 'JetBrains Mono'; src: url('../assets/fonts/JETBRAINS-MONO-REGULAR.WOFF2') format('woff2'); font-display: block; }
       @font-face { font-family: 'IBM Plex Mono'; src: url('../assets/fonts/IBM-PLEX-MONO-REGULAR.WOFF2') format('woff2'); font-display: block; }
       @font-face { font-family: 'Departure Mono'; src: url('../assets/fonts/DEPARTURE-MONO-REGULAR.WOFF2') format('woff2'); font-display: block; }
+      @font-face { font-family: 'Tiny5'; src: url('../assets/fonts/TINY5-REGULAR.WOFF2') format('woff2'); font-display: block; }
+      @font-face { font-family: 'm3x6'; src: url('../assets/fonts/M3X6-REGULAR.TTF') format('truetype'); font-display: block; }
+      @font-face { font-family: 'Monogram'; src: url('../assets/fonts/MONOGRAM-REGULAR.TTF') format('truetype'); font-display: block; }
+      @font-face { font-family: 'Silkscreen'; src: url('../assets/fonts/SILKSCREEN-REGULAR.TTF') format('truetype'); font-display: block; }
+      @font-face { font-family: 'Spleen 6x12'; src: url('../assets/fonts/SPLEEN-6X12.WOFF2') format('woff2'); font-display: block; }
+      @font-face { font-family: 'Fusion Pixel 8px Mono'; src: url('../assets/fonts/FUSION-PIXEL-8PX-MONO-LATIN.WOFF2') format('woff2'); font-display: block; }
       :root {
         color-scheme: dark;
       }
@@ -143,6 +149,17 @@
             minimumSize: 11,
             sizeStep: 11,
             nativeSize: 11,
+          },
+          'tiny5': { stack: "'Tiny5', monospace", minimumSize: 8, sizeStep: 8, nativeSize: 8 },
+          'm3x6': { stack: "'m3x6', monospace", minimumSize: 16, sizeStep: 16, nativeSize: 16 },
+          'monogram': { stack: "'Monogram', monospace", minimumSize: 16, sizeStep: 16, nativeSize: 16 },
+          'silkscreen': { stack: "'Silkscreen', monospace", minimumSize: 8, sizeStep: 8, nativeSize: 8 },
+          'spleen-6x12': { stack: "'Spleen 6x12', monospace", minimumSize: 12, sizeStep: 12, nativeSize: 12 },
+          'fusion-pixel-8px-mono': {
+            stack: "'Fusion Pixel 8px Mono', monospace",
+            minimumSize: 8,
+            sizeStep: 8,
+            nativeSize: 8,
           },
         };
         const getTextFontMetrics = (shape) => {

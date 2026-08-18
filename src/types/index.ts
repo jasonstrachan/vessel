@@ -316,7 +316,13 @@ export type TxtShapeFontFamily =
   | 'mek-mono'
   | 'jetbrains-mono'
   | 'ibm-plex-mono'
-  | 'departure-mono';
+  | 'departure-mono'
+  | 'tiny5'
+  | 'm3x6'
+  | 'monogram'
+  | 'silkscreen'
+  | 'spleen-6x12'
+  | 'fusion-pixel-8px-mono';
 export type TxtShapeTextAlign = 'left' | 'center' | 'right';
 export type TxtShapeColorSource = 'foreground' | 'palette' | 'sample' | 'manual';
 export type TxtShapeRegionKind = 'rectangle' | 'oval' | 'freehand';
@@ -353,6 +359,7 @@ export interface TxtShape extends LayerOwnedProjectObject {
   color: string;
   selectionColor: string;
   selectionBackgroundColor: string;
+  backgroundColor?: string;
   selections: TxtShapeSelectionRange[];
   createdAt: number;
   updatedAt: number;

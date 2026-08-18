@@ -1,10 +1,8 @@
 import { useCallback, useMemo, type PointerEvent as ReactPointerEvent } from 'react';
-import { isCcGradientPreset } from '@/presets/brushPresets';
 import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
 import { useDrawingCanvasPointerHandlers } from './useDrawingCanvasPointerHandlers';
 import { useDrawingCanvasEventBindings } from './useDrawingCanvasEventBindings';
 import { BrushShape } from '@/types';
-import { isDitherShapeMode } from '@/utils/brushCategories';
 import {
   isVesselMultiplayerHumanPointerRelevant,
   recordVesselMultiplayerHumanPointer,
@@ -68,20 +66,11 @@ export const useDrawingCanvasInputHandlers = ({
   ...eventHandlerArgs
 }: UseDrawingCanvasInputHandlersOptions) => {
   const { project } = eventHandlerArgs;
-  const activeBrushShape = eventHandlerArgs.tools.brushSettings.brushShape ?? brushShape;
-  const isShapePresetAllowingOutsideStart =
-    activeBrushShape === BrushShape.DITHER_GRADIENT ||
-    (
-      eventHandlerArgs.tools.shapeMode === true &&
-      (
-        isDitherShapeMode(activeBrushShape, eventHandlerArgs.tools.shapeMode) ||
-        isCcGradientPreset(eventHandlerArgs.currentBrushPresetId)
-      )
-    );
   const allowPointerDownOutsideCanvasShape =
+    eventHandlerArgs.tools.currentTool === 'brush' ||
+    eventHandlerArgs.tools.currentTool === 'eraser' ||
     (eventHandlerArgs.tools.currentTool === 'selection' &&
-      (eventHandlerArgs.tools.selectionMode ?? 'marquee') === 'marquee') ||
-    isShapePresetAllowingOutsideStart;
+      (eventHandlerArgs.tools.selectionMode ?? 'marquee') === 'marquee');
 
   const eventHandlers = useCanvasEventHandlers({
     ...eventHandlerArgs,

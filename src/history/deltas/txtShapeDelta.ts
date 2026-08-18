@@ -47,6 +47,7 @@ const shapesEqual = (left: TxtShape, right: TxtShape): boolean => (
   && left.color === right.color
   && left.selectionColor === right.selectionColor
   && left.selectionBackgroundColor === right.selectionBackgroundColor
+  && left.backgroundColor === right.backgroundColor
   && rangesEqual(left.selections, right.selections)
   && left.createdAt === right.createdAt
   && left.updatedAt === right.updatedAt

@@ -72,5 +72,8 @@ describe('RootLayout SSR', () => {
     expect(html).toContain('app-root');
     expect(html).toContain('MEKSANS-REGULAR.OTF');
     expect(html).toContain('DEPARTURE-MONO-REGULAR.WOFF2');
+    expect(html).toContain('M3X6-REGULAR.TTF');
+    expect(html).toContain('type="font/ttf"');
+    expect(html).toContain('FUSION-PIXEL-8PX-MONO-LATIN.WOFF2');
   });
 });

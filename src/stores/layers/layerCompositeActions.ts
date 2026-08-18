@@ -473,8 +473,10 @@ export const createLayerCompositeActions = ({
         !fullStaticRedrawNeeded ? staticDirtyRects : undefined,
       );
 
-      if (
-        options?.captureBitmap !== false &&
+      if (options?.captureBitmap === false) {
+        staticBitmapCaptureToken += 1;
+        state.setCurrentCompositeBitmap(null);
+      } else if (
         typeof HTMLCanvasElement !== 'undefined' &&
         targetCanvas instanceof HTMLCanvasElement
       ) {

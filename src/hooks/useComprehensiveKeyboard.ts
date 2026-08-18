@@ -1,5 +1,7 @@
-import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useEffect, useRef, useCallback } from 'react';
+
+import studioExtension from '@/extensions/studioExtension';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
 import { BrushShape, type BrushSettings, Tool } from '@/types';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
@@ -113,7 +115,7 @@ interface KeyboardState {
 }
 
 type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
-type BracketShortcutTarget = 'brush-size' | 'shape-resolution';
+type BracketShortcutTarget = 'brush-size' | 'shape-resolution' | 'studio-extension';
 
 const selectKeyboardScope = (state: AppState) => state.ui.keyboardScope.active as KeyboardScope;
 const selectSelectionRange = (state: AppState) => ({
@@ -359,6 +361,17 @@ export function useComprehensiveKeyboard({
   }, [applyBrushSizeDeltaImmediate, setEraserSettings, toolsRef]);
 
   const applyBracketShortcutStep = useCallback((target: BracketShortcutTarget, delta: -1 | 1) => {
+    if (target === 'studio-extension') {
+      const tools = toolsRef.current;
+      const patch = studioExtension.resolveBracketShortcut?.({
+        currentTool: tools.currentTool,
+        brushSettings: tools.brushSettings,
+        direction: delta,
+      });
+      if (patch) setBrushSettings(patch);
+      return;
+    }
+
     if (target === 'shape-resolution') {
       const settings = toolsRef.current.brushSettings;
       const isPressureLinked = Boolean(settings.pressureLinkedFillResolution);
@@ -628,12 +641,26 @@ export function useComprehensiveKeyboard({
     }
 
     if (isBracketShortcut) {
+      const direction: -1 | 1 = isBracketLeftEvent(event) ? -1 : 1;
+      const extensionPatch = studioExtension.resolveBracketShortcut?.({
+        currentTool: tools.currentTool,
+        brushSettings: tools.brushSettings,
+        direction,
+      });
+      if (extensionPatch) {
+        event.preventDefault();
+        if (shapeDrawingActiveRef.current) {
+          return;
+        }
+        setBrushSettings(extensionPatch);
+        startBracketHold('studio-extension', direction);
+        return;
+      }
       const bracketTarget = resolveBracketShortcutTarget(
         tools.currentTool,
         tools.brushSettings,
         tools.shapeMode,
       );
-      const direction: -1 | 1 = isBracketLeftEvent(event) ? -1 : 1;
       if (bracketTarget !== 'brush-size') {
         event.preventDefault();
         if (shapeDrawingActiveRef.current) {
@@ -743,7 +770,7 @@ export function useComprehensiveKeyboard({
       setPaletteColor, swapPaletteColors,
       keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
       floatingPasteRef, paletteRef, shapeDrawingActiveRef, startBracketHold, applyBracketShortcutStep,
-      applyBrushSizeDeltaForCurrentTool]);
+      applyBrushSizeDeltaForCurrentTool, setBrushSettings]);
 
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;

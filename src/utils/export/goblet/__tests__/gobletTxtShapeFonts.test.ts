@@ -71,4 +71,25 @@ describe('Goblet TXT Shape fonts', () => {
     expect(html).toBe('<style></style>');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('uses the TrueType MIME type when embedding a TTF face', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    });
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: fetchMock,
+    });
+
+    const html = await inlineTxtShapeFontsInGobletTemplate({
+      template: "@font-face{src:url('../assets/fonts/M3X6-REGULAR.TTF')}",
+      shapes: [{ ...shape, fontFamily: 'm3x6', fontSize: 16 }],
+      gobletAssetRoot: 'goblet',
+    });
+
+    expect(html).toContain('data:font/ttf;base64,AQID');
+    expect(html).not.toContain('../assets/fonts/M3X6-REGULAR.TTF');
+  });
 });

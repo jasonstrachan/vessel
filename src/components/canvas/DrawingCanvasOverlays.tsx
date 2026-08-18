@@ -68,6 +68,7 @@ export const DrawingCanvasOverlays = ({
             zoom={canvasZoom || 1}
             offsetX={offsetX}
             offsetY={offsetY}
+            isSpacePressed={isSpacePressed}
           />
         </div>
       ) : null}

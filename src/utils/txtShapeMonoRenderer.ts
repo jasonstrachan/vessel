@@ -13,6 +13,7 @@ import {
 interface CachedFace {
   face: Face;
   ascender: number;
+  descender: number;
   unitsPerEm: number;
 }
 
@@ -35,6 +36,8 @@ const glyphCache = new Map<string, CachedGlyph>();
 const kerningCache = new Map<string, number>();
 let freeTypePromise: Promise<FreeType> | null = null;
 let rasterRevision = 0;
+type TxtShapeMonoRasterListener = (family: TxtShapeFontFamily) => void;
+const rasterListeners = new Set<TxtShapeMonoRasterListener>();
 
 const FT_LOAD_TARGET_MONO = 0x20000;
 const FT_RENDER_MODE_MONO = 2;
@@ -55,6 +58,23 @@ const getFreeType = (): Promise<FreeType> => {
 };
 
 export const getTxtShapeMonoRasterRevision = (): number => rasterRevision;
+
+export const subscribeTxtShapeMonoRasterRevision = (
+  listener: TxtShapeMonoRasterListener,
+): (() => void) => {
+  rasterListeners.add(listener);
+  return () => rasterListeners.delete(listener);
+};
+
+const notifyTxtShapeMonoRasterReady = (family: TxtShapeFontFamily): void => {
+  [...rasterListeners].forEach((listener) => {
+    try {
+      listener(family);
+    } catch {
+      // A redraw subscriber must not make an otherwise valid font face fail to load.
+    }
+  });
+};
 
 export const ensureTxtShapeMonoFont = (
   family: TxtShapeFontFamily,
@@ -81,9 +101,11 @@ export const ensureTxtShapeMonoFont = (
     faceCache.set(family, {
       face,
       ascender: info.ascender,
+      descender: info.descender,
       unitsPerEm: Math.max(1, info.unitsPerEM),
     });
     rasterRevision += 1;
+    notifyTxtShapeMonoRasterReady(family);
     return true;
   }).catch(() => false);
   facePromises.set(family, promise);
@@ -203,6 +225,25 @@ export const getTxtShapeMonoBitmapRuns = (
   return runs;
 };
 
+export const calculateTxtShapeMonoBaseline = ({
+  ascender,
+  descender,
+  unitsPerEm,
+  fontSize,
+  lineHeight,
+}: {
+  ascender: number;
+  descender: number;
+  unitsPerEm: number;
+  fontSize: number;
+  lineHeight: number;
+}): number => {
+  const scale = fontSize / Math.max(1, unitsPerEm);
+  const ascenderPx = ascender * scale;
+  const fontBoxHeight = (ascender - descender) * scale;
+  return Math.round(ascenderPx + (lineHeight - fontBoxHeight) / 2);
+};
+
 export const drawTxtShapeMonoTextMask = ({
   context,
   family,
@@ -210,6 +251,7 @@ export const drawTxtShapeMonoTextMask = ({
   text,
   x,
   y,
+  lineHeight,
 }: {
   context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   family: TxtShapeFontFamily;
@@ -217,6 +259,7 @@ export const drawTxtShapeMonoTextMask = ({
   text: string;
   x: number;
   y: number;
+  lineHeight: number;
 }): boolean => {
   const cachedFace = faceCache.get(family);
   if (!cachedFace) {
@@ -226,7 +269,13 @@ export const drawTxtShapeMonoTextMask = ({
 
   const rasterSize = getTxtShapeRasterFontSize(family, fontSize);
   cachedFace.face.setPixelSize(rasterSize);
-  const baseline = Math.ceil(cachedFace.ascender * rasterSize / cachedFace.unitsPerEm);
+  const baseline = calculateTxtShapeMonoBaseline({
+    ascender: cachedFace.ascender,
+    descender: cachedFace.descender,
+    unitsPerEm: cachedFace.unitsPerEm,
+    fontSize: rasterSize,
+    lineHeight,
+  });
   let penX = Math.round(x);
   let previousGlyphIndex = 0;
   for (const character of text) {

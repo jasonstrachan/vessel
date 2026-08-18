@@ -414,6 +414,75 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledWith({ x: 21, y: 22 }, expect.any(Number));
   });
 
+  it('starts a regular brush stroke at its outside-document anchor', () => {
+    const { deps } = createDeps();
+    deps.stateMachine.state.mode = 'IDLE';
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: -12, clientY: 24, buttons: 1 }));
+
+    expect(deps.isMouseDownRef.current).toBe(true);
+    expect(deps.drawingHandlers.beginStrokeSession).toHaveBeenCalledTimes(1);
+    expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledWith(
+      { x: -12, y: 24 },
+      expect.any(Number),
+    );
+  });
+
+  it('starts an eraser stroke at its outside-document anchor', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: { ...baseDynamic.tools, currentTool: 'eraser' },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    deps.stateMachine.state.mode = 'IDLE';
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: 18, clientY: -9, buttons: 1 }));
+
+    expect(deps.isMouseDownRef.current).toBe(true);
+    expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledWith(
+      { x: 18, y: -9 },
+      expect.any(Number),
+    );
+  });
+
+  it('starts a regular shape at its outside-document anchor', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: { ...baseDynamic.tools, shapeMode: true },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: -14, clientY: 28, buttons: 1 }));
+
+    expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalledWith(
+      { x: -14, y: 28 },
+      expect.any(Number),
+    );
+  });
+
+  it('does not leak an extension overlay gesture into the normal stroke bootstrap', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.EXTENSION,
+        },
+      },
+    });
+    dynamicDepsRef.current.tools = deps.tools;
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerDown(makePointerEvent({ clientX: -5, clientY: 20, buttons: 1 }));
+    handlers.handlePointerMove(makePointerEvent({ clientX: 20, clientY: 20, buttons: 1 }));
+
+    expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(true);
+    expect(deps.drawingHandlers.beginStrokeSession).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+  });
+
   it('does not bootstrap eraser stroke from pointermove while busy', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {

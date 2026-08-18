@@ -34,6 +34,7 @@ import {
   normalizeTxtShapeFontSize,
   TXT_SHAPE_FONT_DEFINITIONS,
 } from '@/utils/txtShapeFonts';
+import * as txtShapeMonoRenderer from '@/utils/txtShapeMonoRenderer';
 
 const createShape = (updates: Partial<TxtShape> = {}): TxtShape => ({
   id: 'txt-1',
@@ -65,6 +66,12 @@ describe('TXT Shape document helpers', () => {
       'jetbrains-mono',
       'ibm-plex-mono',
       'departure-mono',
+      'tiny5',
+      'm3x6',
+      'monogram',
+      'silkscreen',
+      'spleen-6x12',
+      'fusion-pixel-8px-mono',
     ]);
     expect(isTxtShapeFontFamily('mek-mono')).toBe(true);
     expect(isTxtShapeFontFamily('missing-font')).toBe(false);
@@ -77,6 +84,12 @@ describe('TXT Shape document helpers', () => {
     expect(getTxtShapeFontMinimumSize('ibm-plex-mono')).toBe(8);
     expect(getTxtShapeFontMinimumSize('departure-mono')).toBe(11);
     expect(getTxtShapeFontSizeStep('departure-mono')).toBe(11);
+    expect(getTxtShapeFontMinimumSize('tiny5')).toBe(8);
+    expect(getTxtShapeFontMinimumSize('m3x6')).toBe(16);
+    expect(getTxtShapeFontMinimumSize('monogram')).toBe(16);
+    expect(getTxtShapeFontMinimumSize('silkscreen')).toBe(8);
+    expect(getTxtShapeFontMinimumSize('spleen-6x12')).toBe(12);
+    expect(getTxtShapeFontMinimumSize('fusion-pixel-8px-mono')).toBe(8);
     expect(normalizeTxtShapeFontSize('departure-mono', 24)).toBe(22);
     expect(normalizeTxtShapeFontSize('departure-mono', 29)).toBe(33);
     expect(normalizeTxtShapeFontSize('mek-sans', 24)).toBe(24);
@@ -84,15 +97,23 @@ describe('TXT Shape document helpers', () => {
     expect(normalizeTxtShapeFontSize('jetbrains-mono', 2)).toBe(8);
     expect(normalizeTxtShapeFontSize('ibm-plex-mono', 25)).toBe(25);
     expect(normalizeTxtShapeFontSize('departure-mono', 512)).toBe(33);
+    expect(normalizeTxtShapeFontSize('tiny5', 13)).toBe(16);
+    expect(normalizeTxtShapeFontSize('m3x6', 40)).toBe(32);
+    expect(normalizeTxtShapeFontSize('spleen-6x12', 40)).toBe(36);
     expect(getTxtShapeRasterFontSize('mek-sans', 24)).toBe(24);
     expect(getTxtShapeRasterFontSize('departure-mono', 33)).toBe(11);
     expect(getTxtShapePixelScale('mek-sans', 24)).toBe(1);
     expect(getTxtShapePixelScale('departure-mono', 33)).toBe(3);
+    expect(getTxtShapeRasterFontSize('tiny5', 24)).toBe(8);
+    expect(getTxtShapePixelScale('tiny5', 24)).toBe(3);
     expect(createTxtShapeFontFaceCss('/vessel')).toContain(
       "url('/vessel/assets/fonts/DEPARTURE-MONO-REGULAR.WOFF2')",
     );
     expect(createTxtShapeFontFaceCss('/vessel')).toContain(
       "url('/vessel/assets/fonts/JETBRAINS-MONO-REGULAR.WOFF2')",
+    );
+    expect(createTxtShapeFontFaceCss('/vessel')).toContain(
+      "url('/vessel/assets/fonts/M3X6-REGULAR.TTF') format('truetype')",
     );
   });
 
@@ -184,6 +205,31 @@ describe('TXT Shape document helpers', () => {
       padding: 7.5,
     }));
     expect(shapes[1]?.id).toMatch(/^txt-shape-/);
+  });
+
+  it('preserves valid optional shape fills without changing legacy transparency', () => {
+    const [filled, legacy, invalid] = normalizeTxtShapes([
+      createShape({ id: 'filled', backgroundColor: '#336699' }),
+      createShape({ id: 'legacy' }),
+      { ...createShape({ id: 'invalid' }), backgroundColor: 42 },
+    ], 200, 100);
+
+    expect(filled.backgroundColor).toBe('#336699');
+    expect(legacy.backgroundColor).toBeUndefined();
+    expect(invalid.backgroundColor).toBeUndefined();
+  });
+
+  it('preserves partially off-canvas authored geometry', () => {
+    const [shape] = normalizeTxtShapes([
+      createShape({ x: -20, y: 80, width: 120, height: 40 }),
+    ], 200, 100);
+
+    expect(shape).toEqual(expect.objectContaining({
+      x: -20,
+      y: 80,
+      width: 120,
+      height: 40,
+    }));
   });
 
   it('migrates unowned boxes to the top normal layer and preserves valid owners', () => {
@@ -323,6 +369,26 @@ describe('TXT Shape document helpers', () => {
     expect(ctx.rect).toHaveBeenCalledWith(10, 6, 5, 50);
   });
 
+  it('fills the complete clipped TXT Shape region before drawing its text', () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    drawTxtShapesToCanvas(ctx, [createShape({
+      content: 'AB',
+      selections: [],
+      backgroundColor: '#336699',
+    })]);
+
+    expect(ctx.fillRect).toHaveBeenCalledWith(5, 6, 100, 50);
+    expect((ctx.fillRect as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
+      (ctx.fillText as jest.Mock).mock.invocationCallOrder[0]!,
+    );
+  });
+
   it('collapses pixel-font coverage to fully on or fully off document pixels', () => {
     const pixels = new Uint8ClampedArray([
       80, 90, 100, 0,
@@ -376,6 +442,43 @@ describe('TXT Shape document helpers', () => {
     expect(getTxtShapeLineHeightPx(shape)).toBe(39);
     expect(getTxtShapeTextLayout(shape).lineHeightPx).toBe(39);
     getImageData.mockRestore();
+  });
+
+  it('reuses a monochrome glyph mask while playback selections change', () => {
+    const measureMonoText = jest
+      .spyOn(txtShapeMonoRenderer, 'measureTxtShapeMonoText')
+      .mockImplementation((_family, _fontSize, text) => text.length * 5);
+    const drawMonoTextMask = jest
+      .spyOn(txtShapeMonoRenderer, 'drawTxtShapeMonoTextMask')
+      .mockImplementation(({ context }) => {
+        context.fillRect(0, 0, 4, 4);
+        return true;
+      });
+    const canvas = document.createElement('canvas');
+    canvas.width = 240;
+    canvas.height = 80;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    const shape = createShape({
+      content: 'CACHE MASK UNIQUE',
+      fontFamily: 'departure-mono',
+      fontSize: 33,
+      selections: [],
+      width: 220,
+    });
+
+    drawTxtShapesToCanvas(ctx!, [shape]);
+    expect(drawMonoTextMask).toHaveBeenCalledTimes(1);
+    setTxtShapeTransientSelectionOverrides(new Map([[shape.id, [{ start: 0, end: 5 }]]]));
+    try {
+      drawTxtShapesToCanvas(ctx!, [shape]);
+    } finally {
+      clearTxtShapeTransientSelectionOverrides();
+    }
+
+    expect(drawMonoTextMask).toHaveBeenCalledTimes(1);
+    drawMonoTextMask.mockRestore();
+    measureMonoText.mockRestore();
   });
 
   it('rasterizes MEK at its requested size without enlarging a smaller strike', () => {
@@ -475,6 +578,18 @@ describe('TXT Shape document helpers', () => {
       expect(shape.selections).toEqual([{ start: 0, end: 2 }]);
       drawCanonicalTxtShapesToCanvas(ctx, [shape]);
       expect(ctx.fillRect).toHaveBeenCalled();
+    } finally {
+      clearTxtShapeTransientSelectionOverrides();
+    }
+  });
+
+  it('reuses immutable text layout while transient selections advance', () => {
+    const shape = createShape({ content: 'A LONGER LINE OF TEXT' });
+    const initialLayout = getTxtShapeTextLayout(shape);
+
+    setTxtShapeTransientSelectionOverrides(new Map([[shape.id, [{ start: 0, end: 4 }]]]));
+    try {
+      expect(getTxtShapeTextLayout(shape)).toBe(initialLayout);
     } finally {
       clearTxtShapeTransientSelectionOverrides();
     }

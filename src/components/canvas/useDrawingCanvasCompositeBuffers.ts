@@ -22,6 +22,7 @@ import {
   getColorCyclePresentationCanvas,
   resolveColorCyclePresentation,
 } from './resolveColorCyclePresentation';
+import { useTxtShapeRasterInvalidation } from './useTxtShapeRasterInvalidation';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
   project: Pick<Project, 'width' | 'height' | 'txtShapes'> | null;
@@ -70,6 +71,8 @@ export const useDrawingCanvasCompositeBuffers = ({
   renderStaticComposite,
   setCurrentOffscreenCanvas,
 }: UseDrawingCanvasCompositeBuffersOptions) => {
+  useTxtShapeRasterInvalidation();
+
   useEffect(() => {
     const cache = layerTransferCacheRef.current;
     if (cache.size === 0) {
