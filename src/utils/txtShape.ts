@@ -17,6 +17,11 @@ import {
   normalizeTxtShapeFontFamily,
   normalizeTxtShapeFontSize,
 } from '@/utils/txtShapeFonts';
+import {
+  drawTxtShapeMonoTextMask,
+  getTxtShapeMonoRasterRevision,
+  measureTxtShapeMonoText,
+} from '@/utils/txtShapeMonoRenderer';
 
 export const TXT_SHAPE_MIN_SIZE = 16;
 export const TXT_SHAPE_DEFAULT_CONTENT = 'SELECTED TEXT';
@@ -548,10 +553,20 @@ const prepareHardEdgedTxtShapeText = ({
   maskContext.font = `${rasterFontSize}px ${getTxtShapeFontDefinition(fontFamily).stack}`;
   maskContext.textBaseline = 'top';
   maskContext.fillStyle = '#ffffff';
-  maskContext.fillText(text, PIXEL_TEXT_MASK_PADDING, 0);
-  const mask = maskContext.getImageData(0, 0, maskWidth, maskHeight);
-  thresholdTxtShapePixelAlpha(mask.data);
-  maskContext.putImageData(mask, 0, 0);
+  const didDrawMono = drawTxtShapeMonoTextMask({
+    context: maskContext,
+    family: fontFamily,
+    fontSize,
+    text,
+    x: PIXEL_TEXT_MASK_PADDING,
+    y: 0,
+  });
+  if (!didDrawMono) {
+    maskContext.fillText(text, PIXEL_TEXT_MASK_PADDING, 0);
+    const mask = maskContext.getImageData(0, 0, maskWidth, maskHeight);
+    thresholdTxtShapePixelAlpha(mask.data);
+    maskContext.putImageData(mask, 0, 0);
+  }
 
   return {
     surface: pixelTextMaskSurface,
@@ -648,6 +663,11 @@ export const getTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
   const contentHeight = Math.max(0, shape.height - padding * 2);
   const maxLines = lineHeightPx > 0 ? Math.max(0, Math.floor(contentHeight / lineHeightPx)) : 0;
   const layoutScale = pixelScale;
+  const hasMonoMetrics = measureTxtShapeMonoText(
+    shape.fontFamily,
+    shape.fontSize,
+    '',
+  ) !== null;
   const lines = layoutTxtShapeText({
     content: shape.content,
     font: `${rasterFontSize}px ${getTxtShapeFontDefinition(shape.fontFamily).stack}`,
@@ -663,6 +683,13 @@ export const getTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
         ? { left: left / layoutScale, right: right / layoutScale }
         : null;
     },
+    ...(hasMonoMetrics && {
+      measureText: (text: string) => measureTxtShapeMonoText(
+        shape.fontFamily,
+        shape.fontSize,
+        text,
+      ) ?? 0,
+    }),
   }).map((line) => layoutScale === 1
     ? line
     : {
@@ -678,7 +705,7 @@ export const getTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
     lines,
     padding,
     lineHeightPx,
-    didOverflow: consumedSourceEnd < shape.content.length,
+    didOverflow: shape.content.slice(consumedSourceEnd).trim().length > 0,
   };
 };
 
@@ -711,6 +738,21 @@ const drawTxtShapesToCanvasWithSelectionMode = (
     const font = `${rasterFontSize}px ${getTxtShapeFontDefinition(renderedShape.fontFamily).stack}`;
     ctx.font = font;
     ctx.textBaseline = 'top';
+    const hasMonoMetrics = measureTxtShapeMonoText(
+      renderedShape.fontFamily,
+      renderedShape.fontSize,
+      '',
+    ) !== null;
+    const measureLineText = (text: string): number => {
+      if (hasMonoMetrics) {
+        return measureTxtShapeMonoText(
+          renderedShape.fontFamily,
+          renderedShape.fontSize,
+          text,
+        ) ?? 0;
+      }
+      return Math.round(ctx.measureText(text).width);
+    };
     const { lines, padding, lineHeightPx } = getTxtShapeTextLayout(renderedShape);
 
     lines.forEach((line) => {
@@ -735,9 +777,9 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         const start = orderedBoundaries[index];
         const end = orderedBoundaries[index + 1];
         if (start === end) continue;
-        const startWidth = ctx.measureText(line.text.slice(0, start)).width;
-        const endWidth = ctx.measureText(line.text.slice(0, end)).width;
-        const measuredWidth = (Math.round(endWidth) - Math.round(startWidth)) * pixelScale;
+        const startWidth = measureLineText(line.text.slice(0, start));
+        const endWidth = measureLineText(line.text.slice(0, end));
+        const measuredWidth = (endWidth - startWidth) * pixelScale;
         const width = Math.max(0, measuredWidth);
         const selected = isTxtShapeIndexSelected(renderedShape.selections, line.sourceStart + start);
         fragments.push({ selected, width });
@@ -802,6 +844,7 @@ export const drawTxtShapesForLayer = (
 interface TxtShapeLayerRasterCacheEntry {
   shapes: readonly TxtShape[];
   transientSelectionRevision: number;
+  monoRasterRevision: number;
   width: number;
   height: number;
   textCanvas: TxtShapeCanvasSurface;
@@ -833,6 +876,7 @@ export const composeTxtShapesIntoLayerSource = ({
 
   let cache = txtShapeLayerRasterCache.get(layerId);
   let shouldRepaintText = false;
+  const monoRasterRevision = getTxtShapeMonoRasterRevision();
   if (!cache || cache.width !== width || cache.height !== height) {
     const textCanvas = createTxtShapeCanvasSurface(width, height);
     const combinedCanvas = createTxtShapeCanvasSurface(width, height);
@@ -840,6 +884,7 @@ export const composeTxtShapesIntoLayerSource = ({
     cache = {
       shapes,
       transientSelectionRevision,
+      monoRasterRevision,
       width,
       height,
       textCanvas,
@@ -857,6 +902,10 @@ export const composeTxtShapesIntoLayerSource = ({
   }
   if (cache.transientSelectionRevision !== transientSelectionRevision) {
     cache.transientSelectionRevision = transientSelectionRevision;
+    shouldRepaintText = true;
+  }
+  if (cache.monoRasterRevision !== monoRasterRevision) {
+    cache.monoRasterRevision = monoRasterRevision;
     shouldRepaintText = true;
   }
   if (shouldRepaintText) {

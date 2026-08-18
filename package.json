@@ -90,6 +90,7 @@
     "@heroui/theme": "^2.4.20",
     "@radix-ui/react-slider": "^1.3.5",
     "@tailwindcss/postcss": "^4.2.0",
+    "@zkl2333/freetype-wasm": "2.14.3",
     "fflate": "^0.8.2",
     "framer-motion": "^12.23.12",
     "gifenc": "^1.0.3",

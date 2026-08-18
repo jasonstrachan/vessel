@@ -3,6 +3,7 @@ import {
   getTxtShapeFontDefinition,
   loadTxtShapeFont,
 } from '@/utils/txtShapeFonts';
+import { ensureTxtShapeMonoFonts } from '@/utils/txtShapeMonoRenderer';
 import {
   resolveGobletAssetUrl,
   type GobletAssetRoot,
@@ -30,13 +31,17 @@ export const ensureTxtShapeFontsReadyForRaster = async (
   shapes: readonly TxtShape[],
 ): Promise<void> => {
   const usages = getUsedBundledFonts(shapes);
-  const loaded = await Promise.all(usages.map(({ family, size }) => (
-    loadTxtShapeFont(family, size)
-  )));
+  const [loaded, didLoadMonoFaces] = await Promise.all([
+    Promise.all(usages.map(({ family, size }) => loadTxtShapeFont(family, size))),
+    ensureTxtShapeMonoFonts(usages.map(({ family }) => family)),
+  ]);
   const missingIndex = loaded.findIndex((didLoad) => !didLoad);
   if (missingIndex >= 0) {
     const definition = getTxtShapeFontDefinition(usages[missingIndex]!.family);
     throw new Error(`TXT Shape font "${definition.label}" is not available for Goblet export.`);
+  }
+  if (!didLoadMonoFaces) {
+    throw new Error('TXT Shape monochrome font renderer is not available for Goblet export.');
   }
 };
 

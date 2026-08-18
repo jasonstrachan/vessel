@@ -75,6 +75,11 @@ export const buildVesselNextConfig = (
 
     // Ensure proper development server configuration
     webpack: (config, { dev, webpack }) => {
+      config.resolve = config.resolve ?? {};
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        module: false,
+      };
       if (isStudioBuild) {
         config.plugins = config.plugins ?? [];
         config.plugins.push(new webpack.NormalModuleReplacementPlugin(

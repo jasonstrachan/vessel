@@ -26,6 +26,7 @@ interface TxtShapeLayoutOptions {
   font: string;
   lineCount: number;
   getSpan: (lineIndex: number) => TxtShapeLayoutSpan | null;
+  measureText?: (text: string) => number;
 }
 
 interface PreparedEntry {
@@ -112,8 +113,81 @@ export const layoutTxtShapeText = ({
   font,
   lineCount,
   getSpan,
+  measureText,
 }: TxtShapeLayoutOptions): TxtShapeLayoutLine[] => {
   if (!content || lineCount <= 0) return [];
+
+  if (measureText) {
+    const lines: TxtShapeLayoutLine[] = [];
+    let cursor = 0;
+
+    for (let lineIndex = 0; lineIndex < lineCount && cursor < content.length; lineIndex += 1) {
+      const span = getSpan(lineIndex);
+      const availableWidth = span ? span.right - span.left : 0;
+      if (!span || availableWidth <= 0.01) continue;
+
+      if (content[cursor] === '\n') {
+        lines.push({
+          lineIndex,
+          sourceStart: cursor,
+          sourceEnd: cursor,
+          span,
+          text: '',
+          width: 0,
+        });
+        cursor += 1;
+        continue;
+      }
+
+      while (cursor < content.length && /[\t ]/.test(content[cursor]!)) cursor += 1;
+      if (cursor >= content.length) break;
+
+      const lineStart = cursor;
+      let acceptedEnd = cursor;
+      let nextCursor = cursor;
+      let shouldBreakLine = false;
+
+      while (nextCursor < content.length && !shouldBreakLine) {
+        if (content[nextCursor] === '\n') {
+          cursor = nextCursor + 1;
+          shouldBreakLine = true;
+          break;
+        }
+
+        const wordStart = nextCursor;
+        while (nextCursor < content.length && !/\s/.test(content[nextCursor]!)) nextCursor += 1;
+        const wordEnd = nextCursor;
+        const candidate = content.slice(lineStart, wordEnd);
+        if (wordEnd > wordStart && measureText(candidate) <= availableWidth) {
+          acceptedEnd = wordEnd;
+        } else if (wordEnd > wordStart) {
+          cursor = acceptedEnd > lineStart ? wordStart : lineStart;
+          shouldBreakLine = true;
+          break;
+        }
+
+        while (nextCursor < content.length && /[\t ]/.test(content[nextCursor]!)) nextCursor += 1;
+        if (nextCursor >= content.length) {
+          cursor = nextCursor;
+          shouldBreakLine = true;
+        }
+      }
+
+      if (acceptedEnd > lineStart) {
+        const text = content.slice(lineStart, acceptedEnd);
+        lines.push({
+          lineIndex,
+          sourceStart: lineStart,
+          sourceEnd: acceptedEnd,
+          span,
+          text,
+          width: measureText(text),
+        });
+      }
+    }
+
+    return lines;
+  }
 
   const entry = getPreparedEntry(content, font);
   const lines: TxtShapeLayoutLine[] = [];
