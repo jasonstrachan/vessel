@@ -127,11 +127,14 @@ export const ReferenceStudioWindow = () => {
         });
         return didChange ? next : current;
       });
-      setSelectedId((current) => (
-        current && event.data.snapshot.referenceAssets.some((asset) => asset.id === current)
+      setSelectedId((current) => {
+        if (didProjectChange) {
+          return event.data.snapshot.referenceAssets[0]?.id ?? null;
+        }
+        return current && event.data.snapshot.referenceAssets.some((asset) => asset.id === current)
           ? current
-          : event.data.snapshot.referenceAssets[0]?.id ?? null
-      ));
+          : null;
+      });
     };
     channel.postMessage({ type: 'studio-ready' } satisfies ReferenceStudioCommand);
     return () => {
@@ -499,7 +502,17 @@ export const ReferenceStudioWindow = () => {
           />
         ) : null}
         <div ref={boardViewportRef} className="relative min-h-0 flex-1 overflow-hidden bg-[#101110]" data-testid="reference-board">
-          <div className="relative h-full w-full">
+          <div
+            className="relative h-full w-full"
+            data-testid="reference-board-surface"
+            onPointerDown={(event) => {
+              const target = event.target;
+              if (target instanceof Element && target.closest('[data-reference-asset="true"]')) {
+                return;
+              }
+              setSelectedId(null);
+            }}
+          >
             <div
               className="absolute bg-[#202020]"
               data-testid="reference-document-frame"
@@ -527,12 +540,25 @@ export const ReferenceStudioWindow = () => {
                 originX={originX}
                 originY={originY}
                 viewScale={viewScale}
+                isSelected={asset.id === selectedId}
                 onSelect={setSelectedId}
                 onPreview={previewAsset}
                 onCommit={updateAsset}
                 onClearPreview={clearAssetPreview}
               />
             ))}
+            <div
+              className="pointer-events-none absolute shadow-[inset_0_0_0_1px_#B8B8B8]"
+              data-testid="reference-document-outline"
+              aria-hidden="true"
+              style={{
+                left: originX,
+                top: originY,
+                width: project.width * viewScale,
+                height: project.height * viewScale,
+                zIndex: 10,
+              }}
+            />
           </div>
         </div>
       </section>

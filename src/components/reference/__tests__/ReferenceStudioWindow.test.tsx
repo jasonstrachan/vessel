@@ -18,11 +18,25 @@ jest.mock('@/components/canvas/GridOverlay', () => ({
 }));
 
 jest.mock('@/components/reference/ReferenceAssetCanvas', () => ({
-  ReferenceAssetCanvas: ({ asset }: { asset: ReferenceAsset }) => (
+  ReferenceAssetCanvas: ({
+    asset,
+    isSelected,
+    onSelect,
+  }: {
+    asset: ReferenceAsset;
+    isSelected: boolean;
+    onSelect: (id: string) => void;
+  }) => (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={asset.name}
       data-testid="reference-asset"
+      data-reference-asset="true"
       data-scale={asset.scale}
       data-opacity={asset.opacity}
+      data-selected={isSelected ? 'true' : 'false'}
+      onPointerDown={() => onSelect(asset.id)}
     />
   ),
 }));
@@ -105,6 +119,8 @@ describe('ReferenceStudioWindow', () => {
     expect(screen.getByRole('button', { name: 'Open controls' }).className).not.toContain('border');
     expect(screen.getByRole('button', { name: 'Open controls' })).toHaveClass('focus-visible:outline');
     expect(screen.getByTestId('reference-document-frame').className).not.toContain('border');
+    expect(screen.getByTestId('reference-document-outline')).toHaveClass('pointer-events-none');
+    expect(screen.getByTestId('reference-document-outline')).toHaveStyle({ zIndex: 10 });
     expect(screen.getByRole('main')).toHaveClass('min-w-0');
     expect(screen.getByRole('main')).not.toHaveClass('min-w-[760px]');
 
@@ -115,6 +131,46 @@ describe('ReferenceStudioWindow', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
     expect(screen.queryByTestId('reference-controls')).not.toBeInTheDocument();
+  });
+
+  it('deselects references from empty board space until an image is selected again', () => {
+    const asset: ReferenceAsset = {
+      id: 'reference-1',
+      name: 'Portrait reference',
+      dataUrl: 'data:image/png;base64,AAAA',
+      naturalWidth: 400,
+      naturalHeight: 600,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      x: 0,
+      y: 0,
+      scale: 1,
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+      flipX: false,
+      flipY: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const connectedSnapshot = { ...snapshot, referenceAssets: [asset] };
+
+    render(<ReferenceStudioWindow />);
+    connectStudio(connectedSnapshot);
+
+    const reference = screen.getByTestId('reference-asset');
+    expect(reference).toHaveAttribute('data-selected', 'true');
+
+    fireEvent.pointerDown(screen.getByTestId('reference-board-surface'));
+    expect(reference).toHaveAttribute('data-selected', 'false');
+
+    connectStudio({
+      ...connectedSnapshot,
+      referenceAssets: [{ ...asset, updatedAt: 2 }],
+    });
+    expect(reference).toHaveAttribute('data-selected', 'false');
+
+    fireEvent.pointerDown(reference);
+    expect(reference).toHaveAttribute('data-selected', 'true');
   });
 
   it('keeps the coordinate under the pointer fixed while wheel zooming', () => {
