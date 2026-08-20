@@ -62,6 +62,25 @@ describe('reference layer management', () => {
     expect(useAppStore.getState().project?.referenceLayerId ?? null).toBe(secondLayerId);
   });
 
+  it('preserves the reference layer when unrelated project metadata changes', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(createLayerInput('Layer 1'));
+    store.setReferenceLayer(layerId);
+
+    store.updateProject({
+      txtShapes: [],
+      updatedAt: new Date(),
+    });
+
+    expect(useAppStore.getState().referenceLayerId).toBe(layerId);
+    expect(useAppStore.getState().project?.referenceLayerId ?? null).toBe(layerId);
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual({
+      kind: 'layer',
+      layerId,
+    });
+    expect(useAppStore.getState().colorPickerPreferReferenceLayer).toBe(true);
+  });
+
   it('clears referenceLayerId when the referenced layer is removed', () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer(createLayerInput('Layer 1'));

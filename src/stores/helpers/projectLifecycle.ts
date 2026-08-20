@@ -196,6 +196,10 @@ export const createProjectLifecycle = ({
     const nextPalette = normalized.palette ?? stateBefore.palette ?? createDefaultPalette();
     const projectWithPalette: Project = {
       ...normalized,
+      // Runtime layers are authoritative, so project normalization cannot validate
+      // reference-layer state during an unrelated metadata update.
+      referenceLayerId: stateBefore.project.referenceLayerId,
+      referenceSamplingSource: stateBefore.project.referenceSamplingSource,
       palette: nextPalette,
     };
 
@@ -204,7 +208,6 @@ export const createProjectLifecycle = ({
       layerGroups: projectWithPalette.layerGroups ?? [],
       palette: nextPalette,
       paletteDirty: false,
-      referenceLayerId: null,
       tools: updateToolsWithPalette(nextPalette, state.tools),
     }));
 
