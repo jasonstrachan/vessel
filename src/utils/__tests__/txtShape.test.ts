@@ -346,6 +346,7 @@ describe('TXT Shape document helpers', () => {
     });
     const shape = createShape({
       content: 'AB',
+      selectionColor: '#ff00ff',
       selections: [{ start: 1, end: 2 }],
       colorRanges: [{ start: 1, end: 2, color: '#336699' }],
     });
@@ -353,7 +354,7 @@ describe('TXT Shape document helpers', () => {
     drawTxtShapesToCanvas(ctx, [shape]);
 
     expect(fillStyles).toContain('#336699');
-    expect(fillStyles).toContain('#ffffff');
+    expect(fillStyles).toContain('#ff00ff');
     expect(shape.selections).toEqual([{ start: 1, end: 2 }]);
   });
 

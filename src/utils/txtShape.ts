@@ -1015,9 +1015,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           ctx.fillStyle = color ?? shape.selectionBackgroundColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
         }
-        const textColor = selected
-          ? color ? getContrastingTxtColor(color) : shape.selectionColor
-          : shape.color;
+        const textColor = selected ? shape.selectionColor : shape.color;
         ctx.save();
         ctx.beginPath();
         ctx.rect(fragmentX, shape.y, width, shape.height);
