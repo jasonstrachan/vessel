@@ -42,7 +42,7 @@ describe('Goblet embed sizing runtime', () => {
     expect(viewerHtml).toContain('viewportBox: getViewportBox()');
   });
 
-  it('keeps semantic text clipped and flowing inside shaped regions in both viewers', () => {
+  it('keeps semantic text stepped, columned, and colour-mapped in both viewers', () => {
     const goblet1 = read('public/goblet/index.html');
     const goblet2 = read('public/goblet2/index.html');
 
@@ -50,7 +50,12 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("shape.regionKind === 'oval'");
       expect(viewer).toContain("shape.regionKind === 'freehand'");
       expect(viewer).toContain('inset.style.shapeOutside = getFlowInsetPath(shape, side);');
-      expect(viewer).toContain("box.style.clipPath = 'ellipse(50% 50% at 50% 50%)';");
+      expect(viewer).toContain('const lineBlockClipPath = getLineBlockClipPath(shape);');
+      expect(viewer).toContain('box.style.clipPath = lineBlockClipPath;');
+      expect(viewer).toContain('box.style.columnCount = String(columns);');
+      expect(viewer).toContain("box.style.columnFill = 'auto';");
+      expect(viewer).toContain('const colorRanges = Array.isArray(shape.colorRanges)');
+      expect(viewer).toContain("span.style.setProperty('--txt-selection-bg'");
       expect(viewer).toContain("box.style.wordBreak = 'normal';");
       expect(viewer).toContain("box.style.overflowWrap = 'break-word';");
       expect(viewer).toContain("box.style.boxSizing = 'border-box';");

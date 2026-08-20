@@ -12,6 +12,8 @@ const createShape = (content: string): TxtShape => ({
   y: 2,
   width: 100,
   height: 40,
+  columns: 1,
+  colorCount: 2,
   content,
   fontFamily: 'mek-mono',
   fontSize: 12,
@@ -78,5 +80,17 @@ describe('TxtShapeDelta', () => {
   it('does not retain a no-op history delta', () => {
     const shape = createShape('SAME');
     expect(createTxtShapeDelta({ before: [shape], after: [{ ...shape }] })).toBeNull();
+  });
+
+  it('retains column and mapped-colour changes as semantic history', () => {
+    const before = [createShape('COLOUR BLOCKS')];
+    const after = [{
+      ...createShape('COLOUR BLOCKS'),
+      columns: 3,
+      colorCount: 5,
+      colorRanges: [{ start: 0, end: 6, color: '#336699' }],
+    }];
+
+    expect(createTxtShapeDelta({ before, after })).not.toBeNull();
   });
 });

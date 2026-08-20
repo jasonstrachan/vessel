@@ -7173,6 +7173,9 @@ describe('projectIO serialize/deserialize layering', () => {
         width: 16,
         height: 16,
         padding: 3,
+        columns: 2,
+        colorCount: 4,
+        colorRanges: [{ start: 1, end: 2, color: '#336699' }],
         regionKind: 'freehand',
         regionPath: [
           { x: 0.5, y: 0 },

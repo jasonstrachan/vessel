@@ -337,6 +337,10 @@ export interface TxtShapeSelectionRange {
   end: number;
 }
 
+export interface TxtShapeColorRange extends TxtShapeSelectionRange {
+  color: string;
+}
+
 export interface LayerOwnedProjectObject {
   layerId: string;
 }
@@ -348,6 +352,9 @@ export interface TxtShape extends LayerOwnedProjectObject {
   width: number;
   height: number;
   padding?: number;
+  columns?: number;
+  colorCount?: number;
+  colorRanges?: TxtShapeColorRange[];
   regionKind?: TxtShapeRegionKind;
   regionPath?: TxtShapeRegionPoint[];
   content: string;

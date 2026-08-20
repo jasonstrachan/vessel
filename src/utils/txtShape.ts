@@ -1,13 +1,14 @@
 import type {
   Layer,
   TxtShape,
+  TxtShapeColorRange,
   TxtShapeColorSource,
   TxtShapeRegionPoint,
   TxtShapeSelectionRange,
   TxtShapeTextAlign,
 } from '@/types';
 import {
-  layoutTxtShapeText,
+  layoutTxtShapeTextPage,
   type TxtShapeLayoutLine,
 } from '@/utils/txtShapeLayout';
 import {
@@ -123,6 +124,36 @@ export const normalizeTxtShapeSelections = (
   }, []);
 };
 
+export const normalizeTxtShapeColorRanges = (
+  ranges: unknown,
+  contentLength: number,
+): TxtShapeColorRange[] => {
+  if (!Array.isArray(ranges) || contentLength <= 0) return [];
+  const normalized = ranges
+    .map((range) => {
+      const candidate = range as Partial<TxtShapeColorRange> | null;
+      const start = clamp(Math.round(finite(candidate?.start, 0)), 0, contentLength);
+      const end = clamp(Math.round(finite(candidate?.end, 0)), 0, contentLength);
+      return start < end && isCssColor(candidate?.color)
+        ? { start, end, color: candidate.color }
+        : null;
+    })
+    .filter((range): range is TxtShapeColorRange => Boolean(range))
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+
+  return normalized.reduce<TxtShapeColorRange[]>((result, range) => {
+    const previous = result.at(-1);
+    const start = Math.max(range.start, previous?.end ?? 0);
+    if (start >= range.end) return result;
+    if (previous && previous.end === start && previous.color === range.color) {
+      previous.end = range.end;
+    } else {
+      result.push({ ...range, start });
+    }
+    return result;
+  }, []);
+};
+
 export const updateTxtShapeSelectionsForContent = (
   previousContent: string,
   nextContent: string,
@@ -220,6 +251,9 @@ export const normalizeTxtShape = (
     0,
     Math.max(0, Math.min(width, height) / 2 - 0.5),
   );
+  const columns = clamp(Math.round(finite(candidate.columns, 1)), 1, 6);
+  const colorCount = clamp(Math.round(finite(candidate.colorCount, 2)), 2, 8);
+  const colorRanges = normalizeTxtShapeColorRanges(candidate.colorRanges, content.length);
 
   return {
     id: typeof candidate.id === 'string' && candidate.id.trim()
@@ -239,6 +273,9 @@ export const normalizeTxtShape = (
     width,
     height,
     ...(padding > 0 ? { padding } : {}),
+    columns,
+    colorCount,
+    ...(colorRanges.length > 0 ? { colorRanges } : {}),
     ...(regionKind === 'rectangle' ? {} : { regionKind }),
     ...(regionPath ? { regionPath } : {}),
     content,
@@ -272,6 +309,14 @@ export const getTxtShapePadding = (
   finite(shape.padding, 0),
   0,
   Math.max(0, Math.min(shape.width, shape.height) / 2 - 0.5),
+);
+
+export const getTxtShapeColumns = (shape: Pick<TxtShape, 'columns'>): number => (
+  clamp(Math.round(finite(shape.columns, 1)), 1, 6)
+);
+
+export const getTxtShapeColorCount = (shape: Pick<TxtShape, 'colorCount'>): number => (
+  clamp(Math.round(finite(shape.colorCount, 2)), 2, 8)
 );
 
 export const getTxtShapeHorizontalSpan = (
@@ -446,16 +491,24 @@ export const isTxtShapeIndexSelected = (
 ): boolean => selections.some((range) => index >= range.start && index < range.end);
 
 export interface TxtShapeSegment {
+  color?: string;
   text: string;
   selected: boolean;
 }
 
-export const splitTxtShapeSegments = (shape: Pick<TxtShape, 'content' | 'selections'>): TxtShapeSegment[] => {
+export const splitTxtShapeSegments = (
+  shape: Pick<TxtShape, 'colorRanges' | 'content' | 'selections'>,
+): TxtShapeSegment[] => {
   if (!shape.content) {
     return [];
   }
   const boundaries = new Set<number>([0, shape.content.length]);
   normalizeTxtShapeSelections(shape.selections, shape.content.length).forEach(({ start, end }) => {
+    boundaries.add(start);
+    boundaries.add(end);
+  });
+  const colorRanges = normalizeTxtShapeColorRanges(shape.colorRanges, shape.content.length);
+  colorRanges.forEach(({ start, end }) => {
     boundaries.add(start);
     boundaries.add(end);
   });
@@ -466,7 +519,11 @@ export const splitTxtShapeSegments = (shape: Pick<TxtShape, 'content' | 'selecti
     const end = ordered[index + 1];
     const text = shape.content.slice(start, end);
     if (!text) continue;
+    const color = colorRanges.find((range) => (
+      start >= range.start && start < range.end
+    ))?.color;
     segments.push({
+      ...(color ? { color } : {}),
       text,
       selected: isTxtShapeIndexSelected(shape.selections, start),
     });
@@ -683,26 +740,17 @@ const drawPreparedHardEdgedTxtShapeText = (
 
 const clipTxtShapeRegion = (ctx: TxtShapeCanvasContext, shape: TxtShape): void => {
   ctx.beginPath();
-  if (shape.regionKind === 'oval') {
-    ctx.ellipse(
-      shape.x + shape.width / 2,
-      shape.y + shape.height / 2,
-      shape.width / 2,
-      shape.height / 2,
-      0,
-      0,
-      Math.PI * 2,
-    );
-  } else if (shape.regionKind === 'freehand' && shape.regionPath?.length) {
-    shape.regionPath.forEach((point, index) => {
-      const x = shape.x + point.x * shape.width;
-      const y = shape.y + point.y * shape.height;
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-  } else {
+  if (shape.regionKind !== 'oval' && shape.regionKind !== 'freehand') {
     ctx.rect(shape.x, shape.y, shape.width, shape.height);
+  } else {
+    getTxtShapeLineBlockBands(shape).forEach((band) => {
+      ctx.rect(
+        shape.x + band.left,
+        shape.y + band.top,
+        band.right - band.left,
+        band.bottom - band.top,
+      );
+    });
   }
   ctx.clip();
 };
@@ -722,6 +770,55 @@ export const getTxtShapeLineHeightPx = (
   return Math.max(1, Math.round(rasterFontSize * shape.lineHeight)) * pixelScale;
 };
 
+export interface TxtShapeLineBlockBand extends TxtShapeHorizontalSpan {
+  bottom: number;
+  top: number;
+}
+
+export const getTxtShapeLineBlockBands = (
+  shape: Pick<
+    TxtShape,
+    'fontFamily' | 'fontSize' | 'height' | 'lineHeight' | 'regionKind' | 'regionPath' | 'width'
+  >,
+): TxtShapeLineBlockBand[] => {
+  if (shape.regionKind !== 'oval' && shape.regionKind !== 'freehand') {
+    return [{ left: 0, right: shape.width, top: 0, bottom: shape.height }];
+  }
+  const lineHeightPx = getTxtShapeLineHeightPx(shape);
+  const bandCount = Math.max(1, Math.ceil(shape.height / lineHeightPx));
+  return Array.from({ length: bandCount }, (_, index) => {
+    const top = index * lineHeightPx;
+    const bottom = Math.min(shape.height, top + lineHeightPx);
+    const span = getTxtShapeHorizontalSpan(shape, top + (bottom - top) / 2);
+    return span && span.right > span.left
+      ? { ...span, top, bottom }
+      : null;
+  }).filter((band): band is TxtShapeLineBlockBand => Boolean(band));
+};
+
+export const getTxtShapeLineBlockClipPath = (
+  shape: Pick<
+    TxtShape,
+    'fontFamily' | 'fontSize' | 'height' | 'lineHeight' | 'regionKind' | 'regionPath' | 'width'
+  >,
+): string | undefined => {
+  if (shape.regionKind !== 'oval' && shape.regionKind !== 'freehand') return undefined;
+  const bands = getTxtShapeLineBlockBands(shape);
+  if (bands.length === 0 || shape.width <= 0 || shape.height <= 0) return undefined;
+  const point = (x: number, y: number): string => (
+    `${x / shape.width * 100}% ${y / shape.height * 100}%`
+  );
+  const left = bands.flatMap((band) => [
+    point(band.left, band.top),
+    point(band.left, band.bottom),
+  ]);
+  const right = [...bands].reverse().flatMap((band) => [
+    point(band.right, band.bottom),
+    point(band.right, band.top),
+  ]);
+  return `polygon(${[...left, ...right].join(', ')})`;
+};
+
 const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
   const padding = getTxtShapePadding(shape);
   const rasterFontSize = getTxtShapeRasterFontSize(shape.fontFamily, shape.fontSize);
@@ -729,50 +826,65 @@ const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
   const lineHeightPx = getTxtShapeLineHeightPx(shape);
   const contentHeight = Math.max(0, shape.height - padding * 2);
   const maxLines = lineHeightPx > 0 ? Math.max(0, Math.floor(contentHeight / lineHeightPx)) : 0;
+  const columns = getTxtShapeColumns(shape);
+  const columnGap = columns > 1 ? lineHeightPx : 0;
+  const contentWidth = Math.max(0, shape.width - padding * 2);
+  const columnWidth = Math.max(0, (contentWidth - columnGap * (columns - 1)) / columns);
   const layoutScale = pixelScale;
   const hasMonoMetrics = measureTxtShapeMonoText(
     shape.fontFamily,
     shape.fontSize,
     '',
   ) !== null;
-  const lines = layoutTxtShapeText({
-    content: shape.content,
-    font: `${rasterFontSize}px ${getTxtShapeFontDefinition(shape.fontFamily).stack}`,
-    lineCount: maxLines,
-    getSpan: (lineIndex) => {
-      const lineTop = padding + lineIndex * lineHeightPx;
-      const lineBottom = lineTop + lineHeightPx;
-      const regionSpan = getTxtShapeHorizontalSpanForBand(shape, lineTop, lineBottom);
-      if (!regionSpan) return null;
-      const left = Math.max(regionSpan.left, padding);
-      const right = Math.min(regionSpan.right, shape.width - padding);
-      return right > left
-        ? { left: left / layoutScale, right: right / layoutScale }
-        : null;
-    },
-    ...(hasMonoMetrics && {
-      measureText: (text: string) => measureTxtShapeMonoText(
-        shape.fontFamily,
-        shape.fontSize,
-        text,
-      ) ?? 0,
-    }),
-  }).map((line) => layoutScale === 1
-    ? line
-    : {
-        ...line,
+  const lines: TxtShapeLayoutLine[] = [];
+  let sourceOffset = 0;
+  for (let columnIndex = 0; columnIndex < columns && sourceOffset < shape.content.length; columnIndex += 1) {
+    const columnLeft = padding + columnIndex * (columnWidth + columnGap);
+    const columnRight = columnLeft + columnWidth;
+    const page = layoutTxtShapeTextPage({
+      content: shape.content.slice(sourceOffset),
+      font: `${rasterFontSize}px ${getTxtShapeFontDefinition(shape.fontFamily).stack}`,
+      lineCount: maxLines,
+      getSpan: (lineIndex) => {
+        const lineTop = padding + lineIndex * lineHeightPx;
+        const lineBottom = lineTop + lineHeightPx;
+        const regionSpan = getTxtShapeHorizontalSpanForBand(shape, lineTop, lineBottom);
+        if (!regionSpan) return null;
+        const left = Math.max(regionSpan.left, columnLeft);
+        const right = Math.min(regionSpan.right, columnRight);
+        return right > left
+          ? { left: left / layoutScale, right: right / layoutScale }
+          : null;
+      },
+      ...(hasMonoMetrics && {
+        measureText: (text: string) => measureTxtShapeMonoText(
+          shape.fontFamily,
+          shape.fontSize,
+          text,
+        ) ?? 0,
+      }),
+    });
+    lines.push(...page.lines.map((line) => ({
+      ...line,
+      columnIndex,
+      sourceStart: line.sourceStart + sourceOffset,
+      sourceEnd: line.sourceEnd + sourceOffset,
+      ...(layoutScale === 1 ? {} : {
         span: {
           left: line.span.left * layoutScale,
           right: line.span.right * layoutScale,
         },
         width: Math.round(line.width) * layoutScale,
-      });
-  const consumedSourceEnd = lines.at(-1)?.sourceEnd ?? 0;
+      }),
+    })));
+    if (page.nextSourceOffset <= 0) break;
+    sourceOffset += page.nextSourceOffset;
+  }
   return {
     lines,
     padding,
     lineHeightPx,
-    didOverflow: shape.content.slice(consumedSourceEnd).trim().length > 0,
+    didOverflow: shape.content.slice(sourceOffset).trim().length > 0,
   };
 };
 
@@ -805,6 +917,9 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       : selectionMode === 'transient' && transientSelectionOverrides.has(shape.id)
         ? normalizeTxtShapeSelections(resolveTxtShapeSelections(shape), shape.content.length)
         : shape.selections;
+    const colorRanges = selectionMode === 'none'
+      ? []
+      : normalizeTxtShapeColorRanges(shape.colorRanges, shape.content.length);
     ctx.save();
     clipTxtShapeRegion(ctx, shape);
     if (shape.backgroundColor) {
@@ -849,8 +964,17 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           boundaries.add(end);
         }
       });
+      colorRanges.forEach((range) => {
+        const start = clamp(range.start - line.sourceStart, 0, line.text.length);
+        const end = clamp(range.end - line.sourceStart, 0, line.text.length);
+        if (start < end) {
+          boundaries.add(start);
+          boundaries.add(end);
+        }
+      });
       const orderedBoundaries = [...boundaries].sort((a, b) => a - b);
       const fragments = [] as Array<{
+        color?: string;
         selected: boolean;
         width: number;
       }>;
@@ -863,7 +987,12 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         const measuredWidth = (endWidth - startWidth) * pixelScale;
         const width = Math.max(0, measuredWidth);
         const selected = isTxtShapeIndexSelected(selections, line.sourceStart + start);
-        fragments.push({ selected, width });
+        const color = selected
+          ? colorRanges.find((range) => (
+              line.sourceStart + start >= range.start && line.sourceStart + start < range.end
+            ))?.color
+          : undefined;
+        fragments.push({ color, selected, width });
       }
 
       const paintedWidth = fragments.reduce((total, fragment) => total + fragment.width, 0);
@@ -881,18 +1010,20 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         lineHeightPx,
       });
       let fragmentX = lineX;
-      fragments.forEach(({ selected, width }) => {
+      fragments.forEach(({ color, selected, width }) => {
         if (selected) {
-          ctx.fillStyle = shape.selectionBackgroundColor;
+          ctx.fillStyle = color ?? shape.selectionBackgroundColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
         }
-        const color = selected ? shape.selectionColor : shape.color;
+        const textColor = selected
+          ? color ? getContrastingTxtColor(color) : shape.selectionColor
+          : shape.color;
         ctx.save();
         ctx.beginPath();
         ctx.rect(fragmentX, shape.y, width, shape.height);
         ctx.clip();
-        ctx.fillStyle = color;
-        if (!preparedPixelText || !drawPreparedHardEdgedTxtShapeText(ctx, preparedPixelText, color)) {
+        ctx.fillStyle = textColor;
+        if (!preparedPixelText || !drawPreparedHardEdgedTxtShapeText(ctx, preparedPixelText, textColor)) {
           ctx.fillText(line.text, lineX, y);
         }
         ctx.restore();

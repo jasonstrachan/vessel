@@ -10,6 +10,8 @@ import {
   getTxtShapeFlowInsetPath,
   getTxtShapeHorizontalSpan,
   getTxtShapeHorizontalSpanForBand,
+  getTxtShapeLineBlockBands,
+  getTxtShapeLineBlockClipPath,
   getTxtShapeLineHeightPx,
   getTxtShapePadding,
   getTxtShapeRegionPathArea,
@@ -44,6 +46,8 @@ const createShape = (updates: Partial<TxtShape> = {}): TxtShape => ({
   y: 6,
   width: 100,
   height: 50,
+  columns: 1,
+  colorCount: 2,
   content: 'LIGHT DARK',
   fontFamily: 'departure-mono',
   fontSize: 11,
@@ -204,6 +208,8 @@ describe('TXT Shape document helpers', () => {
       width: 16,
       height: 16,
       padding: 7.5,
+      columns: 1,
+      colorCount: 2,
     }));
     expect(shapes[1]?.id).toMatch(/^txt-shape-/);
   });
@@ -287,6 +293,12 @@ describe('TXT Shape document helpers', () => {
       right: expect.closeTo(93.30127, 5),
     });
     expect(getTxtShapeClipPath(oval)).toBe('ellipse(50% 50% at 50% 50%)');
+    expect(getTxtShapeLineBlockBands(oval)).toHaveLength(4);
+    expect(getTxtShapeLineBlockClipPath(oval)).toMatch(/^polygon\(/);
+    expect(getTxtShapeLineBlockBands(oval)[0]).toEqual(expect.objectContaining({
+      top: 0,
+      bottom: 13,
+    }));
 
     const triangle = createShape({
       regionKind: 'freehand',
@@ -306,6 +318,43 @@ describe('TXT Shape document helpers', () => {
       { text: 'DARK', selected: true },
     ]);
     expect(segments.map((segment) => segment.text).join('')).toBe('LIGHT DARK');
+  });
+
+  it('keeps mapped colour bands separate from canonical selection geometry', () => {
+    const segments = splitTxtShapeSegments(createShape({
+      colorRanges: [{ start: 6, end: 10, color: '#336699' }],
+    }));
+
+    expect(segments).toEqual([
+      { text: 'LIGHT ', selected: false },
+      { color: '#336699', text: 'DARK', selected: true },
+    ]);
+  });
+
+  it('rasterizes mapped colour bands without changing their selected ranges', () => {
+    const fillStyles: string[] = [];
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(ctx, 'fillStyle', {
+      configurable: true,
+      get: () => fillStyles.at(-1) ?? '',
+      set: (value: string) => fillStyles.push(value),
+    });
+    const shape = createShape({
+      content: 'AB',
+      selections: [{ start: 1, end: 2 }],
+      colorRanges: [{ start: 1, end: 2, color: '#336699' }],
+    });
+
+    drawTxtShapesToCanvas(ctx, [shape]);
+
+    expect(fillStyles).toContain('#336699');
+    expect(fillStyles).toContain('#ffffff');
+    expect(shape.selections).toEqual([{ start: 1, end: 2 }]);
   });
 
   it('uses prepared text across variable shape widths while preserving hard-break offsets', () => {
@@ -339,6 +388,22 @@ describe('TXT Shape document helpers', () => {
     expect(lines.map((line) => line.text)).toEqual(['ONE ', 'SUPERCALIFRAGILISTIC']);
     expect(lines.map((line) => line.lineIndex)).toEqual([0, 1]);
     expect(lines[0]?.width).toBeLessThan(40);
+  });
+
+  it('flows a large text block down each authored column before moving right', () => {
+    const layout = getTxtShapeTextLayout(createShape({
+      width: 90,
+      height: 28,
+      columns: 2,
+      content: 'AA BB CC DD EE FF GG HH',
+      selections: [],
+    }));
+
+    expect(layout.lines.some((line) => line.columnIndex === 0)).toBe(true);
+    expect(layout.lines.some((line) => line.columnIndex === 1)).toBe(true);
+    const firstRightColumnLine = layout.lines.find((line) => line.columnIndex === 1);
+    expect(firstRightColumnLine?.sourceStart).toBeGreaterThan(0);
+    expect(firstRightColumnLine?.span.left).toBeGreaterThan(45);
   });
 
   it('rasterizes the canonical selected range using its authored light and dark colours', () => {
@@ -632,7 +697,7 @@ describe('TXT Shape document helpers', () => {
     expect(clearTxtShapeTransientSelectionOverrides()).toBe(first + 1);
   });
 
-  it('clips and flows raster text inside an oval region', () => {
+  it('clips and flows raster text inside line-height blocks derived from an oval region', () => {
     const ctx = {
       save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
       ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
@@ -642,7 +707,11 @@ describe('TXT Shape document helpers', () => {
 
     drawTxtShapesToCanvas(ctx, [createShape({ regionKind: 'oval', content: 'ABCD', selections: [] })]);
 
-    expect(ctx.ellipse).toHaveBeenCalledWith(55, 31, 50, 25, 0, 0, Math.PI * 2);
+    expect(ctx.ellipse).not.toHaveBeenCalled();
+    expect((ctx.rect as jest.Mock).mock.calls.length).toBeGreaterThanOrEqual(4);
+    expect((ctx.rect as jest.Mock).mock.calls[0][0]).toBeGreaterThan(5);
+    expect((ctx.rect as jest.Mock).mock.calls[0][1]).toBe(6);
+    expect((ctx.rect as jest.Mock).mock.calls[0][3]).toBe(13);
     expect((ctx.fillText as jest.Mock).mock.calls[0][1]).toBeGreaterThan(5);
   });
 

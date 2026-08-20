@@ -10,6 +10,7 @@ import type { TxtShape } from '@/types';
 
 const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((shape) => ({
   ...shape,
+  colorRanges: shape.colorRanges?.map((range) => ({ ...range })),
   regionPath: shape.regionPath?.map((point) => ({ ...point })),
   selections: shape.selections.map((selection) => ({ ...selection })),
 }));
@@ -19,6 +20,15 @@ const rangesEqual = (
   right: readonly { start: number; end: number }[] | undefined,
 ): boolean => (left?.length ?? 0) === (right?.length ?? 0) && (left ?? []).every(
   (range, index) => range.start === right?.[index]?.start && range.end === right?.[index]?.end,
+);
+
+const colorRangesEqual = (
+  left: readonly { start: number; end: number; color: string }[] | undefined,
+  right: readonly { start: number; end: number; color: string }[] | undefined,
+): boolean => (left?.length ?? 0) === (right?.length ?? 0) && (left ?? []).every(
+  (range, index) => range.start === right?.[index]?.start
+    && range.end === right?.[index]?.end
+    && range.color === right?.[index]?.color,
 );
 
 const pathsEqual = (
@@ -36,6 +46,9 @@ const shapesEqual = (left: TxtShape, right: TxtShape): boolean => (
   && left.width === right.width
   && left.height === right.height
   && left.padding === right.padding
+  && left.columns === right.columns
+  && left.colorCount === right.colorCount
+  && colorRangesEqual(left.colorRanges, right.colorRanges)
   && left.regionKind === right.regionKind
   && pathsEqual(left.regionPath, right.regionPath)
   && left.content === right.content
@@ -65,6 +78,7 @@ const estimateTxtShapeBytes = (shapes: readonly TxtShape[]): number => shapes.re
     + 192
     + shape.content.length * 2
     + (shape.regionPath?.length ?? 0) * 16
+    + (shape.colorRanges?.length ?? 0) * 32
     + shape.selections.length * 16,
   0,
 );

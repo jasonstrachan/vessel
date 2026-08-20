@@ -41,6 +41,7 @@ export const captureLayerStructureSnapshot = (
     })),
     txtShapes: state.project?.txtShapes?.map((shape) => ({
       ...shape,
+      colorRanges: shape.colorRanges?.map((range) => ({ ...range })),
       regionPath: shape.regionPath?.map((point) => ({ ...point })),
       selections: shape.selections.map((selection) => ({ ...selection })),
     })) ?? [],

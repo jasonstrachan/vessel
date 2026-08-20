@@ -152,6 +152,7 @@ export const createLayerDuplicateActions = ({
         ?.filter((shape) => shape.layerId === layerId)
         .map((shape, index) => ({
           ...shape,
+          colorRanges: shape.colorRanges?.map((range) => ({ ...range })),
           id: `txt-${duplicatedAt}-${index}-${Math.random()}`,
           layerId: newLayerId,
           regionPath: shape.regionPath?.map((point) => ({ ...point })),

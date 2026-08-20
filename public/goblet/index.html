@@ -260,6 +260,42 @@
           points.push(side === 'left' ? '0% 100%' : '100% 100%');
           return `polygon(${points.join(', ')})`;
         };
+        const getLineBlockClipPath = (shape) => {
+          if (shape.regionKind !== 'oval' && shape.regionKind !== 'freehand') return '';
+          const width = Math.max(1, Number(shape.width) || 1);
+          const height = Math.max(1, Number(shape.height) || 1);
+          const { lineHeight } = getTextFontMetrics(shape);
+          const bands = Array.from(
+            { length: Math.max(1, Math.ceil(height / lineHeight)) },
+            (_, index) => {
+              const top = index * lineHeight;
+              const bottom = Math.min(height, top + lineHeight);
+              const span = getRegionSpan(shape, top + (bottom - top) / 2);
+              return span && span.right > span.left ? { ...span, top, bottom } : null;
+            },
+          ).filter(Boolean);
+          const point = (x, y) => `${x / width * 100}% ${y / height * 100}%`;
+          const left = bands.flatMap((band) => [
+            point(band.left, band.top),
+            point(band.left, band.bottom),
+          ]);
+          const right = [...bands].reverse().flatMap((band) => [
+            point(band.right, band.bottom),
+            point(band.right, band.top),
+          ]);
+          return bands.length ? `polygon(${[...left, ...right].join(', ')})` : '';
+        };
+        const getContrastingColor = (color) => {
+          const match = String(color || '').trim().match(/^#([\da-f]{6})$/i);
+          if (!match) return '#ffffff';
+          const value = Number.parseInt(match[1], 16);
+          const luminance = (
+            0.2126 * ((value >> 16) & 255)
+            + 0.7152 * ((value >> 8) & 255)
+            + 0.0722 * (value & 255)
+          ) / 255;
+          return luminance > 0.52 ? '#000000' : '#ffffff';
+        };
         shapes.forEach((shape) => {
           const owner = layerById.get(String(shape.layerId || ''));
           const hasOwnerTexture = Boolean(
@@ -273,11 +309,9 @@
           box.style.top = `${Number(shape.y) || 0}px`;
           box.style.width = `${Math.max(1, Number(shape.width) || 1)}px`;
           box.style.height = `${Math.max(1, Number(shape.height) || 1)}px`;
-          if (shape.regionKind === 'oval') {
-            box.style.clipPath = 'ellipse(50% 50% at 50% 50%)';
-          } else if (shape.regionKind === 'freehand' && Array.isArray(shape.regionPath) && shape.regionPath.length >= 3) {
-            box.style.clipPath = `polygon(${shape.regionPath.map((point) => `${Math.max(0, Math.min(1, Number(point.x) || 0)) * 100}% ${Math.max(0, Math.min(1, Number(point.y) || 0)) * 100}%`).join(', ')})`;
-          }
+          const { font, fontSize, lineHeight } = getTextFontMetrics(shape);
+          const lineBlockClipPath = getLineBlockClipPath(shape);
+          if (lineBlockClipPath) box.style.clipPath = lineBlockClipPath;
           box.style.overflow = 'hidden';
           box.style.boxSizing = 'border-box';
           box.style.padding = `${getPadding(shape)}px`;
@@ -289,7 +323,10 @@
           box.style.cursor = 'text';
           box.style.color = hasOwnerTexture ? 'transparent' : String(shape.color || '#000000');
           if (!hasOwnerTexture) box.dataset.semanticFallback = 'true';
-          const { font, fontSize, lineHeight } = getTextFontMetrics(shape);
+          const columns = Math.max(1, Math.min(6, Math.round(Number(shape.columns) || 1)));
+          box.style.columnCount = String(columns);
+          box.style.columnGap = `${lineHeight}px`;
+          box.style.columnFill = 'auto';
           box.style.fontFamily = font.stack;
           box.style.fontSize = `${fontSize}px`;
           box.style.lineHeight = `${lineHeight}px`;
@@ -300,13 +337,18 @@
           box.style.setProperty('--txt-selection-bg', String(shape.selectionBackgroundColor || '#000000'));
           const content = String(shape.content || '');
           const ranges = Array.isArray(shape.selections) ? shape.selections : [];
+          const colorRanges = Array.isArray(shape.colorRanges) ? shape.colorRanges : [];
           const boundaries = new Set([0, content.length]);
           ranges.forEach((range) => {
             boundaries.add(Math.max(0, Math.min(content.length, Number(range.start) || 0)));
             boundaries.add(Math.max(0, Math.min(content.length, Number(range.end) || 0)));
           });
+          colorRanges.forEach((range) => {
+            boundaries.add(Math.max(0, Math.min(content.length, Number(range.start) || 0)));
+            boundaries.add(Math.max(0, Math.min(content.length, Number(range.end) || 0)));
+          });
           const ordered = [...boundaries].sort((a, b) => a - b);
-          if (shape.regionKind === 'oval' || shape.regionKind === 'freehand') {
+          if (columns === 1 && (shape.regionKind === 'oval' || shape.regionKind === 'freehand')) {
             ['left', 'right'].forEach((side) => {
               const inset = document.createElement('span');
               inset.dataset.flowInset = side;
@@ -326,6 +368,13 @@
             const selected = ranges.some((range) => start >= Number(range.start) && start < Number(range.end));
             if (selected) {
               span.dataset.canonicalSelected = 'true';
+              const colorRange = colorRanges.find((range) => (
+                start >= Number(range.start) && start < Number(range.end)
+              ));
+              if (colorRange?.color) {
+                span.style.setProperty('--txt-selection-bg', String(colorRange.color));
+                span.style.setProperty('--txt-selection-color', getContrastingColor(colorRange.color));
+              }
             }
             box.appendChild(span);
           }

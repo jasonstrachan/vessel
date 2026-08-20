@@ -13,6 +13,7 @@ export interface TxtShapeLayoutSpan {
 }
 
 export interface TxtShapeLayoutLine {
+  columnIndex: number;
   lineIndex: number;
   sourceStart: number;
   sourceEnd: number;
@@ -27,6 +28,11 @@ interface TxtShapeLayoutOptions {
   lineCount: number;
   getSpan: (lineIndex: number) => TxtShapeLayoutSpan | null;
   measureText?: (text: string) => number;
+}
+
+export interface TxtShapeLayoutPage {
+  lines: TxtShapeLayoutLine[];
+  nextSourceOffset: number;
 }
 
 interface PreparedEntry {
@@ -108,14 +114,14 @@ const isSameCursor = (left: LayoutCursor, right: LayoutCursor): boolean => (
   && left.graphemeIndex === right.graphemeIndex
 );
 
-export const layoutTxtShapeText = ({
+export const layoutTxtShapeTextPage = ({
   content,
   font,
   lineCount,
   getSpan,
   measureText,
-}: TxtShapeLayoutOptions): TxtShapeLayoutLine[] => {
-  if (!content || lineCount <= 0) return [];
+}: TxtShapeLayoutOptions): TxtShapeLayoutPage => {
+  if (!content || lineCount <= 0) return { lines: [], nextSourceOffset: 0 };
 
   if (measureText) {
     const lines: TxtShapeLayoutLine[] = [];
@@ -128,6 +134,7 @@ export const layoutTxtShapeText = ({
 
       if (content[cursor] === '\n') {
         lines.push({
+          columnIndex: 0,
           lineIndex,
           sourceStart: cursor,
           sourceEnd: cursor,
@@ -176,6 +183,7 @@ export const layoutTxtShapeText = ({
       if (acceptedEnd > lineStart) {
         const text = content.slice(lineStart, acceptedEnd);
         lines.push({
+          columnIndex: 0,
           lineIndex,
           sourceStart: lineStart,
           sourceEnd: acceptedEnd,
@@ -186,7 +194,7 @@ export const layoutTxtShapeText = ({
       }
     }
 
-    return lines;
+    return { lines, nextSourceOffset: cursor };
   }
 
   const entry = getPreparedEntry(content, font);
@@ -218,6 +226,7 @@ export const layoutTxtShapeText = ({
         }))
       : materialized.width;
     lines.push({
+      columnIndex: 0,
       lineIndex,
       sourceStart: getSourceOffset(entry, range.start),
       sourceEnd: getSourceOffset(entry, range.end),
@@ -228,5 +237,9 @@ export const layoutTxtShapeText = ({
     cursor = range.end;
   }
 
-  return lines;
+  return { lines, nextSourceOffset: getSourceOffset(entry, cursor) };
 };
+
+export const layoutTxtShapeText = (options: TxtShapeLayoutOptions): TxtShapeLayoutLine[] => (
+  layoutTxtShapeTextPage(options).lines
+);

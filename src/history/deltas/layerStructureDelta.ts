@@ -43,6 +43,7 @@ const cloneLayerGroups = (groups: LayerGroup[]): LayerGroup[] => (
 
 const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((shape) => ({
   ...shape,
+  colorRanges: shape.colorRanges?.map((range) => ({ ...range })),
   regionPath: shape.regionPath?.map((point) => ({ ...point })),
   selections: shape.selections.map((selection) => ({ ...selection })),
 }));
