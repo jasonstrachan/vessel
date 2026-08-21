@@ -7,6 +7,7 @@ import type {
   UiShapeComponentState,
   UiShapePalette,
   UiShapeRegionPoint,
+  UiShapeTheme,
 } from '@/types';
 
 export const UI_SHAPE_MIN_GRID_SIZE = 2;
@@ -25,6 +26,35 @@ export const WINDOWS_31_UI_SHAPE_PALETTE: UiShapePalette = {
   selection: '#000080',
   selectionText: '#ffffff',
 };
+
+export const MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE: UiShapePalette = {
+  face: '#ffffff',
+  highlight: '#ffffff',
+  light: '#ffffff',
+  shadow: '#000000',
+  darkShadow: '#000000',
+  text: '#000000',
+  active: '#000000',
+  activeText: '#ffffff',
+  selection: '#000000',
+  selectionText: '#ffffff',
+};
+
+export const WINDOWS_95_UI_SHAPE_PALETTE: UiShapePalette = {
+  ...WINDOWS_31_UI_SHAPE_PALETTE,
+};
+
+export const UI_SHAPE_THEME_PALETTES: Record<UiShapeTheme, UiShapePalette> = {
+  'macintosh-system-1': MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+  'windows-3.1': WINDOWS_31_UI_SHAPE_PALETTE,
+  'windows-95': WINDOWS_95_UI_SHAPE_PALETTE,
+};
+
+const THEMES = new Set<UiShapeTheme>([
+  'macintosh-system-1',
+  'windows-3.1',
+  'windows-95',
+]);
 
 const COMPONENT_KINDS = new Set<UiShapeComponentKind>([
   'window',
@@ -58,23 +88,24 @@ const normalizeColor = (value: unknown, fallback: string): string => (
     : fallback
 );
 
-const normalizePalette = (value: unknown): UiShapePalette => {
+const normalizePalette = (value: unknown, theme: UiShapeTheme): UiShapePalette => {
   const palette = value && typeof value === 'object'
     ? value as Partial<UiShapePalette>
     : {};
+  const fallback = UI_SHAPE_THEME_PALETTES[theme];
   return {
-    face: normalizeColor(palette.face, WINDOWS_31_UI_SHAPE_PALETTE.face),
-    highlight: normalizeColor(palette.highlight, WINDOWS_31_UI_SHAPE_PALETTE.highlight),
-    light: normalizeColor(palette.light, WINDOWS_31_UI_SHAPE_PALETTE.light),
-    shadow: normalizeColor(palette.shadow, WINDOWS_31_UI_SHAPE_PALETTE.shadow),
-    darkShadow: normalizeColor(palette.darkShadow, WINDOWS_31_UI_SHAPE_PALETTE.darkShadow),
-    text: normalizeColor(palette.text, WINDOWS_31_UI_SHAPE_PALETTE.text),
-    active: normalizeColor(palette.active, WINDOWS_31_UI_SHAPE_PALETTE.active),
-    activeText: normalizeColor(palette.activeText, WINDOWS_31_UI_SHAPE_PALETTE.activeText),
-    selection: normalizeColor(palette.selection, WINDOWS_31_UI_SHAPE_PALETTE.selection),
+    face: normalizeColor(palette.face, fallback.face),
+    highlight: normalizeColor(palette.highlight, fallback.highlight),
+    light: normalizeColor(palette.light, fallback.light),
+    shadow: normalizeColor(palette.shadow, fallback.shadow),
+    darkShadow: normalizeColor(palette.darkShadow, fallback.darkShadow),
+    text: normalizeColor(palette.text, fallback.text),
+    active: normalizeColor(palette.active, fallback.active),
+    activeText: normalizeColor(palette.activeText, fallback.activeText),
+    selection: normalizeColor(palette.selection, fallback.selection),
     selectionText: normalizeColor(
       palette.selectionText,
-      WINDOWS_31_UI_SHAPE_PALETTE.selectionText,
+      fallback.selectionText,
     ),
   };
 };
@@ -185,6 +216,9 @@ export const normalizeUiShapes = (
   return values.slice(0, 1_000).flatMap<UiShape>((value, index) => {
     if (!value || typeof value !== 'object') return [];
     const shape = value as Partial<UiShape>;
+    const theme = THEMES.has(shape.theme as UiShapeTheme)
+      ? shape.theme as UiShapeTheme
+      : 'windows-3.1';
     const id = typeof shape.id === 'string' && shape.id.trim()
       ? shape.id.trim().slice(0, 160)
       : `ui-shape-${index}`;
@@ -224,7 +258,7 @@ export const normalizeUiShapes = (
         UI_SHAPE_MIN_GRID_SIZE,
         UI_SHAPE_MAX_GRID_SIZE,
       ),
-      theme: 'windows-3.1',
+      theme,
       drawMode: shape.drawMode === 'place' ? 'place' : 'fill',
       regionKind: shape.regionKind === 'freehand' ? 'freehand' : 'rectangle',
       ...(regionPath ? { regionPath } : {}),
@@ -237,7 +271,7 @@ export const normalizeUiShapes = (
         || shape.colorSource === 'derived'
           ? shape.colorSource
           : 'default',
-      palette: normalizePalette(shape.palette),
+      palette: normalizePalette(shape.palette, theme),
       components,
       createdAt: finiteNumber(shape.createdAt, now),
       updatedAt: finiteNumber(shape.updatedAt, now),
@@ -478,6 +512,249 @@ const drawScrollbar = (
   }
 };
 
+const drawMacPattern = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: string,
+): void => {
+  ctx.fillStyle = color;
+  for (let row = 0; row < height; row += 2) {
+    for (let column = row % 4 === 0 ? 0 : 1; column < width; column += 2) {
+      ctx.fillRect(x + column, y + row, 1, 1);
+    }
+  }
+};
+
+const drawMacFrame = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+  fill = palette.face,
+): void => {
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = palette.darkShadow;
+  ctx.fillRect(x, y, width, 1);
+  ctx.fillRect(x, y + height - 1, width, 1);
+  ctx.fillRect(x, y, 1, height);
+  ctx.fillRect(x + width - 1, y, 1, height);
+};
+
+const drawMacTitleBar = (
+  ctx: UiShapeCanvasContext,
+  component: Pick<UiShapeComponent, 'height' | 'label' | 'width'>,
+  x: number,
+  y: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+): void => {
+  ctx.fillStyle = palette.face;
+  ctx.fillRect(x, y, component.width, component.height);
+  ctx.fillStyle = palette.darkShadow;
+  ctx.fillRect(x, y, component.width, 1);
+  ctx.fillRect(x, y + component.height - 1, component.width, 1);
+  if (state.active !== false && component.height > 4) {
+    for (let offset = 2; offset < component.height - 1; offset += 2) {
+      ctx.fillRect(x + 1, y + offset, Math.max(0, component.width - 2), 1);
+    }
+  }
+  const closeSize = Math.max(4, Math.min(11, component.height - 4));
+  if (state.active !== false && component.width >= closeSize + 5) {
+    drawMacFrame(
+      ctx,
+      x + 4,
+      y + 2,
+      closeSize,
+      Math.max(3, component.height - 4),
+      palette,
+    );
+  }
+  const label = component.label ?? 'UNTITLED';
+  const scale = component.height >= 15 ? 2 : 1;
+  const labelWidth = label.length * 4 * scale;
+  const labelX = Math.max(x + closeSize + 7, x + Math.floor((component.width - labelWidth) / 2));
+  const labelY = y + Math.max(1, Math.floor((component.height - 5 * scale) / 2));
+  const available = Math.max(0, component.width - (labelX - x) - 3);
+  ctx.fillStyle = palette.face;
+  ctx.fillRect(labelX - 2, y + 1, Math.max(0, Math.min(component.width - (labelX - x), labelWidth + 4)), Math.max(1, component.height - 2));
+  drawBitmapText(ctx, label, labelX, labelY, palette.text, available, scale);
+};
+
+const drawMacScrollbar = (
+  ctx: UiShapeCanvasContext,
+  component: UiShapeComponent,
+  x: number,
+  y: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+  vertical: boolean,
+): void => {
+  drawMacFrame(ctx, x, y, component.width, component.height, palette);
+  drawMacPattern(ctx, x + 1, y + 1, Math.max(0, component.width - 2), Math.max(0, component.height - 2), palette.text);
+  const cross = Math.max(4, Math.min(
+    vertical ? component.width : component.height,
+    vertical ? component.height / 3 : component.width / 3,
+  ));
+  const button = (buttonX: number, buttonY: number, buttonWidth: number, buttonHeight: number) => {
+    drawMacFrame(ctx, buttonX, buttonY, buttonWidth, buttonHeight, palette);
+  };
+  if (vertical) {
+    button(x, y, component.width, cross);
+    button(x, y + component.height - cross, component.width, cross);
+    drawArrow(ctx, 'up', x, y, component.width, cross, palette.text);
+    drawArrow(ctx, 'down', x, y + component.height - cross, component.width, cross, palette.text);
+    const track = Math.max(0, component.height - cross * 2);
+    const thumb = Math.max(cross, Math.round(track * 0.28));
+    const thumbY = y + cross + Math.round(Math.max(0, track - thumb) * clamp(state.value ?? 0.5, 0, 1));
+    drawMacFrame(ctx, x, thumbY, component.width, thumb, palette, state.pressed ? palette.text : palette.face);
+  } else {
+    button(x, y, cross, component.height);
+    button(x + component.width - cross, y, cross, component.height);
+    drawArrow(ctx, 'left', x, y, cross, component.height, palette.text);
+    drawArrow(ctx, 'right', x + component.width - cross, y, cross, component.height, palette.text);
+    const track = Math.max(0, component.width - cross * 2);
+    const thumb = Math.max(cross, Math.round(track * 0.28));
+    const thumbX = x + cross + Math.round(Math.max(0, track - thumb) * clamp(state.value ?? 0.5, 0, 1));
+    drawMacFrame(ctx, thumbX, y, thumb, component.height, palette, state.pressed ? palette.text : palette.face);
+  }
+};
+
+const drawMacComponent = (
+  ctx: UiShapeCanvasContext,
+  component: UiShapeComponent,
+  x: number,
+  y: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+): void => {
+  const { width, height } = component;
+  switch (component.kind) {
+    case 'window': {
+      drawMacFrame(ctx, x, y, width, height, palette);
+      const titleHeight = Math.max(7, Math.min(height, Math.round(Math.min(19, height * 0.24))));
+      drawMacTitleBar(ctx, { ...component, height: titleHeight }, x, y, palette, state);
+      break;
+    }
+    case 'title-bar':
+      drawMacTitleBar(ctx, component, x, y, palette, state);
+      break;
+    case 'menu-strip':
+      ctx.fillStyle = palette.face;
+      ctx.fillRect(x, y, width, height);
+      ctx.fillStyle = palette.text;
+      ctx.fillRect(x, y + height - 1, width, 1);
+      if (width >= 8 && height >= 7) {
+        ctx.fillRect(x + 3, y + 3, 4, 3);
+        ctx.fillRect(x + 4, y + 2, 2, 1);
+        ctx.fillRect(x + 5, y + 1, 2, 1);
+        ctx.fillStyle = palette.face;
+        ctx.fillRect(x + 6, y + 3, 1, 1);
+      }
+      drawBitmapText(ctx, component.label ?? 'FILE EDIT VIEW SPECIAL', x + 11, y + Math.max(1, Math.floor((height - 5) / 2)), palette.text, Math.max(0, width - 13), height >= 14 ? 2 : 1);
+      break;
+    case 'panel':
+      drawMacFrame(ctx, x, y, width, height, palette);
+      break;
+    case 'group-box':
+      drawMacFrame(ctx, x, y + Math.max(3, Math.floor(height * 0.16)), width, Math.max(1, height - Math.max(3, Math.floor(height * 0.16))), palette);
+      ctx.fillStyle = palette.face;
+      ctx.fillRect(x + 3, y, Math.min(width - 6, (component.label ?? 'GROUP').length * 4 + 4), 7);
+      drawBitmapText(ctx, component.label ?? 'GROUP', x + 5, y + 1, palette.text, Math.max(0, width - 10), height >= 20 ? 2 : 1);
+      break;
+    case 'button': {
+      drawMacFrame(ctx, x, y, width, height, palette, state.pressed ? palette.text : palette.face);
+      if (width > 4 && height > 4) {
+        ctx.fillStyle = state.pressed ? palette.activeText : palette.darkShadow;
+        ctx.fillRect(x + 2, y + 2, width - 4, 1);
+        ctx.fillRect(x + 2, y + height - 3, width - 4, 1);
+        ctx.fillRect(x + 2, y + 2, 1, height - 4);
+        ctx.fillRect(x + width - 3, y + 2, 1, height - 4);
+      }
+      drawBitmapText(ctx, component.label ?? 'OK', x + Math.max(3, Math.floor(width * 0.18)), y + Math.max(2, Math.floor((height - 5) / 2)), state.pressed ? palette.activeText : palette.text, Math.max(0, Math.floor(width * 0.64)), height >= 16 ? 2 : 1);
+      break;
+    }
+    case 'scrollbar-horizontal':
+      drawMacScrollbar(ctx, component, x, y, palette, state, false);
+      break;
+    case 'scrollbar-vertical':
+      drawMacScrollbar(ctx, component, x, y, palette, state, true);
+      break;
+    case 'selection-field': {
+      const selected = state.active !== false;
+      drawMacFrame(ctx, x, y, width, height, palette, selected ? palette.selection : palette.face);
+      drawBitmapText(ctx, component.label ?? 'SELECTED', x + 3, y + Math.max(2, Math.floor((height - 5) / 2)), selected ? palette.selectionText : palette.text, Math.max(0, width - 6), height >= 16 ? 2 : 1);
+      break;
+    }
+    case 'separator':
+      ctx.fillStyle = palette.text;
+      ctx.fillRect(x, y + Math.floor(height / 2), width, 1);
+      break;
+    case 'resize-corner':
+      ctx.fillStyle = palette.face;
+      ctx.fillRect(x, y, width, height);
+      ctx.strokeStyle = palette.text;
+      for (let offset = 2; offset < Math.min(width, height); offset += 3) {
+        ctx.beginPath();
+        ctx.moveTo(x + width - offset, y + height - 1);
+        ctx.lineTo(x + width - 1, y + height - offset);
+        ctx.stroke();
+      }
+      break;
+  }
+};
+
+const drawWindows95TitleBar = (
+  ctx: UiShapeCanvasContext,
+  component: Pick<UiShapeComponent, 'height' | 'label' | 'width'>,
+  x: number,
+  y: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+): void => {
+  const active = state.active !== false;
+  ctx.fillStyle = active ? palette.active : palette.shadow;
+  ctx.fillRect(x, y, component.width, component.height);
+  const controlSize = Math.max(5, Math.min(component.height - 2, 14));
+  let controlX = x + component.width - controlSize;
+  (['close', 'max', 'min'] as const).forEach((kind) => {
+    drawRaisedBox(ctx, controlX, y + 1, controlSize - 1, Math.max(3, component.height - 2), palette);
+    ctx.fillStyle = palette.darkShadow;
+    ctx.strokeStyle = palette.darkShadow;
+    if (kind === 'min') ctx.fillRect(controlX + 3, y + component.height - 5, Math.max(1, controlSize - 7), 1);
+    if (kind === 'max') {
+      const iconWidth = Math.max(1, controlSize - 7);
+      const iconHeight = Math.max(1, component.height - 7);
+      ctx.fillRect(controlX + 3, y + 3, iconWidth, 1);
+      ctx.fillRect(controlX + 3, y + 3, 1, iconHeight);
+      ctx.fillRect(controlX + 3, y + iconHeight + 2, iconWidth, 1);
+      ctx.fillRect(controlX + iconWidth + 2, y + 3, 1, iconHeight);
+    }
+    if (kind === 'close') {
+      const glyphSize = Math.max(1, Math.min(controlSize - 6, component.height - 6));
+      for (let offset = 0; offset < glyphSize; offset += 1) {
+        ctx.fillRect(controlX + 3 + offset, y + 3 + offset, 1, 1);
+        ctx.fillRect(controlX + 3 + glyphSize - offset - 1, y + 3 + offset, 1, 1);
+      }
+    }
+    controlX -= controlSize;
+  });
+  if (component.width > controlSize * 3 + 8) {
+    const iconSize = Math.max(5, controlSize - 3);
+    ctx.fillStyle = palette.face;
+    ctx.fillRect(x + 2, y + 2, iconSize, Math.max(5, component.height - 4));
+    ctx.fillStyle = palette.darkShadow;
+    ctx.fillRect(x + 3, y + 3, Math.max(2, iconSize - 3), 1);
+    ctx.fillRect(x + 3, y + 3, 1, Math.max(2, component.height - 7));
+  }
+  drawBitmapText(ctx, component.label ?? 'WINDOW', x + controlSize + 2, y + Math.max(1, Math.floor((component.height - 5) / 2)), active ? palette.activeText : palette.text, Math.max(0, component.width - controlSize * 4 - 4), component.height >= 14 ? 2 : 1);
+};
+
 export const drawUiShapeComponent = (
   ctx: UiShapeCanvasContext,
   component: UiShapeComponent,
@@ -485,6 +762,7 @@ export const drawUiShapeComponent = (
   originY: number,
   palette: UiShapePalette,
   stateOverride?: UiShapeComponentState,
+  theme: UiShapeTheme = 'windows-3.1',
 ): void => {
   const x = Math.round(originX + component.x);
   const y = Math.round(originY + component.y);
@@ -492,6 +770,25 @@ export const drawUiShapeComponent = (
   const { width, height } = component;
   ctx.save();
   ctx.imageSmoothingEnabled = false;
+  if (theme === 'macintosh-system-1') {
+    drawMacComponent(ctx, component, x, y, palette, state);
+    ctx.restore();
+    return;
+  }
+  if (theme === 'windows-95' && (component.kind === 'window' || component.kind === 'title-bar')) {
+    if (component.kind === 'window') {
+      drawRaisedBox(ctx, x, y, width, height, palette);
+      const titleHeight = Math.max(7, Math.min(height - 4, Math.round(Math.min(18, height * 0.24))));
+      drawWindows95TitleBar(ctx, { ...component, height: titleHeight }, x + 2, y + 2, palette, state);
+      if (state.open !== false && height > titleHeight + 5) {
+        drawRecessedBox(ctx, x + 2, y + titleHeight + 2, Math.max(1, width - 4), Math.max(1, height - titleHeight - 4), palette, palette.face);
+      }
+    } else {
+      drawWindows95TitleBar(ctx, component, x, y, palette, state);
+    }
+    ctx.restore();
+    return;
+  }
   switch (component.kind) {
     case 'window': {
       if (state.open === false) {
@@ -647,6 +944,7 @@ export const drawUiShape = (
       shape.y,
       shape.palette,
       stateOverrides?.get(component.id),
+      shape.theme,
     );
   });
   ctx.restore();

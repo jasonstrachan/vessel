@@ -2,6 +2,7 @@ import type { UiShape } from '@/types';
 import {
   cloneUiShapes,
   drawUiShape,
+  MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
   normalizeUiShapes,
   WINDOWS_31_UI_SHAPE_PALETTE,
 } from '@/utils/uiShape';
@@ -83,6 +84,17 @@ describe('UI Shape document helpers', () => {
     }));
   });
 
+  it('preserves supported themes and applies their default role palette', () => {
+    const [shape] = normalizeUiShapes([{
+      ...createShape(),
+      theme: 'macintosh-system-1',
+      palette: {},
+    }], 100, 80, [{ id: 'layer-1', layerType: 'normal', order: 0 }]);
+
+    expect(shape?.theme).toBe('macintosh-system-1');
+    expect(shape?.palette).toEqual(MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE);
+  });
+
   it('renders an override without mutating the canonical portrait state', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 100;
@@ -96,6 +108,35 @@ describe('UI Shape document helpers', () => {
 
     expect(shape).toEqual(before[0]);
     expect(context!.getImageData(0, 0, 100, 100).data.some((value) => value !== 0)).toBe(true);
+  });
+
+  it('renders System 1 and Windows 95 as distinct component grammars', () => {
+    const render = (shape: UiShape) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 100;
+      canvas.height = 100;
+      const context = canvas.getContext('2d')!;
+      drawUiShape(context, shape);
+      return [...context.getImageData(0, 0, 100, 100).data];
+    };
+    const windowComponent = {
+      ...createShape().components[0]!,
+      kind: 'window' as const,
+      width: 48,
+      height: 72,
+      canonicalState: { active: true, open: true },
+    };
+    const mac = createShape({
+      theme: 'macintosh-system-1',
+      palette: { ...MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE },
+      components: [windowComponent],
+    });
+    const windows95 = createShape({
+      theme: 'windows-95',
+      components: [windowComponent],
+    });
+
+    expect(render(mac)).not.toEqual(render(windows95));
   });
 
   it('deep-clones component state and animation', () => {
