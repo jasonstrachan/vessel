@@ -56,11 +56,30 @@ describe('BrushCursor', () => {
   });
 
   beforeEach(() => {
+    jest.mocked(HTMLCanvasElement.prototype.getContext).mockClear();
     Object.values(context).forEach((value) => {
       if (typeof value === 'function' && 'mockClear' in value) {
         value.mockClear();
       }
     });
+  });
+
+  it('reuses one 2D context across cursor animation frames', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+
+    render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{ kind: 'shape', shape: BrushShape.SQUARE, pixelSize: 20 }}
+        zoom={1}
+        visible
+      />
+    );
+
+    ref.current?.setPosition(110, 70);
+    ref.current?.setPosition(120, 80);
+
+    expect(HTMLCanvasElement.prototype.getContext).toHaveBeenCalledTimes(1);
   });
 
   it('renders the cursor on a canvas overlay', () => {

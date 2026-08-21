@@ -77,10 +77,6 @@ export const useDrawingCanvasUiEffects = ({
         frameCount += 1;
         if (frameCount % 3 === 0) {
           setMarchingAntsOffset((prev) => (prev + 1) % 10);
-          const ctx = getDrawContext();
-          if (ctx) {
-            draw(ctx, viewTransformRef.current);
-          }
         }
         animationId = requestAnimationFrame(animate);
       };
@@ -93,7 +89,7 @@ export const useDrawingCanvasUiEffects = ({
         cancelAnimationFrame(animationId);
       }
     };
-  }, [draw, floatingPaste, getDrawContext, selectionEnd, selectionStart, setMarchingAntsOffset, viewTransformRef]);
+  }, [floatingPaste, selectionEnd, selectionStart, setMarchingAntsOffset]);
 
   useEffect(() => {
     const handleInteractionReset = () => {

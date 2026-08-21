@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { useDrawingCanvasUiEffects } from '@/components/canvas/useDrawingCanvasUiEffects';
 import { CANVAS_FRAME_UPDATE_EVENT } from '@/hooks/canvas/handlers/animation/animationRuntime';
 
@@ -142,6 +142,63 @@ describe('useDrawingCanvasUiEffects', () => {
 
     expect(draw).toHaveBeenCalledTimes(2);
     expect(draw).toHaveBeenLastCalledWith(ctx, { scale: 1, offsetX: 0, offsetY: 0 });
+  });
+
+  it('lets the marching-ants state update own the redraw', () => {
+    const canvas = document.createElement('canvas');
+    const wrapper = document.createElement('div');
+    const ctx = {} as CanvasRenderingContext2D;
+    const draw = jest.fn();
+    const setMarchingAntsOffset = jest.fn();
+    const animationFrames: FrameRequestCallback[] = [];
+    const requestAnimationFrameSpy = jest
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      });
+    const cancelAnimationFrameSpy = jest
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
+
+    getContextMock.mockReturnValue(ctx);
+    canvas.getContext = getContextMock as typeof canvas.getContext;
+
+    const { unmount } = renderHook(() =>
+      useDrawingCanvasUiEffects({
+        selectionStart: { x: 1, y: 1 },
+        selectionEnd: { x: 10, y: 10 },
+        floatingPaste: null,
+        setMarchingAntsOffset,
+        canvasRef: { current: canvas },
+        draw,
+        viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+        defaultCursorStyle: 'default',
+        isPointerInsideCanvas: () => true,
+        setCursorStyle: jest.fn(),
+        setShowBrushCursor: jest.fn(),
+        wrapperRef: { current: wrapper },
+        mode: 'IDLE',
+        canvasZoom: 1,
+        canvasOffsetX: 0,
+        canvasOffsetY: 0,
+        needsRedraw: 0,
+      })
+    );
+    draw.mockClear();
+
+    for (let frame = 0; frame < 3; frame += 1) {
+      const callback = animationFrames.shift();
+      expect(callback).toBeDefined();
+      act(() => callback?.(frame * 16));
+    }
+
+    expect(setMarchingAntsOffset).toHaveBeenCalledTimes(1);
+    expect(draw).not.toHaveBeenCalled();
+
+    unmount();
+    requestAnimationFrameSpy.mockRestore();
+    cancelAnimationFrameSpy.mockRestore();
   });
 
   it('leaves legacy color-cycle frame updates to the redraw coalescer', () => {

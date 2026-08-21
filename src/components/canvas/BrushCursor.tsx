@@ -398,6 +398,7 @@ const BrushCursorComponent = ({
   participant,
 }: BrushCursorProps, ref: React.Ref<BrushCursorHandle>) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const contextRef = useRef<CanvasRenderingContext2D | null>(null);
   const lastPositionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const hasPositionRef = useRef(false);
   const strokeLineRotationRef = useRef(0);
@@ -416,10 +417,11 @@ const BrushCursorComponent = ({
       return;
     }
 
-    const ctx = canvas.getContext('2d');
+    const ctx = contextRef.current ?? canvas.getContext('2d');
     if (!ctx) {
       return;
     }
+    contextRef.current = ctx;
 
     const width = canvas.width / dprRef.current;
     const height = canvas.height / dprRef.current;
