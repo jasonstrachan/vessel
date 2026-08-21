@@ -1,5 +1,6 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import type { Layer } from '@/types';
+import type { Layer, UiShape } from '@/types';
+import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
 import type { ColorCycleBrushLayerSnapshot } from '@/lib/colorCycle/document/brushPersistenceAdapter';
 import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
@@ -29,6 +30,42 @@ const makeCanvas = () => {
     getContext: jest.fn(() => ctx),
   } as unknown as HTMLCanvasElement;
 };
+
+const createTestUiShape = (layerId: string, id = 'ui-owned'): UiShape => ({
+  id,
+  layerId,
+  x: 0,
+  y: 0,
+  width: 16,
+  height: 48,
+  gridSize: 8,
+  theme: 'windows-3.1',
+  drawMode: 'place',
+  regionKind: 'rectangle',
+  componentKinds: ['scrollbar-vertical'],
+  colorSource: 'default',
+  palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
+  components: [{
+    id: `${id}-scroll`,
+    kind: 'scrollbar-vertical',
+    x: 0,
+    y: 0,
+    width: 16,
+    height: 48,
+    canonicalState: { value: 0.25 },
+    animation: {
+      enabled: true,
+      kind: 'scroll',
+      speed: 0.2,
+      direction: 1,
+      rangeStart: 0.1,
+      rangeEnd: 0.9,
+      phaseOffset: 0,
+    },
+  }],
+  createdAt: 1,
+  updatedAt: 1,
+});
 
 const mockBrush = {
   getCanvas: jest.fn(() => makeCanvas()),
@@ -1742,6 +1779,18 @@ describe('layers slice integration', () => {
 
     useAppStore.getState().setSelectedLayerIds([layerA, layerC]);
     useAppStore.getState().setActiveLayer(layerC, { preserveSelection: true });
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? {
+            ...state.project,
+            uiShapes: [
+              createTestUiShape(layerA, 'ui-remove-a'),
+              createTestUiShape(layerB, 'ui-keep-b'),
+              createTestUiShape(layerC, 'ui-remove-c'),
+            ],
+          }
+        : state.project,
+    }));
 
     useAppStore.getState().removeLayers([layerA, layerC]);
 
@@ -1749,6 +1798,9 @@ describe('layers slice integration', () => {
     expect(nextState.layers.map((layer) => layer.id)).toEqual([layerB]);
     expect(nextState.activeLayerId).toBe(layerB);
     expect(nextState.selectedLayerIds).toEqual([layerB]);
+    expect(nextState.project?.uiShapes).toEqual([
+      expect.objectContaining({ id: 'ui-keep-b', layerId: layerB }),
+    ]);
   });
 
   it('duplicates a regular layer and focuses the copy', () => {
@@ -1778,6 +1830,7 @@ describe('layers slice integration', () => {
               createdAt: 1,
               updatedAt: 1,
             }],
+            uiShapes: [createTestUiShape(originalId)],
           }
         : null,
     }));
@@ -1804,6 +1857,18 @@ describe('layers slice integration', () => {
     );
     expect(nextState.project?.txtShapes?.map((shape) => shape.id)).toEqual(
       expect.arrayContaining(['txt-owned', expect.not.stringMatching(/^txt-owned$/)]),
+    );
+    const duplicatedUiShape = nextState.project?.uiShapes?.find(
+      (shape) => shape.layerId === duplicatedId,
+    );
+    expect(nextState.project?.uiShapes).toHaveLength(2);
+    expect(duplicatedUiShape).toEqual(expect.objectContaining({
+      componentKinds: ['scrollbar-vertical'],
+    }));
+    expect(duplicatedUiShape?.id).not.toBe('ui-owned');
+    expect(duplicatedUiShape?.components[0]?.id).not.toBe('ui-owned-scroll');
+    expect(duplicatedUiShape?.components[0]?.animation).not.toBe(
+      nextState.project?.uiShapes?.find((shape) => shape.id === 'ui-owned')?.components[0]?.animation,
     );
   });
 
@@ -2135,6 +2200,17 @@ describe('layers slice integration', () => {
     const bottomId = store.addLayer(createNormalLayerInput('Bottom'));
     const topId = store.addLayer(createNormalLayerInput('Top'));
     store.setReferenceLayer(topId);
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? {
+            ...state.project,
+            uiShapes: [
+              createTestUiShape(bottomId, 'ui-bottom'),
+              createTestUiShape(topId, 'ui-top'),
+            ],
+          }
+        : state.project,
+    }));
 
     const mergedId = useAppStore.getState().mergeLayers([bottomId, topId]);
     createElementSpy.mockRestore();
@@ -2149,6 +2225,8 @@ describe('layers slice integration', () => {
     expect(nextState.selectedLayerIds).toEqual([mergedId]);
     expect(nextState.referenceLayerId).toBeNull();
     expect(nextState.project?.referenceSamplingSource).toEqual({ kind: 'canvas' });
+    expect(nextState.project?.uiShapes).toHaveLength(2);
+    expect(nextState.project?.uiShapes?.every((shape) => shape.layerId === mergedId)).toBe(true);
   });
 
   it('merges color-cycle layers without flattening their canonical payloads', () => {

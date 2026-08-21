@@ -9,6 +9,7 @@ export const GOBLET_PROPERTY_MINIFY_MAP = {
   settings: 's',
   layers: 'l',
   textShapes: 'ts',
+  uiShapes: 'uis',
   adjustmentGroups: 'ag',
   adjustment: 'adj',
   effect: 'ef',

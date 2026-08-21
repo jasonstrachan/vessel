@@ -24,6 +24,7 @@ import { gunzipSync } from 'fflate';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
 import { drawTxtShapesForLayer, normalizeTxtShapes } from '@/utils/txtShape';
+import { drawUiShapesForLayer, normalizeUiShapes } from '@/utils/uiShape';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
@@ -475,6 +476,7 @@ export interface VesselProject {
     palette?: PaletteState;
     canvasShape?: Project['canvasShape'];
     txtShapes?: Project['txtShapes'];
+    uiShapes?: Project['uiShapes'];
     viewState?: Project['viewState'];
   };
   binaries?: {
@@ -4183,6 +4185,7 @@ export function generateProjectThumbnail(
     }
 
     drawTxtShapesForLayer(fullCtx, project.txtShapes, layer.id);
+    drawUiShapesForLayer(fullCtx, project.uiShapes, layer.id);
   }
 
   fullCtx.globalAlpha = 1;
@@ -4582,6 +4585,12 @@ const buildSerializedProjectArtifacts = async (
       canvasShape: project.canvasShape,
       txtShapes: normalizeTxtShapes(
         project.txtShapes,
+        project.width,
+        project.height,
+        layersToSerialize,
+      ),
+      uiShapes: normalizeUiShapes(
+        project.uiShapes,
         project.width,
         project.height,
         layersToSerialize,
@@ -5879,6 +5888,12 @@ export async function deserializeProjectWithReport(
       serializedProject.height,
       layers,
     ),
+    uiShapes: normalizeUiShapes(
+      serializedProject.uiShapes,
+      serializedProject.width,
+      serializedProject.height,
+      layers,
+    ),
     viewState: serializedProject.viewState
       ? {
           zoom: toFiniteNumber(serializedProject.viewState.zoom, 1),
@@ -6783,6 +6798,7 @@ export async function exportProjectAsPNG(
     }
 
     drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
+    drawUiShapesForLayer(ctx, project.uiShapes, layer.id);
   }
 
   ctx.globalAlpha = 1;

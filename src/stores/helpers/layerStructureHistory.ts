@@ -6,6 +6,7 @@ import {
   type LayerStructureSnapshot,
 } from '@/history/deltas/layerStructureDelta';
 import { logError } from '@/utils/debug';
+import { cloneUiShapes } from '@/utils/uiShape';
 import { createHistorySnapshotFromState } from './historyLifecycle';
 
 type AppState = import('../useAppStore').AppState;
@@ -45,6 +46,7 @@ export const captureLayerStructureSnapshot = (
       regionPath: shape.regionPath?.map((point) => ({ ...point })),
       selections: shape.selections.map((selection) => ({ ...selection })),
     })) ?? [],
+    uiShapes: cloneUiShapes(state.project?.uiShapes ?? []),
   };
 };
 

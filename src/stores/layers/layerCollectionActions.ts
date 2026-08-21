@@ -389,6 +389,7 @@ export const createLayerCollectionActions = ({
             referenceLayerId: nextReferenceLayerId,
             referenceSamplingSource: nextSource,
             txtShapes: state.project.txtShapes?.filter((shape) => shape.layerId !== id) ?? [],
+            uiShapes: state.project.uiShapes?.filter((shape) => shape.layerId !== id) ?? [],
             updatedAt: new Date(),
           }
         : state.project,

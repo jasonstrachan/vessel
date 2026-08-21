@@ -5,6 +5,7 @@ import type {
   LayerGroup,
   ReferenceSamplingSource,
   TxtShape,
+  UiShape,
 } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { cloneAdjustmentLayerData } from '@/lib/adjustmentLayers';
@@ -17,6 +18,7 @@ import {
   type PreparedHistoryDelta,
 } from '@/history/actionTypes';
 import { restoreOwnedProperties } from '@/history/storeStateCompensation';
+import { cloneUiShapes } from '@/utils/uiShape';
 
 export interface LayerStructureSnapshot {
   snapshot: CanvasSnapshot;
@@ -25,6 +27,7 @@ export interface LayerStructureSnapshot {
   referenceSamplingSource?: ReferenceSamplingSource;
   layerGroups: LayerGroup[];
   txtShapes?: TxtShape[];
+  uiShapes?: UiShape[];
 }
 
 const cloneImageData = (imageData: ImageData | null | undefined): ImageData | null => {
@@ -168,6 +171,7 @@ class LayerStructureDelta implements HistoryDelta {
         !Object.is(current.project?.layers, projectSnapshot?.layers) ||
         !Object.is(current.project?.layerGroups, projectSnapshot?.layerGroups) ||
         !Object.is(current.project?.txtShapes, projectSnapshot?.txtShapes) ||
+        !Object.is(current.project?.uiShapes, projectSnapshot?.uiShapes) ||
         current.project?.referenceLayerId !== projectSnapshot?.referenceLayerId ||
         !Object.is(
           current.project?.referenceSamplingSource,
@@ -193,6 +197,7 @@ class LayerStructureDelta implements HistoryDelta {
                 'layers',
                 'layerGroups',
                 'txtShapes',
+                'uiShapes',
                 'referenceLayerId',
                 'referenceSamplingSource',
                 'updatedAt',
@@ -261,6 +266,7 @@ class LayerStructureDelta implements HistoryDelta {
           layers: resolvedProjectLayers,
           layerGroups: cloneLayerGroups(target.layerGroups),
           ...(target.txtShapes ? { txtShapes: cloneTxtShapes(target.txtShapes) } : {}),
+          ...(target.uiShapes ? { uiShapes: cloneUiShapes(target.uiShapes) } : {}),
           updatedAt: new Date(),
         },
       };

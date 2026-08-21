@@ -3,10 +3,11 @@ import type React from 'react';
 import { useCallback, useEffect } from 'react';
 import { BrushShape, type Layer, type Project } from '@/types';
 import {
-  composeTxtShapesIntoLayerSource,
   drawCachedTxtShapesForLayer,
   getTxtShapesForLayer,
 } from '@/utils/txtShape';
+import { composeLayerOwnedProjectObjectsIntoLayerSource } from '@/utils/layerOwnedProjectObjects';
+import { drawUiShapesForLayer, getUiShapesForLayer } from '@/utils/uiShape';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
 import type { RenderStaticCompositeOptions } from '@/stores/slices/layersSlice';
 import {
@@ -25,7 +26,7 @@ import {
 import { useTxtShapeRasterInvalidation } from './useTxtShapeRasterInvalidation';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
-  project: Pick<Project, 'width' | 'height' | 'txtShapes'> | null;
+  project: Pick<Project, 'width' | 'height' | 'txtShapes' | 'uiShapes'> | null;
   layers: Layer[];
   activeLayerId: string | null;
   brushShape: BrushShape | undefined;
@@ -195,9 +196,9 @@ export const useDrawingCanvasCompositeBuffers = ({
               source = getLayerTransferCanvas(member, layerTransferCacheRef.current);
             }
             if (member.layerType === 'normal') {
-              source = composeTxtShapesIntoLayerSource({
+              source = composeLayerOwnedProjectObjectsIntoLayerSource({
                 source,
-                shapes: project.txtShapes,
+                project,
                 layerId: member.id,
                 width: project.width,
                 height: project.height,
@@ -320,6 +321,11 @@ export const useDrawingCanvasCompositeBuffers = ({
             project.width,
             project.height,
           );
+          drewLayer = true;
+        }
+        const layerUiShapes = getUiShapesForLayer(project.uiShapes, layer.id);
+        if (layerUiShapes.length > 0) {
+          drawUiShapesForLayer(targetCtx, project.uiShapes, layer.id);
           drewLayer = true;
         }
       }

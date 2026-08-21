@@ -16,10 +16,10 @@ import {
 import type { Layer, Project } from '@/types';
 import { logError } from '@/utils/debug';
 import {
-  composeTxtShapesIntoLayerSource,
-  drawTxtShapesForLayer,
-  getTxtShapesForLayer,
-} from '@/utils/txtShape';
+  composeLayerOwnedProjectObjectsIntoLayerSource,
+  drawLayerOwnedProjectObjectsForLayer,
+  hasLayerOwnedProjectObjects,
+} from '@/utils/layerOwnedProjectObjects';
 
 export interface LayerCompositeDrawingDeps {
   createLayerTransferCanvas: (
@@ -109,7 +109,7 @@ export const createLayerCompositeDrawing = ({
         if (source) {
           ctx.drawImage(source, 0, 0);
         }
-        drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
+        drawLayerOwnedProjectObjectsForLayer(ctx, project, layer.id);
       }
 
       if (shouldPartialDraw) {
@@ -177,9 +177,9 @@ export const createLayerCompositeDrawing = ({
           source = transfer as CanvasImageSource | null;
         }
         if (layer.layerType === 'normal') {
-          source = composeTxtShapesIntoLayerSource({
+          source = composeLayerOwnedProjectObjectsIntoLayerSource({
             source,
-            shapes: project.txtShapes,
+            project,
             layerId: layer.id,
             width: project.width,
             height: project.height,
@@ -254,9 +254,9 @@ export const createLayerCompositeDrawing = ({
           source = layerCanvas as CanvasImageSource | null;
         }
         const liveOverlay = liveLayerOverlay?.layerId === layer.id ? liveLayerOverlay.canvas : null;
-        const hasTxtShapes = layer.layerType === 'normal'
-          && getTxtShapesForLayer(project.txtShapes, layer.id).length > 0;
-        if (!source && !liveOverlay && !hasTxtShapes) return;
+        const hasSemanticObjects = layer.layerType === 'normal'
+          && hasLayerOwnedProjectObjects(project, layer.id);
+        if (!source && !liveOverlay && !hasSemanticObjects) return;
         targetContext.globalCompositeOperation = layer.blendMode;
         targetContext.globalAlpha = layer.opacity;
         if (source && (!liveOverlay || liveLayerOverlay?.mode !== 'replace')) {
@@ -264,7 +264,7 @@ export const createLayerCompositeDrawing = ({
         }
         if (liveOverlay) targetContext.drawImage(liveOverlay, 0, 0);
         if (layer.layerType === 'normal') {
-          drawTxtShapesForLayer(targetContext, project.txtShapes, layer.id);
+          drawLayerOwnedProjectObjectsForLayer(targetContext, project, layer.id);
         }
       };
 

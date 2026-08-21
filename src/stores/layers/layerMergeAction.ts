@@ -494,6 +494,13 @@ export const mergeLayersAction = (
                     : shape
                 ))
               : state.project.txtShapes,
+            uiShapes: mergedLayer.layerType === 'normal'
+              ? (state.project.uiShapes ?? []).map((shape) => (
+                  uniqueIds.includes(shape.layerId)
+                    ? { ...shape, layerId: mergedLayerId as string, updatedAt: Date.now() }
+                    : shape
+                ))
+              : state.project.uiShapes,
             updatedAt: new Date(),
           }
         : state.project,

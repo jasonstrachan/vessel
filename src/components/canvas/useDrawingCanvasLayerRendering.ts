@@ -2,10 +2,9 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import { useCallback } from 'react';
 import { BrushShape, type Layer, type Project } from '@/types';
-import {
-  composeTxtShapesIntoLayerSource,
-  drawCachedTxtShapesForLayer,
-} from '@/utils/txtShape';
+import { drawCachedTxtShapesForLayer } from '@/utils/txtShape';
+import { composeLayerOwnedProjectObjectsIntoLayerSource } from '@/utils/layerOwnedProjectObjects';
+import { drawUiShapesForLayer } from '@/utils/uiShape';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
 import {
   getSequentialLayerRenderCanvas,
@@ -21,7 +20,10 @@ import {
 } from './resolveColorCyclePresentation';
 
 interface UseDrawingCanvasLayerRenderingOptions {
-  project: Pick<Project, 'width' | 'height' | 'backgroundColor' | 'txtShapes'> | null;
+  project: Pick<
+    Project,
+    'width' | 'height' | 'backgroundColor' | 'txtShapes' | 'uiShapes'
+  > | null;
   layers: Layer[];
   activeLayerId: string | null;
   brushShape: BrushShape | undefined;
@@ -105,9 +107,9 @@ export const useDrawingCanvasLayerRendering = ({
               source = getLayerTransferCanvas(member, layerTransferCacheRef.current);
             }
             if (member.layerType === 'normal') {
-              source = composeTxtShapesIntoLayerSource({
+              source = composeLayerOwnedProjectObjectsIntoLayerSource({
                 source,
-                shapes: project.txtShapes,
+                project,
                 layerId: member.id,
                 width: project.width,
                 height: project.height,
@@ -189,6 +191,7 @@ export const useDrawingCanvasLayerRendering = ({
           project.width,
           project.height,
         );
+        drawUiShapesForLayer(ctx, project.uiShapes, layer.id);
       }
 
       ctx.restore();

@@ -1,5 +1,8 @@
 import type { InterlaceGroupSettings, Layer, Project } from '@/types';
-import { drawTxtShapesForLayer, getTxtShapesForLayer } from '@/utils/txtShape';
+import {
+  drawLayerOwnedProjectObjectsForLayer,
+  hasLayerOwnedProjectObjects,
+} from '@/utils/layerOwnedProjectObjects';
 import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import {
   coalesceColorCycleDirtyRects,
@@ -498,17 +501,17 @@ export const repaintStaticCompositeSegment = ({
       }
     }
 
-    const hasTxtShapes = layer.layerType === 'normal'
-      && getTxtShapesForLayer(project.txtShapes, layer.id).length > 0;
-    if (!source && !hasTxtShapes) continue;
+    const hasSemanticObjects = layer.layerType === 'normal'
+      && hasLayerOwnedProjectObjects(project, layer.id);
+    if (!source && !hasSemanticObjects) continue;
 
     ctx.globalCompositeOperation = layer.blendMode;
     ctx.globalAlpha = layer.opacity;
     if (source) ctx.drawImage(source, 0, 0);
     if (layer.layerType === 'normal') {
-      drawTxtShapesForLayer(
+      drawLayerOwnedProjectObjectsForLayer(
         ctx,
-        project.txtShapes,
+        project,
         layer.id,
         shouldPartialRepaint ? normalizedDirtyRects : undefined,
       );

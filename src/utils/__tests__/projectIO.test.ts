@@ -51,6 +51,7 @@ import {
   type ColorCycleBrushSerializedStateRuntimeReader,
 } from '@/lib/colorCycle/document';
 import { BrushShape, type Layer, type Project } from '@/types';
+import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 
 jest.setTimeout(20000);
@@ -7196,6 +7197,41 @@ describe('projectIO serialize/deserialize layering', () => {
         createdAt: 1,
         updatedAt: 2,
       }],
+      uiShapes: [{
+        id: 'ui-1',
+        layerId: 'layer-1',
+        x: 0,
+        y: 0,
+        width: 2,
+        height: 2,
+        gridSize: 2,
+        theme: 'windows-3.1',
+        drawMode: 'place',
+        regionKind: 'rectangle',
+        componentKinds: ['scrollbar-vertical'],
+        colorSource: 'default',
+        palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
+        components: [{
+          id: 'ui-scroll-1',
+          kind: 'scrollbar-vertical',
+          x: 0,
+          y: 0,
+          width: 2,
+          height: 2,
+          canonicalState: { value: 0.25 },
+          animation: {
+            enabled: true,
+            kind: 'scroll',
+            speed: 0.2,
+            direction: 1,
+            rangeStart: 0.1,
+            rangeEnd: 0.9,
+            phaseOffset: 0,
+          },
+        }],
+        createdAt: 1,
+        updatedAt: 2,
+      }],
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
       updatedAt: new Date('2025-01-01T00:00:00.000Z'),
     };
@@ -7210,6 +7246,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(readPixel(restoredLayer2.imageData, 0, 0)).toEqual([0, 0, 255, 255]);
     expect(restored.canvasShape?.kind).toBe('circle');
     expect(restored.txtShapes).toEqual(project.txtShapes);
+    expect(restored.uiShapes).toEqual(project.uiShapes);
     expect(restored.referenceLayerId).toBe('layer-2');
   });
 

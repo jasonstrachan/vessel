@@ -10,6 +10,7 @@ import type {
   LayerAlignmentSettings,
   Project,
   TxtShape,
+  UiShape,
   WebGLExportBundleFormat,
 } from '@/types';
 
@@ -336,6 +337,7 @@ export interface WebGLExportMetadata {
     transparencyBackgroundMode: 'checker' | 'gray';
   };
   textShapes?: TxtShape[];
+  uiShapes?: UiShape[];
   layers: WebGLLayerMetadata[];
   interlaceGroups?: WebGLSerializedInterlaceGroup[];
   adjustmentGroups?: WebGLSerializedAdjustmentGroup[];

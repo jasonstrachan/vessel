@@ -1,6 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn, recordBreadcrumb } from '@/utils/debug';
-import { composeTxtShapesIntoLayerSource } from '@/utils/txtShape';
+import { composeLayerOwnedProjectObjectsIntoLayerSource } from '@/utils/layerOwnedProjectObjects';
 import {
   createDevDebugOverlayLogger,
   isDevDebugOverlayEnabled,
@@ -327,9 +327,9 @@ export const drawVisibleCompositeStack = ({
             source = layer.framebuffer as CanvasImageSource;
           }
           if (layer.layerType === 'normal') {
-            source = composeTxtShapesIntoLayerSource({
+            source = composeLayerOwnedProjectObjectsIntoLayerSource({
               source,
-              shapes: storeState.project?.txtShapes,
+              project: storeState.project ?? {},
               layerId: layer.id,
               width: projectWidth,
               height: projectHeight,

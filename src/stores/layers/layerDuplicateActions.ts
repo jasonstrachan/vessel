@@ -160,6 +160,24 @@ export const createLayerDuplicateActions = ({
           createdAt: duplicatedAt,
           updatedAt: duplicatedAt,
         })) ?? [];
+      const duplicatedUiShapes = state.project?.uiShapes
+        ?.filter((shape) => shape.layerId === layerId)
+        .map((shape, index) => ({
+          ...shape,
+          id: `ui-shape-${duplicatedAt}-${index}-${Math.random()}`,
+          layerId: newLayerId,
+          palette: { ...shape.palette },
+          regionPath: shape.regionPath?.map((point) => ({ ...point })),
+          componentKinds: [...shape.componentKinds],
+          components: shape.components.map((component, componentIndex) => ({
+            ...component,
+            id: `ui-component-${duplicatedAt}-${componentIndex}-${Math.random()}`,
+            canonicalState: { ...component.canonicalState },
+            animation: component.animation ? { ...component.animation } : undefined,
+          })),
+          createdAt: duplicatedAt,
+          updatedAt: duplicatedAt,
+        })) ?? [];
 
       return {
         layers: syncedLayers,
@@ -169,6 +187,7 @@ export const createLayerDuplicateActions = ({
           ? {
               ...state.project,
               txtShapes: [...(state.project.txtShapes ?? []), ...duplicatedTxtShapes],
+              uiShapes: [...(state.project.uiShapes ?? []), ...duplicatedUiShapes],
               updatedAt: new Date(),
             }
           : state.project,

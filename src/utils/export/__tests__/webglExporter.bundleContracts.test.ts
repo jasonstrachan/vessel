@@ -8,6 +8,7 @@ import {
 } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { DisplayFilterConfig, ExportContainerLayout, Layer, Project } from '@/types';
+import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
 
 const downloadedBlobs: Blob[] = [];
 
@@ -405,6 +406,56 @@ describe('webglExporter bundle contracts', () => {
         value: originalFonts,
       });
     }
+  });
+
+  it('exports canonical UI Shape state and animation metadata', async () => {
+    const project = createProject();
+    const ownerLayer = createNormalLayer('layer-ui', 0);
+    project.layers = [ownerLayer];
+    project.uiShapes = [{
+      id: 'ui-portrait',
+      layerId: ownerLayer.id,
+      x: 4,
+      y: 5,
+      width: 16,
+      height: 24,
+      gridSize: 8,
+      theme: 'windows-3.1',
+      drawMode: 'place',
+      regionKind: 'rectangle',
+      componentKinds: ['scrollbar-vertical'],
+      colorSource: 'default',
+      palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
+      components: [{
+        id: 'scroll',
+        kind: 'scrollbar-vertical',
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 24,
+        canonicalState: { value: 0.32 },
+        animation: {
+          enabled: true,
+          kind: 'scroll',
+          speed: 0.18,
+          direction: -1,
+          rangeStart: 0.12,
+          rangeEnd: 0.88,
+          phaseOffset: 0.4,
+        },
+      }],
+      createdAt: 1,
+      updatedAt: 2,
+    }];
+
+    const metadata = await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      layers: [ownerLayer],
+      bundleFormat: 'json',
+    });
+
+    expect(metadata.uiShapes).toEqual(project.uiShapes);
   });
 
   it('serializes ordered Interlace groups into Goblet metadata', async () => {

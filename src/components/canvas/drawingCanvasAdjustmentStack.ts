@@ -11,7 +11,7 @@ import {
 } from '@/stores/layers/adjustmentLayerCompositor';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
-import { composeTxtShapesIntoLayerSource } from '@/utils/txtShape';
+import { composeLayerOwnedProjectObjectsIntoLayerSource } from '@/utils/layerOwnedProjectObjects';
 
 import {
   getColorCyclePresentationCanvas,
@@ -123,9 +123,9 @@ export const drawAdjustmentCompositeStack = ({
       source = layer.framebuffer as CanvasImageSource;
     }
     if (layer.layerType === 'normal') {
-      source = composeTxtShapesIntoLayerSource({
+      source = composeLayerOwnedProjectObjectsIntoLayerSource({
         source,
-        shapes: project?.txtShapes,
+        project: project ?? {},
         layerId: layer.id,
         width: project?.width ?? renderRect.width,
         height: project?.height ?? renderRect.height,
@@ -188,9 +188,9 @@ export const drawAdjustmentCompositeStack = ({
           source = member.framebuffer as CanvasImageSource;
         }
         if (member.layerType === 'normal') {
-          source = composeTxtShapesIntoLayerSource({
+          source = composeLayerOwnedProjectObjectsIntoLayerSource({
             source,
-            shapes: project?.txtShapes,
+            project: project ?? {},
             layerId: member.id,
             width: project?.width ?? renderRect.width,
             height: project?.height ?? renderRect.height,

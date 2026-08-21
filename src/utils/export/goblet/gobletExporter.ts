@@ -105,6 +105,11 @@ import {
   normalizeTxtShapes,
 } from '@/utils/txtShape';
 import {
+  createUiShapeLayerRasterCache,
+  getUiShapesForLayer,
+  normalizeUiShapes,
+} from '@/utils/uiShape';
+import {
   ensureTxtShapeFontsReadyForRaster,
   inlineTxtShapeFontsInGobletTemplate,
 } from '@/utils/export/goblet/gobletTxtShapeFonts';
@@ -274,6 +279,12 @@ export const buildProjectGobletArtifact = async (
     options.project.height,
     options.layers,
   );
+  const normalizedUiShapes = normalizeUiShapes(
+    options.project.uiShapes,
+    options.project.width,
+    options.project.height,
+    options.layers,
+  );
   await ensureTxtShapeFontsReadyForRaster(normalizedTextShapes);
   throwIfExportAborted(options.signal);
   const metricsMap = new Map<string, LayerExportMetrics>();
@@ -282,6 +293,7 @@ export const buildProjectGobletArtifact = async (
       metricsMap.set(
         layer.id,
         getTxtShapesForLayer(normalizedTextShapes, layer.id).length > 0
+          || getUiShapesForLayer(normalizedUiShapes, layer.id).length > 0
           ? {
               surfaceSize: { width: options.project.width, height: options.project.height },
               contentBounds: {
@@ -415,10 +427,21 @@ export const buildProjectGobletArtifact = async (
           height: options.project.height,
         })
       : null;
+    const uiRasterCache = layer.layerType === 'normal'
+      ? createUiShapeLayerRasterCache({
+          layer: txtRasterCache
+            ? { ...layer, framebuffer: txtRasterCache, imageData: null }
+            : layer,
+          shapes: normalizedUiShapes,
+          width: options.project.width,
+          height: options.project.height,
+        })
+      : null;
+    const semanticRasterCache = uiRasterCache ?? txtRasterCache;
     let textureInfo = layer.layerType === 'adjustment'
       ? undefined
-      : await captureLayerTextureInfo(txtRasterCache
-          ? { ...layer, framebuffer: txtRasterCache, imageData: null }
+      : await captureLayerTextureInfo(semanticRasterCache
+          ? { ...layer, framebuffer: semanticRasterCache, imageData: null }
           : layer);
     throwIfExportAborted(options.signal);
     let texture = textureInfo?.dataUrl;
@@ -972,6 +995,9 @@ export const buildProjectGobletArtifact = async (
       transparencyBackgroundMode,
     },
     textShapes: normalizedTextShapes.filter((shape) => (
+      metadataLayers.some((layer) => layer.id === shape.layerId && layer.visible !== false)
+    )),
+    uiShapes: normalizedUiShapes.filter((shape) => (
       metadataLayers.some((layer) => layer.id === shape.layerId && layer.visible !== false)
     )),
     layers: metadataLayers,

@@ -345,6 +345,92 @@ export interface LayerOwnedProjectObject {
   layerId: string;
 }
 
+export type UiShapeTheme = 'windows-3.1';
+export type UiShapeDrawMode = 'place' | 'fill';
+export type UiShapeColorSource = 'default' | 'manual' | 'sample' | 'derived';
+export type UiShapeRegionKind = 'rectangle' | 'freehand';
+export type UiShapeComponentKind =
+  | 'window'
+  | 'title-bar'
+  | 'menu-strip'
+  | 'panel'
+  | 'group-box'
+  | 'button'
+  | 'scrollbar-horizontal'
+  | 'scrollbar-vertical'
+  | 'selection-field'
+  | 'separator'
+  | 'resize-corner';
+
+export interface UiShapeRegionPoint {
+  x: number;
+  y: number;
+}
+
+export interface UiShapePalette {
+  face: string;
+  highlight: string;
+  light: string;
+  shadow: string;
+  darkShadow: string;
+  text: string;
+  active: string;
+  activeText: string;
+  selection: string;
+  selectionText: string;
+}
+
+export interface UiShapeComponentState {
+  active?: boolean;
+  checked?: boolean;
+  open?: boolean;
+  pressed?: boolean;
+  value?: number;
+}
+
+export type UiShapeAnimationKind = 'scroll' | 'press' | 'activate' | 'open-close';
+
+export interface UiShapeComponentAnimation {
+  enabled: boolean;
+  kind: UiShapeAnimationKind;
+  speed: number;
+  direction: -1 | 1;
+  rangeStart: number;
+  rangeEnd: number;
+  phaseOffset: number;
+}
+
+export interface UiShapeComponent {
+  id: string;
+  kind: UiShapeComponentKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label?: string;
+  canonicalState: UiShapeComponentState;
+  animation?: UiShapeComponentAnimation;
+}
+
+export interface UiShape extends LayerOwnedProjectObject {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  gridSize: number;
+  theme: UiShapeTheme;
+  drawMode: UiShapeDrawMode;
+  regionKind: UiShapeRegionKind;
+  regionPath?: UiShapeRegionPoint[];
+  componentKinds: UiShapeComponentKind[];
+  colorSource: UiShapeColorSource;
+  palette: UiShapePalette;
+  components: UiShapeComponent[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface TxtShape extends LayerOwnedProjectObject {
   id: string;
   x: number;
@@ -464,6 +550,7 @@ export interface Project {
   defaultCustomBrushId?: string | null;
   canvasShape?: CanvasShape;
   txtShapes?: TxtShape[];
+  uiShapes?: UiShape[];
   // Canvas view state
   viewState?: {
     zoom: number;
