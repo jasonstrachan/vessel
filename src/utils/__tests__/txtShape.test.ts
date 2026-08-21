@@ -562,6 +562,87 @@ describe('TXT Shape document helpers', () => {
     getImageData.mockRestore();
   });
 
+  it('preserves glyph alpha across every cached mask fragment', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 50;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    const drawImage = jest.spyOn(ctx!, 'drawImage');
+    const measureMonoText = jest
+      .spyOn(txtShapeMonoRenderer, 'measureTxtShapeMonoText')
+      .mockImplementation((_family, _fontSize, text) => text.length * 5);
+    const drawMonoTextMask = jest
+      .spyOn(txtShapeMonoRenderer, 'drawTxtShapeMonoTextMask')
+      .mockImplementation(({ context }) => {
+        context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+        return true;
+      });
+    const originalCreateElement = document.createElement.bind(document);
+    const createElement = jest.spyOn(document, 'createElement').mockImplementation((
+      tagName: string,
+      options?: ElementCreationOptions,
+    ) => {
+      const element = originalCreateElement(tagName, options);
+      if (!(element instanceof HTMLCanvasElement)) return element;
+      const maskContext = element.getContext('2d');
+      if (!maskContext) return element;
+      const baseFillRect = maskContext.fillRect.bind(maskContext);
+      jest.spyOn(maskContext, 'fillRect').mockImplementation((x, y, width, height) => {
+        if (maskContext.globalCompositeOperation === 'source-atop') return;
+        if (maskContext.globalCompositeOperation !== 'source-in') {
+          baseFillRect(x, y, width, height);
+          return;
+        }
+        const before = maskContext.getImageData(0, 0, element.width, element.height);
+        const after = maskContext.createImageData(element.width, element.height);
+        const left = Math.max(0, Math.floor(x));
+        const top = Math.max(0, Math.floor(y));
+        const right = Math.min(element.width, Math.ceil(x + width));
+        const bottom = Math.min(element.height, Math.ceil(y + height));
+        for (let pixelY = top; pixelY < bottom; pixelY += 1) {
+          for (let pixelX = left; pixelX < right; pixelX += 1) {
+            const offset = (pixelY * element.width + pixelX) * 4;
+            after.data[offset + 3] = before.data[offset + 3];
+          }
+        }
+        maskContext.putImageData(after, 0, 0);
+      });
+      return element;
+    });
+
+    try {
+      drawTxtShapesToCanvas(ctx!, [createShape({
+        content: 'XYZ',
+        fontFamily: 'departure-mono',
+        fontSize: 33,
+        selections: [{ start: 1, end: 2 }],
+      })]);
+
+      const alphaCounts = drawImage.mock.calls.map((call) => {
+        const source = call[0] as HTMLCanvasElement;
+        const sourceContext = source.getContext('2d');
+        expect(sourceContext).not.toBeNull();
+        const pixels = sourceContext!.getImageData(
+          call[1] as number,
+          call[2] as number,
+          call[3] as number,
+          call[4] as number,
+        ).data;
+        return pixels.reduce((count, _value, index) => (
+          index % 4 === 3 && pixels[index] > 0 ? count + 1 : count
+        ), 0);
+      });
+
+      expect(alphaCounts).toHaveLength(3);
+      expect(alphaCounts.every((count) => count > 0)).toBe(true);
+    } finally {
+      createElement.mockRestore();
+      drawMonoTextMask.mockRestore();
+      measureMonoText.mockRestore();
+    }
+  });
+
   it('reuses a monochrome glyph mask while playback selections change', () => {
     const measureMonoText = jest
       .spyOn(txtShapeMonoRenderer, 'measureTxtShapeMonoText')

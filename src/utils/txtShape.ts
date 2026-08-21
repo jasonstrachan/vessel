@@ -755,7 +755,8 @@ const drawPreparedHardEdgedTxtShapeText = (
   const sourceWidth = sourceRight - sourceLeft;
   const destinationX = x + sourceLeft * pixelScale;
   const destinationWidth = sourceWidth * pixelScale;
-  context.globalCompositeOperation = 'source-in';
+  // Preserve glyph alpha outside this fragment so the cached strike remains reusable.
+  context.globalCompositeOperation = 'source-atop';
   context.fillStyle = color;
   context.fillRect(sourceLeft, 0, sourceWidth, maskHeight);
   context.globalCompositeOperation = 'source-over';
