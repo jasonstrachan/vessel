@@ -53,6 +53,8 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('const lineBlockClipPath = getLineBlockClipPath(shape);');
       expect(viewer).toContain('box.style.clipPath = lineBlockClipPath;');
       expect(viewer).toContain('box.style.columnCount = String(columns);');
+      expect(viewer).toContain('const columnGap = columns > 1 ? lineHeight / 2 : 0;');
+      expect(viewer).toContain('box.style.columnGap = `${columnGap}px`;');
       expect(viewer).toContain("box.style.columnFill = 'auto';");
       expect(viewer).toContain('const colorRanges = Array.isArray(shape.colorRanges)');
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-bg'");
@@ -70,6 +72,11 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('const updateSelectionFillGaps = () => {');
       expect(viewer).toContain("box.style.setProperty('--txt-selection-fill-gap'");
       expect(viewer).toContain('if (document.fonts?.ready)');
+      expect(viewer).toContain("overlay.style.position = 'absolute';");
+      expect(viewer).toContain('overlay.style.left = `${rect.left + window.scrollX}px`;');
+      expect(viewer).toContain('overlay.style.top = `${rect.top + window.scrollY}px`;');
+      expect(viewer).toContain("window.addEventListener('resize', position);");
+      expect(viewer).toContain("window.removeEventListener('resize', position);");
       expect(viewer).not.toContain('getContrastingColor');
       expect(viewer).not.toContain('::highlight(vessel-txt-shape-selection)');
       expect(viewer).not.toContain("span.removeAttribute('data-canonical-selected')");

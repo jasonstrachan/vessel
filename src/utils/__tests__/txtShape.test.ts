@@ -406,7 +406,8 @@ describe('TXT Shape document helpers', () => {
     expect(layout.lines.some((line) => line.columnIndex === 1)).toBe(true);
     const firstRightColumnLine = layout.lines.find((line) => line.columnIndex === 1);
     expect(firstRightColumnLine?.sourceStart).toBeGreaterThan(0);
-    expect(firstRightColumnLine?.span.left).toBeGreaterThan(45);
+    expect(layout.columnGap).toBe(layout.lineHeightPx / 2);
+    expect(firstRightColumnLine?.span.left).toBeCloseTo((90 + layout.columnGap) / 2);
   });
 
   it('rasterizes the canonical selected range using its authored light and dark colours', () => {

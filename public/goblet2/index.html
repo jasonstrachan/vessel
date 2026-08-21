@@ -128,7 +128,10 @@
       const summarizeMetadata = () => {};
 
       let txtShapeResizeObserver = null;
+      let txtShapePositionCleanup = null;
       const mountTxtShapes = (metadata) => {
+        txtShapePositionCleanup?.();
+        txtShapePositionCleanup = null;
         txtShapeResizeObserver?.disconnect();
         txtShapeResizeObserver = null;
         document.getElementById('vessel-txt-shapes')?.remove();
@@ -190,7 +193,7 @@
         if (!(canvas instanceof HTMLCanvasElement) || shapes.length === 0) return;
         const overlay = document.createElement('div');
         overlay.id = 'vessel-txt-shapes';
-        overlay.style.position = 'fixed';
+        overlay.style.position = 'absolute';
         overlay.style.pointerEvents = 'none';
         overlay.style.zIndex = '10';
         const stage = document.createElement('div');
@@ -313,8 +316,9 @@
           box.style.color = hasOwnerTexture ? 'transparent' : String(shape.color || '#000000');
           if (!hasOwnerTexture) box.dataset.semanticFallback = 'true';
           const columns = Math.max(1, Math.min(6, Math.round(Number(shape.columns) || 1)));
+          const columnGap = columns > 1 ? lineHeight / 2 : 0;
           box.style.columnCount = String(columns);
-          box.style.columnGap = `${lineHeight}px`;
+          box.style.columnGap = `${columnGap}px`;
           box.style.columnFill = 'auto';
           box.style.fontFamily = font.stack;
           box.style.fontSize = `${fontSize}px`;
@@ -398,14 +402,16 @@
           const rect = canvas.getBoundingClientRect();
           const width = Math.max(1, Number(metadata.project?.width) || 1);
           const height = Math.max(1, Number(metadata.project?.height) || 1);
-          overlay.style.left = `${rect.left}px`;
-          overlay.style.top = `${rect.top}px`;
+          overlay.style.left = `${rect.left + window.scrollX}px`;
+          overlay.style.top = `${rect.top + window.scrollY}px`;
           overlay.style.width = `${rect.width}px`;
           overlay.style.height = `${rect.height}px`;
           stage.style.transform = `scale(${rect.width / width}, ${rect.height / height})`;
           updateSelectionFillGaps();
         };
         position();
+        window.addEventListener('resize', position);
+        txtShapePositionCleanup = () => window.removeEventListener('resize', position);
         if (typeof ResizeObserver === 'function') {
           txtShapeResizeObserver = new ResizeObserver(position);
           txtShapeResizeObserver.observe(canvas);

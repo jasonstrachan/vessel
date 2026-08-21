@@ -797,6 +797,7 @@ export interface TxtShapeTextLayout {
   lines: TxtShapeLayoutLine[];
   padding: number;
   lineHeightPx: number;
+  columnGap: number;
   didOverflow: boolean;
 }
 
@@ -865,7 +866,7 @@ const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
   const contentHeight = Math.max(0, shape.height - padding * 2);
   const maxLines = lineHeightPx > 0 ? Math.max(0, Math.floor(contentHeight / lineHeightPx)) : 0;
   const columns = getTxtShapeColumns(shape);
-  const columnGap = columns > 1 ? lineHeightPx : 0;
+  const columnGap = columns > 1 ? lineHeightPx / 2 : 0;
   const contentWidth = Math.max(0, shape.width - padding * 2);
   const columnWidth = Math.max(0, (contentWidth - columnGap * (columns - 1)) / columns);
   const layoutScale = pixelScale;
@@ -922,6 +923,7 @@ const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
     lines,
     padding,
     lineHeightPx,
+    columnGap,
     didOverflow: shape.content.slice(sourceOffset).trim().length > 0,
   };
 };
