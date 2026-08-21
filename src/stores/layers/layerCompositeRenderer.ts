@@ -506,7 +506,12 @@ export const repaintStaticCompositeSegment = ({
     ctx.globalAlpha = layer.opacity;
     if (source) ctx.drawImage(source, 0, 0);
     if (layer.layerType === 'normal') {
-      drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
+      drawTxtShapesForLayer(
+        ctx,
+        project.txtShapes,
+        layer.id,
+        shouldPartialRepaint ? normalizedDirtyRects : undefined,
+      );
     }
   }
 

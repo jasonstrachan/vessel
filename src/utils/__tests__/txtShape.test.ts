@@ -3,6 +3,8 @@ import {
   clearTxtShapeTransientSelectionOverrides,
   composeTxtShapesIntoLayerSource,
   drawCanonicalTxtShapesToCanvas,
+  drawCachedTxtShapesForLayer,
+  drawTxtShapesForLayer,
   drawTxtShapesToCanvas,
   drawUnselectedTxtShapesToCanvas,
   getContrastingTxtColor,
@@ -456,6 +458,52 @@ describe('TXT Shape document helpers', () => {
     );
   });
 
+  it('limits a dirty layer repaint to intersecting TXT Shapes and text lines', () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
+    } as unknown as CanvasRenderingContext2D;
+    const multiline = createShape({
+      id: 'multiline',
+      content: 'FIRST\nSECOND',
+      selections: [],
+      width: 100,
+      height: 50,
+    });
+    const secondLine = getTxtShapeTextLayout(multiline).lines[1]!;
+    const secondLineY = multiline.y
+      + getTxtShapePadding(multiline)
+      + secondLine.lineIndex * getTxtShapeLineHeightPx(multiline);
+    const overlapping = createShape({
+      id: 'overlapping',
+      x: multiline.x + 2,
+      y: secondLineY,
+      content: 'OVERLAP',
+      selections: [],
+    });
+    const distant = createShape({
+      id: 'distant',
+      x: 180,
+      y: 120,
+      content: 'DISTANT',
+      selections: [],
+    });
+
+    drawTxtShapesForLayer(ctx, [multiline, overlapping, distant], 'layer-1', [{
+      x: multiline.x,
+      y: secondLineY,
+      width: 30,
+      height: getTxtShapeLineHeightPx(multiline),
+    }]);
+
+    expect(ctx.fillText).toHaveBeenCalledWith('SECOND', multiline.x, Math.round(secondLineY));
+    expect(ctx.fillText).toHaveBeenCalledWith('OVERLAP', overlapping.x, Math.round(secondLineY));
+    expect(ctx.fillText).not.toHaveBeenCalledWith('FIRST', expect.any(Number), expect.any(Number));
+    expect(ctx.fillText).not.toHaveBeenCalledWith('DISTANT', expect.any(Number), expect.any(Number));
+  });
+
   it('collapses pixel-font coverage to fully on or fully off document pixels', () => {
     const pixels = new Uint8ClampedArray([
       80, 90, 100, 0,
@@ -494,16 +542,19 @@ describe('TXT Shape document helpers', () => {
 
     drawTxtShapesToCanvas(ctx!, [shape]);
 
-    const drawCall = drawImage.mock.calls[0] as unknown as [
-      CanvasImageSource, number, number, number, number, number, number, number, number,
-    ];
-    expect(drawCall[1]).toBe(0);
-    expect(drawCall[2]).toBe(0);
-    expect(drawCall[5]).toBe(-1);
-    expect(drawCall[6]).toBe(6);
-    expect(drawCall[7]).toBe(drawCall[3] * 3);
-    expect(drawCall[8]).toBe(drawCall[4] * 3);
     expect(drawImage).toHaveBeenCalledTimes(3);
+    const drawCalls = drawImage.mock.calls as unknown as Array<[
+      CanvasImageSource, number, number, number, number, number, number, number, number,
+    ]>;
+    expect(new Set(drawCalls.map((call) => call[1])).size).toBe(3);
+    drawCalls.forEach((drawCall) => {
+      expect(drawCall[1]).toBeGreaterThan(0);
+      expect(drawCall[2]).toBe(0);
+      expect(drawCall[5]).toBeGreaterThanOrEqual(5);
+      expect(drawCall[6]).toBe(6);
+      expect(drawCall[7]).toBe(drawCall[3] * 3);
+      expect(drawCall[8]).toBe(drawCall[4] * 3);
+    });
     expect(getImageData).toHaveBeenCalledTimes(1);
     expect(fillText).not.toHaveBeenCalled();
     expect(getTxtShapeLineHeightPx(shape)).toBe(39);
@@ -601,6 +652,40 @@ describe('TXT Shape document helpers', () => {
       canvasCreationsAfterFirstFrame,
     );
     createElement.mockRestore();
+  });
+
+  it('blits an unchanged live layer raster without redrawing its text', () => {
+    const shapes = [createShape({ id: 'txt-blit-cache', layerId: 'blit-cache-layer' })];
+    const target = document.createElement('canvas');
+    target.width = 100;
+    target.height = 50;
+    const targetContext = target.getContext('2d');
+    expect(targetContext).not.toBeNull();
+    const clearRect = jest.spyOn(CanvasRenderingContext2D.prototype, 'clearRect');
+    const drawImage = jest.spyOn(CanvasRenderingContext2D.prototype, 'drawImage');
+
+    drawCachedTxtShapesForLayer(
+      targetContext!,
+      shapes,
+      'blit-cache-layer',
+      100,
+      50,
+    );
+    const clearsAfterFirstFrame = clearRect.mock.calls.length;
+    const drawsAfterFirstFrame = drawImage.mock.calls.length;
+
+    drawCachedTxtShapesForLayer(
+      targetContext!,
+      shapes,
+      'blit-cache-layer',
+      100,
+      50,
+    );
+
+    expect(clearRect).toHaveBeenCalledTimes(clearsAfterFirstFrame);
+    expect(drawImage).toHaveBeenCalledTimes(drawsAfterFirstFrame + 1);
+    clearRect.mockRestore();
+    drawImage.mockRestore();
   });
 
   it('insets raster text by authored padding and reports clipped overflow', () => {

@@ -4,7 +4,7 @@ import { useCallback } from 'react';
 import { BrushShape, type Layer, type Project } from '@/types';
 import {
   composeTxtShapesIntoLayerSource,
-  drawTxtShapesForLayer,
+  drawCachedTxtShapesForLayer,
 } from '@/utils/txtShape';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
 import {
@@ -182,7 +182,13 @@ export const useDrawingCanvasLayerRendering = ({
       }
 
       if (layer.layerType === 'normal') {
-        drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
+        drawCachedTxtShapesForLayer(
+          ctx,
+          project.txtShapes,
+          layer.id,
+          project.width,
+          project.height,
+        );
       }
 
       ctx.restore();

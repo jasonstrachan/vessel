@@ -27,6 +27,13 @@ import {
 export const TXT_SHAPE_MIN_SIZE = 16;
 export const TXT_SHAPE_DEFAULT_CONTENT = 'SELECTED TEXT';
 
+export interface TxtShapePaintRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 let transientSelectionOverrides = new Map<string, readonly TxtShapeSelectionRange[]>();
 let transientSelectionRevision = 0;
 
@@ -65,6 +72,25 @@ const clamp = (value: number, min: number, max: number): number =>
 
 const finite = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const doesTxtShapePaintRectIntersect = (
+  left: TxtShapePaintRect,
+  right: TxtShapePaintRect,
+): boolean => left.width > 0
+  && left.height > 0
+  && right.width > 0
+  && right.height > 0
+  && left.x < right.x + right.width
+  && left.x + left.width > right.x
+  && left.y < right.y + right.height
+  && left.y + left.height > right.y;
+
+const doesAnyTxtShapePaintRectIntersect = (
+  bounds: TxtShapePaintRect,
+  dirtyRects: readonly TxtShapePaintRect[] | undefined,
+): boolean => !dirtyRects?.length || dirtyRects.some((rect) => (
+  doesTxtShapePaintRectIntersect(bounds, rect)
+));
 
 const isCssColor = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0 && value.length <= 128;
@@ -707,6 +733,8 @@ const drawPreparedHardEdgedTxtShapeText = (
   ctx: TxtShapeCanvasContext,
   prepared: PreparedHardEdgedTxtShapeText,
   color: string,
+  fragmentX: number,
+  fragmentWidth: number,
 ): boolean => {
   if (typeof ctx.drawImage !== 'function') return false;
   const {
@@ -718,21 +746,30 @@ const drawPreparedHardEdgedTxtShapeText = (
     x,
     y,
   } = prepared;
+  const sourceLeft = Math.max(0, Math.floor((fragmentX - x) / pixelScale));
+  const sourceRight = Math.min(
+    maskWidth,
+    Math.ceil((fragmentX + fragmentWidth - x) / pixelScale),
+  );
+  if (sourceRight <= sourceLeft) return true;
+  const sourceWidth = sourceRight - sourceLeft;
+  const destinationX = x + sourceLeft * pixelScale;
+  const destinationWidth = sourceWidth * pixelScale;
   context.globalCompositeOperation = 'source-in';
   context.fillStyle = color;
-  context.fillRect(0, 0, maskWidth, maskHeight);
+  context.fillRect(sourceLeft, 0, sourceWidth, maskHeight);
   context.globalCompositeOperation = 'source-over';
 
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(
     surface as CanvasImageSource,
+    sourceLeft,
     0,
-    0,
-    maskWidth,
+    sourceWidth,
     maskHeight,
-    x,
+    destinationX,
     y,
-    maskWidth * pixelScale,
+    destinationWidth,
     maskHeight * pixelScale,
   );
   return true;
@@ -906,12 +943,14 @@ const drawTxtShapesToCanvasWithSelectionMode = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
   selectionMode: 'canonical' | 'none' | 'transient',
+  dirtyRects?: readonly TxtShapePaintRect[],
 ): void => {
   if (!shapes?.length) {
     return;
   }
 
   shapes.forEach((shape) => {
+    if (!doesAnyTxtShapePaintRectIntersect(shape, dirtyRects)) return;
     const selections = selectionMode === 'none'
       ? []
       : selectionMode === 'transient' && transientSelectionOverrides.has(shape.id)
@@ -955,6 +994,12 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       const rawY = shape.y + padding + line.lineIndex * lineHeightPx;
       const y = Math.round(rawY);
       const availableWidth = line.span.right - line.span.left;
+      if (!doesAnyTxtShapePaintRectIntersect({
+        x: shape.x + line.span.left,
+        y,
+        width: availableWidth,
+        height: lineHeightPx,
+      }, dirtyRects)) return;
       const boundaries = new Set<number>([0, line.text.length]);
       selections.forEach((selection) => {
         const start = clamp(selection.start - line.sourceStart, 0, line.text.length);
@@ -1021,7 +1066,13 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         ctx.rect(fragmentX, shape.y, width, shape.height);
         ctx.clip();
         ctx.fillStyle = textColor;
-        if (!preparedPixelText || !drawPreparedHardEdgedTxtShapeText(ctx, preparedPixelText, textColor)) {
+        if (!preparedPixelText || !drawPreparedHardEdgedTxtShapeText(
+          ctx,
+          preparedPixelText,
+          textColor,
+          fragmentX,
+          width,
+        )) {
           ctx.fillText(line.text, lineX, y);
         }
         ctx.restore();
@@ -1052,8 +1103,14 @@ export const drawTxtShapesForLayer = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
   layerId: string,
+  dirtyRects?: readonly TxtShapePaintRect[],
 ): void => {
-  drawTxtShapesToCanvas(ctx, getTxtShapesForLayer(shapes, layerId));
+  drawTxtShapesToCanvasWithSelectionMode(
+    ctx,
+    getTxtShapesForLayer(shapes, layerId),
+    'transient',
+    dirtyRects,
+  );
 };
 
 interface TxtShapeLayerRasterCacheEntry {
@@ -1063,7 +1120,9 @@ interface TxtShapeLayerRasterCacheEntry {
   width: number;
   height: number;
   textCanvas: TxtShapeCanvasSurface;
+  textContext: TxtShapeCanvasContext;
   combinedCanvas: TxtShapeCanvasSurface;
+  combinedContext: TxtShapeCanvasContext;
 }
 
 const txtShapeLayerRasterCache = new Map<string, TxtShapeLayerRasterCacheEntry>();
@@ -1087,7 +1146,33 @@ export const composeTxtShapesIntoLayerSource = ({
   width: number;
   height: number;
 }): CanvasImageSource | null => {
-  if (!shapes?.some((shape) => shape.layerId === layerId)) return source;
+  const cache = resolveTxtShapeLayerRasterCache({
+    shapes,
+    layerId,
+    width,
+    height,
+  });
+  if (!cache) return source;
+  if (!source) return cache.textCanvas as CanvasImageSource;
+
+  cache.combinedContext.clearRect(0, 0, width, height);
+  cache.combinedContext.drawImage(source, 0, 0);
+  cache.combinedContext.drawImage(cache.textCanvas as CanvasImageSource, 0, 0);
+  return cache.combinedCanvas as CanvasImageSource;
+};
+
+const resolveTxtShapeLayerRasterCache = ({
+  shapes,
+  layerId,
+  width,
+  height,
+}: {
+  shapes: readonly TxtShape[] | undefined;
+  layerId: string;
+  width: number;
+  height: number;
+}): TxtShapeLayerRasterCacheEntry | null => {
+  if (!shapes?.some((shape) => shape.layerId === layerId)) return null;
 
   let cache = txtShapeLayerRasterCache.get(layerId);
   let shouldRepaintText = false;
@@ -1095,7 +1180,10 @@ export const composeTxtShapesIntoLayerSource = ({
   if (!cache || cache.width !== width || cache.height !== height) {
     const textCanvas = createTxtShapeCanvasSurface(width, height);
     const combinedCanvas = createTxtShapeCanvasSurface(width, height);
-    if (!textCanvas || !combinedCanvas) return source;
+    if (!textCanvas || !combinedCanvas) return null;
+    const textContext = getTxtShapeCanvasContext(textCanvas);
+    const combinedContext = getTxtShapeCanvasContext(combinedCanvas);
+    if (!textContext || !combinedContext) return null;
     cache = {
       shapes,
       transientSelectionRevision,
@@ -1103,7 +1191,9 @@ export const composeTxtShapesIntoLayerSource = ({
       width,
       height,
       textCanvas,
+      textContext,
       combinedCanvas,
+      combinedContext,
     };
     txtShapeLayerRasterCache.delete(layerId);
     txtShapeLayerRasterCache.set(layerId, cache);
@@ -1124,18 +1214,30 @@ export const composeTxtShapesIntoLayerSource = ({
     shouldRepaintText = true;
   }
   if (shouldRepaintText) {
-    const textContext = getTxtShapeCanvasContext(cache.textCanvas);
-    if (!textContext) return source;
-    textContext.clearRect(0, 0, width, height);
-    drawTxtShapesForLayer(textContext, shapes, layerId);
+    cache.textContext.clearRect(0, 0, width, height);
+    drawTxtShapesForLayer(cache.textContext, shapes, layerId);
   }
+  return cache;
+};
 
-  const combinedContext = getTxtShapeCanvasContext(cache.combinedCanvas);
-  if (!combinedContext) return source;
-  combinedContext.clearRect(0, 0, width, height);
-  if (source) combinedContext.drawImage(source, 0, 0);
-  combinedContext.drawImage(cache.textCanvas as CanvasImageSource, 0, 0);
-  return cache.combinedCanvas as CanvasImageSource;
+export const drawCachedTxtShapesForLayer = (
+  ctx: TxtShapeCanvasContext,
+  shapes: readonly TxtShape[] | undefined,
+  layerId: string,
+  width: number,
+  height: number,
+): void => {
+  const cache = resolveTxtShapeLayerRasterCache({
+    shapes,
+    layerId,
+    width,
+    height,
+  });
+  if (!cache) return;
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(cache.textCanvas as CanvasImageSource, 0, 0);
+  ctx.restore();
 };
 
 export const createTxtShapeLayerRasterCache = ({

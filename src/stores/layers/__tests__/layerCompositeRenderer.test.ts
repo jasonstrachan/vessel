@@ -5,6 +5,7 @@ import {
   realizeCompositeSegments,
   type CompositeSegment,
 } from '@/stores/layers/layerCompositeRenderer';
+import * as txtShapeUtils from '@/utils/txtShape';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer, Project } from '@/types';
 
@@ -267,5 +268,45 @@ describe('layerCompositeRenderer', () => {
     expect((result.segments[0] as Extract<CompositeSegment, { kind: 'static' }>).canvas).toBe(
       previousSegments[0].kind === 'static' ? previousSegments[0].canvas : null
     );
+  });
+
+  it('forwards normalized dirty rectangles to TXT Shape painting', () => {
+    const drawTxtShapesForLayer = jest
+      .spyOn(txtShapeUtils, 'drawTxtShapesForLayer')
+      .mockImplementation(() => undefined);
+    const layers = [makeLayer({ id: 'paint' })];
+    const previousSegments: CompositeSegment[] = [{
+      kind: 'static',
+      id: 'static-existing',
+      layerIds: ['paint'],
+      includeBackground: false,
+      orderRange: { start: 0, end: 0 },
+      canvas: createCanvas(2, 2),
+      bitmap: null,
+      dirty: false,
+    }];
+
+    realizeCompositeSegments({
+      sortedLayers: layers,
+      project: makeProject(layers),
+      previousSegments,
+      width: 2,
+      height: 2,
+      createStaticCanvas: createCanvas,
+      createLayerTransferCanvas: createCanvas,
+      dirtyBatches: [{
+        layerId: 'paint',
+        version: 1,
+        rects: [{ x: -0.25, y: 0.25, width: 1.5, height: 1.5 }],
+      }],
+    });
+
+    expect(drawTxtShapesForLayer).toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+      'paint',
+      [{ x: 0, y: 0, width: 2, height: 2 }],
+    );
+    drawTxtShapesForLayer.mockRestore();
   });
 });

@@ -4,7 +4,7 @@ import { useCallback, useEffect } from 'react';
 import { BrushShape, type Layer, type Project } from '@/types';
 import {
   composeTxtShapesIntoLayerSource,
-  drawTxtShapesForLayer,
+  drawCachedTxtShapesForLayer,
   getTxtShapesForLayer,
 } from '@/utils/txtShape';
 import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppStore';
@@ -313,7 +313,13 @@ export const useDrawingCanvasCompositeBuffers = ({
       if (layer.layerType === 'normal') {
         const layerTxtShapes = getTxtShapesForLayer(project.txtShapes, layer.id);
         if (layerTxtShapes.length > 0) {
-          drawTxtShapesForLayer(targetCtx, project.txtShapes, layer.id);
+          drawCachedTxtShapesForLayer(
+            targetCtx,
+            project.txtShapes,
+            layer.id,
+            project.width,
+            project.height,
+          );
           drewLayer = true;
         }
       }
