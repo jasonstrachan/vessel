@@ -55,14 +55,23 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('box.style.columnCount = String(columns);');
       expect(viewer).toContain("box.style.columnFill = 'auto';");
       expect(viewer).toContain('const colorRanges = Array.isArray(shape.colorRanges)');
-      expect(viewer).toContain("span.style.setProperty('--txt-selection-bg'");
+      expect(viewer).toContain("cell.style.setProperty('--txt-selection-bg'");
+      expect(viewer).toContain("cell.style.setProperty('--txt-selection-color', String(shape.selectionColor");
+      expect(viewer).toContain('cell.dataset.txtShapeCellStart = String(sourceIndex);');
+      expect(viewer).toContain("cell.dataset.canonicalSelected = 'true';");
       expect(viewer).toContain("box.style.wordBreak = 'normal';");
       expect(viewer).toContain("box.style.overflowWrap = 'break-word';");
       expect(viewer).toContain("box.style.boxSizing = 'border-box';");
       expect(viewer).toContain('Number(shape.padding) || 0');
       expect(viewer).toContain("box.dataset.semanticFallback = 'true'");
       expect(viewer).toContain('#vessel-txt-shapes [data-canonical-selected]');
-      expect(viewer).toContain('::highlight(vessel-txt-shape-selection)');
+      expect(viewer).toContain('[data-vessel-txt-cell-selected="true"]');
+      expect(viewer).toContain('box-shadow: 0 var(--txt-selection-fill-gap, 0px)');
+      expect(viewer).toContain('const updateSelectionFillGaps = () => {');
+      expect(viewer).toContain("box.style.setProperty('--txt-selection-fill-gap'");
+      expect(viewer).toContain('if (document.fonts?.ready)');
+      expect(viewer).not.toContain('getContrastingColor');
+      expect(viewer).not.toContain('::highlight(vessel-txt-shape-selection)');
       expect(viewer).not.toContain("span.removeAttribute('data-canonical-selected')");
     }
   });

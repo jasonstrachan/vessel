@@ -201,7 +201,7 @@
         stage.style.height = `${Math.max(1, Number(metadata.project?.height) || 1)}px`;
         stage.style.transformOrigin = 'top left';
         const style = document.createElement('style');
-        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); } #vessel-txt-shapes [data-canonical-selected] { color: var(--txt-selection-color); background: var(--txt-selection-bg); } #vessel-txt-shapes ::highlight(vessel-txt-shape-selection) { color: var(--txt-selection-color); background-color: var(--txt-selection-bg); }';
+        style.textContent = '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); } #vessel-txt-shapes [data-canonical-selected], #vessel-txt-shapes [data-vessel-txt-cell-selected="true"] { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }';
         overlay.appendChild(style);
         const getRegionSpan = (shape, y) => {
           const width = Math.max(1, Number(shape.width) || 1);
@@ -285,17 +285,6 @@
           ]);
           return bands.length ? `polygon(${[...left, ...right].join(', ')})` : '';
         };
-        const getContrastingColor = (color) => {
-          const match = String(color || '').trim().match(/^#([\da-f]{6})$/i);
-          if (!match) return '#ffffff';
-          const value = Number.parseInt(match[1], 16);
-          const luminance = (
-            0.2126 * ((value >> 16) & 255)
-            + 0.7152 * ((value >> 8) & 255)
-            + 0.0722 * (value & 255)
-          ) / 255;
-          return luminance > 0.52 ? '#000000' : '#ffffff';
-        };
         shapes.forEach((shape) => {
           const owner = layerById.get(String(shape.layerId || ''));
           const hasOwnerTexture = Boolean(
@@ -363,25 +352,48 @@
           for (let index = 0; index < ordered.length - 1; index += 1) {
             const start = ordered[index];
             const end = ordered[index + 1];
-            const span = document.createElement('span');
-            span.textContent = content.slice(start, end);
             const selected = ranges.some((range) => start >= Number(range.start) && start < Number(range.end));
             if (selected) {
-              span.dataset.canonicalSelected = 'true';
               const colorRange = colorRanges.find((range) => (
                 start >= Number(range.start) && start < Number(range.end)
               ));
-              if (colorRange?.color) {
-                span.style.setProperty('--txt-selection-bg', String(colorRange.color));
-                span.style.setProperty('--txt-selection-color', getContrastingColor(colorRange.color));
+              let sourceIndex = start;
+              for (const character of content.slice(start, end)) {
+                const cell = document.createElement('span');
+                cell.textContent = character;
+                cell.dataset.txtShapeCellStart = String(sourceIndex);
+                sourceIndex += character.length;
+                cell.dataset.txtShapeCellEnd = String(sourceIndex);
+                cell.dataset.canonicalSelected = 'true';
+                if (colorRange?.color) {
+                  cell.style.setProperty('--txt-selection-bg', String(colorRange.color));
+                  cell.style.setProperty('--txt-selection-color', String(shape.selectionColor || '#ffffff'));
+                }
+                box.appendChild(cell);
               }
+              continue;
             }
+            const span = document.createElement('span');
+            span.textContent = content.slice(start, end);
             box.appendChild(span);
           }
           stage.appendChild(box);
         });
         overlay.appendChild(stage);
         document.body.appendChild(overlay);
+        const updateSelectionFillGaps = () => {
+          const canvasRect = canvas.getBoundingClientRect();
+          const canvasHeight = Math.max(1, Number(metadata.project?.height) || 1);
+          const scaleY = canvasRect.height / canvasHeight;
+          overlay.querySelectorAll('[data-txt-shape-id]').forEach((box) => {
+            const cell = box.querySelector('[data-txt-shape-cell-start]');
+            const cellRect = cell?.getClientRects()[0];
+            const lineHeight = Number.parseFloat(getComputedStyle(box).lineHeight);
+            const inlineHeight = cellRect && scaleY > 0 ? cellRect.height / scaleY : lineHeight;
+            const fillGap = Math.max(0, Math.min(lineHeight, lineHeight - inlineHeight));
+            box.style.setProperty('--txt-selection-fill-gap', `${fillGap}px`);
+          });
+        };
         const position = () => {
           const rect = canvas.getBoundingClientRect();
           const width = Math.max(1, Number(metadata.project?.width) || 1);
@@ -391,11 +403,17 @@
           overlay.style.width = `${rect.width}px`;
           overlay.style.height = `${rect.height}px`;
           stage.style.transform = `scale(${rect.width / width}, ${rect.height / height})`;
+          updateSelectionFillGaps();
         };
         position();
         if (typeof ResizeObserver === 'function') {
           txtShapeResizeObserver = new ResizeObserver(position);
           txtShapeResizeObserver.observe(canvas);
+        }
+        if (document.fonts?.ready) {
+          void document.fonts.ready.then(() => {
+            if (overlay.isConnected) position();
+          });
         }
       };
 
