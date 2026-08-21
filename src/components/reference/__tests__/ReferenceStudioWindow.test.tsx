@@ -21,10 +21,16 @@ jest.mock('@/components/reference/ReferenceAssetCanvas', () => ({
   ReferenceAssetCanvas: ({
     asset,
     isSelected,
+    isLiquifyActive,
+    liquifySize,
+    liquifyStrength,
     onSelect,
   }: {
     asset: ReferenceAsset;
     isSelected: boolean;
+    isLiquifyActive: boolean;
+    liquifySize: number;
+    liquifyStrength: number;
     onSelect: (id: string) => void;
   }) => (
     <div
@@ -36,6 +42,9 @@ jest.mock('@/components/reference/ReferenceAssetCanvas', () => ({
       data-scale={asset.scale}
       data-opacity={asset.opacity}
       data-selected={isSelected ? 'true' : 'false'}
+      data-liquify-active={isLiquifyActive ? 'true' : 'false'}
+      data-liquify-size={liquifySize}
+      data-liquify-strength={liquifyStrength}
       onPointerDown={() => onSelect(asset.id)}
     />
   ),
@@ -350,7 +359,48 @@ describe('ReferenceStudioWindow', () => {
     expect(updateMessage.updates.y).toBeCloseTo(180);
   });
 
-  it('previews reference sliders locally and commits one project update', () => {
+  it('activates Liquify with local brush controls without publishing project state', () => {
+    const asset: ReferenceAsset = {
+      id: 'reference-1',
+      name: 'Portrait reference',
+      dataUrl: 'data:image/png;base64,AAAA',
+      naturalWidth: 400,
+      naturalHeight: 600,
+      visible: true,
+      locked: false,
+      opacity: 1,
+      x: 0,
+      y: 0,
+      scale: 1,
+      crop: { x: 0, y: 0, width: 1, height: 1 },
+      flipX: false,
+      flipY: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    render(<ReferenceStudioWindow />);
+    connectStudio({ ...snapshot, referenceAssets: [asset] });
+    fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
+    mockPostMessage.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Liquify' }));
+    const reference = screen.getByTestId('reference-asset');
+    expect(reference).toHaveAttribute('data-liquify-active', 'true');
+
+    fireEvent.change(screen.getByRole('slider', { name: 'Liquify brush size' }), {
+      target: { value: '240' },
+    });
+    fireEvent.change(screen.getByRole('slider', { name: 'Liquify brush strength' }), {
+      target: { value: '40' },
+    });
+
+    expect(reference).toHaveAttribute('data-liquify-size', '240');
+    expect(reference).toHaveAttribute('data-liquify-strength', '0.4');
+    expect(mockPostMessage).not.toHaveBeenCalled();
+  });
+
+  it('previews reference opacity locally and commits one project update', () => {
     const asset: ReferenceAsset = {
       id: 'reference-1',
       name: 'Portrait reference',
@@ -375,20 +425,20 @@ describe('ReferenceStudioWindow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
     mockPostMessage.mockClear();
 
-    const scaleSlider = screen.getByRole('slider', { name: 'Reference scale' });
-    fireEvent.pointerDown(scaleSlider);
-    fireEvent.change(scaleSlider, { target: { value: `${50 + (50 / 6)}` } });
+    const opacitySlider = screen.getByRole('slider', { name: 'Reference opacity' });
+    fireEvent.pointerDown(opacitySlider);
+    fireEvent.change(opacitySlider, { target: { value: '40' } });
 
-    expect(Number(screen.getByTestId('reference-asset').getAttribute('data-scale'))).toBeCloseTo(2);
+    expect(screen.getByTestId('reference-asset')).toHaveAttribute('data-opacity', '0.4');
     expect(mockPostMessage).not.toHaveBeenCalled();
 
-    fireEvent.pointerUp(scaleSlider);
+    fireEvent.pointerUp(opacitySlider);
     expect(mockPostMessage).toHaveBeenCalledTimes(1);
     expect(mockPostMessage).toHaveBeenCalledWith(expect.objectContaining({
       type: 'update-reference',
       id: asset.id,
     }));
-    expect(mockPostMessage.mock.calls[0]?.[0].updates.scale).toBeCloseTo(2);
+    expect(mockPostMessage.mock.calls[0]?.[0].updates.opacity).toBeCloseTo(0.4);
   });
 
   it('clears a no-op slider preview so later snapshots remain authoritative', () => {
@@ -416,18 +466,18 @@ describe('ReferenceStudioWindow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
     mockPostMessage.mockClear();
 
-    const scaleSlider = screen.getByRole('slider', { name: 'Reference scale' });
-    fireEvent.pointerDown(scaleSlider);
-    fireEvent.change(scaleSlider, { target: { value: '60' } });
-    fireEvent.change(scaleSlider, { target: { value: '50' } });
-    fireEvent.pointerUp(scaleSlider);
+    const opacitySlider = screen.getByRole('slider', { name: 'Reference opacity' });
+    fireEvent.pointerDown(opacitySlider);
+    fireEvent.change(opacitySlider, { target: { value: '60' } });
+    fireEvent.change(opacitySlider, { target: { value: '100' } });
+    fireEvent.pointerUp(opacitySlider);
 
     expect(mockPostMessage).not.toHaveBeenCalled();
     connectStudio({
       ...snapshot,
-      referenceAssets: [{ ...asset, scale: 2, updatedAt: 2 }],
+      referenceAssets: [{ ...asset, opacity: 0.2, updatedAt: 2 }],
     });
-    expect(screen.getByTestId('reference-asset')).toHaveAttribute('data-scale', '2');
+    expect(screen.getByTestId('reference-asset')).toHaveAttribute('data-opacity', '0.2');
   });
 
   it('clears local previews when the connected Vessel project changes', () => {
@@ -453,18 +503,18 @@ describe('ReferenceStudioWindow', () => {
     render(<ReferenceStudioWindow />);
     connectStudio({ ...snapshot, referenceAssets: [asset] });
     fireEvent.click(screen.getByRole('button', { name: 'Open controls' }));
-    fireEvent.pointerDown(screen.getByRole('slider', { name: 'Reference scale' }));
-    fireEvent.change(screen.getByRole('slider', { name: 'Reference scale' }), {
+    fireEvent.pointerDown(screen.getByRole('slider', { name: 'Reference opacity' }));
+    fireEvent.change(screen.getByRole('slider', { name: 'Reference opacity' }), {
       target: { value: '60' },
     });
-    expect(screen.getByTestId('reference-asset')).not.toHaveAttribute('data-scale', '1');
+    expect(screen.getByTestId('reference-asset')).not.toHaveAttribute('data-opacity', '1');
 
     connectStudio({
       ...snapshot,
       project: { ...snapshot.project!, id: 'project-2' },
-      referenceAssets: [{ ...asset, name: 'Second project reference', scale: 0.5 }],
+      referenceAssets: [{ ...asset, name: 'Second project reference', opacity: 0.5 }],
     });
 
-    expect(screen.getByTestId('reference-asset')).toHaveAttribute('data-scale', '0.5');
+    expect(screen.getByTestId('reference-asset')).toHaveAttribute('data-opacity', '0.5');
   });
 });

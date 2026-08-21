@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 
 import { ReferenceStudioControlsPanel } from '@/components/reference/ReferenceStudioControlsPanel';
 import type { ReferenceStudioSnapshot } from '@/referenceStudio/referenceStudioChannel';
@@ -42,13 +42,14 @@ const snapshot: ReferenceStudioSnapshot = {
 
 const renderPanel = () => render(
   <ReferenceStudioControlsPanel
-    project={snapshot.project!}
     grid={snapshot.grid}
     layers={snapshot.layers}
     assets={snapshot.referenceAssets}
     samplingSource={snapshot.samplingSource}
     selectedId={asset.id}
-    viewScale={0.5}
+    activeTool="move"
+    liquifySize={160}
+    liquifyStrength={0.65}
     error={null}
     onHide={jest.fn()}
     onImportFiles={jest.fn()}
@@ -59,6 +60,9 @@ const renderPanel = () => render(
     onRemoveAsset={jest.fn()}
     onMoveAssetToTop={jest.fn()}
     onFitSelectedAsset={jest.fn()}
+    onSetActiveTool={jest.fn()}
+    onSetLiquifySize={jest.fn()}
+    onSetLiquifyStrength={jest.fn()}
     onSetSamplingSource={jest.fn()}
     onSetGrid={jest.fn()}
   />,
@@ -79,8 +83,12 @@ describe('ReferenceStudioControlsPanel design contract', () => {
 
     const switches = container.querySelectorAll('.switch');
     expect(switches).toHaveLength(3);
-    expect(screen.getByRole('slider', { name: 'Reference scale' })).toHaveClass('slider');
     expect(screen.getByRole('slider', { name: 'Reference opacity' })).toHaveClass('slider');
+    expect(screen.queryByRole('slider', { name: 'Reference scale' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Reference name' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reference-project-name')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Liquify' })).toBeInTheDocument();
     expect(screen.getAllByRole('spinbutton').every((input) => input.className.includes('!border-0'))).toBe(true);
 
     const selectedRow = screen.getByRole('button', { name: asset.name }).closest('[data-selected]');
@@ -93,37 +101,37 @@ describe('ReferenceStudioControlsPanel design contract', () => {
     });
   });
 
-  it('cancels a drafted reference name when Escape is pressed', () => {
-    const onUpdateAsset = jest.fn();
+  it('shows compact brush controls only while Liquify is active', () => {
     render(
       <ReferenceStudioControlsPanel
-        project={snapshot.project!}
         grid={snapshot.grid}
         layers={snapshot.layers}
         assets={snapshot.referenceAssets}
         samplingSource={snapshot.samplingSource}
         selectedId={asset.id}
-        viewScale={0.5}
+        activeTool="liquify"
+        liquifySize={240}
+        liquifyStrength={0.4}
         error={null}
         onHide={jest.fn()}
         onImportFiles={jest.fn()}
         onSelectAsset={jest.fn()}
         onPreviewAsset={jest.fn()}
         onClearAssetPreview={jest.fn()}
-        onUpdateAsset={onUpdateAsset}
+        onUpdateAsset={jest.fn()}
         onRemoveAsset={jest.fn()}
         onMoveAssetToTop={jest.fn()}
         onFitSelectedAsset={jest.fn()}
+        onSetActiveTool={jest.fn()}
+        onSetLiquifySize={jest.fn()}
+        onSetLiquifyStrength={jest.fn()}
         onSetSamplingSource={jest.fn()}
         onSetGrid={jest.fn()}
       />,
     );
 
-    const nameInput = screen.getByRole('textbox', { name: 'Reference name' });
-    fireEvent.change(nameInput, { target: { value: 'Discard this name' } });
-    fireEvent.keyDown(nameInput, { key: 'Escape' });
-
-    expect(nameInput).toHaveValue(asset.name);
-    expect(onUpdateAsset).not.toHaveBeenCalled();
+    expect(screen.getByTestId('reference-liquify-controls')).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Liquify brush size' })).toHaveValue('240');
+    expect(screen.getByRole('slider', { name: 'Liquify brush strength' })).toHaveValue('40');
   });
 });

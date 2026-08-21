@@ -5,7 +5,10 @@ import { Menu } from 'lucide-react';
 
 import GridOverlay from '@/components/canvas/GridOverlay';
 import { ReferenceAssetCanvas } from '@/components/reference/ReferenceAssetCanvas';
-import { ReferenceStudioControlsPanel } from '@/components/reference/ReferenceStudioControlsPanel';
+import {
+  ReferenceStudioControlsPanel,
+  type ReferenceStudioTool,
+} from '@/components/reference/ReferenceStudioControlsPanel';
 import { fitReferenceAssetToProject } from '@/referenceStudio/referenceAssets';
 import {
   createReferenceStudioChannel,
@@ -71,6 +74,9 @@ export const ReferenceStudioWindow = () => {
   const [viewScale, setViewScale] = React.useState(0.5);
   const [viewOrigin, setViewOrigin] = React.useState({ x: 0, y: 0 });
   const [areControlsVisible, setAreControlsVisible] = React.useState(false);
+  const [activeTool, setActiveTool] = React.useState<ReferenceStudioTool>('move');
+  const [liquifySize, setLiquifySize] = React.useState(160);
+  const [liquifyStrength, setLiquifyStrength] = React.useState(0.65);
   const [viewportSize, setViewportSize] = React.useState({ width: 0, height: 0 });
   const [isFitView, setIsFitView] = React.useState(true);
   const [panCursor, setPanCursor] = React.useState<'grab' | 'grabbing' | null>(null);
@@ -151,12 +157,19 @@ export const ReferenceStudioWindow = () => {
       : asset
   )), [assetPreviews, sourceAssets]);
   const selectedAsset = assets.find((asset) => asset.id === selectedId) ?? null;
+  const shouldResetTool = !selectedAsset || selectedAsset.locked;
   const projectId = project?.id ?? null;
   const projectWidth = project?.width ?? 0;
   const projectHeight = project?.height ?? 0;
   const viewMetricsRef = React.useRef({ viewScale, viewOrigin });
   viewMetricsRef.current = { viewScale, viewOrigin };
   viewportSizeRef.current = viewportSize;
+
+  React.useEffect(() => {
+    if (shouldResetTool) {
+      setActiveTool('move');
+    }
+  }, [shouldResetTool]);
 
   const fitInitialView = React.useCallback(() => {
     if (!projectId || viewportSize.width <= 0 || viewportSize.height <= 0) return;
@@ -405,13 +418,14 @@ export const ReferenceStudioWindow = () => {
     <main className="flex h-screen min-w-0 overflow-hidden bg-[#141514] text-[#D9D9D9]">
       {areControlsVisible ? (
         <ReferenceStudioControlsPanel
-          project={project}
           grid={snapshot.grid}
           layers={snapshot.layers}
           assets={assets}
           samplingSource={snapshot.samplingSource}
           selectedId={selectedId}
-          viewScale={viewScale}
+          activeTool={activeTool}
+          liquifySize={liquifySize}
+          liquifyStrength={liquifyStrength}
           error={error}
           onHide={() => setAreControlsVisible(false)}
           onImportFiles={(files) => void importFiles(files)}
@@ -428,6 +442,9 @@ export const ReferenceStudioWindow = () => {
             ],
           })}
           onFitSelectedAsset={fitSelectedAsset}
+          onSetActiveTool={setActiveTool}
+          onSetLiquifySize={setLiquifySize}
+          onSetLiquifyStrength={setLiquifyStrength}
           onSetSamplingSource={(source) => send({ type: 'set-sampling-source', source })}
           onSetGrid={(grid) => send({ type: 'set-grid', grid })}
         />
@@ -541,10 +558,14 @@ export const ReferenceStudioWindow = () => {
                 originY={originY}
                 viewScale={viewScale}
                 isSelected={asset.id === selectedId}
+                isLiquifyActive={activeTool === 'liquify'}
+                liquifySize={liquifySize}
+                liquifyStrength={liquifyStrength}
                 onSelect={setSelectedId}
                 onPreview={previewAsset}
                 onCommit={updateAsset}
                 onClearPreview={clearAssetPreview}
+                onError={setError}
               />
             ))}
             <div

@@ -3,59 +3,31 @@
 import React from 'react';
 import { ArrowUpToLine, Trash2 } from 'lucide-react';
 
+import ButtonGroup from '@/components/ui/ButtonGroup';
 import CommittedNumberInput from '@/components/ui/CommittedNumberInput';
 import CommittedProgressSlider from '@/components/ui/CommittedProgressSlider';
 import CustomSwitch from '@/components/ui/CustomSwitch';
 import Dropdown from '@/components/ui/Dropdown';
-import Input from '@/components/ui/Input';
-import {
-  MAX_REFERENCE_ASSET_SCALE,
-  MIN_REFERENCE_ASSET_SCALE,
-} from '@/referenceStudio/referenceAssets';
+import LabeledSlider from '@/components/ui/LabeledSlider';
 import type { ReferenceStudioSnapshot } from '@/referenceStudio/referenceStudioChannel';
-import type { ReferenceAsset, ReferenceAssetCrop, ReferenceSamplingSource } from '@/types';
+import type { ReferenceAsset, ReferenceSamplingSource } from '@/types';
 
 const actionClass = 'h-7 bg-[#282828] px-2 text-[11px] text-[#D9D9D9] transition-colors hover:bg-[#353535] disabled:cursor-not-allowed disabled:text-[#666]';
 const iconActionClass = 'flex h-7 w-7 items-center justify-center bg-[#282828] text-[#B8B8B8] transition-colors hover:bg-[#353535] hover:text-white disabled:cursor-not-allowed disabled:text-[#555]';
 const inputClass = '!h-7 !border-0 bg-[#101110] text-[11px] shadow-[inset_0_0_0_1px_#343434] focus:shadow-[inset_0_0_0_1px_#737373]';
 const dropdownClass = 'w-full [&>button]:!h-7 [&>button]:!border-0 [&>button]:bg-[#101110] [&>button]:text-[11px] [&>button]:shadow-[inset_0_0_0_1px_#343434]';
-const MIN_SCALE_EXPONENT = Math.log2(MIN_REFERENCE_ASSET_SCALE);
-const MAX_SCALE_EXPONENT = Math.log2(MAX_REFERENCE_ASSET_SCALE);
-const SCALE_SLIDER_MIDPOINT = 50;
-const SCALE_SLIDER_STEP = 1 / 6;
-
-const scaleToSliderValue = (scale: number): number => {
-  const exponent = Math.log2(scale);
-  if (scale <= 1) {
-    return SCALE_SLIDER_MIDPOINT * (
-      (exponent - MIN_SCALE_EXPONENT) / -MIN_SCALE_EXPONENT
-    );
-  }
-  return SCALE_SLIDER_MIDPOINT + SCALE_SLIDER_MIDPOINT * (
-    exponent / MAX_SCALE_EXPONENT
-  );
-};
-
-const sliderValueToScale = (value: number): number => {
-  if (value <= SCALE_SLIDER_MIDPOINT) {
-    const progress = value / SCALE_SLIDER_MIDPOINT;
-    return 2 ** (MIN_SCALE_EXPONENT * (1 - progress));
-  }
-  const progress = (value - SCALE_SLIDER_MIDPOINT) / SCALE_SLIDER_MIDPOINT;
-  return 2 ** (MAX_SCALE_EXPONENT * progress);
-};
-
-type ProjectSnapshot = NonNullable<ReferenceStudioSnapshot['project']>;
 type GridSnapshot = ReferenceStudioSnapshot['grid'];
+export type ReferenceStudioTool = 'move' | 'liquify';
 
 interface ReferenceStudioControlsPanelProps {
-  project: ProjectSnapshot;
   grid: GridSnapshot;
   layers: ReferenceStudioSnapshot['layers'];
   assets: ReferenceAsset[];
   samplingSource: ReferenceSamplingSource;
   selectedId: string | null;
-  viewScale: number;
+  activeTool: ReferenceStudioTool;
+  liquifySize: number;
+  liquifyStrength: number;
   error: string | null;
   onHide: () => void;
   onImportFiles: (files: File[]) => void;
@@ -66,6 +38,9 @@ interface ReferenceStudioControlsPanelProps {
   onRemoveAsset: (id: string) => void;
   onMoveAssetToTop: (id: string) => void;
   onFitSelectedAsset: () => void;
+  onSetActiveTool: (tool: ReferenceStudioTool) => void;
+  onSetLiquifySize: (size: number) => void;
+  onSetLiquifyStrength: (strength: number) => void;
   onSetSamplingSource: (source: ReferenceSamplingSource) => void;
   onSetGrid: (updates: Partial<GridSnapshot>) => void;
 }
@@ -82,32 +57,19 @@ const decodeSource = (value: string): ReferenceSamplingSource => {
   return { kind: 'canvas' };
 };
 
-const updateCropEdge = (
-  crop: ReferenceAssetCrop,
-  edge: 'left' | 'top' | 'right' | 'bottom',
-  percent: number,
-): ReferenceAssetCrop => {
-  const value = Math.max(0, Math.min(99, percent)) / 100;
-  const right = 1 - crop.x - crop.width;
-  const bottom = 1 - crop.y - crop.height;
-  if (edge === 'left') return { ...crop, x: value, width: Math.max(0.01, 1 - value - right) };
-  if (edge === 'top') return { ...crop, y: value, height: Math.max(0.01, 1 - value - bottom) };
-  if (edge === 'right') return { ...crop, width: Math.max(0.01, 1 - crop.x - value) };
-  return { ...crop, height: Math.max(0.01, 1 - crop.y - value) };
-};
-
 const SectionDivider = () => (
   <div className="h-px bg-[#2E2E2E]" data-testid="reference-section-divider" aria-hidden="true" />
 );
 
 export const ReferenceStudioControlsPanel = ({
-  project,
   grid,
   layers,
   assets,
   samplingSource,
   selectedId,
-  viewScale,
+  activeTool,
+  liquifySize,
+  liquifyStrength,
   error,
   onHide,
   onImportFiles,
@@ -118,17 +80,14 @@ export const ReferenceStudioControlsPanel = ({
   onRemoveAsset,
   onMoveAssetToTop,
   onFitSelectedAsset,
+  onSetActiveTool,
+  onSetLiquifySize,
+  onSetLiquifyStrength,
   onSetSamplingSource,
   onSetGrid,
 }: ReferenceStudioControlsPanelProps) => {
   const selectedAsset = assets.find((asset) => asset.id === selectedId) ?? null;
-  const [nameDraft, setNameDraft] = React.useState(selectedAsset?.name ?? '');
-  const didCommitScaleRef = React.useRef(false);
   const didCommitOpacityRef = React.useRef(false);
-
-  React.useEffect(() => {
-    setNameDraft(selectedAsset?.name ?? '');
-  }, [selectedAsset?.id, selectedAsset?.name]);
 
   const sourceOptions = React.useMemo(() => [
     { value: 'canvas', label: 'Canvas composite' },
@@ -157,13 +116,6 @@ export const ReferenceStudioControlsPanel = ({
       </header>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3 pt-2">
-        <div className="mb-2 flex items-center justify-between gap-2 text-[10px] text-[#8F98A4]">
-          <span className="min-w-0 truncate" data-testid="reference-project-name">
-            {project.name} · {project.width}×{project.height}
-          </span>
-          <span className="flex-shrink-0">View {Math.round(viewScale * 100)}%</span>
-        </div>
-
         <label className="flex h-7 cursor-pointer items-center justify-center bg-[#2A2A2A] text-[11px] text-[#E5E5E5] transition-colors hover:bg-[#353535]">
           Add image
           <input
@@ -298,72 +250,50 @@ export const ReferenceStudioControlsPanel = ({
             <section className="space-y-2.5" data-testid="reference-inspector">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-sm font-medium text-[#F1F1F6]">Selected reference</div>
-                <button type="button" className={actionClass} onClick={onFitSelectedAsset}>Fit</button>
               </div>
 
-              <label className="block space-y-1 text-[11px] text-[#B8B8B8]">
-                <span className="block">Name</span>
-                <Input
-                  value={nameDraft}
-                  onChange={(event) => setNameDraft(event.target.value)}
-                  onBlur={() => {
-                    if (nameDraft !== selectedAsset.name) {
-                      onUpdateAsset(selectedAsset.id, { name: nameDraft });
-                    }
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') event.currentTarget.blur();
-                    if (event.key === 'Escape') {
-                      setNameDraft(selectedAsset.name);
-                      event.currentTarget.blur();
-                    }
-                  }}
-                  fullWidth
-                  className={inputClass}
-                  aria-label="Reference name"
-                />
-              </label>
+              <ButtonGroup
+                options={[
+                  { label: 'Move', value: 'move' },
+                  {
+                    label: 'Liquify',
+                    value: 'liquify',
+                    disabled: selectedAsset.locked,
+                    title: selectedAsset.locked ? 'Unlock the reference to liquify it' : undefined,
+                  },
+                ]}
+                value={activeTool}
+                onChange={(value) => onSetActiveTool(value as ReferenceStudioTool)}
+                size="sm"
+                className="w-full [&>button]:flex-1"
+              />
 
-              <div className="grid grid-cols-2 gap-1.5">
-                {(['x', 'y'] as const).map((key) => (
-                  <label key={key} className="space-y-1 text-[11px] uppercase text-[#B8B8B8]">
-                    <span className="block">{key}</span>
-                    <CommittedNumberInput
-                      value={Math.round(selectedAsset[key])}
-                      onCommit={(value) => onUpdateAsset(selectedAsset.id, { [key]: value })}
-                      ariaLabel={`Reference ${key}`}
-                      className={inputClass}
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <label className="block space-y-1 text-[11px] text-[#B8B8B8]">
-                <span className="block">Scale</span>
-                <CommittedProgressSlider
-                  value={scaleToSliderValue(selectedAsset.scale)}
-                  min={0}
-                  max={100}
-                  step={SCALE_SLIDER_STEP}
-                  formatValue={(value) => `${Math.round(sliderValueToScale(value) * 100)}%`}
-                  onPreview={(value) => onPreviewAsset(selectedAsset.id, {
-                    scale: sliderValueToScale(value),
-                  })}
-                  onChange={(value) => {
-                    didCommitScaleRef.current = true;
-                    onUpdateAsset(selectedAsset.id, {
-                      scale: sliderValueToScale(value),
-                    });
-                  }}
-                  onCommit={() => {
-                    if (!didCommitScaleRef.current) {
-                      onClearAssetPreview(selectedAsset.id);
-                    }
-                    didCommitScaleRef.current = false;
-                  }}
-                  aria-label="Reference scale"
-                />
-              </label>
+              {activeTool === 'liquify' ? (
+                <div className="space-y-2" data-testid="reference-liquify-controls">
+                  <LabeledSlider
+                    label="Size"
+                    value={liquifySize}
+                    min={8}
+                    max={1000}
+                    step={1}
+                    onChange={onSetLiquifySize}
+                    ariaLabel="Liquify brush size"
+                    labelWidthClass="w-12"
+                    fontSizePx={11}
+                  />
+                  <LabeledSlider
+                    label="Strength"
+                    value={Math.round(liquifyStrength * 100)}
+                    min={1}
+                    max={100}
+                    step={1}
+                    onChange={(value) => onSetLiquifyStrength(value / 100)}
+                    ariaLabel="Liquify brush strength"
+                    labelWidthClass="w-12"
+                    fontSizePx={11}
+                  />
+                </div>
+              ) : null}
 
               <label className="block space-y-1 text-[11px] text-[#B8B8B8]">
                 <span className="block">Opacity</span>
@@ -388,37 +318,10 @@ export const ReferenceStudioControlsPanel = ({
                 />
               </label>
 
-              <div className="grid grid-cols-4 gap-1">
-                {(['left', 'top', 'right', 'bottom'] as const).map((edge) => {
-                  const percent = edge === 'left'
-                    ? selectedAsset.crop.x * 100
-                    : edge === 'top'
-                      ? selectedAsset.crop.y * 100
-                      : edge === 'right'
-                        ? (1 - selectedAsset.crop.x - selectedAsset.crop.width) * 100
-                        : (1 - selectedAsset.crop.y - selectedAsset.crop.height) * 100;
-                  return (
-                    <label key={edge} className="space-y-1 text-[9px] capitalize text-[#8F98A4]">
-                      <span className="block">{edge}</span>
-                      <CommittedNumberInput
-                        value={Math.round(percent)}
-                        onCommit={(value) => onUpdateAsset(selectedAsset.id, {
-                          crop: updateCropEdge(selectedAsset.crop, edge, value),
-                        })}
-                        min={0}
-                        max={99}
-                        ariaLabel={`Reference crop ${edge}`}
-                        className={`${inputClass} !px-0`}
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-
-              <div className="grid grid-cols-[1fr_1fr_1.35fr] gap-1">
+              <div className="grid grid-cols-3 gap-1">
+                <button type="button" className={actionClass} onClick={onFitSelectedAsset}>Fit</button>
                 <button type="button" className={actionClass} onClick={() => onUpdateAsset(selectedAsset.id, { flipX: !selectedAsset.flipX })}>Flip X</button>
                 <button type="button" className={actionClass} onClick={() => onUpdateAsset(selectedAsset.id, { flipY: !selectedAsset.flipY })}>Flip Y</button>
-                <button type="button" className={actionClass} onClick={() => onUpdateAsset(selectedAsset.id, { crop: { x: 0, y: 0, width: 1, height: 1 } })}>Reset crop</button>
               </div>
             </section>
           </>
