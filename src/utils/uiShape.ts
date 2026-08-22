@@ -717,42 +717,346 @@ const drawWindows95TitleBar = (
   palette: UiShapePalette,
   state: UiShapeComponentState,
 ): void => {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x, y, component.width, component.height);
+  ctx.clip();
   const active = state.active !== false;
   ctx.fillStyle = active ? palette.active : palette.shadow;
   ctx.fillRect(x, y, component.width, component.height);
-  const controlSize = Math.max(5, Math.min(component.height - 2, 14));
-  let controlX = x + component.width - controlSize;
-  (['close', 'max', 'min'] as const).forEach((kind) => {
-    drawRaisedBox(ctx, controlX, y + 1, controlSize - 1, Math.max(3, component.height - 2), palette);
+  const buttonHeight = Math.max(5, Math.min(14, component.height - 4));
+  const buttonWidth = Math.max(6, Math.min(16, buttonHeight + 2));
+  const buttonY = y + Math.max(1, Math.floor((component.height - buttonHeight) / 2));
+  const closeX = x + component.width - buttonWidth - 2;
+  const maximizeX = closeX - buttonWidth - 2;
+  const minimizeX = maximizeX - buttonWidth;
+  ([
+    ['min', minimizeX],
+    ['max', maximizeX],
+    ['close', closeX],
+  ] as const).forEach(([kind, controlX]) => {
+    if (controlX < x + 2) return;
+    drawRaisedBox(ctx, controlX, buttonY, buttonWidth, buttonHeight, palette);
     ctx.fillStyle = palette.darkShadow;
     ctx.strokeStyle = palette.darkShadow;
-    if (kind === 'min') ctx.fillRect(controlX + 3, y + component.height - 5, Math.max(1, controlSize - 7), 1);
+    if (kind === 'min') {
+      ctx.fillRect(
+        controlX + 4,
+        buttonY + buttonHeight - 4,
+        Math.max(2, buttonWidth - 8),
+        2,
+      );
+    }
     if (kind === 'max') {
-      const iconWidth = Math.max(1, controlSize - 7);
-      const iconHeight = Math.max(1, component.height - 7);
-      ctx.fillRect(controlX + 3, y + 3, iconWidth, 1);
-      ctx.fillRect(controlX + 3, y + 3, 1, iconHeight);
-      ctx.fillRect(controlX + 3, y + iconHeight + 2, iconWidth, 1);
-      ctx.fillRect(controlX + iconWidth + 2, y + 3, 1, iconHeight);
+      const iconWidth = Math.max(3, buttonWidth - 7);
+      const iconHeight = Math.max(3, buttonHeight - 6);
+      ctx.fillRect(controlX + 3, buttonY + 3, iconWidth, 2);
+      ctx.fillRect(controlX + 3, buttonY + 3, 1, iconHeight);
+      ctx.fillRect(controlX + 3, buttonY + iconHeight + 2, iconWidth, 1);
+      ctx.fillRect(controlX + iconWidth + 2, buttonY + 3, 1, iconHeight);
     }
     if (kind === 'close') {
-      const glyphSize = Math.max(1, Math.min(controlSize - 6, component.height - 6));
+      const glyphSize = Math.max(2, Math.min(buttonWidth - 7, buttonHeight - 6));
       for (let offset = 0; offset < glyphSize; offset += 1) {
-        ctx.fillRect(controlX + 3 + offset, y + 3 + offset, 1, 1);
-        ctx.fillRect(controlX + 3 + glyphSize - offset - 1, y + 3 + offset, 1, 1);
+        ctx.fillRect(controlX + 4 + offset, buttonY + 3 + offset, 1, 1);
+        ctx.fillRect(
+          controlX + 4 + glyphSize - offset - 1,
+          buttonY + 3 + offset,
+          1,
+          1,
+        );
       }
     }
-    controlX -= controlSize;
   });
-  if (component.width > controlSize * 3 + 8) {
-    const iconSize = Math.max(5, controlSize - 3);
-    ctx.fillStyle = palette.face;
-    ctx.fillRect(x + 2, y + 2, iconSize, Math.max(5, component.height - 4));
+  const iconSize = Math.max(5, Math.min(14, component.height - 4));
+  if (component.width > buttonWidth * 3 + iconSize + 12) {
+    const iconX = x + 2;
+    const iconY = y + Math.max(1, Math.floor((component.height - iconSize) / 2));
     ctx.fillStyle = palette.darkShadow;
-    ctx.fillRect(x + 3, y + 3, Math.max(2, iconSize - 3), 1);
-    ctx.fillRect(x + 3, y + 3, 1, Math.max(2, component.height - 7));
+    ctx.fillRect(iconX + 2, iconY + 1, Math.max(2, iconSize - 4), iconSize - 2);
+    ctx.fillStyle = palette.highlight;
+    ctx.fillRect(iconX + 3, iconY + 2, Math.max(1, iconSize - 6), iconSize - 4);
+    ctx.fillStyle = palette.shadow;
+    ctx.fillRect(iconX + iconSize - 4, iconY + 2, 1, 3);
+    ctx.fillRect(iconX + iconSize - 6, iconY + 4, 3, 1);
   }
-  drawBitmapText(ctx, component.label ?? 'WINDOW', x + controlSize + 2, y + Math.max(1, Math.floor((component.height - 5) / 2)), active ? palette.activeText : palette.text, Math.max(0, component.width - controlSize * 4 - 4), component.height >= 14 ? 2 : 1);
+  const textX = x + iconSize + 4;
+  drawBitmapText(
+    ctx,
+    component.label ?? 'WINDOW',
+    textX,
+    y + Math.max(1, Math.floor((component.height - 10) / 2)),
+    active ? palette.activeText : palette.text,
+    Math.max(0, minimizeX - textX - 2),
+    component.height >= 16 ? 2 : 1,
+  );
+  ctx.restore();
+};
+
+const drawWindows95WindowFrame = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+): void => {
+  ctx.fillStyle = palette.face;
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = palette.light;
+  ctx.fillRect(x, y, width, 1);
+  ctx.fillRect(x, y, 1, height);
+  ctx.fillStyle = palette.darkShadow;
+  ctx.fillRect(x, y + height - 1, width, 1);
+  ctx.fillRect(x + width - 1, y, 1, height);
+  if (width > 2 && height > 2) {
+    ctx.fillStyle = palette.highlight;
+    ctx.fillRect(x + 1, y + 1, width - 2, 1);
+    ctx.fillRect(x + 1, y + 1, 1, height - 2);
+    ctx.fillStyle = palette.shadow;
+    ctx.fillRect(x + 1, y + height - 2, width - 2, 1);
+    ctx.fillRect(x + width - 2, y + 1, 1, height - 2);
+  }
+};
+
+const drawWindows95Field = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+  fill: string,
+): void => {
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = palette.shadow;
+  ctx.fillRect(x, y, width, 1);
+  ctx.fillRect(x, y, 1, height);
+  ctx.fillStyle = palette.highlight;
+  ctx.fillRect(x, y + height - 1, width, 1);
+  ctx.fillRect(x + width - 1, y, 1, height);
+  if (width > 2 && height > 2) {
+    ctx.fillStyle = palette.darkShadow;
+    ctx.fillRect(x + 1, y + 1, width - 2, 1);
+    ctx.fillRect(x + 1, y + 1, 1, height - 2);
+    ctx.fillStyle = palette.light;
+    ctx.fillRect(x + 1, y + height - 2, width - 2, 1);
+    ctx.fillRect(x + width - 2, y + 1, 1, height - 2);
+  }
+};
+
+const drawWindows95Track = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+): void => {
+  ctx.fillStyle = palette.highlight;
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = palette.face;
+  for (let row = 0; row < height; row += 1) {
+    for (let column = row % 2; column < width; column += 2) {
+      ctx.fillRect(x + column, y + row, 1, 1);
+    }
+  }
+};
+
+const drawWindows95Scrollbar = (
+  ctx: UiShapeCanvasContext,
+  component: UiShapeComponent,
+  x: number,
+  y: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+  vertical: boolean,
+): void => {
+  const cross = Math.max(1, Math.floor(Math.min(
+    16,
+    vertical ? component.width : component.height,
+    vertical ? component.height / 3 : component.width / 3,
+  )));
+  if (vertical) {
+    drawWindows95Track(ctx, x, y + cross, component.width, Math.max(0, component.height - cross * 2), palette);
+    drawRaisedBox(ctx, x, y, component.width, cross, palette);
+    drawRaisedBox(ctx, x, y + component.height - cross, component.width, cross, palette);
+    drawArrow(ctx, 'up', x, y, component.width, cross, palette.text);
+    drawArrow(ctx, 'down', x, y + component.height - cross, component.width, cross, palette.text);
+    const trackLength = Math.max(0, component.height - cross * 2);
+    const thumbLength = Math.min(trackLength, Math.max(cross, Math.round(trackLength * 0.28)));
+    const travel = Math.max(0, trackLength - thumbLength);
+    const thumbY = y + cross + Math.round(travel * clamp(state.value ?? 0.5, 0, 1));
+    drawRaisedBox(ctx, x, thumbY, component.width, thumbLength, palette, state.pressed === true);
+  } else {
+    drawWindows95Track(ctx, x + cross, y, Math.max(0, component.width - cross * 2), component.height, palette);
+    drawRaisedBox(ctx, x, y, cross, component.height, palette);
+    drawRaisedBox(ctx, x + component.width - cross, y, cross, component.height, palette);
+    drawArrow(ctx, 'left', x, y, cross, component.height, palette.text);
+    drawArrow(ctx, 'right', x + component.width - cross, y, cross, component.height, palette.text);
+    const trackLength = Math.max(0, component.width - cross * 2);
+    const thumbLength = Math.min(trackLength, Math.max(cross, Math.round(trackLength * 0.28)));
+    const travel = Math.max(0, trackLength - thumbLength);
+    const thumbX = x + cross + Math.round(travel * clamp(state.value ?? 0.5, 0, 1));
+    drawRaisedBox(ctx, thumbX, y, thumbLength, component.height, palette, state.pressed === true);
+  }
+};
+
+const drawWindows95Component = (
+  ctx: UiShapeCanvasContext,
+  component: UiShapeComponent,
+  x: number,
+  y: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+): void => {
+  const { width, height } = component;
+  switch (component.kind) {
+    case 'window': {
+      drawWindows95WindowFrame(ctx, x, y, width, height, palette);
+      const inset = Math.min(3, Math.floor(Math.min(width, height) / 3));
+      const titleHeight = Math.max(1, Math.min(18, height - inset * 2));
+      drawWindows95TitleBar(
+        ctx,
+        { ...component, width: Math.max(1, width - inset * 2), height: titleHeight },
+        x + inset,
+        y + inset,
+        palette,
+        state,
+      );
+      if (state.open !== false && height > titleHeight + inset * 2) {
+        ctx.fillStyle = palette.face;
+        ctx.fillRect(
+          x + inset,
+          y + inset + titleHeight,
+          Math.max(1, width - inset * 2),
+          Math.max(1, height - titleHeight - inset * 2),
+        );
+      }
+      break;
+    }
+    case 'title-bar':
+      drawWindows95TitleBar(ctx, component, x, y, palette, state);
+      break;
+    case 'menu-strip':
+      ctx.fillStyle = palette.face;
+      ctx.fillRect(x, y, width, height);
+      drawBitmapText(
+        ctx,
+        component.label ?? 'FILE EDIT VIEW',
+        x + 6,
+        y + Math.max(2, Math.floor((height - 5) / 2)),
+        palette.text,
+        Math.max(0, width - 12),
+        height >= 18 ? 2 : 1,
+      );
+      break;
+    case 'panel':
+      drawWindows95Field(ctx, x, y, width, height, palette, palette.face);
+      break;
+    case 'group-box': {
+      ctx.fillStyle = palette.face;
+      ctx.fillRect(x, y, width, height);
+      const top = y + Math.min(7, Math.max(3, Math.floor(height * 0.2)));
+      ctx.fillStyle = palette.shadow;
+      ctx.fillRect(x + 1, top, Math.max(0, width - 2), 1);
+      ctx.fillRect(x + 1, top, 1, Math.max(0, height - (top - y) - 1));
+      ctx.fillStyle = palette.highlight;
+      ctx.fillRect(x + 2, top + 1, Math.max(0, width - 3), 1);
+      ctx.fillRect(x + width - 1, top + 1, 1, Math.max(0, height - (top - y) - 1));
+      ctx.fillRect(x + 2, y + height - 1, Math.max(0, width - 2), 1);
+      const label = component.label ?? 'GROUP';
+      const labelWidth = Math.min(Math.max(0, width - 10), label.length * 4 + 4);
+      ctx.fillStyle = palette.face;
+      ctx.fillRect(x + 7, top - 2, labelWidth, 5);
+      drawBitmapText(ctx, label, x + 9, y + 1, palette.text, Math.max(0, width - 18), 1);
+      break;
+    }
+    case 'button': {
+      drawRaisedBox(ctx, x, y, width, height, palette, state.pressed === true);
+      const scale = height >= 20 ? 2 : 1;
+      const label = component.label ?? 'OK';
+      const estimatedWidth = label.length * 4 * scale;
+      const textX = x + Math.max(3, Math.floor((width - estimatedWidth) / 2));
+      const textY = y + Math.max(2, Math.floor((height - 5 * scale) / 2));
+      drawBitmapText(
+        ctx,
+        label,
+        textX + (state.pressed ? 1 : 0),
+        textY + (state.pressed ? 1 : 0),
+        palette.text,
+        Math.max(0, width - (textX - x) - 3),
+        scale,
+      );
+      if (state.active === true && width > 8 && height > 8) {
+        ctx.fillStyle = palette.text;
+        for (let offset = 4; offset < width - 4; offset += 2) {
+          ctx.fillRect(x + offset, y + 4, 1, 1);
+          ctx.fillRect(x + offset, y + height - 5, 1, 1);
+        }
+        for (let offset = 6; offset < height - 6; offset += 2) {
+          ctx.fillRect(x + 4, y + offset, 1, 1);
+          ctx.fillRect(x + width - 5, y + offset, 1, 1);
+        }
+      }
+      break;
+    }
+    case 'scrollbar-horizontal':
+      drawWindows95Scrollbar(ctx, component, x, y, palette, state, false);
+      break;
+    case 'scrollbar-vertical':
+      drawWindows95Scrollbar(ctx, component, x, y, palette, state, true);
+      break;
+    case 'selection-field': {
+      drawWindows95Field(ctx, x, y, width, height, palette, palette.highlight);
+      const selected = state.active !== false;
+      const inset = Math.min(2, Math.floor(Math.min(width, height) / 3));
+      if (selected) {
+        ctx.fillStyle = palette.selection;
+        ctx.fillRect(
+          x + inset,
+          y + inset,
+          Math.max(1, width - inset * 2),
+          Math.max(1, height - inset * 2),
+        );
+      }
+      drawBitmapText(
+        ctx,
+        component.label ?? 'SELECTED',
+        x + inset + 2,
+        y + Math.max(inset + 1, Math.floor((height - 5) / 2)),
+        selected ? palette.selectionText : palette.text,
+        Math.max(0, width - inset * 2 - 4),
+        height >= 18 ? 2 : 1,
+      );
+      break;
+    }
+    case 'separator': {
+      const middle = y + Math.floor((height - 1) / 2);
+      ctx.fillStyle = palette.shadow;
+      ctx.fillRect(x, middle, width, 1);
+      if (middle + 1 < y + height) {
+        ctx.fillStyle = palette.highlight;
+        ctx.fillRect(x, middle + 1, width, 1);
+      }
+      break;
+    }
+    case 'resize-corner':
+      ctx.fillStyle = palette.face;
+      ctx.fillRect(x, y, width, height);
+      for (let offset = 3; offset < Math.min(width, height); offset += 4) {
+        ctx.fillStyle = palette.highlight;
+        for (let step = 0; step < offset; step += 1) {
+          ctx.fillRect(x + width - offset + step, y + height - 1 - step, 1, 1);
+        }
+        ctx.fillStyle = palette.shadow;
+        for (let step = 0; step < offset - 1; step += 1) {
+          ctx.fillRect(x + width - offset + step + 1, y + height - 1 - step, 1, 1);
+        }
+      }
+      break;
+  }
 };
 
 export const drawUiShapeComponent = (
@@ -775,17 +1079,8 @@ export const drawUiShapeComponent = (
     ctx.restore();
     return;
   }
-  if (theme === 'windows-95' && (component.kind === 'window' || component.kind === 'title-bar')) {
-    if (component.kind === 'window') {
-      drawRaisedBox(ctx, x, y, width, height, palette);
-      const titleHeight = Math.max(7, Math.min(height - 4, Math.round(Math.min(18, height * 0.24))));
-      drawWindows95TitleBar(ctx, { ...component, height: titleHeight }, x + 2, y + 2, palette, state);
-      if (state.open !== false && height > titleHeight + 5) {
-        drawRecessedBox(ctx, x + 2, y + titleHeight + 2, Math.max(1, width - 4), Math.max(1, height - titleHeight - 4), palette, palette.face);
-      }
-    } else {
-      drawWindows95TitleBar(ctx, component, x, y, palette, state);
-    }
+  if (theme === 'windows-95') {
+    drawWindows95Component(ctx, component, x, y, palette, state);
     ctx.restore();
     return;
   }

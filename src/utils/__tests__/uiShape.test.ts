@@ -5,6 +5,7 @@ import {
   MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
   normalizeUiShapes,
   WINDOWS_31_UI_SHAPE_PALETTE,
+  WINDOWS_95_UI_SHAPE_PALETTE,
 } from '@/utils/uiShape';
 
 const createShape = (updates: Partial<UiShape> = {}): UiShape => ({
@@ -137,6 +138,62 @@ describe('UI Shape document helpers', () => {
     });
 
     expect(render(mac)).not.toEqual(render(windows95));
+  });
+
+  it('uses the Windows 95 frame, caption, and field pixel order', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    const context = canvas.getContext('2d')!;
+    const pixel = (x: number, y: number) => {
+      const [red, green, blue, alpha] = context.getImageData(x, y, 1, 1).data;
+      return `rgba(${red},${green},${blue},${alpha})`;
+    };
+    const windowComponent = {
+      ...createShape().components[0]!,
+      kind: 'window' as const,
+      width: 48,
+      height: 72,
+      canonicalState: { active: true, open: true },
+    };
+    const windows95 = createShape({
+      theme: 'windows-95',
+      palette: { ...WINDOWS_95_UI_SHAPE_PALETTE },
+      components: [windowComponent],
+    });
+
+    drawUiShape(context, windows95);
+
+    expect(pixel(8, 10)).toBe('rgba(223,223,223,255)');
+    expect(pixel(9, 11)).toBe('rgba(255,255,255,255)');
+    expect(pixel(55, 81)).toBe('rgba(0,0,0,255)');
+    expect(pixel(54, 80)).toBe('rgba(128,128,128,255)');
+    expect(pixel(11, 13)).toBe('rgba(0,0,128,255)');
+  });
+
+  it('renders a checkerboard Windows 95 scrollbar track', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    const context = canvas.getContext('2d')!;
+    const shape = createShape({
+      theme: 'windows-95',
+      palette: { ...WINDOWS_95_UI_SHAPE_PALETTE },
+      components: [{
+        ...createShape().components[0]!,
+        canonicalState: { value: 0 },
+      }],
+    });
+
+    drawUiShape(context, shape);
+
+    const first = [...context.getImageData(8, 45, 1, 1).data];
+    const adjacent = [...context.getImageData(9, 45, 1, 1).data];
+    expect(first).not.toEqual(adjacent);
+    expect([first, adjacent]).toEqual(expect.arrayContaining([
+      [192, 192, 192, 255],
+      [255, 255, 255, 255],
+    ]));
   });
 
   it('deep-clones component state and animation', () => {
