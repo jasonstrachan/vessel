@@ -59,13 +59,19 @@ describe('DocumentModal', () => {
     expect(qhdPreset).toBeInTheDocument();
 
     fireEvent.click(fourKPreset);
-    const memoryWarning = screen.getByText(/Large document/).parentElement;
-    expect(memoryWarning).not.toHaveAttribute('title');
-    expect(memoryWarning).toHaveTextContent(/Editing may slow down/);
+    const memoryWarnings = screen.getAllByText(/Large document/).map((warning) => warning.parentElement);
+    expect(memoryWarnings).toHaveLength(2);
+    memoryWarnings.forEach((warning) => {
+      expect(warning).not.toHaveAttribute('title');
+      expect(warning).toHaveTextContent(/Editing may slow down/);
+    });
 
     fireEvent.click(preset);
 
     expect(preset).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      screen.getAllByRole('spinbutton').map((input) => (input as HTMLInputElement).value),
+    ).toEqual(['512', '384', '512', '384']);
 
     fireEvent.click(screen.getByRole('button', { name: 'New Document' }));
 

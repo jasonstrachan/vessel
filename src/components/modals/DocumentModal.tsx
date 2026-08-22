@@ -222,7 +222,9 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
   const { project, newProject, resizeCanvas, beginCanvasShapeEdit } = useAppStore();
-  
+  const projectWidth = project?.width;
+  const projectHeight = project?.height;
+
   const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 2000);
   const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 2000);
   const [newWidth, setNewWidth] = useState(2000);
@@ -250,11 +252,11 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && project) {
-      setResizeWidth(project.width);
-      setResizeHeight(project.height);
+    if (isOpen && projectWidth != null && projectHeight != null) {
+      setResizeWidth(projectWidth);
+      setResizeHeight(projectHeight);
     }
-  }, [isOpen, project]);
+  }, [isOpen, projectWidth, projectHeight]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
@@ -380,6 +382,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                           onClick={() => {
                             setNewWidth(preset.width);
                             setNewHeight(preset.height);
+                            setResizeWidth(preset.width);
+                            setResizeHeight(preset.height);
                           }}
                           className={`min-w-0 px-1 py-1 text-[11px] transition-colors ${
                             isSelected
