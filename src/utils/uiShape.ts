@@ -18,6 +18,13 @@ export interface UiShapeDrawOptions {
   subpixelScrollbars?: boolean;
 }
 
+export interface UiShapeScrollbarGeometry {
+  crossSize: number;
+  thumbLength: number;
+  trackLength: number;
+  travel: number;
+}
+
 export const WINDOWS_31_UI_SHAPE_PALETTE: UiShapePalette = {
   face: '#c0c0c0',
   highlight: '#ffffff',
@@ -93,6 +100,33 @@ export const resolveUiShapeScrollbarOffset = (
 ): number => {
   const offset = Math.max(0, travel) * clamp(value, 0, 1);
   return subpixel ? offset : Math.round(offset);
+};
+
+export const resolveUiShapeScrollbarGeometry = ({
+  width,
+  height,
+  vertical,
+  theme,
+}: {
+  width: number;
+  height: number;
+  vertical: boolean;
+  theme: UiShapeTheme;
+}): UiShapeScrollbarGeometry => {
+  const mainSize = vertical ? height : width;
+  const crossAxisSize = vertical ? width : height;
+  const crossSize = theme === 'windows-95'
+    ? Math.max(1, Math.floor(Math.min(16, crossAxisSize, mainSize / 3)))
+    : Math.max(1, Math.min(crossAxisSize, mainSize / 3));
+  const trackLength = Math.max(0, mainSize - crossSize * 2);
+  const unconstrainedThumbLength = Math.max(crossSize, Math.round(trackLength * 0.28));
+  const thumbLength = Math.min(trackLength, unconstrainedThumbLength);
+  return {
+    crossSize,
+    thumbLength,
+    trackLength,
+    travel: Math.max(0, trackLength - thumbLength),
+  };
 };
 
 const normalizeColor = (value: unknown, fallback: string): string => (
@@ -452,15 +486,29 @@ const drawArrow = (
   height: number,
   color: string,
 ): void => {
-  const centerX = Math.floor(x + width / 2);
-  const centerY = Math.floor(y + height / 2);
-  const radius = Math.max(1, Math.floor(Math.min(width, height) / 4));
+  const centerX = x + Math.floor((width - 1) / 2);
+  const centerY = y + Math.floor((height - 1) / 2);
+  const radius = Math.max(0, Math.min(3, Math.floor((Math.min(width, height) - 3) / 2)));
+  const mainOffset = Math.floor(radius / 2);
   ctx.fillStyle = color;
   for (let step = 0; step <= radius; step += 1) {
-    if (direction === 'left') ctx.fillRect(centerX - step, centerY - step, 1, step * 2 + 1);
-    if (direction === 'right') ctx.fillRect(centerX + step, centerY - step, 1, step * 2 + 1);
-    if (direction === 'up') ctx.fillRect(centerX - step, centerY - step, step * 2 + 1, 1);
-    if (direction === 'down') ctx.fillRect(centerX - step, centerY + step, step * 2 + 1, 1);
+    if (direction === 'left' || direction === 'right') {
+      const halfHeight = direction === 'left' ? step : radius - step;
+      ctx.fillRect(
+        centerX - mainOffset + step,
+        centerY - halfHeight,
+        1,
+        halfHeight * 2 + 1,
+      );
+    } else {
+      const halfWidth = direction === 'up' ? step : radius - step;
+      ctx.fillRect(
+        centerX - halfWidth,
+        centerY - mainOffset + step,
+        halfWidth * 2 + 1,
+        1,
+      );
+    }
   }
 };
 
@@ -501,19 +549,23 @@ const drawScrollbar = (
   vertical: boolean,
   subpixel: boolean,
 ): void => {
-  drawRecessedBox(ctx, x, y, component.width, component.height, palette, palette.light);
-  const crossSize = Math.max(4, Math.min(
-    vertical ? component.width : component.height,
-    vertical ? component.height / 3 : component.width / 3,
-  ));
+  ctx.fillStyle = palette.light;
+  ctx.fillRect(x, y, component.width, component.height);
+  const {
+    crossSize,
+    thumbLength,
+    travel,
+  } = resolveUiShapeScrollbarGeometry({
+    width: component.width,
+    height: component.height,
+    vertical,
+    theme: 'windows-3.1',
+  });
   if (vertical) {
     drawRaisedBox(ctx, x, y, component.width, crossSize, palette);
     drawRaisedBox(ctx, x, y + component.height - crossSize, component.width, crossSize, palette);
     drawArrow(ctx, 'up', x, y, component.width, crossSize, palette.text);
     drawArrow(ctx, 'down', x, y + component.height - crossSize, component.width, crossSize, palette.text);
-    const trackLength = Math.max(0, component.height - crossSize * 2);
-    const thumbLength = Math.max(crossSize, Math.round(trackLength * 0.28));
-    const travel = Math.max(0, trackLength - thumbLength);
     const thumbY = y + crossSize + resolveUiShapeScrollbarOffset(
       travel,
       state.value ?? 0.5,
@@ -525,9 +577,6 @@ const drawScrollbar = (
     drawRaisedBox(ctx, x + component.width - crossSize, y, crossSize, component.height, palette);
     drawArrow(ctx, 'left', x, y, crossSize, component.height, palette.text);
     drawArrow(ctx, 'right', x + component.width - crossSize, y, crossSize, component.height, palette.text);
-    const trackLength = Math.max(0, component.width - crossSize * 2);
-    const thumbLength = Math.max(crossSize, Math.round(trackLength * 0.28));
-    const travel = Math.max(0, trackLength - thumbLength);
     const thumbX = x + crossSize + resolveUiShapeScrollbarOffset(
       travel,
       state.value ?? 0.5,
@@ -562,6 +611,7 @@ const drawMacFrame = (
   palette: UiShapePalette,
   fill = palette.face,
 ): void => {
+  if (width <= 0 || height <= 0) return;
   ctx.fillStyle = fill;
   ctx.fillRect(x, y, width, height);
   ctx.fillStyle = palette.darkShadow;
@@ -621,12 +671,19 @@ const drawMacScrollbar = (
   vertical: boolean,
   subpixel: boolean,
 ): void => {
-  drawMacFrame(ctx, x, y, component.width, component.height, palette);
-  drawMacPattern(ctx, x + 1, y + 1, Math.max(0, component.width - 2), Math.max(0, component.height - 2), palette.text);
-  const cross = Math.max(4, Math.min(
-    vertical ? component.width : component.height,
-    vertical ? component.height / 3 : component.width / 3,
-  ));
+  ctx.fillStyle = palette.face;
+  ctx.fillRect(x, y, component.width, component.height);
+  drawMacPattern(ctx, x, y, component.width, component.height, palette.text);
+  const {
+    crossSize: cross,
+    thumbLength: thumb,
+    travel,
+  } = resolveUiShapeScrollbarGeometry({
+    width: component.width,
+    height: component.height,
+    vertical,
+    theme: 'macintosh-system-1',
+  });
   const button = (buttonX: number, buttonY: number, buttonWidth: number, buttonHeight: number) => {
     drawMacFrame(ctx, buttonX, buttonY, buttonWidth, buttonHeight, palette);
   };
@@ -635,10 +692,8 @@ const drawMacScrollbar = (
     button(x, y + component.height - cross, component.width, cross);
     drawArrow(ctx, 'up', x, y, component.width, cross, palette.text);
     drawArrow(ctx, 'down', x, y + component.height - cross, component.width, cross, palette.text);
-    const track = Math.max(0, component.height - cross * 2);
-    const thumb = Math.max(cross, Math.round(track * 0.28));
     const thumbY = y + cross + resolveUiShapeScrollbarOffset(
-      track - thumb,
+      travel,
       state.value ?? 0.5,
       subpixel,
     );
@@ -648,10 +703,8 @@ const drawMacScrollbar = (
     button(x + component.width - cross, y, cross, component.height);
     drawArrow(ctx, 'left', x, y, cross, component.height, palette.text);
     drawArrow(ctx, 'right', x + component.width - cross, y, cross, component.height, palette.text);
-    const track = Math.max(0, component.width - cross * 2);
-    const thumb = Math.max(cross, Math.round(track * 0.28));
     const thumbX = x + cross + resolveUiShapeScrollbarOffset(
-      track - thumb,
+      travel,
       state.value ?? 0.5,
       subpixel,
     );
@@ -899,6 +952,40 @@ const drawWindows95Track = (
   }
 };
 
+const drawWindows95ScrollbarBox = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+  pressed = false,
+): void => {
+  if (width <= 0 || height <= 0) return;
+  ctx.fillStyle = palette.face;
+  ctx.fillRect(x, y, width, height);
+  const topLeft = pressed ? palette.darkShadow : palette.light;
+  const topLeftInner = pressed ? palette.shadow : palette.highlight;
+  const bottomRight = pressed ? palette.light : palette.darkShadow;
+  const bottomRightInner = pressed ? palette.highlight : palette.shadow;
+  ctx.fillStyle = topLeft;
+  ctx.fillRect(x, y, width, 1);
+  ctx.fillRect(x, y, 1, height);
+  ctx.fillStyle = topLeftInner;
+  if (width > 2 && height > 2) {
+    ctx.fillRect(x + 1, y + 1, width - 2, 1);
+    ctx.fillRect(x + 1, y + 1, 1, height - 2);
+  }
+  ctx.fillStyle = bottomRight;
+  ctx.fillRect(x, y + height - 1, width, 1);
+  ctx.fillRect(x + width - 1, y, 1, height);
+  ctx.fillStyle = bottomRightInner;
+  if (width > 2 && height > 2) {
+    ctx.fillRect(x + 1, y + height - 2, width - 2, 1);
+    ctx.fillRect(x + width - 2, y + 1, 1, height - 2);
+  }
+};
+
 const drawWindows95Scrollbar = (
   ctx: UiShapeCanvasContext,
   component: UiShapeComponent,
@@ -909,41 +996,85 @@ const drawWindows95Scrollbar = (
   vertical: boolean,
   subpixel: boolean,
 ): void => {
-  const cross = Math.max(1, Math.floor(Math.min(
-    16,
-    vertical ? component.width : component.height,
-    vertical ? component.height / 3 : component.width / 3,
-  )));
+  const {
+    crossSize: cross,
+    thumbLength,
+    travel,
+  } = resolveUiShapeScrollbarGeometry({
+    width: component.width,
+    height: component.height,
+    vertical,
+    theme: 'windows-95',
+  });
+  drawWindows95Track(ctx, x, y, component.width, component.height, palette);
   if (vertical) {
-    drawWindows95Track(ctx, x, y + cross, component.width, Math.max(0, component.height - cross * 2), palette);
-    drawRaisedBox(ctx, x, y, component.width, cross, palette);
-    drawRaisedBox(ctx, x, y + component.height - cross, component.width, cross, palette);
+    drawWindows95ScrollbarBox(ctx, x, y, component.width, cross, palette);
+    drawWindows95ScrollbarBox(
+      ctx,
+      x,
+      y + component.height - cross,
+      component.width,
+      cross,
+      palette,
+    );
     drawArrow(ctx, 'up', x, y, component.width, cross, palette.text);
-    drawArrow(ctx, 'down', x, y + component.height - cross, component.width, cross, palette.text);
-    const trackLength = Math.max(0, component.height - cross * 2);
-    const thumbLength = Math.min(trackLength, Math.max(cross, Math.round(trackLength * 0.28)));
-    const travel = Math.max(0, trackLength - thumbLength);
+    drawArrow(
+      ctx,
+      'down',
+      x,
+      y + component.height - cross,
+      component.width,
+      cross,
+      palette.text,
+    );
     const thumbY = y + cross + resolveUiShapeScrollbarOffset(
       travel,
       state.value ?? 0.5,
       subpixel,
     );
-    drawRaisedBox(ctx, x, thumbY, component.width, thumbLength, palette, state.pressed === true);
+    drawWindows95ScrollbarBox(
+      ctx,
+      x,
+      thumbY,
+      component.width,
+      thumbLength,
+      palette,
+      state.pressed === true,
+    );
   } else {
-    drawWindows95Track(ctx, x + cross, y, Math.max(0, component.width - cross * 2), component.height, palette);
-    drawRaisedBox(ctx, x, y, cross, component.height, palette);
-    drawRaisedBox(ctx, x + component.width - cross, y, cross, component.height, palette);
+    drawWindows95ScrollbarBox(ctx, x, y, cross, component.height, palette);
+    drawWindows95ScrollbarBox(
+      ctx,
+      x + component.width - cross,
+      y,
+      cross,
+      component.height,
+      palette,
+    );
     drawArrow(ctx, 'left', x, y, cross, component.height, palette.text);
-    drawArrow(ctx, 'right', x + component.width - cross, y, cross, component.height, palette.text);
-    const trackLength = Math.max(0, component.width - cross * 2);
-    const thumbLength = Math.min(trackLength, Math.max(cross, Math.round(trackLength * 0.28)));
-    const travel = Math.max(0, trackLength - thumbLength);
+    drawArrow(
+      ctx,
+      'right',
+      x + component.width - cross,
+      y,
+      cross,
+      component.height,
+      palette.text,
+    );
     const thumbX = x + cross + resolveUiShapeScrollbarOffset(
       travel,
       state.value ?? 0.5,
       subpixel,
     );
-    drawRaisedBox(ctx, thumbX, y, thumbLength, component.height, palette, state.pressed === true);
+    drawWindows95ScrollbarBox(
+      ctx,
+      thumbX,
+      y,
+      thumbLength,
+      component.height,
+      palette,
+      state.pressed === true,
+    );
   }
 };
 

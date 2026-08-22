@@ -8,7 +8,11 @@ import {
 } from '@/utils/export/webglExporter';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { DisplayFilterConfig, ExportContainerLayout, Layer, Project } from '@/types';
-import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
+import {
+  MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+  WINDOWS_31_UI_SHAPE_PALETTE,
+  WINDOWS_95_UI_SHAPE_PALETTE,
+} from '@/utils/uiShape';
 
 const downloadedBlobs: Blob[] = [];
 
@@ -456,6 +460,113 @@ describe('webglExporter bundle contracts', () => {
     });
 
     expect(metadata.uiShapes).toEqual(project.uiShapes);
+  });
+
+  it('bakes outward arrows and edge-to-edge tracks into the Goblet texture', async () => {
+    const project = createProject();
+    project.height = 64;
+    const ownerLayer = createNormalLayer('layer-ui-raster', 0);
+    const framebuffer = ownerLayer.framebuffer as HTMLCanvasElement;
+    framebuffer.height = project.height;
+    framebuffer.getContext('2d')!.fillRect(0, 0, framebuffer.width, framebuffer.height);
+    project.layers = [ownerLayer];
+    const themes = [
+      {
+        theme: 'macintosh-system-1' as const,
+        y: 0,
+        height: 16,
+        palette: MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+        trackTop: [0, 0, 0, 255],
+        trackBottom: [255, 255, 255, 255],
+      },
+      {
+        theme: 'windows-3.1' as const,
+        y: 20,
+        height: 17,
+        palette: WINDOWS_31_UI_SHAPE_PALETTE,
+        trackTop: [223, 223, 223, 255],
+        trackBottom: [223, 223, 223, 255],
+      },
+      {
+        theme: 'windows-95' as const,
+        y: 41,
+        height: 16,
+        palette: WINDOWS_95_UI_SHAPE_PALETTE,
+        trackTop: [192, 192, 192, 255],
+        trackBottom: [255, 255, 255, 255],
+      },
+    ];
+    project.uiShapes = themes.map(({ theme, y, height, palette }) => ({
+      id: `ui-${theme}`,
+      layerId: ownerLayer.id,
+      x: 0,
+      y,
+      width: 64,
+      height,
+      gridSize: 8,
+      theme,
+      drawMode: 'place' as const,
+      regionKind: 'rectangle' as const,
+      componentKinds: ['scrollbar-horizontal' as const],
+      colorSource: 'default' as const,
+      palette: { ...palette },
+      components: [{
+        id: `scroll-${theme}`,
+        kind: 'scrollbar-horizontal' as const,
+        x: 0,
+        y: 0,
+        width: 64,
+        height,
+        canonicalState: { value: 0.5 },
+      }],
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    const encodedSurfaces: ImageData[] = [];
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+      configurable: true,
+      writable: true,
+      value: function toBlob(callback: BlobCallback, type?: string): void {
+        if (this.width === project.width && this.height === project.height) {
+          const context = this.getContext('2d');
+          if (context) {
+            encodedSurfaces.push(context.getImageData(0, 0, this.width, this.height));
+          }
+        }
+        callback(new Blob([new Uint8Array([1])], { type: type ?? 'image/png' }));
+      },
+    });
+
+    const metadata = await exportProjectAsWebGL({
+      ...baseExportRequest(),
+      project,
+      layers: [ownerLayer],
+      bundleFormat: 'json',
+    });
+    const texture = metadata.layers[0]?.assets?.texture;
+    expect(texture).toEqual(expect.stringContaining('data:image/'));
+    expect(encodedSurfaces.length).toBeGreaterThan(0);
+    const imageData = encodedSurfaces[0]!;
+    const pixel = (x: number, y: number) => {
+      const offset = (y * imageData.width + x) * 4;
+      return [...imageData.data.slice(offset, offset + 4)];
+    };
+
+    themes.forEach(({ y, height, trackTop, trackBottom }) => {
+      const radius = 3;
+      const center = Math.floor((height - 1) / 2);
+      const start = center - Math.floor(radius / 2);
+      const rightButtonX = 64 - height;
+      expect(pixel(start, y + center)).toEqual([0, 0, 0, 255]);
+      expect(pixel(start, y + center - 1)).not.toEqual([0, 0, 0, 255]);
+      expect(pixel(start + radius, y + center - radius)).toEqual([0, 0, 0, 255]);
+      expect(pixel(rightButtonX + start, y + center - radius)).toEqual([0, 0, 0, 255]);
+      expect(pixel(rightButtonX + start + radius, y + center)).toEqual([0, 0, 0, 255]);
+      expect(pixel(rightButtonX + start + radius, y + center - 1))
+        .not.toEqual([0, 0, 0, 255]);
+      expect(pixel(18, y)).toEqual(trackTop);
+      expect(pixel(18, y + height - 1)).toEqual(trackBottom);
+    });
   });
 
   it('serializes ordered Interlace groups into Goblet metadata', async () => {

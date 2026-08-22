@@ -2,8 +2,10 @@ import type { UiShape } from '@/types';
 import {
   cloneUiShapes,
   drawUiShape,
+  drawUiShapeComponent,
   MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
   normalizeUiShapes,
+  resolveUiShapeScrollbarGeometry,
   resolveUiShapeScrollbarOffset,
   WINDOWS_31_UI_SHAPE_PALETTE,
   WINDOWS_95_UI_SHAPE_PALETTE,
@@ -50,6 +52,42 @@ describe('UI Shape document helpers', () => {
   it('keeps canonical scrollbar positions pixel-snapped and allows smooth playback offsets', () => {
     expect(resolveUiShapeScrollbarOffset(16, 0.26)).toBe(4);
     expect(resolveUiShapeScrollbarOffset(16, 0.26, true)).toBeCloseTo(4.16);
+  });
+
+  it('shares native scrollbar travel geometry with direct manipulation', () => {
+    expect(resolveUiShapeScrollbarGeometry({
+      width: 16,
+      height: 64,
+      vertical: true,
+      theme: 'windows-95',
+    })).toEqual({
+      crossSize: 16,
+      thumbLength: 16,
+      trackLength: 32,
+      travel: 16,
+    });
+    expect(resolveUiShapeScrollbarGeometry({
+      width: 64,
+      height: 16,
+      vertical: false,
+      theme: 'windows-3.1',
+    })).toEqual({
+      crossSize: 16,
+      thumbLength: 16,
+      trackLength: 32,
+      travel: 16,
+    });
+    expect(resolveUiShapeScrollbarGeometry({
+      width: 2,
+      height: 6,
+      vertical: true,
+      theme: 'macintosh-system-1',
+    })).toEqual({
+      crossSize: 2,
+      thumbLength: 2,
+      trackLength: 2,
+      travel: 0,
+    });
   });
 
   it('normalizes durable geometry, palette and animation state', () => {
@@ -210,6 +248,126 @@ describe('UI Shape document helpers', () => {
       [192, 192, 192, 255],
       [255, 255, 255, 255],
     ]));
+  });
+
+  it('matches the Windows 95 scrollbar bevel and arrow pixel grammar', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext('2d')!;
+    const vertical = {
+      ...createShape().components[0]!,
+      x: 0,
+      y: 0,
+      width: 16,
+      height: 64,
+      canonicalState: { value: 0.5 },
+    };
+
+    drawUiShapeComponent(
+      context,
+      vertical,
+      0,
+      0,
+      WINDOWS_95_UI_SHAPE_PALETTE,
+      undefined,
+      'windows-95',
+    );
+
+    const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+    const blackInteriorPixels = (originX: number, originY: number) => {
+      const pixels: string[] = [];
+      for (let localY = 2; localY < 14; localY += 1) {
+        for (let localX = 2; localX < 14; localX += 1) {
+          if (pixel(originX + localX, originY + localY)[0] === 0) {
+            pixels.push(`${localX},${localY}`);
+          }
+        }
+      }
+      return pixels;
+    };
+
+    expect(pixel(0, 0)).toEqual([223, 223, 223, 255]);
+    expect(pixel(1, 1)).toEqual([255, 255, 255, 255]);
+    expect(blackInteriorPixels(0, 0)).toEqual([
+      '7,6',
+      '6,7', '7,7', '8,7',
+      '5,8', '6,8', '7,8', '8,8', '9,8',
+      '4,9', '5,9', '6,9', '7,9', '8,9', '9,9', '10,9',
+    ]);
+    expect(blackInteriorPixels(0, 48)).toEqual([
+      '4,6', '5,6', '6,6', '7,6', '8,6', '9,6', '10,6',
+      '5,7', '6,7', '7,7', '8,7', '9,7',
+      '6,8', '7,8', '8,8',
+      '7,9',
+    ]);
+  });
+
+  it.each([
+    {
+      theme: 'macintosh-system-1' as const,
+      palette: MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+      height: 16,
+      trackTop: [0, 0, 0, 255],
+      trackBottom: [255, 255, 255, 255],
+    },
+    {
+      theme: 'windows-3.1' as const,
+      palette: WINDOWS_31_UI_SHAPE_PALETTE,
+      height: 17,
+      trackTop: [223, 223, 223, 255],
+      trackBottom: [223, 223, 223, 255],
+    },
+    {
+      theme: 'windows-95' as const,
+      palette: WINDOWS_95_UI_SHAPE_PALETTE,
+      height: 16,
+      trackTop: [192, 192, 192, 255],
+      trackBottom: [255, 255, 255, 255],
+    },
+  ])('points $theme arrows outward and paints the track to both edges', ({
+    theme,
+    palette,
+    height,
+    trackTop,
+    trackBottom,
+  }) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = height;
+    const context = canvas.getContext('2d')!;
+    drawUiShapeComponent(
+      context,
+      {
+        id: `scroll-${theme}`,
+        kind: 'scrollbar-horizontal',
+        x: 0,
+        y: 0,
+        width: 64,
+        height,
+        canonicalState: { value: 0.5 },
+      },
+      0,
+      0,
+      palette,
+      undefined,
+      theme,
+    );
+
+    const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+    const radius = 3;
+    const center = Math.floor((height - 1) / 2);
+    const start = center - Math.floor(radius / 2);
+    const rightButtonX = 64 - height;
+
+    expect(pixel(start, center)).toEqual([0, 0, 0, 255]);
+    expect(pixel(start, center - 1)).not.toEqual([0, 0, 0, 255]);
+    expect(pixel(start + radius, center - radius)).toEqual([0, 0, 0, 255]);
+    expect(pixel(rightButtonX + start, center - radius)).toEqual([0, 0, 0, 255]);
+    expect(pixel(rightButtonX + start + radius, center)).toEqual([0, 0, 0, 255]);
+    expect(pixel(rightButtonX + start + radius, center - 1)).not.toEqual([0, 0, 0, 255]);
+    expect(pixel(18, 0)).toEqual(trackTop);
+    expect(pixel(18, height - 1)).toEqual(trackBottom);
   });
 
   it('deep-clones component state and animation', () => {
