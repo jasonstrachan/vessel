@@ -51,6 +51,22 @@ describe('useComprehensiveKeyboard – Studio clipboard shortcuts', () => {
     keyboard.unmount();
   });
 
+  it('lets the active Studio extension claim paste in place and duplicate', async () => {
+    const handler = jest.fn(() => true);
+    studioExtension.handleClipboardAction = handler;
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'v', code: 'KeyV', metaKey: true, shiftKey: true });
+      fireEvent.keyDown(window, { key: 'd', code: 'KeyD', metaKey: true });
+      await Promise.resolve();
+    });
+
+    expect(handler).toHaveBeenNthCalledWith(1, expect.objectContaining({ action: 'paste-in-place' }));
+    expect(handler).toHaveBeenNthCalledWith(2, expect.objectContaining({ action: 'duplicate' }));
+    keyboard.unmount();
+  });
+
   it('leaves native text copy and cut alone', async () => {
     const handler = jest.fn(() => true);
     studioExtension.handleClipboardAction = handler;
@@ -61,6 +77,24 @@ describe('useComprehensiveKeyboard – Studio clipboard shortcuts', () => {
     await act(async () => {
       fireEvent.keyDown(input, { key: 'c', code: 'KeyC', metaKey: true });
       fireEvent.keyDown(input, { key: 'x', code: 'KeyX', metaKey: true });
+      await Promise.resolve();
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    input.remove();
+    keyboard.unmount();
+  });
+
+  it('leaves native text paste in place and duplicate shortcuts alone', async () => {
+    const handler = jest.fn(() => true);
+    studioExtension.handleClipboardAction = handler;
+    const keyboard = render(React.createElement(KeyboardHarness));
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'v', code: 'KeyV', metaKey: true, shiftKey: true });
+      fireEvent.keyDown(input, { key: 'd', code: 'KeyD', metaKey: true });
       await Promise.resolve();
     });
 

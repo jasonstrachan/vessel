@@ -414,6 +414,7 @@ export interface UiShapeComponent {
 
 export interface UiShape extends LayerOwnedProjectObject {
   id: string;
+  groupId?: string;
   x: number;
   y: number;
   width: number;

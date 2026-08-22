@@ -18,7 +18,12 @@ export interface StudioBracketShortcutContext {
   direction: -1 | 1;
 }
 
-export type StudioClipboardAction = 'copy' | 'cut' | 'paste';
+export type StudioClipboardAction =
+  | 'copy'
+  | 'cut'
+  | 'paste'
+  | 'paste-in-place'
+  | 'duplicate';
 
 export interface StudioClipboardActionContext {
   action: StudioClipboardAction;

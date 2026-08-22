@@ -96,6 +96,16 @@ describe('UI Shape document helpers', () => {
     expect(shape?.palette).toEqual(MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE);
   });
 
+  it('preserves a bounded grouping identifier without inventing one', () => {
+    const [grouped, ungrouped] = normalizeUiShapes([
+      { ...createShape({ id: 'grouped' }), groupId: `  ${'g'.repeat(200)}  ` },
+      createShape({ id: 'ungrouped' }),
+    ], 100, 80, [{ id: 'layer-1', layerType: 'normal', order: 0 }]);
+
+    expect(grouped?.groupId).toBe('g'.repeat(160));
+    expect(ungrouped).not.toHaveProperty('groupId');
+  });
+
   it('renders an override without mutating the canonical portrait state', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 100;

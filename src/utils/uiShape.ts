@@ -248,6 +248,9 @@ export const normalizeUiShapes = (
     const now = Date.now();
     return [{
       id,
+      ...(typeof shape.groupId === 'string' && shape.groupId.trim()
+        ? { groupId: shape.groupId.trim().slice(0, 160) }
+        : {}),
       layerId,
       x,
       y,

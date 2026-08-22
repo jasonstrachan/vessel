@@ -515,6 +515,19 @@ export function useComprehensiveKeyboard({
         return;
       }
     }
+    if (
+      (alwaysShortcut === 'paste-in-place' || alwaysShortcut === 'duplicate')
+      && !targetIsTextEntry
+    ) {
+      const handled = await studioExtension.handleClipboardAction?.({
+        action: alwaysShortcut,
+        event,
+      });
+      if (handled) {
+        event.preventDefault();
+        return;
+      }
+    }
 
     const scopeAllowed = allowedScopes.includes(currentScope);
     if (!scopeAllowed && event.code !== 'Space' && !isBracketShortcut) {
