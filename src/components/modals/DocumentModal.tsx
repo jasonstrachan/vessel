@@ -34,6 +34,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 256, height: 256 },
       { width: 512, height: 512 },
+      { width: 768, height: 768 },
       { width: 1024, height: 1024 },
       { width: 2048, height: 2048 },
       { width: 4096, height: 4096 },
@@ -46,6 +47,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 384, height: 512 },
       { width: 768, height: 1024 },
+      { width: 1152, height: 1536 },
       { width: 1536, height: 2048 },
       { width: 1920, height: 2560 },
       { width: 3072, height: 4096 },
@@ -58,6 +60,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 256, height: 320 },
       { width: 512, height: 640 },
+      { width: 768, height: 960 },
       { width: 1024, height: 1280 },
       { width: 2048, height: 2560 },
       { width: 3072, height: 3840 },
@@ -70,6 +73,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 256, height: 384 },
       { width: 512, height: 768 },
+      { width: 768, height: 1152 },
       { width: 1000, height: 1500 },
       { width: 2000, height: 3000 },
       { width: 3000, height: 4500 },
@@ -82,6 +86,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 180, height: 320 },
       { width: 360, height: 640 },
+      { width: 540, height: 960 },
       { width: 720, height: 1280 },
       { width: 1080, height: 1920 },
       { width: 2160, height: 3840 },
@@ -94,6 +99,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 256, height: 362 },
       { width: 512, height: 724 },
+      { width: 768, height: 1086 },
       { width: 1240, height: 1754 },
       { width: 2000, height: 2828 },
       { width: 2480, height: 3508 },
@@ -106,6 +112,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 512, height: 384 },
       { width: 1024, height: 768 },
+      { width: 1536, height: 1152 },
       { width: 1920, height: 1440 },
       { width: 2560, height: 1920 },
       { width: 3840, height: 2880 },
@@ -118,6 +125,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 320, height: 256 },
       { width: 640, height: 512 },
+      { width: 960, height: 768 },
       { width: 1280, height: 1024 },
       { width: 2560, height: 2048 },
       { width: 3840, height: 3072 },
@@ -130,6 +138,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 384, height: 256 },
       { width: 768, height: 512 },
+      { width: 1152, height: 768 },
       { width: 1500, height: 1000 },
       { width: 3000, height: 2000 },
       { width: 4500, height: 3000 },
@@ -142,6 +151,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 512, height: 256 },
       { width: 1024, height: 512 },
+      { width: 1280, height: 640 },
       { width: 1500, height: 750 },
       { width: 3000, height: 1500 },
       { width: 4000, height: 2000 },
@@ -154,6 +164,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 320, height: 180 },
       { width: 640, height: 360 },
+      { width: 1280, height: 720 },
       { width: 1920, height: 1080 },
       { width: 2560, height: 1440 },
       { width: 3840, height: 2160 },
@@ -166,6 +177,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 320, height: 200 },
       { width: 640, height: 400 },
+      { width: 960, height: 600 },
       { width: 1280, height: 800 },
       { width: 1920, height: 1200 },
       { width: 2560, height: 1600 },
@@ -178,6 +190,7 @@ const CANVAS_PRESET_GROUPS: CanvasPresetGroup[] = [
     sizes: [
       { width: 362, height: 256 },
       { width: 724, height: 512 },
+      { width: 1086, height: 768 },
       { width: 1754, height: 1240 },
       { width: 2828, height: 2000 },
       { width: 3508, height: 2480 },
@@ -335,11 +348,12 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
             
             {/* Preset buttons */}
             <div className="mb-3 overflow-x-auto">
-              <div className="w-fit min-w-[38.5rem] space-y-1">
-                <div className="grid grid-cols-[11rem_repeat(5,5.25rem)] gap-1 px-1 text-[10px] uppercase tracking-wide text-[#888]">
+              <div className="w-fit min-w-[44rem] space-y-1">
+                <div className="grid grid-cols-[11rem_repeat(6,5.25rem)] gap-1 px-1 text-[10px] uppercase tracking-wide text-[#888]">
                   <span>Format</span>
                   <span className="text-center">Tiny</span>
                   <span className="text-center">Small</span>
+                  <span className="text-center">Smallish</span>
                   <span className="text-center">Medium</span>
                   <span className="text-center">Large</span>
                   <span className="text-center">Max</span>
@@ -347,7 +361,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                 {CANVAS_PRESET_GROUPS.map((group) => (
                   <div
                     key={`${group.ratio}-${group.name}`}
-                    className="grid grid-cols-[11rem_repeat(5,5.25rem)] gap-1"
+                    className="grid grid-cols-[11rem_repeat(6,5.25rem)] gap-1"
                   >
                     <div
                       className="flex min-w-0 items-center px-2 text-xs text-[#D9D9D9]"
