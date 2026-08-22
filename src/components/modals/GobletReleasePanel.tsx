@@ -201,16 +201,23 @@ export const GobletReleaseActions: React.FC<GobletReleaseActionsProps> = ({
       >
         Download
       </Button>
-      {publishers.map((publisher) => (
-        <Button
-          key={publisher.id}
-          variant="primary"
-          disabled={isPublishing}
-          onClick={() => onPublish(publisher, artifact)}
-        >
-          {publishingPublisherId === publisher.id ? 'Publishing...' : `Publish to ${publisher.label}`}
-        </Button>
-      ))}
+      {publishers.map((publisher) => {
+        const canPublish = publisher.canPublish?.(artifact) ?? true;
+        const unavailableReason = publisher.unavailableReason ?? 'Unsupported artifact';
+        return (
+          <Button
+            key={publisher.id}
+            variant="primary"
+            disabled={isPublishing || !canPublish}
+            onClick={() => onPublish(publisher, artifact)}
+            title={canPublish ? undefined : unavailableReason}
+          >
+            {publishingPublisherId === publisher.id
+              ? 'Publishing...'
+              : `Publish to ${publisher.label}${canPublish ? '' : ` (${unavailableReason})`}`}
+          </Button>
+        );
+      })}
       <Button variant="secondary" disabled={isPublishing} onClick={onClose}>Close</Button>
     </>
   );

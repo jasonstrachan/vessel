@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import {
   GobletReleaseActions,
@@ -6,6 +6,7 @@ import {
   resolveGobletPreviewFrame,
 } from '@/components/modals/GobletReleasePanel';
 import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
+import { registerGobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
 
 const createArtifact = (width = 1024, height = 768): GobletArtifact => ({
   blob: new Blob(['<html></html>'], { type: 'text/html' }),
@@ -167,5 +168,33 @@ describe('GobletReleaseActions', () => {
 
     expect(screen.getByRole('button', { name: 'Download' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Close' })).toBeDisabled();
+  });
+
+  it('keeps an incompatible publisher visible with an actionable disabled state', () => {
+    const unregister = registerGobletPublisher({
+      id: 'html-archive',
+      label: 'HTML archive',
+      canPublish: () => false,
+      unavailableReason: 'Single HTML required',
+      publish: jest.fn(async () => ({ message: 'Published' })),
+    });
+
+    try {
+      render(
+        <GobletReleaseActions
+          artifact={createArtifact()}
+          publishingPublisherId={null}
+          onClose={jest.fn()}
+          onDownload={jest.fn()}
+          onPublish={jest.fn()}
+        />,
+      );
+
+      expect(screen.getByRole('button', {
+        name: 'Publish to HTML archive (Single HTML required)',
+      })).toBeDisabled();
+    } finally {
+      act(() => unregister());
+    }
   });
 });
