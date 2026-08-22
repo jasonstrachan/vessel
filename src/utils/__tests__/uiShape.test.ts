@@ -4,6 +4,7 @@ import {
   drawUiShape,
   MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
   normalizeUiShapes,
+  resolveUiShapeScrollbarOffset,
   WINDOWS_31_UI_SHAPE_PALETTE,
   WINDOWS_95_UI_SHAPE_PALETTE,
 } from '@/utils/uiShape';
@@ -46,6 +47,11 @@ const createShape = (updates: Partial<UiShape> = {}): UiShape => ({
 });
 
 describe('UI Shape document helpers', () => {
+  it('keeps canonical scrollbar positions pixel-snapped and allows smooth playback offsets', () => {
+    expect(resolveUiShapeScrollbarOffset(16, 0.26)).toBe(4);
+    expect(resolveUiShapeScrollbarOffset(16, 0.26, true)).toBeCloseTo(4.16);
+  });
+
   it('normalizes durable geometry, palette and animation state', () => {
     const [shape] = normalizeUiShapes([{
       ...createShape(),
