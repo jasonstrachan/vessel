@@ -2,6 +2,7 @@ import { act, render, fireEvent } from '@testing-library/react';
 import React from 'react';
 
 import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
+import studioExtension from '@/extensions/studioExtension';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape } from '@/types';
 type KeyboardProps = Parameters<typeof useComprehensiveKeyboard>[0];
@@ -28,6 +29,46 @@ const resetStore = (): void => {
     }
   }));
 };
+
+describe('useComprehensiveKeyboard – Studio clipboard shortcuts', () => {
+  afterEach(() => {
+    studioExtension.handleClipboardAction = undefined;
+  });
+
+  it('lets the active Studio extension claim copy and cut', async () => {
+    const handler = jest.fn(() => true);
+    studioExtension.handleClipboardAction = handler;
+    const keyboard = render(React.createElement(KeyboardHarness));
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'c', code: 'KeyC', metaKey: true });
+      fireEvent.keyDown(window, { key: 'x', code: 'KeyX', metaKey: true });
+      await Promise.resolve();
+    });
+
+    expect(handler).toHaveBeenNthCalledWith(1, expect.objectContaining({ action: 'copy' }));
+    expect(handler).toHaveBeenNthCalledWith(2, expect.objectContaining({ action: 'cut' }));
+    keyboard.unmount();
+  });
+
+  it('leaves native text copy and cut alone', async () => {
+    const handler = jest.fn(() => true);
+    studioExtension.handleClipboardAction = handler;
+    const keyboard = render(React.createElement(KeyboardHarness));
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'c', code: 'KeyC', metaKey: true });
+      fireEvent.keyDown(input, { key: 'x', code: 'KeyX', metaKey: true });
+      await Promise.resolve();
+    });
+
+    expect(handler).not.toHaveBeenCalled();
+    input.remove();
+    keyboard.unmount();
+  });
+});
 
 describe('useComprehensiveKeyboard – temporary eraser hold', () => {
   beforeEach(() => {

@@ -1,5 +1,6 @@
 import { createClipboardHandlers } from '@/hooks/canvas/handlers/clipboardHandlers';
 import type { EventHandlerDependencies } from '@/hooks/canvas/utils/types';
+import studioExtension from '@/extensions/studioExtension';
 
 type ClipboardDeps = EventHandlerDependencies;
 
@@ -28,7 +29,27 @@ const createDeps = (): ClipboardDeps => {
 
 describe('createClipboardHandlers', () => {
   afterEach(() => {
+    studioExtension.handleClipboardAction = undefined;
     jest.restoreAllMocks();
+  });
+
+  it('lets the active Studio extension claim paste before the pixel clipboard', async () => {
+    const deps = createDeps();
+    studioExtension.handleClipboardAction = jest.fn(() => true);
+    const event = {
+      target: document.body,
+      preventDefault: jest.fn(),
+      clipboardData: { items: [] },
+    } as unknown as ClipboardEvent;
+
+    await createClipboardHandlers(deps).handlePaste(event);
+
+    expect(studioExtension.handleClipboardAction).toHaveBeenCalledWith({
+      action: 'paste',
+      event,
+    });
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(deps.setFloatingPaste).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -38,6 +59,7 @@ describe('createClipboardHandlers', () => {
     })],
   ])('leaves native paste alone for %s', async (_label, target) => {
     const deps = createDeps();
+    studioExtension.handleClipboardAction = jest.fn(() => true);
     const event = {
       target,
       preventDefault: jest.fn(),
@@ -50,6 +72,7 @@ describe('createClipboardHandlers', () => {
     await handlers.handlePaste(event);
 
     expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(studioExtension.handleClipboardAction).not.toHaveBeenCalled();
     expect(deps.setFloatingPaste).not.toHaveBeenCalled();
   });
 

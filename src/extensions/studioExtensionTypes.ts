@@ -18,6 +18,13 @@ export interface StudioBracketShortcutContext {
   direction: -1 | 1;
 }
 
+export type StudioClipboardAction = 'copy' | 'cut' | 'paste';
+
+export interface StudioClipboardActionContext {
+  action: StudioClipboardAction;
+  event: KeyboardEvent | ClipboardEvent;
+}
+
 export interface VesselStudioExtension {
   brushPresets: readonly BrushPreset[];
   BrushControls?: React.ComponentType;
@@ -25,6 +32,9 @@ export interface VesselStudioExtension {
   resolveBracketShortcut?: (
     context: StudioBracketShortcutContext,
   ) => Partial<BrushSettings> | null;
+  handleClipboardAction?: (
+    context: StudioClipboardActionContext,
+  ) => boolean | Promise<boolean>;
   transformGobletTemplate?: (
     template: string,
     context: { metadata: WebGLExportMetadata },

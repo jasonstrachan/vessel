@@ -491,15 +491,25 @@ export function useComprehensiveKeyboard({
       void onOpenRef.current?.();
       return;
     }
-    if (alwaysShortcut === 'copy') {
-      const handled = await copySelectionToClipboard({ mode: 'copy' });
+    if (alwaysShortcut === 'copy' && !targetIsTextEntry) {
+      const extensionHandled = await studioExtension.handleClipboardAction?.({
+        action: 'copy',
+        event,
+      });
+      const handled = extensionHandled
+        || await copySelectionToClipboard({ mode: 'copy' });
       if (handled) {
         event.preventDefault();
         return;
       }
     }
-    if (alwaysShortcut === 'cut') {
-      const handled = await copySelectionToClipboard({ mode: 'cut' });
+    if (alwaysShortcut === 'cut' && !targetIsTextEntry) {
+      const extensionHandled = await studioExtension.handleClipboardAction?.({
+        action: 'cut',
+        event,
+      });
+      const handled = extensionHandled
+        || await copySelectionToClipboard({ mode: 'cut' });
       if (handled) {
         event.preventDefault();
         return;

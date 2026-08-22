@@ -1,3 +1,4 @@
+import studioExtension from '@/extensions/studioExtension';
 import { debugWarn } from '@/utils/debug';
 import type { ClipboardHandlers, EventHandlerDependencies } from '../utils/types';
 
@@ -87,6 +88,14 @@ export const createClipboardHandlers = (
 
   const handlePaste = async (event: ClipboardEvent) => {
     if (isTextPasteTarget(event.target)) {
+      return;
+    }
+    const extensionHandled = await studioExtension.handleClipboardAction?.({
+      action: 'paste',
+      event,
+    });
+    if (extensionHandled) {
+      event.preventDefault();
       return;
     }
     const getViewportPastePosition = deps.getViewportPastePosition;
