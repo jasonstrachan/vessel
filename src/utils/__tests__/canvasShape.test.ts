@@ -4,6 +4,7 @@ import {
   getCanvasBounds,
   isPointInCanvasShape,
   normalizeCanvasShape,
+  resizeCanvasShape,
 } from '@/utils/canvasShape';
 
 const bounds = getCanvasBounds(100, 100);
@@ -14,6 +15,36 @@ describe('canvasShape', () => {
     expect(shape.kind).toBe('rectangle');
     expect(shape.bounds.width).toBe(100);
     expect(shape.bounds.height).toBe(50);
+  });
+
+  it('expands a full-canvas rectangle to resized document bounds', () => {
+    const shape = resizeCanvasShape(
+      buildRectangleShape({ x: 0, y: 0 }, { x: 512, y: 512 }, getCanvasBounds(512, 512)),
+      512,
+      512,
+      1000,
+      512,
+    );
+
+    expect(shape).toEqual({
+      kind: 'rectangle',
+      bounds: { x: 0, y: 0, width: 1000, height: 512 },
+    });
+  });
+
+  it('preserves an authored rectangle when resizing document bounds', () => {
+    const shape = resizeCanvasShape(
+      buildRectangleShape({ x: 10, y: 12 }, { x: 80, y: 70 }, bounds),
+      100,
+      100,
+      200,
+      150,
+    );
+
+    expect(shape).toEqual({
+      kind: 'rectangle',
+      bounds: { x: 10, y: 12, width: 70, height: 58 },
+    });
   });
 
   it('detects points inside a rectangle', () => {

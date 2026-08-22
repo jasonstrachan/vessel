@@ -33,7 +33,10 @@ export const useDrawingCanvasResizeCenter = ({
   setCanvasDimensions,
   setPan,
 }: UseDrawingCanvasResizeCenterOptions) => {
-  const centeredProjectIdRef = useRef<string | null>(null);
+  const centeredProjectKeyRef = useRef<string | null>(null);
+  const projectKey = project
+    ? `${project.id}:${project.width}x${project.height}`
+    : null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -86,7 +89,7 @@ export const useDrawingCanvasResizeCenter = ({
           drawFunc(ctx, viewTransform);
         }
 
-        if (project && centeredProjectIdRef.current !== project.id) {
+        if (project && centeredProjectKeyRef.current !== projectKey) {
           const scale = viewTransform.scale || 1;
           const contentWidth = project.width * scale;
           const contentHeight = project.height * scale;
@@ -101,7 +104,7 @@ export const useDrawingCanvasResizeCenter = ({
             drawFunc(ctx, viewTransformRef.current);
           }
 
-          centeredProjectIdRef.current = project.id;
+          centeredProjectKeyRef.current = projectKey;
           hasCenteredRef.current = true;
         }
       }
@@ -124,6 +127,7 @@ export const useDrawingCanvasResizeCenter = ({
     viewTransformRef,
     hasCenteredRef,
     project,
+    projectKey,
     setCanvasDimensions,
     setPan,
   ]);
@@ -133,7 +137,7 @@ export const useDrawingCanvasResizeCenter = ({
     const canvasEl = canvasRef.current;
     const wrapper = wrapperRef.current;
     if (!canvasEl || !wrapper) return;
-    if (centeredProjectIdRef.current === project.id) return;
+    if (centeredProjectKeyRef.current === projectKey) return;
 
     const { width, height } = wrapper.getBoundingClientRect();
     const scale = viewTransformRef.current?.scale || 1;
@@ -151,7 +155,7 @@ export const useDrawingCanvasResizeCenter = ({
       drawRef.current(ctx, viewTransformRef.current);
     }
 
-    centeredProjectIdRef.current = project.id;
+    centeredProjectKeyRef.current = projectKey;
     hasCenteredRef.current = true;
-  }, [project, setPan, canvasRef, wrapperRef, hasCenteredRef, viewTransformRef, drawRef]);
+  }, [project, projectKey, setPan, canvasRef, wrapperRef, hasCenteredRef, viewTransformRef, drawRef]);
 };

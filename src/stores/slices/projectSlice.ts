@@ -15,7 +15,7 @@ import {
   createDefaultExportLayout,
   createDefaultPalette,
 } from '@/utils/layoutDefaults';
-import { normalizeCanvasShape } from '@/utils/canvasShape';
+import { resizeCanvasShape } from '@/utils/canvasShape';
 import { createProjectLifecycle, type SaveProjectRequest } from '@/stores/helpers/projectLifecycle';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import {
@@ -432,7 +432,13 @@ export const createProjectSlice =
           width,
           height,
           updatedAt: new Date(),
-          canvasShape: normalizeCanvasShape(state.project.canvasShape, width, height),
+          canvasShape: resizeCanvasShape(
+            state.project.canvasShape,
+            state.project.width,
+            state.project.height,
+            width,
+            height,
+          ),
         };
 
         const nextLayers = syncPercentOffsetsFromPixels(state.layers, updatedProject);
@@ -741,7 +747,13 @@ export const createProjectSlice =
           width,
           height,
           updatedAt: new Date(),
-          canvasShape: normalizeCanvasShape(current.project.canvasShape, width, height),
+          canvasShape: resizeCanvasShape(
+            current.project.canvasShape,
+            current.project.width,
+            current.project.height,
+            width,
+            height,
+          ),
           layers: resizedLayers,
         };
 
@@ -755,7 +767,6 @@ export const createProjectSlice =
             zoom: 1,
             canvasWidth: width,
             canvasHeight: height,
-            needsDimensionUpdate: true,
           },
           currentOffscreenCanvas: null,
           currentCompositeBitmap: null,

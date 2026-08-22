@@ -175,6 +175,33 @@ export const normalizeCanvasShape = (
   return buildFreehandShape(shape.points, bounds);
 };
 
+export const resizeCanvasShape = (
+  shape: CanvasShape | null | undefined,
+  sourceWidth: number,
+  sourceHeight: number,
+  width: number,
+  height: number
+): CanvasShape => {
+  if (!shape) {
+    return createDefaultCanvasShape(width, height);
+  }
+
+  const normalizedSourceWidth = Math.max(1, sourceWidth);
+  const normalizedSourceHeight = Math.max(1, sourceHeight);
+  const isFullCanvasRectangle =
+    shape.kind === 'rectangle' &&
+    Math.abs(shape.bounds.x) < 1e-6 &&
+    Math.abs(shape.bounds.y) < 1e-6 &&
+    Math.abs(shape.bounds.width - normalizedSourceWidth) < 1e-6 &&
+    Math.abs(shape.bounds.height - normalizedSourceHeight) < 1e-6;
+
+  if (isFullCanvasRectangle) {
+    return createDefaultCanvasShape(width, height);
+  }
+
+  return normalizeCanvasShape(shape, width, height);
+};
+
 export const drawCanvasShapePath = (ctx: CanvasRenderingContext2D, shape: CanvasShape): void => {
   ctx.beginPath();
   if (shape.kind === 'rectangle') {

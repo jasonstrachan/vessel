@@ -9,6 +9,7 @@ import historyManager from '@/history/historyService';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { applyColorCycleBrushLayerSnapshotToRuntime } from '@/lib/colorCycle/document';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
+import { createDefaultCanvasShape } from '@/utils/canvasShape';
 import type { Layer, Project, Rectangle } from '@/types';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 
@@ -806,6 +807,11 @@ describe('useAppStore commitCrop', () => {
   it('resizes layer content instead of only changing document bounds', async () => {
     const layer = createLayer(2, 2);
     primeStoreForResize(layer, 2, 2);
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? { ...state.project, canvasShape: createDefaultCanvasShape(2, 2) }
+        : null,
+    }));
 
     await useAppStore.getState().resizeCanvas(4, 4);
 
@@ -819,6 +825,7 @@ describe('useAppStore commitCrop', () => {
 
     expect(state.project?.width).toBe(4);
     expect(state.project?.height).toBe(4);
+    expect(state.project?.canvasShape).toEqual(createDefaultCanvasShape(4, 4));
     expect(updatedLayer.imageData?.width).toBe(4);
     expect(updatedLayer.imageData?.height).toBe(4);
     expect(pixelAt(0, 0)).toEqual([0, 0, 0, 255]);
@@ -1099,6 +1106,11 @@ describe('useAppStore commitCrop', () => {
   it('records canvas resize in history so undo and redo restore dimensions and pixels', async () => {
     const layer = createLayer(2, 2);
     primeStoreForResize(layer, 2, 2);
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? { ...state.project, canvasShape: createDefaultCanvasShape(2, 2) }
+        : null,
+    }));
 
     await useAppStore.getState().resizeCanvas(4, 4);
 
@@ -1112,6 +1124,7 @@ describe('useAppStore commitCrop', () => {
     let updatedLayer = state.layers[0];
     expect(state.project?.width).toBe(2);
     expect(state.project?.height).toBe(2);
+    expect(state.project?.canvasShape).toEqual(createDefaultCanvasShape(2, 2));
     expect(updatedLayer.imageData?.width).toBe(2);
     expect(updatedLayer.imageData?.height).toBe(2);
     expect(Array.from(updatedLayer.imageData?.data ?? [])).toEqual(Array.from(layer.imageData?.data ?? []));
@@ -1122,6 +1135,7 @@ describe('useAppStore commitCrop', () => {
     updatedLayer = state.layers[0];
     expect(state.project?.width).toBe(4);
     expect(state.project?.height).toBe(4);
+    expect(state.project?.canvasShape).toEqual(createDefaultCanvasShape(4, 4));
     expect(updatedLayer.imageData?.width).toBe(4);
     expect(updatedLayer.imageData?.height).toBe(4);
   });

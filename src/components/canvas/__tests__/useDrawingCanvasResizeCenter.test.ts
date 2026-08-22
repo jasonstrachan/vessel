@@ -71,6 +71,10 @@ describe('useDrawingCanvasResizeCenter', () => {
     rerender({ project: { id: 'project-1', width: 200, height: 100 } });
     expect(setPan).not.toHaveBeenCalled();
 
+    rerender({ project: { id: 'project-1', width: 400, height: 100 } });
+    expect(setPan).toHaveBeenLastCalledWith(300, 350);
+
+    setPan.mockClear();
     rerender({ project: { id: 'project-2', width: 100, height: 200 } });
     expect(setPan).toHaveBeenLastCalledWith(450, 300);
     expect(hasCenteredRef.current).toBe(true);
