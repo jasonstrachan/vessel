@@ -1142,8 +1142,14 @@ export const drawUiShapeComponent = (
     case 'group-box':
       ctx.fillStyle = palette.face;
       ctx.fillRect(x, y, width, height);
-      ctx.strokeStyle = palette.shadow;
-      ctx.strokeRect(x + 1.5, y + Math.max(3, Math.floor(height * 0.16)) + 0.5, width - 3, height - 3);
+      {
+        const top = y + Math.max(3, Math.floor(height * 0.16));
+        ctx.fillStyle = palette.shadow;
+        ctx.fillRect(x + 1, top, Math.max(0, width - 2), 1);
+        ctx.fillRect(x + 1, top, 1, Math.max(0, y + height - top - 1));
+        ctx.fillRect(x + 1, y + height - 2, Math.max(0, width - 2), 1);
+        ctx.fillRect(x + width - 2, top, 1, Math.max(0, y + height - top - 1));
+      }
       drawBitmapText(
         ctx,
         component.label ?? 'GROUP',
