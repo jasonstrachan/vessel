@@ -23,11 +23,13 @@ describe('shortcutRegistry', () => {
   });
 
   it('resolves Studio positioning shortcuts without stealing their unmodified keys', () => {
+    expect(resolveAlwaysShortcutAction(keydown({ key: 'v', ctrlKey: true })))
+      .toBe('paste');
     expect(resolveAlwaysShortcutAction(keydown({ key: 'v', metaKey: true, shiftKey: true })))
       .toBe('paste-in-place');
     expect(resolveAlwaysShortcutAction(keydown({ key: 'd', ctrlKey: true })))
       .toBe('duplicate');
-    expect(resolveAlwaysShortcutAction(keydown({ key: 'v', metaKey: true }))).toBeNull();
+    expect(resolveAlwaysShortcutAction(keydown({ key: 'v' }))).toBeNull();
     expect(resolveAlwaysShortcutAction(keydown({ key: 'd' }))).toBeNull();
   });
 

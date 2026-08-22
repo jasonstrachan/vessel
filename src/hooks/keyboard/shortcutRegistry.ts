@@ -7,6 +7,7 @@ export type ShortcutActionId =
   | 'open'
   | 'copy'
   | 'cut'
+  | 'paste'
   | 'paste-in-place'
   | 'duplicate'
   | 'palette-swap'
@@ -44,6 +45,7 @@ const ALWAYS_SHORTCUTS: ShortcutSpec[] = [
   { action: 'open', key: 'o', ctrlOrMeta: 'required' },
   { action: 'copy', key: 'c', ctrlOrMeta: 'required', shift: 'forbidden', alt: 'forbidden' },
   { action: 'cut', key: 'x', ctrlOrMeta: 'required', shift: 'forbidden', alt: 'forbidden' },
+  { action: 'paste', key: 'v', ctrlOrMeta: 'required', shift: 'forbidden', alt: 'forbidden' },
   { action: 'paste-in-place', key: 'v', ctrlOrMeta: 'required', shift: 'required', alt: 'forbidden' },
   { action: 'duplicate', key: 'd', ctrlOrMeta: 'required', shift: 'forbidden', alt: 'forbidden' },
 ];

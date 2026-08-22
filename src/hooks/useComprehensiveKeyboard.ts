@@ -4,6 +4,7 @@ import studioExtension from '@/extensions/studioExtension';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
 import { BrushShape, type BrushSettings, Tool } from '@/types';
+import { isMac } from '@/lib/shortcuts';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
 import {
@@ -104,7 +105,17 @@ const isSpacePanTextEntryTarget = (target: EventTarget | null): boolean => {
   return false;
 };
 
-export const __keyboardTestUtils = { isTextEntryTarget };
+const shouldHandleExtensionPasteKeyDown = (event: KeyboardEvent): boolean => (
+  // Native paste continues through ClipboardEvent so image payloads remain inspectable.
+  isMac()
+    ? event.ctrlKey && !event.metaKey
+    : event.metaKey && !event.ctrlKey
+);
+
+export const __keyboardTestUtils = {
+  isTextEntryTarget,
+  shouldHandleExtensionPasteKeyDown,
+};
 
 interface KeyboardState {
   isSpacePressed: boolean;
@@ -510,6 +521,20 @@ export function useComprehensiveKeyboard({
       });
       const handled = extensionHandled
         || await copySelectionToClipboard({ mode: 'cut' });
+      if (handled) {
+        event.preventDefault();
+        return;
+      }
+    }
+    if (
+      alwaysShortcut === 'paste'
+      && !targetIsTextEntry
+      && shouldHandleExtensionPasteKeyDown(event)
+    ) {
+      const handled = await studioExtension.handleClipboardAction?.({
+        action: 'paste',
+        event,
+      });
       if (handled) {
         event.preventDefault();
         return;
