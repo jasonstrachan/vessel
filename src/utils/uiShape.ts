@@ -346,76 +346,6 @@ export const getUiShapesForLayer = (
   layerId: string,
 ): UiShape[] => shapes?.filter((shape) => shape.layerId === layerId) ?? [];
 
-const GLYPHS: Record<string, readonly string[]> = {
-  ' ': ['000', '000', '000', '000', '000'],
-  '-': ['000', '000', '111', '000', '000'],
-  '.': ['000', '000', '000', '000', '010'],
-  '/': ['001', '001', '010', '100', '100'],
-  '0': ['111', '101', '101', '101', '111'],
-  '1': ['010', '110', '010', '010', '111'],
-  '2': ['110', '001', '010', '100', '111'],
-  '3': ['110', '001', '010', '001', '110'],
-  '4': ['101', '101', '111', '001', '001'],
-  '5': ['111', '100', '110', '001', '110'],
-  '6': ['011', '100', '111', '101', '111'],
-  '7': ['111', '001', '010', '010', '010'],
-  '8': ['111', '101', '111', '101', '111'],
-  '9': ['111', '101', '111', '001', '110'],
-  A: ['010', '101', '111', '101', '101'],
-  B: ['110', '101', '110', '101', '110'],
-  C: ['011', '100', '100', '100', '011'],
-  D: ['110', '101', '101', '101', '110'],
-  E: ['111', '100', '110', '100', '111'],
-  F: ['111', '100', '110', '100', '100'],
-  G: ['011', '100', '101', '101', '011'],
-  H: ['101', '101', '111', '101', '101'],
-  I: ['111', '010', '010', '010', '111'],
-  J: ['001', '001', '001', '101', '010'],
-  K: ['101', '101', '110', '101', '101'],
-  L: ['100', '100', '100', '100', '111'],
-  M: ['101', '111', '111', '101', '101'],
-  N: ['101', '111', '111', '111', '101'],
-  O: ['010', '101', '101', '101', '010'],
-  P: ['110', '101', '110', '100', '100'],
-  Q: ['010', '101', '101', '111', '011'],
-  R: ['110', '101', '110', '101', '101'],
-  S: ['011', '100', '010', '001', '110'],
-  T: ['111', '010', '010', '010', '010'],
-  U: ['101', '101', '101', '101', '111'],
-  V: ['101', '101', '101', '101', '010'],
-  W: ['101', '101', '111', '111', '101'],
-  X: ['101', '101', '010', '101', '101'],
-  Y: ['101', '101', '010', '010', '010'],
-  Z: ['111', '001', '010', '100', '111'],
-};
-
-const drawBitmapText = (
-  ctx: UiShapeCanvasContext,
-  text: string,
-  x: number,
-  y: number,
-  color: string,
-  maxWidth: number,
-  scale: number,
-): void => {
-  const cell = Math.max(1, Math.round(scale));
-  let cursorX = Math.round(x);
-  ctx.fillStyle = color;
-  for (const character of text.toUpperCase()) {
-    const glyph = GLYPHS[character] ?? GLYPHS[' '];
-    const glyphWidth = 4 * cell;
-    if (cursorX + glyphWidth > x + maxWidth) break;
-    glyph.forEach((row, rowIndex) => {
-      [...row].forEach((pixel, columnIndex) => {
-        if (pixel === '1') {
-          ctx.fillRect(cursorX + columnIndex * cell, y + rowIndex * cell, cell, cell);
-        }
-      });
-    });
-    cursorX += glyphWidth;
-  }
-};
-
 const drawRaisedBox = (
   ctx: UiShapeCanvasContext,
   x: number,
@@ -514,7 +444,7 @@ const drawArrow = (
 
 const drawTitleBar = (
   ctx: UiShapeCanvasContext,
-  component: Pick<UiShapeComponent, 'height' | 'label' | 'width'>,
+  component: Pick<UiShapeComponent, 'height' | 'width'>,
   x: number,
   y: number,
   palette: UiShapePalette,
@@ -528,15 +458,6 @@ const drawTitleBar = (
   drawRaisedBox(ctx, controlX, y + 1, controlSize, Math.max(3, component.height - 2), palette);
   ctx.fillStyle = palette.darkShadow;
   ctx.fillRect(controlX + 2, y + Math.max(2, component.height - 4), Math.max(1, controlSize - 4), 1);
-  drawBitmapText(
-    ctx,
-    component.label ?? 'WINDOW',
-    x + 3,
-    y + Math.max(1, Math.floor((component.height - 5) / 2)),
-    active ? palette.activeText : palette.text,
-    Math.max(0, component.width - controlSize - 6),
-    component.height >= 14 ? 2 : 1,
-  );
 };
 
 const drawScrollbar = (
@@ -623,7 +544,7 @@ const drawMacFrame = (
 
 const drawMacTitleBar = (
   ctx: UiShapeCanvasContext,
-  component: Pick<UiShapeComponent, 'height' | 'label' | 'width'>,
+  component: Pick<UiShapeComponent, 'height' | 'width'>,
   x: number,
   y: number,
   palette: UiShapePalette,
@@ -650,15 +571,6 @@ const drawMacTitleBar = (
       palette,
     );
   }
-  const label = component.label ?? 'UNTITLED';
-  const scale = component.height >= 15 ? 2 : 1;
-  const labelWidth = label.length * 4 * scale;
-  const labelX = Math.max(x + closeSize + 7, x + Math.floor((component.width - labelWidth) / 2));
-  const labelY = y + Math.max(1, Math.floor((component.height - 5 * scale) / 2));
-  const available = Math.max(0, component.width - (labelX - x) - 3);
-  ctx.fillStyle = palette.face;
-  ctx.fillRect(labelX - 2, y + 1, Math.max(0, Math.min(component.width - (labelX - x), labelWidth + 4)), Math.max(1, component.height - 2));
-  drawBitmapText(ctx, label, labelX, labelY, palette.text, available, scale);
 };
 
 const drawMacScrollbar = (
@@ -744,16 +656,12 @@ const drawMacComponent = (
         ctx.fillStyle = palette.face;
         ctx.fillRect(x + 6, y + 3, 1, 1);
       }
-      drawBitmapText(ctx, component.label ?? 'FILE EDIT VIEW SPECIAL', x + 11, y + Math.max(1, Math.floor((height - 5) / 2)), palette.text, Math.max(0, width - 13), height >= 14 ? 2 : 1);
       break;
     case 'panel':
       drawMacFrame(ctx, x, y, width, height, palette);
       break;
     case 'group-box':
       drawMacFrame(ctx, x, y + Math.max(3, Math.floor(height * 0.16)), width, Math.max(1, height - Math.max(3, Math.floor(height * 0.16))), palette);
-      ctx.fillStyle = palette.face;
-      ctx.fillRect(x + 3, y, Math.min(width - 6, (component.label ?? 'GROUP').length * 4 + 4), 7);
-      drawBitmapText(ctx, component.label ?? 'GROUP', x + 5, y + 1, palette.text, Math.max(0, width - 10), height >= 20 ? 2 : 1);
       break;
     case 'button': {
       drawMacFrame(ctx, x, y, width, height, palette, state.pressed ? palette.text : palette.face);
@@ -764,7 +672,6 @@ const drawMacComponent = (
         ctx.fillRect(x + 2, y + 2, 1, height - 4);
         ctx.fillRect(x + width - 3, y + 2, 1, height - 4);
       }
-      drawBitmapText(ctx, component.label ?? 'OK', x + Math.max(3, Math.floor(width * 0.18)), y + Math.max(2, Math.floor((height - 5) / 2)), state.pressed ? palette.activeText : palette.text, Math.max(0, Math.floor(width * 0.64)), height >= 16 ? 2 : 1);
       break;
     }
     case 'scrollbar-horizontal':
@@ -776,7 +683,6 @@ const drawMacComponent = (
     case 'selection-field': {
       const selected = state.active !== false;
       drawMacFrame(ctx, x, y, width, height, palette, selected ? palette.selection : palette.face);
-      drawBitmapText(ctx, component.label ?? 'SELECTED', x + 3, y + Math.max(2, Math.floor((height - 5) / 2)), selected ? palette.selectionText : palette.text, Math.max(0, width - 6), height >= 16 ? 2 : 1);
       break;
     }
     case 'separator':
@@ -799,7 +705,7 @@ const drawMacComponent = (
 
 const drawWindows95TitleBar = (
   ctx: UiShapeCanvasContext,
-  component: Pick<UiShapeComponent, 'height' | 'label' | 'width'>,
+  component: Pick<UiShapeComponent, 'height' | 'width'>,
   x: number,
   y: number,
   palette: UiShapePalette,
@@ -868,16 +774,6 @@ const drawWindows95TitleBar = (
     ctx.fillRect(iconX + iconSize - 4, iconY + 2, 1, 3);
     ctx.fillRect(iconX + iconSize - 6, iconY + 4, 3, 1);
   }
-  const textX = x + iconSize + 4;
-  drawBitmapText(
-    ctx,
-    component.label ?? 'WINDOW',
-    textX,
-    y + Math.max(1, Math.floor((component.height - 10) / 2)),
-    active ? palette.activeText : palette.text,
-    Math.max(0, minimizeX - textX - 2),
-    component.height >= 16 ? 2 : 1,
-  );
   ctx.restore();
 };
 
@@ -1118,15 +1014,6 @@ const drawWindows95Component = (
     case 'menu-strip':
       ctx.fillStyle = palette.face;
       ctx.fillRect(x, y, width, height);
-      drawBitmapText(
-        ctx,
-        component.label ?? 'FILE EDIT VIEW',
-        x + 6,
-        y + Math.max(2, Math.floor((height - 5) / 2)),
-        palette.text,
-        Math.max(0, width - 12),
-        height >= 18 ? 2 : 1,
-      );
       break;
     case 'panel':
       drawWindows95Field(ctx, x, y, width, height, palette, palette.face);
@@ -1142,29 +1029,10 @@ const drawWindows95Component = (
       ctx.fillRect(x + 2, top + 1, Math.max(0, width - 3), 1);
       ctx.fillRect(x + width - 1, top + 1, 1, Math.max(0, height - (top - y) - 1));
       ctx.fillRect(x + 2, y + height - 1, Math.max(0, width - 2), 1);
-      const label = component.label ?? 'GROUP';
-      const labelWidth = Math.min(Math.max(0, width - 10), label.length * 4 + 4);
-      ctx.fillStyle = palette.face;
-      ctx.fillRect(x + 7, top - 2, labelWidth, 5);
-      drawBitmapText(ctx, label, x + 9, y + 1, palette.text, Math.max(0, width - 18), 1);
       break;
     }
     case 'button': {
       drawRaisedBox(ctx, x, y, width, height, palette, state.pressed === true);
-      const scale = height >= 20 ? 2 : 1;
-      const label = component.label ?? 'OK';
-      const estimatedWidth = label.length * 4 * scale;
-      const textX = x + Math.max(3, Math.floor((width - estimatedWidth) / 2));
-      const textY = y + Math.max(2, Math.floor((height - 5 * scale) / 2));
-      drawBitmapText(
-        ctx,
-        label,
-        textX + (state.pressed ? 1 : 0),
-        textY + (state.pressed ? 1 : 0),
-        palette.text,
-        Math.max(0, width - (textX - x) - 3),
-        scale,
-      );
       if (state.active === true && width > 8 && height > 8) {
         ctx.fillStyle = palette.text;
         for (let offset = 4; offset < width - 4; offset += 2) {
@@ -1215,15 +1083,6 @@ const drawWindows95Component = (
           Math.max(1, height - inset * 2),
         );
       }
-      drawBitmapText(
-        ctx,
-        component.label ?? 'SELECTED',
-        x + inset + 2,
-        y + Math.max(inset + 1, Math.floor((height - 5) / 2)),
-        selected ? palette.selectionText : palette.text,
-        Math.max(0, width - inset * 2 - 4),
-        height >= 18 ? 2 : 1,
-      );
       break;
     }
     case 'separator': {
@@ -1318,15 +1177,6 @@ export const drawUiShapeComponent = (
     case 'menu-strip':
       ctx.fillStyle = palette.face;
       ctx.fillRect(x, y, width, height);
-      drawBitmapText(
-        ctx,
-        component.label ?? 'FILE EDIT VIEW',
-        x + 2,
-        y + Math.max(1, Math.floor((height - 5) / 2)),
-        palette.text,
-        Math.max(0, width - 4),
-        height >= 14 ? 2 : 1,
-      );
       break;
     case 'panel':
       drawRecessedBox(ctx, x, y, width, height, palette);
@@ -1342,27 +1192,9 @@ export const drawUiShapeComponent = (
         ctx.fillRect(x + 1, y + height - 2, Math.max(0, width - 2), 1);
         ctx.fillRect(x + width - 2, top, 1, Math.max(0, y + height - top - 1));
       }
-      drawBitmapText(
-        ctx,
-        component.label ?? 'GROUP',
-        x + 4,
-        y + 1,
-        palette.text,
-        Math.max(0, width - 8),
-        height >= 20 ? 2 : 1,
-      );
       break;
     case 'button':
       drawRaisedBox(ctx, x, y, width, height, palette, state.pressed === true);
-      drawBitmapText(
-        ctx,
-        component.label ?? 'OK',
-        x + Math.max(2, Math.floor(width * 0.18)),
-        y + Math.max(2, Math.floor((height - 5) / 2)),
-        palette.text,
-        Math.max(0, Math.floor(width * 0.64)),
-        height >= 16 ? 2 : 1,
-      );
       break;
     case 'scrollbar-horizontal':
       drawScrollbar(ctx, component, x, y, palette, state, false, subpixelScrollbars);
@@ -1380,15 +1212,6 @@ export const drawUiShapeComponent = (
         height,
         palette,
         selected ? palette.selection : palette.highlight,
-      );
-      drawBitmapText(
-        ctx,
-        component.label ?? 'SELECTED',
-        x + 3,
-        y + Math.max(2, Math.floor((height - 5) / 2)),
-        selected ? palette.selectionText : palette.text,
-        Math.max(0, width - 6),
-        height >= 16 ? 2 : 1,
       );
       break;
     }
