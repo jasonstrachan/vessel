@@ -165,6 +165,36 @@ describe('UI Shape document helpers', () => {
     expect(context!.getImageData(0, 0, 100, 100).data.some((value) => value !== 0)).toBe(true);
   });
 
+  it('keeps freehand fill edges on the component grid instead of clipping to the raw path', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 24;
+    const context = canvas.getContext('2d')!;
+    const shape = createShape({
+      x: 0,
+      y: 0,
+      width: 32,
+      height: 24,
+      regionKind: 'freehand',
+      regionPath: [{ x: 0, y: 0 }, { x: 32, y: 0 }, { x: 0, y: 24 }],
+      componentKinds: ['panel'],
+      components: [{
+        id: 'panel-1',
+        kind: 'panel',
+        x: 16,
+        y: 0,
+        width: 8,
+        height: 8,
+        canonicalState: {},
+      }],
+    });
+
+    drawUiShape(context, shape);
+
+    expect(context.getImageData(23, 7, 1, 1).data[3]).toBe(255);
+    expect(context.getImageData(24, 7, 1, 1).data[3]).toBe(0);
+  });
+
   it('renders System 1 and Windows 95 as distinct component grammars', () => {
     const render = (shape: UiShape) => {
       const canvas = document.createElement('canvas');

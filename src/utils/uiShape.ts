@@ -1246,15 +1246,9 @@ export const drawUiShape = (
 ): void => {
   ctx.save();
   ctx.beginPath();
-  if (shape.regionKind === 'freehand' && shape.regionPath && shape.regionPath.length >= 3) {
-    ctx.moveTo(shape.x + shape.regionPath[0]!.x, shape.y + shape.regionPath[0]!.y);
-    shape.regionPath.slice(1).forEach((point) => {
-      ctx.lineTo(shape.x + point.x, shape.y + point.y);
-    });
-    ctx.closePath();
-  } else {
-    ctx.rect(shape.x, shape.y, shape.width, shape.height);
-  }
+  // Freehand fill is already expressed by the grid-aligned component mask.
+  // Clipping that mask to the raw gesture would cut diagonal edges through its cells.
+  ctx.rect(shape.x, shape.y, shape.width, shape.height);
   ctx.clip();
   shape.components.forEach((component) => {
     const stateOverride = stateOverrides?.get(component.id);
