@@ -422,6 +422,8 @@ export interface UiShape extends LayerOwnedProjectObject {
   width: number;
   height: number;
   gridSize: number;
+  /** Gap between filled components, measured in grid cells. */
+  spacing?: number;
   theme: UiShapeTheme;
   drawMode: UiShapeDrawMode;
   regionKind: UiShapeRegionKind;
