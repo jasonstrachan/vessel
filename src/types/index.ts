@@ -356,6 +356,7 @@ export type UiShapeComponentKind =
   | 'panel'
   | 'group-box'
   | 'button'
+  | 'radio-button'
   | 'scrollbar-horizontal'
   | 'scrollbar-vertical'
   | 'selection-field'

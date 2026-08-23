@@ -40,6 +40,7 @@ export const UI_SHAPE_REFERENCE_COMPONENT_KINDS: readonly UiShapeComponentKind[]
   'panel',
   'group-box',
   'button',
+  'radio-button',
   'scrollbar-horizontal',
   'scrollbar-vertical',
   'selection-field',
@@ -104,6 +105,13 @@ const common = ({
     minimumHeight: buttonHeight,
     label: 'OK',
     canonicalState: { active: true, pressed: false },
+  },
+  'radio-button': {
+    width: 12,
+    height: 12,
+    minimumWidth: 12,
+    minimumHeight: 12,
+    canonicalState: { checked: true },
   },
   'scrollbar-horizontal': {
     width: 160,

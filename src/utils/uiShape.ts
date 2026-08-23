@@ -74,6 +74,7 @@ const COMPONENT_KINDS = new Set<UiShapeComponentKind>([
   'panel',
   'group-box',
   'button',
+  'radio-button',
   'scrollbar-horizontal',
   'scrollbar-vertical',
   'selection-field',
@@ -447,6 +448,78 @@ const drawArrow = (
   }
 };
 
+const RADIO_BUTTON_LAYERS = [
+  '....1111....',
+  '..11222211..',
+  '.1223333221.',
+  '.1233333321.',
+  '123333333321',
+  '123333333321',
+  '123333333321',
+  '123333333321',
+  '.1233333321.',
+  '.1223333221.',
+  '..11222211..',
+  '....1111....',
+] as const;
+
+const radioButtonPixel = (
+  theme: UiShapeTheme,
+  palette: UiShapePalette,
+  layer: string,
+  sourceX: number,
+  sourceY: number,
+): string | null => {
+  if (layer === '.') return null;
+  if (layer === '3') return palette.highlight;
+  if (theme === 'macintosh-system-1') return palette.text;
+  const isTopLeft = sourceX + sourceY < 11;
+  if (theme === 'windows-95') {
+    if (layer === '1') return isTopLeft ? palette.shadow : palette.highlight;
+    return isTopLeft ? palette.darkShadow : palette.light;
+  }
+  if (layer === '1') return isTopLeft ? palette.darkShadow : palette.highlight;
+  return isTopLeft ? palette.shadow : palette.light;
+};
+
+const drawRadioButton = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+  theme: UiShapeTheme,
+): void => {
+  const size = Math.max(1, Math.min(12, width, height));
+  const left = x + Math.floor((width - size) / 2);
+  const top = y + Math.floor((height - size) / 2);
+  for (let targetY = 0; targetY < size; targetY += 1) {
+    const sourceY = Math.floor(targetY * 12 / size);
+    const row = RADIO_BUTTON_LAYERS[sourceY]!;
+    for (let targetX = 0; targetX < size; targetX += 1) {
+      const sourceX = Math.floor(targetX * 12 / size);
+      const color = radioButtonPixel(theme, palette, row[sourceX]!, sourceX, sourceY);
+      if (!color) continue;
+      ctx.fillStyle = color;
+      ctx.fillRect(left + targetX, top + targetY, 1, 1);
+    }
+  }
+  if (state.checked !== true) return;
+  const dotSize = Math.min(size, theme === 'macintosh-system-1' ? 6 : 4);
+  const dotLeft = left + Math.floor((size - dotSize) / 2);
+  const dotTop = top + Math.floor((size - dotSize) / 2);
+  ctx.fillStyle = palette.text;
+  for (let dotY = 0; dotY < dotSize; dotY += 1) {
+    for (let dotX = 0; dotX < dotSize; dotX += 1) {
+      const isCorner = (dotX === 0 || dotX === dotSize - 1)
+        && (dotY === 0 || dotY === dotSize - 1);
+      if (dotSize === 1 || !isCorner) ctx.fillRect(dotLeft + dotX, dotTop + dotY, 1, 1);
+    }
+  }
+};
+
 const drawTitleBar = (
   ctx: UiShapeCanvasContext,
   component: Pick<UiShapeComponent, 'height' | 'width'>,
@@ -679,6 +752,9 @@ const drawMacComponent = (
       }
       break;
     }
+    case 'radio-button':
+      drawRadioButton(ctx, x, y, width, height, palette, state, 'macintosh-system-1');
+      break;
     case 'scrollbar-horizontal':
       drawMacScrollbar(ctx, component, x, y, palette, state, false, subpixelScrollbars);
       break;
@@ -1051,6 +1127,9 @@ const drawWindows95Component = (
       }
       break;
     }
+    case 'radio-button':
+      drawRadioButton(ctx, x, y, width, height, palette, state, 'windows-95');
+      break;
     case 'scrollbar-horizontal':
       drawWindows95Scrollbar(
         ctx,
@@ -1200,6 +1279,9 @@ export const drawUiShapeComponent = (
       break;
     case 'button':
       drawRaisedBox(ctx, x, y, width, height, palette, state.pressed === true);
+      break;
+    case 'radio-button':
+      drawRadioButton(ctx, x, y, width, height, palette, state, 'windows-3.1');
       break;
     case 'scrollbar-horizontal':
       drawScrollbar(ctx, component, x, y, palette, state, false, subpixelScrollbars);

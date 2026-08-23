@@ -267,6 +267,44 @@ describe('UI Shape document helpers', () => {
     expect(render(mac)).not.toEqual(render(windows95));
   });
 
+  it('renders exact theme-specific radio pixels from canonical checked state', () => {
+    const render = (theme: UiShape['theme'], checked: boolean) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 12;
+      canvas.height = 12;
+      const context = canvas.getContext('2d')!;
+      const palette = theme === 'macintosh-system-1'
+        ? MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE
+        : theme === 'windows-95'
+          ? WINDOWS_95_UI_SHAPE_PALETTE
+          : WINDOWS_31_UI_SHAPE_PALETTE;
+      drawUiShapeComponent(context, {
+        id: `radio-${theme}`,
+        kind: 'radio-button',
+        x: 0,
+        y: 0,
+        width: 12,
+        height: 12,
+        canonicalState: { checked },
+      }, 0, 0, palette, undefined, theme);
+      return context;
+    };
+    const pixel = (context: CanvasRenderingContext2D, x: number, y: number) => (
+      [...context.getImageData(x, y, 1, 1).data]
+    );
+    const mac = render('macintosh-system-1', false);
+    const windows31 = render('windows-3.1', false);
+    const windows95 = render('windows-95', false);
+
+    expect(pixel(mac, 0, 4)).toEqual([0, 0, 0, 255]);
+    expect(pixel(windows31, 0, 4)).toEqual([0, 0, 0, 255]);
+    expect(pixel(windows95, 0, 4)).toEqual([128, 128, 128, 255]);
+    expect(pixel(mac, 5, 5)).toEqual([255, 255, 255, 255]);
+    expect(pixel(render('macintosh-system-1', true), 5, 5)).toEqual([0, 0, 0, 255]);
+    expect(pixel(render('windows-3.1', true), 5, 5)).toEqual([0, 0, 0, 255]);
+    expect(pixel(render('windows-95', true), 5, 5)).toEqual([0, 0, 0, 255]);
+  });
+
   it('uses the Windows 95 frame, caption, and field pixel order', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 100;
