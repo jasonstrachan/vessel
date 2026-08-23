@@ -8,6 +8,7 @@ interface TabsProps {
   onTabChange: (value: string) => void;
   className?: string;
   size?: 'sm' | 'md' | 'lg';
+  wrap?: boolean;
 }
 
 const ACCENT_COLOR = '#D9D9D9';
@@ -16,7 +17,14 @@ type RowMeta = {
   isFirstRow: boolean;
 };
 
-const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, className = '', size = 'md' }) => {
+const Tabs: React.FC<TabsProps> = ({
+  tabs,
+  activeTab,
+  onTabChange,
+  className = '',
+  size = 'md',
+  wrap = true,
+}) => {
   const fontSize = size === 'sm' ? '12px' : size === 'lg' ? '16px' : '14px';
   const containerRef = useRef<HTMLDivElement>(null);
   const [rowMeta, setRowMeta] = useState<RowMeta[]>([]);
@@ -63,7 +71,7 @@ const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, className = '
 
   useLayoutEffect(() => {
     recomputeLayout();
-  }, [recomputeLayout, tabs, size, activeTab]);
+  }, [recomputeLayout, tabs, size, activeTab, wrap]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -84,7 +92,7 @@ const Tabs: React.FC<TabsProps> = ({ tabs, activeTab, onTabChange, className = '
   }, [recomputeLayout]);
 
   return (
-    <div ref={containerRef} className={`flex flex-wrap ${className}`}>
+    <div ref={containerRef} className={`flex ${wrap ? 'flex-wrap' : 'flex-nowrap'} ${className}`}>
       {tabs.map((tab, index) => {
         const isActive = tab.value === activeTab;
         const isDisabled = Boolean(tab.disabled);

@@ -17,9 +17,17 @@ export interface ButtonGroupProps {
   onChange: (value: string) => void;
   className?: string;
   size?: 'sm' | 'md' | 'lg';
+  wrap?: boolean;
 }
 
-const ButtonGroup: React.FC<ButtonGroupProps> = ({ options, value, onChange, className, size = 'md' }) => {
+const ButtonGroup: React.FC<ButtonGroupProps> = ({
+  options,
+  value,
+  onChange,
+  className,
+  size = 'md',
+  wrap = true,
+}) => {
   return (
     <Tabs
       tabs={options}
@@ -27,6 +35,7 @@ const ButtonGroup: React.FC<ButtonGroupProps> = ({ options, value, onChange, cla
       onTabChange={onChange}
       className={className}
       size={size}
+      wrap={wrap}
     />
   );
 };
