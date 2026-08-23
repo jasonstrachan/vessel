@@ -408,6 +408,7 @@ export interface UiShapeComponent {
   width: number;
   height: number;
   label?: string;
+  palette?: UiShapePalette;
   canonicalState: UiShapeComponentState;
   animation?: UiShapeComponentAnimation;
 }

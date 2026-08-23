@@ -99,6 +99,7 @@ describe('UI Shape document helpers', () => {
       palette: { face: 'not-a-colour' },
       components: [{
         ...createShape().components[0],
+        palette: { ...WINDOWS_31_UI_SHAPE_PALETTE, face: '#123456' },
         canonicalState: { value: 4 },
         animation: {
           enabled: true,
@@ -119,6 +120,7 @@ describe('UI Shape document helpers', () => {
       theme: 'windows-3.1',
     }));
     expect(shape?.palette.face).toBe(WINDOWS_31_UI_SHAPE_PALETTE.face);
+    expect(shape?.components[0]?.palette?.face).toBe('#123456');
     expect(shape?.components[0]?.canonicalState.value).toBe(1);
     expect(shape?.components[0]?.animation).toEqual(expect.objectContaining({
       speed: 8,
@@ -193,6 +195,47 @@ describe('UI Shape document helpers', () => {
 
     expect(context.getImageData(23, 7, 1, 1).data[3]).toBe(255);
     expect(context.getImageData(24, 7, 1, 1).data[3]).toBe(0);
+  });
+
+  it('renders each component with its own palette when present', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 16;
+    canvas.height = 8;
+    const context = canvas.getContext('2d')!;
+    const shape = createShape({
+      x: 0,
+      y: 0,
+      width: 16,
+      height: 8,
+      componentKinds: ['menu-strip'],
+      components: [
+        {
+          id: 'menu-red',
+          kind: 'menu-strip',
+          x: 0,
+          y: 0,
+          width: 8,
+          height: 8,
+          palette: { ...WINDOWS_31_UI_SHAPE_PALETTE, face: '#ff0000' },
+          canonicalState: {},
+        },
+        {
+          id: 'menu-blue',
+          kind: 'menu-strip',
+          x: 8,
+          y: 0,
+          width: 8,
+          height: 8,
+          palette: { ...WINDOWS_31_UI_SHAPE_PALETTE, face: '#0000ff' },
+          canonicalState: {},
+        },
+      ],
+    });
+
+    drawUiShape(context, shape);
+
+    expect([...context.getImageData(4, 4, 1, 1).data]).toEqual([255, 0, 0, 255]);
+    expect([...context.getImageData(12, 4, 1, 1).data]).toEqual([0, 0, 255, 255]);
   });
 
   it('renders System 1 and Windows 95 as distinct component grammars', () => {
@@ -401,10 +444,17 @@ describe('UI Shape document helpers', () => {
   });
 
   it('deep-clones component state and animation', () => {
-    const original = createShape();
+    const original = createShape({
+      components: [{
+        ...createShape().components[0]!,
+        palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
+      }],
+    });
     const [clone] = cloneUiShapes([original]);
+    clone!.components[0]!.palette!.face = '#ff0000';
     clone!.components[0]!.canonicalState.value = 0.8;
     clone!.components[0]!.animation!.speed = 2;
+    expect(original.components[0]!.palette!.face).toBe(WINDOWS_31_UI_SHAPE_PALETTE.face);
     expect(original.components[0]!.canonicalState.value).toBe(0.25);
     expect(original.components[0]!.animation!.speed).toBe(0.2);
   });

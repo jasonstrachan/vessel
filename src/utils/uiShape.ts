@@ -213,6 +213,7 @@ const normalizeComponent = (
   index: number,
   width: number,
   height: number,
+  theme: UiShapeTheme,
 ): UiShapeComponent | null => {
   if (!value || typeof value !== 'object') return null;
   const component = value as Partial<UiShapeComponent>;
@@ -241,6 +242,9 @@ const normalizeComponent = (
     height: componentHeight,
     ...(typeof component.label === 'string'
       ? { label: component.label.slice(0, 64) }
+      : {}),
+    ...(component.palette && typeof component.palette === 'object'
+      ? { palette: normalizePalette(component.palette, theme) }
       : {}),
     canonicalState: normalizeState(component.canonicalState),
     ...(animation ? { animation } : {}),
@@ -285,7 +289,7 @@ export const normalizeUiShapes = (
     const components = Array.isArray(shape.components)
       ? shape.components.slice(0, UI_SHAPE_MAX_COMPONENTS).flatMap<UiShapeComponent>(
           (component, componentIndex) => {
-            const normalized = normalizeComponent(component, componentIndex, width, height);
+            const normalized = normalizeComponent(component, componentIndex, width, height, theme);
             return normalized ? [normalized] : [];
           },
         )
@@ -336,6 +340,7 @@ export const cloneUiShapes = (shapes: readonly UiShape[]): UiShape[] => shapes.m
   componentKinds: [...shape.componentKinds],
   components: shape.components.map((component) => ({
     ...component,
+    ...(component.palette ? { palette: { ...component.palette } } : {}),
     canonicalState: { ...component.canonicalState },
     animation: component.animation ? { ...component.animation } : undefined,
   })),
@@ -1257,7 +1262,7 @@ export const drawUiShape = (
       component,
       shape.x,
       shape.y,
-      shape.palette,
+      component.palette ?? shape.palette,
       stateOverride,
       shape.theme,
       options.subpixelScrollbars === true && stateOverride !== undefined,
