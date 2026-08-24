@@ -23,3 +23,10 @@ UI Shape bundles unchanged pixel data derived from Tomasz Stamborski's
 `pixelart-icons` collection at commit
 `5e3810b968e6f0c8507a78807e32ade7e9db2372`, released under CC0 1.0:
 https://github.com/tstamborski/pixelart-icons
+
+UI Shape also bundles original Windows 98 icon artwork distributed by the
+Windows 98 Icon Viewer at https://win98icons.alexmeub.com/. The imported archive
+has SHA-256
+`be1e6bb2d904d8536f206994a874f35554a8baa1a539eb0ec2cf95a75057b16d`.
+Windows icon artwork is property of Microsoft Corporation; the source does not
+declare an open-content licence for those assets.

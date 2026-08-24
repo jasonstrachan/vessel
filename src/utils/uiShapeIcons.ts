@@ -1,3 +1,5 @@
+import { UI_SHAPE_WIN98_ICONS } from '@/utils/uiShapeWin98Icons';
+
 // Generated unchanged from tstamborski/pixelart-icons commit 5e3810b968e6f0c8507a78807e32ade7e9db2372 (CC0-1.0).
 
 export interface UiShapeIconDefinition {
@@ -7,6 +9,7 @@ export interface UiShapeIconDefinition {
   height: number;
   palette: readonly string[];
   pixels: string;
+  encoding?: 'rle';
   signature: {
     lightness: number;
     a: number;
@@ -17,7 +20,7 @@ export interface UiShapeIconDefinition {
 
 type UiShapeIconCanvasContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
-export const UI_SHAPE_ICONS: readonly UiShapeIconDefinition[] = [
+const UI_SHAPE_PIXELART_ICONS: readonly UiShapeIconDefinition[] = [
   {
     id: '2nd-calc32',
     label: '2nd Calc 32',
@@ -3576,16 +3579,36 @@ export const UI_SHAPE_ICONS: readonly UiShapeIconDefinition[] = [
   },
 ] as const;
 
+export const UI_SHAPE_ICONS: readonly UiShapeIconDefinition[] = [
+  ...UI_SHAPE_PIXELART_ICONS,
+  ...UI_SHAPE_WIN98_ICONS,
+];
+
 export const DEFAULT_UI_SHAPE_ICON_ID = 'computer16';
 
 const ICONS_BY_ID = new Map(UI_SHAPE_ICONS.map((icon) => [icon.id, icon]));
 const PIXEL_CACHE = new Map<string, Uint8Array>();
+const ICON_MATCH_CACHE = new Map<string, string>();
+const ICON_MATCH_CACHE_LIMIT = 4_096;
 
 const decodePixels = (icon: UiShapeIconDefinition): Uint8Array => {
   const cached = PIXEL_CACHE.get(icon.id);
   if (cached) return cached;
   const binary = globalThis.atob(icon.pixels);
-  const pixels = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const encoded = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const pixels = icon.encoding === 'rle'
+    ? (() => {
+        const decoded = new Uint8Array(icon.width * icon.height);
+        let offset = 0;
+        for (let index = 0; index < encoded.length; index += 2) {
+          const runLength = encoded[index] ?? 0;
+          const paletteIndex = encoded[index + 1] ?? 0;
+          decoded.fill(paletteIndex, offset, offset + runLength);
+          offset += runLength;
+        }
+        return decoded;
+      })()
+    : encoded;
   PIXEL_CACHE.set(icon.id, pixels);
   return pixels;
 };
@@ -3681,18 +3704,22 @@ export const resolveUiShapeIconForSamples = (
   samples: readonly string[],
   fallback: unknown = DEFAULT_UI_SHAPE_ICON_ID,
 ): string => {
+  const normalizedFallback = normalizeUiShapeIconId(fallback);
+  const cacheKey = `${normalizedFallback}\u0000${samples.join('\u0000')}`;
+  const cached = ICON_MATCH_CACHE.get(cacheKey);
+  if (cached) return cached;
   const colors = samples.flatMap((sample) => {
     const parsed = parseHex(sample);
     return parsed ? [toOklab(parsed)] : [];
   });
-  if (colors.length === 0) return normalizeUiShapeIconId(fallback);
+  if (colors.length === 0) return normalizedFallback;
   const target = colors.reduce<OklabColor>((total, color) => ({
     lightness: total.lightness + color.lightness / colors.length,
     a: total.a + color.a / colors.length,
     b: total.b + color.b / colors.length,
     chroma: total.chroma + color.chroma / colors.length,
   }), { lightness: 0, a: 0, b: 0, chroma: 0 });
-  let best = getUiShapeIcon(fallback);
+  let best = getUiShapeIcon(normalizedFallback);
   let bestScore = Number.POSITIVE_INFINITY;
   UI_SHAPE_ICONS.forEach((icon) => {
     const lightnessDistance = Math.abs(icon.signature.lightness - target.lightness);
@@ -3704,6 +3731,11 @@ export const resolveUiShapeIconForSamples = (
       bestScore = score;
     }
   });
+  if (ICON_MATCH_CACHE.size >= ICON_MATCH_CACHE_LIMIT) {
+    const oldest = ICON_MATCH_CACHE.keys().next().value;
+    if (oldest) ICON_MATCH_CACHE.delete(oldest);
+  }
+  ICON_MATCH_CACHE.set(cacheKey, best.id);
   return best.id;
 };
 
