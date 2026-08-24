@@ -414,6 +414,30 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledWith({ x: 21, y: 22 }, expect.any(Number));
   });
 
+  it('does not bootstrap the selected brush while a floating paste owns the pointer', () => {
+    const { deps } = createDeps({
+      floatingPaste: {
+        active: true,
+        imageData: null,
+        position: { x: 10, y: 10 },
+        width: 20,
+        height: 30,
+        displayWidth: 20,
+        displayHeight: 30,
+        rotation: 0,
+        originalPosition: { x: 10, y: 10 },
+      },
+    });
+    const handlers = createPointerHandlers(deps);
+
+    // The overlay captures pointerdown, then its captured pointermove bubbles to
+    // the canvas wrapper with the primary button held.
+    handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 21, clientY: 22 }));
+
+    expect(deps.drawingHandlers.beginStrokeSession).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+  });
+
   it('starts a regular brush stroke at its outside-document anchor', () => {
     const { deps } = createDeps();
     deps.stateMachine.state.mode = 'IDLE';

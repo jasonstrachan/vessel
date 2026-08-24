@@ -2416,7 +2416,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         polygonGradientStateGuard.drawingState === 'adjustingRotation' ||
         polygonGradientStateGuard.drawingState === 'adjustingSize');
 
-    if (adjustSessionActive) {
+    if (adjustSessionActive && !getDynamicDeps().floatingPaste) {
       const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
       isMouseDownRef.current = true;
       pointerInsideCanvas = true;
@@ -2539,12 +2539,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return; // Skip everything else - we're panning
     }
 
-    if (event.button === 0 && isOverlayExtensionBrush(tools)) {
-      isMouseDownRef.current = false;
-      suppressBootstrapUntilPointerUpRef.current = true;
-      return;
-    }
-
     // Middle or right click cancels a pending linear direction stage.
     if (event.button === 1 || event.button === 2) {
       if (drawingHandlers.isSelectingDirectionRef?.current) {
@@ -2570,6 +2564,63 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
     if ((event.buttons & 1) === 0) {
       suppressBootstrapUntilPointerUpRef.current = false;
+    }
+
+    // A floating paste is the active canvas interaction until it is committed
+    // or cancelled. Keep the selected tool mounted, but do not route this
+    // pointer gesture into it.
+    if (event.button === 0 && floatingPaste) {
+      const pasteX = floatingPaste.position.x;
+      const pasteY = floatingPaste.position.y;
+      const pasteWidth = floatingPaste.displayWidth ?? floatingPaste.width;
+      const pasteHeight = floatingPaste.displayHeight ?? floatingPaste.height;
+      const clickInsidePaste =
+        worldPos.x >= pasteX && worldPos.x <= pasteX + pasteWidth &&
+        worldPos.y >= pasteY && worldPos.y <= pasteY + pasteHeight;
+
+      if (clickInsidePaste) {
+        isMouseDownRef.current = true;
+        setIsDraggingFloatingPaste(true);
+        floatingPasteDragStart.current = worldPos;
+        floatingPasteOriginalPos.current = { ...floatingPaste.position };
+        applyToolCursor({
+          isDraggingFloatingPaste: true,
+          isColorPicker: false,
+          useCrosshair: false,
+        });
+        return;
+      }
+
+      commitFloatingPaste().then(() => {
+        compositeCanvasDirtyRef.current = true;
+        requestAnimationFrame(() => {
+          if (compositeCanvasRef.current && project) {
+            compositeLayersToCanvas(compositeCanvasRef.current);
+            setCurrentOffscreenCanvas(compositeCanvasRef.current);
+            compositeCanvasDirtyRef.current = false;
+            const canvasEl = canvasRef.current;
+            const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
+            if (ctx) {
+              deps.draw(ctx, deps.viewTransformRef.current);
+            }
+          }
+        });
+      }).catch(() => {
+        cancelFloatingPaste();
+      });
+      isMouseDownRef.current = false;
+      if (withPointerCaptureTarget(event).hasPointerCapture?.(event.pointerId)) {
+        withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
+      }
+      applyToolCursor({ isColorPicker: false, useCrosshair: false });
+      updateBrushCursorVisibility();
+      return;
+    }
+
+    if (event.button === 0 && isOverlayExtensionBrush(tools)) {
+      isMouseDownRef.current = false;
+      suppressBootstrapUntilPointerUpRef.current = true;
+      return;
     }
 
     const shouldHandleSelectionHitTest =
@@ -2689,59 +2740,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       worldPos,
     })) {
       return;
-    }
-
-    // PRIORITY: If a floating paste exists and the click is within its bounds,
-    // start dragging it BEFORE any other interactions (drawing, selection, etc.).
-    if (event.button === 0 && floatingPaste) {
-      const pasteX = floatingPaste.position.x;
-      const pasteY = floatingPaste.position.y;
-      const pasteWidth = floatingPaste.displayWidth ?? floatingPaste.width;
-      const pasteHeight = floatingPaste.displayHeight ?? floatingPaste.height;
-
-      if (worldPos.x >= pasteX && worldPos.x <= pasteX + pasteWidth &&
-          worldPos.y >= pasteY && worldPos.y <= pasteY + pasteHeight) {
-        setIsDraggingFloatingPaste(true);
-        floatingPasteDragStart.current = worldPos;
-        floatingPasteOriginalPos.current = { ...floatingPaste.position };
-        applyToolCursor({
-          isDraggingFloatingPaste: true,
-          isColorPicker: false,
-          useCrosshair: false,
-        });
-        return; // Do not start drawing/selection when dragging paste
-      }
-
-      const clickInsidePaste =
-        worldPos.x >= pasteX && worldPos.x <= pasteX + pasteWidth &&
-        worldPos.y >= pasteY && worldPos.y <= pasteY + pasteHeight;
-
-      if (!clickInsidePaste) {
-        commitFloatingPaste().then(() => {
-          compositeCanvasDirtyRef.current = true;
-          requestAnimationFrame(() => {
-            if (compositeCanvasRef.current && project) {
-              compositeLayersToCanvas(compositeCanvasRef.current);
-              setCurrentOffscreenCanvas(compositeCanvasRef.current);
-              compositeCanvasDirtyRef.current = false;
-              const canvasEl = canvasRef.current;
-              const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                deps.draw(ctx, deps.viewTransformRef.current);
-              }
-            }
-          });
-        }).catch(() => {
-          cancelFloatingPaste();
-        });
-        isMouseDownRef.current = false;
-        if (withPointerCaptureTarget(event).hasPointerCapture?.(event.pointerId)) {
-          withPointerCaptureTarget(event).releasePointerCapture?.(event.pointerId);
-        }
-        applyToolCursor({ isColorPicker: false, useCrosshair: false });
-        updateBrushCursorVisibility();
-        return;
-      }
     }
 
     if (
@@ -3460,6 +3458,31 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       }
     );
 
+    if (
+      !pan.panState.isPanning &&
+      (
+        floatingPaste ||
+        (floatingPasteDragStart.current && floatingPasteOriginalPos.current)
+      )
+    ) {
+      if (floatingPasteDragStart.current && floatingPasteOriginalPos.current) {
+        const deltaX = worldPos.x - floatingPasteDragStart.current.x;
+        const deltaY = worldPos.y - floatingPasteDragStart.current.y;
+
+        updateFloatingPastePosition(
+          floatingPasteOriginalPos.current.x + deltaX,
+          floatingPasteOriginalPos.current.y + deltaY,
+        );
+
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          deps.draw(ctx, deps.viewTransformRef.current);
+        }
+      }
+      return;
+    }
+
     // If the pointer starts outside and enters the canvas while primary button is held,
     // bootstrap a normal stroke on entry.
     if (
@@ -3738,26 +3761,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     // Hide cursor when: panning, custom tool, dragging paste, or pointer outside canvas bounds
     // NOTE: Keep cursor visible while erasing so users can see eraser size
     updateBrushCursorVisibility();
-
-    // Handle dragging floating paste
-    // Use refs to avoid render timing issues; begin drag sets these synchronously
-    if (floatingPasteDragStart.current && floatingPasteOriginalPos.current) {
-      const deltaX = worldPos.x - floatingPasteDragStart.current.x;
-      const deltaY = worldPos.y - floatingPasteDragStart.current.y;
-
-      const newX = floatingPasteOriginalPos.current.x + deltaX;
-      const newY = floatingPasteOriginalPos.current.y + deltaY;
-
-      updateFloatingPastePosition(newX, newY);
-
-      // Redraw
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        deps.draw(ctx, deps.viewTransformRef.current);
-      }
-      return;
-    }
 
     // Handle selection
     if (selectionHandlers.handleSelectionPointerMove({ worldPos, screenPos: currentPointerPos })) {
@@ -4377,6 +4380,20 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       lastMoveEvent = null;
     }
 
+    if (
+      !pan.panState.isPanning &&
+      (floatingPaste || floatingPasteDragStart.current)
+    ) {
+      if (isDraggingFloatingPaste || floatingPasteDragStart.current) {
+        setIsDraggingFloatingPaste(false);
+        floatingPasteDragStart.current = null;
+        floatingPasteOriginalPos.current = null;
+      }
+      applyToolCursor({ isColorPicker: false, useCrosshair: false });
+      updateBrushCursorVisibility();
+      return;
+    }
+
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
       polygonGradientStateGuard != null &&
@@ -4384,7 +4401,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         polygonGradientStateGuard.drawingState === 'adjustingRotation' ||
         polygonGradientStateGuard.drawingState === 'adjustingSize');
 
-    if (adjustSessionActive) {
+    if (adjustSessionActive && !getDynamicDeps().floatingPaste) {
       const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
       if (adjustShouldRoute && shapeHandler.handlePointerUp(event as React.PointerEvent<HTMLCanvasElement>)) {
         return;
@@ -4808,7 +4825,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         polygonGradientStateGuard.drawingState === 'adjustingRotation' ||
         polygonGradientStateGuard.drawingState === 'adjustingSize');
 
-    if (adjustSessionActive) {
+    if (adjustSessionActive && !getDynamicDeps().floatingPaste) {
       const adjustShouldRoute = isAdvancedShapeBrush(getDynamicDeps().tools.brushSettings.brushShape);
       pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
       const { canvas, tools } = getDynamicDeps();
