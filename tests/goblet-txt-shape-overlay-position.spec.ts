@@ -52,6 +52,24 @@ const metadata = {
     selectionBackgroundColor: '#000000',
     content: 'STATE A: semantic overlay',
     selections: [{ start: 0, end: 7 }],
+  }, {
+    id: 'bottom-left-overflow',
+    layerId: 'text-layer',
+    x: -20,
+    y: 1_180,
+    width: 40,
+    height: 40,
+    padding: 0,
+    columns: 1,
+    fontFamily: 'tiny5',
+    fontSize: 8,
+    lineHeight: 1.2,
+    textAlign: 'left',
+    color: '#000000',
+    selectionColor: '#ffffff',
+    selectionBackgroundColor: '#000000',
+    content: 'CLIPPED',
+    selections: [{ start: 0, end: 7 }],
   }],
 };
 
@@ -119,6 +137,28 @@ const readTxtShapeColumnGap = async (page: Page) => page.evaluate(() => {
   return shape instanceof HTMLElement ? getComputedStyle(shape).columnGap : null;
 });
 
+const readBottomLeftClip = async (page: Page) => page.evaluate(() => {
+  const canvas = document.getElementById('preview-canvas');
+  const overlay = document.getElementById('vessel-txt-shapes');
+  const shape = document.querySelector('[data-txt-shape-id="bottom-left-overflow"]');
+  if (!(canvas instanceof HTMLCanvasElement)
+    || !(overlay instanceof HTMLElement)
+    || !(shape instanceof HTMLElement)) {
+    return null;
+  }
+  const canvasRect = canvas.getBoundingClientRect();
+  const shapeRect = shape.getBoundingClientRect();
+  const hitsShape = (x: number, y: number): boolean => document.elementsFromPoint(x, y)
+    .some((element) => element.closest?.('[data-txt-shape-id="bottom-left-overflow"]'));
+  return {
+    overflow: getComputedStyle(overlay).overflow,
+    crossesLeft: shapeRect.left < canvasRect.left,
+    crossesBottom: shapeRect.bottom > canvasRect.bottom,
+    hitsInsideCanvas: hitsShape(canvasRect.left + 5, canvasRect.bottom - 5),
+    hitsOutsideCanvas: hitsShape(canvasRect.left - 5, canvasRect.bottom + 5),
+  };
+});
+
 test.describe('Goblet TXT Shape overlay positioning and layout', () => {
   for (const viewer of viewers) {
     test(`${viewer.name} matches Vessel columns after recenter and scroll`, async ({ page }) => {
@@ -146,6 +186,13 @@ test.describe('Goblet TXT Shape overlay positioning and layout', () => {
         y: 0,
         width: 0,
         height: 0,
+      });
+      await expect.poll(() => readBottomLeftClip(page)).toEqual({
+        overflow: 'hidden',
+        crossesLeft: true,
+        crossesBottom: true,
+        hitsInsideCanvas: true,
+        hitsOutsideCanvas: false,
       });
 
       await page.setViewportSize({ width: 1_280, height: 1_000 });

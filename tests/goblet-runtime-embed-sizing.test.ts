@@ -73,6 +73,7 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("box.style.setProperty('--txt-selection-fill-gap'");
       expect(viewer).toContain('if (document.fonts?.ready)');
       expect(viewer).toContain("overlay.style.position = 'absolute';");
+      expect(viewer).toContain("overlay.style.overflow = 'hidden';");
       expect(viewer).toContain('overlay.style.left = `${rect.left + window.scrollX}px`;');
       expect(viewer).toContain('overlay.style.top = `${rect.top + window.scrollY}px`;');
       expect(viewer).toContain("window.addEventListener('resize', position);");
