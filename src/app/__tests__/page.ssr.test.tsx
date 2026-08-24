@@ -260,13 +260,13 @@ describe('Home page client rendering', () => {
     expect(mockStore.ensureCustomBrushHydrated).toHaveBeenCalled();
   });
 
-  it('creates a 512 by 512 project on startup', async () => {
+  it('creates a 768 by 960 project on startup', async () => {
     render(<Home />);
 
     await waitFor(() => {
       expect(mockStore.newProject).toHaveBeenCalledWith(
-        512,
-        512,
+        768,
+        960,
         'Untitled',
         { preserveRecoverySession: true },
       );

@@ -18,6 +18,10 @@ import SelectionConstraintStrip from '@/components/SelectionConstraintStrip';
 import { ReferenceStudioBridge } from '@/components/reference/ReferenceStudioBridge';
 import FPSMeter from '@/components/dev/FPSMeter';
 import DevDebugOverlay from '@/components/dev/DevDebugOverlay';
+import {
+  DEFAULT_NEW_DOCUMENT_HEIGHT,
+  DEFAULT_NEW_DOCUMENT_WIDTH,
+} from '@/constants/canvas';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 
 import { DocumentModal } from '@/components/modals/DocumentModal';
@@ -95,7 +99,12 @@ export default function Home() {
       }
 
       if (layers.length === 0) {
-        newProject(512, 512, 'Untitled', { preserveRecoverySession: true });
+        newProject(
+          DEFAULT_NEW_DOCUMENT_WIDTH,
+          DEFAULT_NEW_DOCUMENT_HEIGHT,
+          'Untitled',
+          { preserveRecoverySession: true },
+        );
       }
 
       // Preload risograph texture to avoid lag on first use

@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 
+import {
+  DEFAULT_NEW_DOCUMENT_HEIGHT,
+  DEFAULT_NEW_DOCUMENT_WIDTH,
+} from '@/constants/canvas';
 import { useKeyboardScope } from '@/hooks/useKeyboardScope';
 import { useAppStore } from '@/stores/useAppStore';
 import { estimateDocumentMemoryUsage } from '@/utils/documentMemoryEstimate';
@@ -227,8 +231,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
   const [resizeWidth, setResizeWidth] = useState<number | string>(project?.width || 2000);
   const [resizeHeight, setResizeHeight] = useState<number | string>(project?.height || 2000);
-  const [newWidth, setNewWidth] = useState(2000);
-  const [newHeight, setNewHeight] = useState(2000);
+  const [newWidth, setNewWidth] = useState(DEFAULT_NEW_DOCUMENT_WIDTH);
+  const [newHeight, setNewHeight] = useState(DEFAULT_NEW_DOCUMENT_HEIGHT);
   const [isResizing, setIsResizing] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);

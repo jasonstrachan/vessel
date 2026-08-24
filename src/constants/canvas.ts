@@ -3,6 +3,9 @@
 export const DEFAULT_CANVAS_WIDTH = 1000;
 export const DEFAULT_CANVAS_HEIGHT = 1000;
 
+export const DEFAULT_NEW_DOCUMENT_WIDTH = 768;
+export const DEFAULT_NEW_DOCUMENT_HEIGHT = 960;
+
 // Canvas zoom boundaries – min avoids numerical instability, max keeps transforms precise
 export const MIN_CANVAS_ZOOM = 0.1;
 export const MAX_CANVAS_ZOOM = 40;

@@ -34,6 +34,23 @@ describe('DocumentModal', () => {
     jest.useRealTimers();
   });
 
+  it('defaults new documents to the 768×960 portrait preset', () => {
+    render(<DocumentModal isOpen onClose={jest.fn()} />);
+
+    const defaultPreset = screen.getByRole('button', {
+      name: 'Set 4:5 Portrait to 768×960',
+    });
+
+    expect(defaultPreset).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      screen.getAllByRole('spinbutton').map((input) => (input as HTMLInputElement).value),
+    ).toEqual(['768', '960', '2000', '2000']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Document' }));
+
+    expect(mockNewProject).toHaveBeenCalledWith(768, 960);
+  });
+
   it('selects a proportional size variant and creates that document', () => {
     render(<DocumentModal isOpen onClose={jest.fn()} />);
 
