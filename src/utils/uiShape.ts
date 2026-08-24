@@ -9,6 +9,10 @@ import type {
   UiShapeRegionPoint,
   UiShapeTheme,
 } from '@/types';
+import {
+  drawUiShapeIcon,
+  normalizeUiShapeIconId,
+} from '@/utils/uiShapeIcons';
 
 export const UI_SHAPE_MIN_GRID_SIZE = 2;
 export const UI_SHAPE_MAX_GRID_SIZE = 128;
@@ -80,6 +84,7 @@ const COMPONENT_KINDS = new Set<UiShapeComponentKind>([
   'selection-field',
   'separator',
   'resize-corner',
+  'icon',
 ]);
 
 type UiShapeCanvasContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -243,6 +248,9 @@ const normalizeComponent = (
     height: componentHeight,
     ...(typeof component.label === 'string'
       ? { label: component.label.slice(0, 64) }
+      : {}),
+    ...(component.kind === 'icon'
+      ? { iconId: normalizeUiShapeIconId(component.iconId) }
       : {}),
     ...(component.palette && typeof component.palette === 'object'
       ? { palette: normalizePalette(component.palette, theme) }
@@ -1212,6 +1220,11 @@ export const drawUiShapeComponent = (
   const { width, height } = component;
   ctx.save();
   ctx.imageSmoothingEnabled = false;
+  if (component.kind === 'icon') {
+    drawUiShapeIcon(ctx, component.iconId, x, y, width, height);
+    ctx.restore();
+    return;
+  }
   if (theme === 'macintosh-system-1') {
     drawMacComponent(ctx, component, x, y, palette, state, subpixelScrollbars);
     ctx.restore();

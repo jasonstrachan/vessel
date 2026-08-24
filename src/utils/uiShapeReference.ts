@@ -46,6 +46,7 @@ export const UI_SHAPE_REFERENCE_COMPONENT_KINDS: readonly UiShapeComponentKind[]
   'selection-field',
   'separator',
   'resize-corner',
+  'icon',
 ] as const;
 
 const common = ({
@@ -147,6 +148,13 @@ const common = ({
     height: scrollbar,
     minimumWidth: scrollbar,
     minimumHeight: scrollbar,
+    canonicalState: {},
+  },
+  icon: {
+    width: 32,
+    height: 32,
+    minimumWidth: 16,
+    minimumHeight: 16,
     canonicalState: {},
   },
 });

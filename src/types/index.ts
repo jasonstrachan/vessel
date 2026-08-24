@@ -368,7 +368,8 @@ export type UiShapeComponentKind =
   | 'scrollbar-vertical'
   | 'selection-field'
   | 'separator'
-  | 'resize-corner';
+  | 'resize-corner'
+  | 'icon';
 
 export interface UiShapeRegionPoint {
   x: number;
@@ -416,6 +417,7 @@ export interface UiShapeComponent {
   width: number;
   height: number;
   label?: string;
+  iconId?: string;
   palette?: UiShapePalette;
   canonicalState: UiShapeComponentState;
   animation?: UiShapeComponentAnimation;

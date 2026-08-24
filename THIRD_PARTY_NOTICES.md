@@ -18,3 +18,8 @@ notices are included beside the font files in `public/assets/fonts`:
 - Spleen by Frederic Cambus, BSD 2-Clause License.
 - Fusion Pixel Font by TakWolf and its component authors, SIL Open Font License
   1.1 plus the bundled component licences.
+
+UI Shape bundles unchanged pixel data derived from Tomasz Stamborski's
+`pixelart-icons` collection at commit
+`5e3810b968e6f0c8507a78807e32ade7e9db2372`, released under CC0 1.0:
+https://github.com/tstamborski/pixelart-icons

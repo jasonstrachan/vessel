@@ -74,7 +74,8 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     'selection-field': 'b89fef6537bd102d6c3af0fd4005a2ba839edc78b67c1b9428de5ffdb1d074d8',
     separator: '02864edacda05f7c46332d4fa90ab9088dd22418eb839f5a081dc97108f830dc',
     'resize-corner': '5f4ecdb7b71c3e403983fe405cddcdc2f2576b655fdb3e80d94a6f7c32e58bc2',
-    board: '44ae86e126a9bb6200812d6d7a4bb7207554c33bf078ff9f62767154880128f0',
+    icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
+    board: '4226aded5f6be7837e9d351f23a6d20ee3af2284243c3f8de2cd8fab5149b773',
   },
   'windows-3.1': {
     window: '306378426928c0388711bd1665fc1a38e16e940bdf09fd4bcbf0b0fd2e36a2ec',
@@ -89,7 +90,8 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     'selection-field': '7a3b1cbad3d07a355e12f20c138d9a240ab3693c6c7a997150f08ab146c3c77f',
     separator: 'd32942255ca6da16209eea758460b1aa46cdc51340838fd0c61936302eb294bb',
     'resize-corner': '7c93a03a7b315cc53b0b5362021e351eaf03dbafe73694a284379f5ebb4bfeb6',
-    board: '7140ac1b1ed697274bb9a3de8632836d69cbbbce84dd6a74f17a4a762fc198f6',
+    icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
+    board: '57986b7f4c67190f3864c851023187abd00ac66f30f4b02d74291fcffef4d37c',
   },
   'windows-95': {
     window: '49216b7b74a38a40e6c70af72d76ca5ec39605a6a692c1687bb26b29a2a5434a',
@@ -104,7 +106,8 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     'selection-field': 'a3d55ab25d07fc3a70858dfe2cb76efc1a1db987cc5e337daa6344ce00c1b475',
     separator: '29ca3d383222da608d5ba4709461f1995779136f6ef1990ad3ea3a0767bf5381',
     'resize-corner': '879edf00fb09ad7ef900d5a7b7f035f078f1a9b0535a5e3632a58cdd74fda7cf',
-    board: '292ed8776a4d0ef670affeed43827cbf1410dc6f8e0ea62d86326424d8effd9f',
+    icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
+    board: '456550ea77b21d8acad43e0b0a5c9082827c72eb3addf04e32ab7805f1a06f94',
   },
 };
 
