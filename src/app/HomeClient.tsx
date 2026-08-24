@@ -210,7 +210,7 @@ export default function Home() {
 
       {/* Main Canvas Area */}
       <div
-        className="flex-1 bg-[#141514] relative"
+        className="relative isolate flex-1 bg-[#141514]"
         style={{
           overflow: 'hidden',
           position: 'relative'

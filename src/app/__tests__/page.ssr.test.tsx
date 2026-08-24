@@ -233,6 +233,12 @@ describe('Home page client rendering', () => {
     expect(screen.getByTestId('brush-settings')).toBeInTheDocument();
   });
 
+  it('isolates canvas overlays below the global modal stack', () => {
+    render(<Home />);
+
+    expect(screen.getByTestId('drawing-canvas').parentElement).toHaveClass('isolate');
+  });
+
   it('gives brush settings more vertical space than the compact brush library', () => {
     render(<Home />);
 
