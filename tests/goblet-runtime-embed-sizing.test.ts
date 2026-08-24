@@ -61,6 +61,9 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-color', String(shape.selectionColor");
       expect(viewer).toContain('cell.dataset.txtShapeCellStart = String(sourceIndex);');
       expect(viewer).toContain("cell.dataset.canonicalSelected = 'true';");
+      expect(viewer).toContain('const treatment = Array.isArray(shape.selectionTreatments)');
+      expect(viewer).toContain('cell.dataset.selectionTreatment = String(treatment);');
+      expect(viewer).toContain("treatment === 'overwritten'");
       expect(viewer).toContain("box.style.wordBreak = 'normal';");
       expect(viewer).toContain("box.style.overflowWrap = 'break-word';");
       expect(viewer).toContain("box.style.boxSizing = 'border-box';");
@@ -68,6 +71,12 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("box.dataset.semanticFallback = 'true'");
       expect(viewer).toContain('#vessel-txt-shapes [data-canonical-selected]');
       expect(viewer).toContain('[data-vessel-txt-cell-selected="true"]');
+      expect(viewer).toContain('[data-selection-treatment="crossed-out"]');
+      expect(viewer).toContain('[data-selection-treatment="overwritten"]');
+      expect(viewer).toContain('[data-selection-treatment="erased"]');
+      expect(viewer).toContain('[data-selection-treatment="redacted"]');
+      expect(viewer).toContain("box.style.setProperty('--txt-base-color'");
+      expect(viewer).toContain('mask-image: repeating-linear-gradient');
       expect(viewer).toContain('box-shadow: 0 var(--txt-selection-fill-gap, 0px)');
       expect(viewer).toContain('const updateSelectionFillGaps = () => {');
       expect(viewer).toContain("box.style.setProperty('--txt-selection-fill-gap'");

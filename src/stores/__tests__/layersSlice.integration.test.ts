@@ -1827,6 +1827,7 @@ describe('layers slice integration', () => {
               selectionColor: '#ffffff',
               selectionBackgroundColor: '#000000',
               selections: [{ start: 0, end: 5 }],
+              selectionTreatments: [{ start: 0, end: 5, treatment: 'redacted' }],
               createdAt: 1,
               updatedAt: 1,
             }],
@@ -1858,6 +1859,14 @@ describe('layers slice integration', () => {
     expect(nextState.project?.txtShapes?.map((shape) => shape.id)).toEqual(
       expect.arrayContaining(['txt-owned', expect.not.stringMatching(/^txt-owned$/)]),
     );
+    const originalTxtShape = nextState.project?.txtShapes?.find((shape) => shape.id === 'txt-owned');
+    const duplicatedTxtShape = nextState.project?.txtShapes?.find(
+      (shape) => shape.layerId === duplicatedId,
+    );
+    expect(duplicatedTxtShape?.selectionTreatments).toEqual([
+      { start: 0, end: 5, treatment: 'redacted' },
+    ]);
+    expect(duplicatedTxtShape?.selectionTreatments).not.toBe(originalTxtShape?.selectionTreatments);
     const duplicatedUiShape = nextState.project?.uiShapes?.find(
       (shape) => shape.layerId === duplicatedId,
     );

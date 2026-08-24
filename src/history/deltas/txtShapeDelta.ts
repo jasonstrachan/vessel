@@ -13,6 +13,7 @@ const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((
   colorRanges: shape.colorRanges?.map((range) => ({ ...range })),
   regionPath: shape.regionPath?.map((point) => ({ ...point })),
   selections: shape.selections.map((selection) => ({ ...selection })),
+  selectionTreatments: shape.selectionTreatments?.map((range) => ({ ...range })),
 }));
 
 const rangesEqual = (
@@ -29,6 +30,15 @@ const colorRangesEqual = (
   (range, index) => range.start === right?.[index]?.start
     && range.end === right?.[index]?.end
     && range.color === right?.[index]?.color,
+);
+
+const treatmentRangesEqual = (
+  left: TxtShape['selectionTreatments'],
+  right: TxtShape['selectionTreatments'],
+): boolean => (left?.length ?? 0) === (right?.length ?? 0) && (left ?? []).every(
+  (range, index) => range.start === right?.[index]?.start
+    && range.end === right?.[index]?.end
+    && range.treatment === right?.[index]?.treatment,
 );
 
 const pathsEqual = (
@@ -62,6 +72,7 @@ const shapesEqual = (left: TxtShape, right: TxtShape): boolean => (
   && left.selectionBackgroundColor === right.selectionBackgroundColor
   && left.backgroundColor === right.backgroundColor
   && rangesEqual(left.selections, right.selections)
+  && treatmentRangesEqual(left.selectionTreatments, right.selectionTreatments)
   && left.createdAt === right.createdAt
   && left.updatedAt === right.updatedAt
 );
@@ -79,7 +90,8 @@ const estimateTxtShapeBytes = (shapes: readonly TxtShape[]): number => shapes.re
     + shape.content.length * 2
     + (shape.regionPath?.length ?? 0) * 16
     + (shape.colorRanges?.length ?? 0) * 32
-    + shape.selections.length * 16,
+    + shape.selections.length * 16
+    + (shape.selectionTreatments?.length ?? 0) * 24,
   0,
 );
 

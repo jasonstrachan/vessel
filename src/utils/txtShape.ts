@@ -8,6 +8,8 @@ import type {
   TxtShapeRegionPoint,
   TxtShapeSampleTone,
   TxtShapeSelectionRange,
+  TxtShapeSelectionTreatment,
+  TxtShapeSelectionTreatmentRange,
   TxtShapeTextAlign,
 } from '@/types';
 import {
@@ -226,6 +228,45 @@ export const normalizeTxtShapeSelections = (
   }, []);
 };
 
+const isTxtShapeSelectionTreatment = (
+  value: unknown,
+): value is TxtShapeSelectionTreatment => (
+  value === 'crossed-out'
+  || value === 'overwritten'
+  || value === 'erased'
+  || value === 'redacted'
+);
+
+export const normalizeTxtShapeSelectionTreatments = (
+  ranges: unknown,
+  contentLength: number,
+): TxtShapeSelectionTreatmentRange[] => {
+  if (!Array.isArray(ranges) || contentLength <= 0) return [];
+  const normalized = ranges
+    .map((range) => {
+      const candidate = range as Partial<TxtShapeSelectionTreatmentRange> | null;
+      const start = clamp(Math.round(finite(candidate?.start, 0)), 0, contentLength);
+      const end = clamp(Math.round(finite(candidate?.end, 0)), 0, contentLength);
+      return start < end && isTxtShapeSelectionTreatment(candidate?.treatment)
+        ? { start, end, treatment: candidate.treatment }
+        : null;
+    })
+    .filter((range): range is TxtShapeSelectionTreatmentRange => Boolean(range))
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+
+  return normalized.reduce<TxtShapeSelectionTreatmentRange[]>((result, range) => {
+    const previous = result.at(-1);
+    const start = Math.max(range.start, previous?.end ?? 0);
+    if (start >= range.end) return result;
+    if (previous && previous.end === start && previous.treatment === range.treatment) {
+      previous.end = range.end;
+    } else {
+      result.push({ ...range, start });
+    }
+    return result;
+  }, []);
+};
+
 export const normalizeTxtShapeColorRanges = (
   ranges: unknown,
   contentLength: number,
@@ -305,6 +346,22 @@ export const updateTxtShapeSelectionsForContent = (
   }), nextContent.length);
 };
 
+export const updateTxtShapeSelectionTreatmentsForContent = (
+  previousContent: string,
+  nextContent: string,
+  treatments: readonly TxtShapeSelectionTreatmentRange[] | undefined,
+): TxtShapeSelectionTreatmentRange[] | undefined => {
+  const nextTreatments = (treatments ?? []).flatMap((treatment) => (
+    updateTxtShapeSelectionsForContent(
+      previousContent,
+      nextContent,
+      [treatment],
+    ).map((range) => ({ ...range, treatment: treatment.treatment }))
+  ));
+  const normalized = normalizeTxtShapeSelectionTreatments(nextTreatments, nextContent.length);
+  return normalized.length > 0 ? normalized : undefined;
+};
+
 export const normalizeTxtShape = (
   value: unknown,
   projectWidth: number,
@@ -356,6 +413,18 @@ export const normalizeTxtShape = (
   const columns = clamp(Math.round(finite(candidate.columns, 1)), 1, 6);
   const colorCount = clamp(Math.round(finite(candidate.colorCount, 2)), 2, 8);
   const colorRanges = normalizeTxtShapeColorRanges(candidate.colorRanges, content.length);
+  const selections = normalizeTxtShapeSelections(candidate.selections, content.length);
+  const selectionTreatments = normalizeTxtShapeSelectionTreatments(
+    normalizeTxtShapeSelectionTreatments(
+      candidate.selectionTreatments,
+      content.length,
+    ).flatMap((treatment) => selections.flatMap((selection) => {
+      const start = Math.max(treatment.start, selection.start);
+      const end = Math.min(treatment.end, selection.end);
+      return start < end ? [{ ...treatment, start, end }] : [];
+    })),
+    content.length,
+  );
   const sampledColorRanges = normalizeTxtShapeColorRanges(
     candidate.sampledColorRanges,
     content.length,
@@ -411,7 +480,8 @@ export const normalizeTxtShape = (
     ...(isCssColor(candidate.backgroundColor)
       ? { backgroundColor: candidate.backgroundColor }
       : {}),
-    selections: normalizeTxtShapeSelections(candidate.selections, content.length),
+    selections,
+    ...(selectionTreatments.length > 0 ? { selectionTreatments } : {}),
     createdAt: finite(candidate.createdAt, now),
     updatedAt: finite(candidate.updatedAt, now),
   };
@@ -624,10 +694,11 @@ export interface TxtShapeSegment {
   color?: string;
   text: string;
   selected: boolean;
+  treatment?: TxtShapeSelectionTreatment;
 }
 
 export const splitTxtShapeSegments = (
-  shape: Pick<TxtShape, 'colorRanges' | 'content' | 'selections'>,
+  shape: Pick<TxtShape, 'colorRanges' | 'content' | 'selections' | 'selectionTreatments'>,
 ): TxtShapeSegment[] => {
   if (!shape.content) {
     return [];
@@ -642,6 +713,14 @@ export const splitTxtShapeSegments = (
     boundaries.add(start);
     boundaries.add(end);
   });
+  const selectionTreatments = normalizeTxtShapeSelectionTreatments(
+    shape.selectionTreatments,
+    shape.content.length,
+  );
+  selectionTreatments.forEach(({ start, end }) => {
+    boundaries.add(start);
+    boundaries.add(end);
+  });
   const ordered = [...boundaries].sort((a, b) => a - b);
   const segments: TxtShapeSegment[] = [];
   for (let index = 0; index < ordered.length - 1; index += 1) {
@@ -652,10 +731,14 @@ export const splitTxtShapeSegments = (
     const color = colorRanges.find((range) => (
       start >= range.start && start < range.end
     ))?.color;
+    const treatment = selectionTreatments.find((range) => (
+      start >= range.start && start < range.end
+    ))?.treatment;
     segments.push({
       ...(color ? { color } : {}),
       text,
       selected: isTxtShapeIndexSelected(shape.selections, start),
+      ...(treatment ? { treatment } : {}),
     });
   }
   return segments;
@@ -843,6 +926,8 @@ const drawPreparedHardEdgedTxtShapeText = (
   color: string,
   fragmentX: number,
   fragmentWidth: number,
+  offsetX = 0,
+  offsetY = 0,
 ): boolean => {
   if (typeof ctx.drawImage !== 'function') return false;
   const {
@@ -876,8 +961,8 @@ const drawPreparedHardEdgedTxtShapeText = (
     0,
     sourceWidth,
     maskHeight,
-    destinationX,
-    y,
+    destinationX + offsetX,
+    y + offsetY,
     destinationWidth,
     maskHeight * pixelScale,
   );
@@ -1073,6 +1158,12 @@ const drawTxtShapesToCanvasWithSelectionMode = (
     const colorRanges = selectionMode === 'none'
       ? []
       : normalizeTxtShapeColorRanges(shape.colorRanges, shape.content.length);
+    const selectionTreatments = selectionMode === 'none'
+      ? []
+      : normalizeTxtShapeSelectionTreatments(
+          shape.selectionTreatments,
+          shape.content.length,
+        );
     ctx.save();
     clipTxtShapeRegion(ctx, shape);
     if (shape.backgroundColor) {
@@ -1135,10 +1226,20 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           boundaries.add(end);
         }
       });
+      selectionTreatments.forEach((range) => {
+        const start = clamp(range.start - line.sourceStart, 0, line.text.length);
+        const end = clamp(range.end - line.sourceStart, 0, line.text.length);
+        if (start < end) {
+          boundaries.add(start);
+          boundaries.add(end);
+        }
+      });
       const orderedBoundaries = [...boundaries].sort((a, b) => a - b);
       const fragments = [] as Array<{
         color?: string;
         selected: boolean;
+        sourceStart: number;
+        treatment?: TxtShapeSelectionTreatment;
         width: number;
       }>;
       for (let index = 0; index < orderedBoundaries.length - 1; index += 1) {
@@ -1155,7 +1256,13 @@ const drawTxtShapesToCanvasWithSelectionMode = (
               line.sourceStart + start >= range.start && line.sourceStart + start < range.end
             ))?.color
           : undefined;
-        fragments.push({ color, selected, width });
+        const sourceStart = line.sourceStart + start;
+        const treatment = selected
+          ? selectionTreatments.find((range) => (
+              sourceStart >= range.start && sourceStart < range.end
+            ))?.treatment
+          : undefined;
+        fragments.push({ color, selected, sourceStart, treatment, width });
       }
 
       const paintedWidth = fragments.reduce((total, fragment) => total + fragment.width, 0);
@@ -1174,12 +1281,19 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         letterSpacing: rasterLetterSpacing,
       });
       let fragmentX = lineX;
-      fragments.forEach(({ color, selected, width }) => {
-        if (selected && shape.renderMode !== 'glyph-map') {
+      fragments.forEach(({ color, selected, sourceStart, treatment, width }) => {
+        const treatmentColor = color ?? shape.selectionBackgroundColor;
+        if (selected && !treatment && shape.renderMode !== 'glyph-map') {
           ctx.fillStyle = color ?? shape.selectionBackgroundColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
         }
-        const textColor = selected
+        if (selected && treatment === 'redacted') {
+          ctx.fillStyle = treatmentColor;
+          ctx.fillRect(fragmentX, y, width, lineHeightPx);
+          fragmentX = Math.round(fragmentX + width);
+          return;
+        }
+        const textColor = selected && !treatment
           ? shape.renderMode === 'glyph-map'
             ? color ?? shape.selectionColor
             : shape.selectionColor
@@ -1188,15 +1302,68 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         ctx.beginPath();
         ctx.rect(fragmentX, shape.y, width, shape.height);
         ctx.clip();
-        ctx.fillStyle = textColor;
-        if (!preparedPixelText || !drawPreparedHardEdgedTxtShapeText(
-          ctx,
-          preparedPixelText,
-          textColor,
-          fragmentX,
-          width,
-        )) {
-          ctx.fillText(line.text, lineX, y);
+        const drawTextPass = (
+          passColor: string,
+          alpha = 1,
+          offsetX = 0,
+          offsetY = 0,
+        ) => {
+          ctx.save();
+          ctx.globalAlpha = (Number.isFinite(ctx.globalAlpha) ? ctx.globalAlpha : 1) * alpha;
+          ctx.fillStyle = passColor;
+          if (!preparedPixelText || !drawPreparedHardEdgedTxtShapeText(
+            ctx,
+            preparedPixelText,
+            passColor,
+            fragmentX,
+            width,
+            offsetX,
+            offsetY,
+          )) {
+            ctx.fillText(line.text, lineX + offsetX, y + offsetY);
+          }
+          ctx.restore();
+        };
+        if (treatment === 'erased') {
+          const bandHeight = Math.max(1, Math.round(lineHeightPx * 0.12));
+          const isMirrored = sourceStart % 2 === 1;
+          ctx.beginPath();
+          ctx.rect(
+            fragmentX + width * (isMirrored ? 0.35 : 0),
+            y + lineHeightPx * 0.16,
+            width * 0.65,
+            bandHeight,
+          );
+          ctx.rect(
+            fragmentX + width * (isMirrored ? 0 : 0.22),
+            y + lineHeightPx * 0.48,
+            width * 0.78,
+            bandHeight,
+          );
+          ctx.rect(
+            fragmentX + width * (isMirrored ? 0.42 : 0.08),
+            y + lineHeightPx * 0.78,
+            width * 0.5,
+            bandHeight,
+          );
+          ctx.clip();
+          drawTextPass(shape.color, 0.38);
+        } else {
+          drawTextPass(textColor);
+        }
+        if (treatment === 'crossed-out') {
+          const strikeHeight = Math.max(1, Math.round(shape.fontSize * 0.08));
+          ctx.fillStyle = treatmentColor;
+          ctx.fillRect(
+            fragmentX,
+            Math.round(y + lineHeightPx * 0.52 - strikeHeight / 2),
+            width,
+            strikeHeight,
+          );
+        } else if (treatment === 'overwritten') {
+          const offset = Math.max(1, Math.round(pixelScale));
+          drawTextPass(treatmentColor, 0.82, offset, -offset);
+          drawTextPass(treatmentColor, 0.62, -offset, offset);
         }
         ctx.restore();
         fragmentX += width;

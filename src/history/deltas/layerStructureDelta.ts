@@ -49,6 +49,7 @@ const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((
   colorRanges: shape.colorRanges?.map((range) => ({ ...range })),
   regionPath: shape.regionPath?.map((point) => ({ ...point })),
   selections: shape.selections.map((selection) => ({ ...selection })),
+  selectionTreatments: shape.selectionTreatments?.map((range) => ({ ...range })),
 }));
 
 const cloneLayerForReplay = (layer: Layer): Layer => ({

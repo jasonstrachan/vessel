@@ -20,6 +20,7 @@ import {
   getTxtShapeRegionPathArea,
   getTxtShapeTextLayout,
   getTxtShapeTransientSelectionRevision,
+  normalizeTxtShapeSelectionTreatments,
   normalizeTxtShapeSelections,
   normalizeTxtShapeSampleTone,
   normalizeTxtShapePlaybackSettings,
@@ -27,6 +28,7 @@ import {
   setTxtShapeTransientSelectionOverrides,
   splitTxtShapeSegments,
   thresholdTxtShapePixelAlpha,
+  updateTxtShapeSelectionTreatmentsForContent,
   updateTxtShapeSelectionsForContent,
 } from '@/utils/txtShape';
 import { layoutTxtShapeText } from '@/utils/txtShapeLayout';
@@ -224,6 +226,32 @@ describe('TXT Shape document helpers', () => {
     ], 10)).toEqual([{ start: 0, end: 9 }]);
   });
 
+  it('normalizes durable selection treatments without merging different states', () => {
+    expect(normalizeTxtShapeSelectionTreatments([
+      { start: -2, end: 3, treatment: 'crossed-out' },
+      { start: 3, end: 5, treatment: 'crossed-out' },
+      { start: 5, end: 8, treatment: 'redacted' },
+      { start: 8, end: 10, treatment: 'smudged' },
+    ], 9)).toEqual([
+      { start: 0, end: 5, treatment: 'crossed-out' },
+      { start: 5, end: 8, treatment: 'redacted' },
+    ]);
+  });
+
+  it('clips persisted selection treatments to canonical selected ranges', () => {
+    const [shape] = normalizeTxtShapes([
+      createShape({
+        selections: [{ start: 2, end: 5 }, { start: 7, end: 9 }],
+        selectionTreatments: [{ start: 0, end: 8, treatment: 'redacted' }],
+      }),
+    ], 200, 100);
+
+    expect(shape.selectionTreatments).toEqual([
+      { start: 2, end: 5, treatment: 'redacted' },
+      { start: 7, end: 8, treatment: 'redacted' },
+    ]);
+  });
+
   it('preserves a complete canonical selection when text is replaced', () => {
     expect(updateTxtShapeSelectionsForContent(
       'OLD',
@@ -245,6 +273,11 @@ describe('TXT Shape document helpers', () => {
       'LIGHT BRIGHT',
       [{ start: 6, end: 10 }],
     )).toEqual([{ start: 6, end: 12 }]);
+    expect(updateTxtShapeSelectionTreatmentsForContent(
+      'LIGHT DARK',
+      'VERY LIGHT DARK',
+      [{ start: 6, end: 10, treatment: 'overwritten' }],
+    )).toEqual([{ start: 11, end: 15, treatment: 'overwritten' }]);
   });
 
   it('normalizes malformed boxes and removes duplicate ids', () => {
@@ -411,6 +444,47 @@ describe('TXT Shape document helpers', () => {
       { text: 'LIGHT ', selected: false },
       { color: '#336699', text: 'DARK', selected: true },
     ]);
+  });
+
+  it('keeps selection treatments attached to their split text segments', () => {
+    expect(splitTxtShapeSegments(createShape({
+      selectionTreatments: [{ start: 6, end: 10, treatment: 'redacted' }],
+    }))).toEqual([
+      { text: 'LIGHT ', selected: false },
+      { text: 'DARK', selected: true, treatment: 'redacted' },
+    ]);
+  });
+
+  it.each([
+    ['selected', undefined, 1, 1],
+    ['crossed out', 'crossed-out', 1, 1],
+    ['overwritten', 'overwritten', 0, 3],
+    ['erased', 'erased', 0, 1],
+    ['redacted', 'redacted', 1, 0],
+  ] as const)('renders the %s selection treatment through Canvas 2D', (
+    _label,
+    treatment,
+    fillRectCount,
+    fillTextCount,
+  ) => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+      fillStyle: '', globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+
+    drawTxtShapesToCanvas(ctx, [createShape({
+      content: 'AB',
+      selections: [{ start: 0, end: 2 }],
+      ...(treatment ? {
+        selectionTreatments: [{ start: 0, end: 2, treatment }],
+      } : {}),
+    })]);
+
+    expect(ctx.fillRect).toHaveBeenCalledTimes(fillRectCount);
+    expect(ctx.fillText).toHaveBeenCalledTimes(fillTextCount);
   });
 
   it('rasterizes mapped colour bands without changing their selected ranges', () => {

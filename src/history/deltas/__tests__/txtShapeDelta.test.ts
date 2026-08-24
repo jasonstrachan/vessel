@@ -93,4 +93,25 @@ describe('TxtShapeDelta', () => {
 
     expect(createTxtShapeDelta({ before, after })).not.toBeNull();
   });
+
+  it('retains and restores treatment-only changes as semantic history', () => {
+    const before = [createShape('TREATMENT')];
+    const after = [{
+      ...createShape('TREATMENT'),
+      selectionTreatments: [{
+        start: 0,
+        end: 9,
+        treatment: 'crossed-out' as const,
+      }],
+    }];
+    const delta = createTxtShapeDelta({ before, after });
+    expect(delta).not.toBeNull();
+
+    useAppStore.setState({ project: createProject(after) });
+    const prepared = delta!.prepare('backward');
+    if (prepared instanceof Promise) throw new Error('TXT Shape delta unexpectedly prepared asynchronously');
+    prepared.apply();
+
+    expect(useAppStore.getState().project?.txtShapes).toEqual(before);
+  });
 });
