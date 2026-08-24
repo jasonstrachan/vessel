@@ -20,6 +20,13 @@ export const UI_SHAPE_MAX_COMPONENTS = 4_096;
 
 export interface UiShapeDrawOptions {
   subpixelScrollbars?: boolean;
+  interactions?: ReadonlyMap<string, UiShapeComponentInteraction>;
+}
+
+export type UiShapeScrollbarPressedPart = 'thumb' | 'decrement' | 'increment';
+
+export interface UiShapeComponentInteraction {
+  scrollbarPressedPart?: UiShapeScrollbarPressedPart;
 }
 
 export interface UiShapeScrollbarGeometry {
@@ -555,6 +562,7 @@ const drawScrollbar = (
   state: UiShapeComponentState,
   vertical: boolean,
   subpixel: boolean,
+  pressedPart?: UiShapeScrollbarPressedPart,
 ): void => {
   ctx.fillStyle = palette.light;
   ctx.fillRect(x, y, component.width, component.height);
@@ -569,8 +577,16 @@ const drawScrollbar = (
     theme: 'windows-3.1',
   });
   if (vertical) {
-    drawRaisedBox(ctx, x, y, component.width, crossSize, palette);
-    drawRaisedBox(ctx, x, y + component.height - crossSize, component.width, crossSize, palette);
+    drawRaisedBox(ctx, x, y, component.width, crossSize, palette, pressedPart === 'decrement');
+    drawRaisedBox(
+      ctx,
+      x,
+      y + component.height - crossSize,
+      component.width,
+      crossSize,
+      palette,
+      pressedPart === 'increment',
+    );
     drawArrow(ctx, 'up', x, y, component.width, crossSize, palette.text);
     drawArrow(ctx, 'down', x, y + component.height - crossSize, component.width, crossSize, palette.text);
     const thumbY = y + crossSize + resolveUiShapeScrollbarOffset(
@@ -578,10 +594,26 @@ const drawScrollbar = (
       state.value ?? 0.5,
       subpixel,
     );
-    drawRaisedBox(ctx, x, thumbY, component.width, thumbLength, palette, state.pressed === true);
+    drawRaisedBox(
+      ctx,
+      x,
+      thumbY,
+      component.width,
+      thumbLength,
+      palette,
+      state.pressed === true || pressedPart === 'thumb',
+    );
   } else {
-    drawRaisedBox(ctx, x, y, crossSize, component.height, palette);
-    drawRaisedBox(ctx, x + component.width - crossSize, y, crossSize, component.height, palette);
+    drawRaisedBox(ctx, x, y, crossSize, component.height, palette, pressedPart === 'decrement');
+    drawRaisedBox(
+      ctx,
+      x + component.width - crossSize,
+      y,
+      crossSize,
+      component.height,
+      palette,
+      pressedPart === 'increment',
+    );
     drawArrow(ctx, 'left', x, y, crossSize, component.height, palette.text);
     drawArrow(ctx, 'right', x + component.width - crossSize, y, crossSize, component.height, palette.text);
     const thumbX = x + crossSize + resolveUiShapeScrollbarOffset(
@@ -589,7 +621,15 @@ const drawScrollbar = (
       state.value ?? 0.5,
       subpixel,
     );
-    drawRaisedBox(ctx, thumbX, y, thumbLength, component.height, palette, state.pressed === true);
+    drawRaisedBox(
+      ctx,
+      thumbX,
+      y,
+      thumbLength,
+      component.height,
+      palette,
+      state.pressed === true || pressedPart === 'thumb',
+    );
   }
 };
 
@@ -668,6 +708,7 @@ const drawMacScrollbar = (
   state: UiShapeComponentState,
   vertical: boolean,
   subpixel: boolean,
+  pressedPart?: UiShapeScrollbarPressedPart,
 ): void => {
   ctx.fillStyle = palette.face;
   ctx.fillRect(x, y, component.width, component.height);
@@ -682,31 +723,105 @@ const drawMacScrollbar = (
     vertical,
     theme: 'macintosh-system-1',
   });
-  const button = (buttonX: number, buttonY: number, buttonWidth: number, buttonHeight: number) => {
-    drawMacFrame(ctx, buttonX, buttonY, buttonWidth, buttonHeight, palette);
+  const button = (
+    buttonX: number,
+    buttonY: number,
+    buttonWidth: number,
+    buttonHeight: number,
+    pressed: boolean,
+  ) => {
+    drawMacFrame(
+      ctx,
+      buttonX,
+      buttonY,
+      buttonWidth,
+      buttonHeight,
+      palette,
+      pressed ? palette.text : palette.face,
+    );
   };
   if (vertical) {
-    button(x, y, component.width, cross);
-    button(x, y + component.height - cross, component.width, cross);
-    drawArrow(ctx, 'up', x, y, component.width, cross, palette.text);
-    drawArrow(ctx, 'down', x, y + component.height - cross, component.width, cross, palette.text);
+    button(x, y, component.width, cross, pressedPart === 'decrement');
+    button(
+      x,
+      y + component.height - cross,
+      component.width,
+      cross,
+      pressedPart === 'increment',
+    );
+    drawArrow(
+      ctx,
+      'up',
+      x,
+      y,
+      component.width,
+      cross,
+      pressedPart === 'decrement' ? palette.face : palette.text,
+    );
+    drawArrow(
+      ctx,
+      'down',
+      x,
+      y + component.height - cross,
+      component.width,
+      cross,
+      pressedPart === 'increment' ? palette.face : palette.text,
+    );
     const thumbY = y + cross + resolveUiShapeScrollbarOffset(
       travel,
       state.value ?? 0.5,
       subpixel,
     );
-    drawMacFrame(ctx, x, thumbY, component.width, thumb, palette, state.pressed ? palette.text : palette.face);
+    drawMacFrame(
+      ctx,
+      x,
+      thumbY,
+      component.width,
+      thumb,
+      palette,
+      state.pressed || pressedPart === 'thumb' ? palette.text : palette.face,
+    );
   } else {
-    button(x, y, cross, component.height);
-    button(x + component.width - cross, y, cross, component.height);
-    drawArrow(ctx, 'left', x, y, cross, component.height, palette.text);
-    drawArrow(ctx, 'right', x + component.width - cross, y, cross, component.height, palette.text);
+    button(x, y, cross, component.height, pressedPart === 'decrement');
+    button(
+      x + component.width - cross,
+      y,
+      cross,
+      component.height,
+      pressedPart === 'increment',
+    );
+    drawArrow(
+      ctx,
+      'left',
+      x,
+      y,
+      cross,
+      component.height,
+      pressedPart === 'decrement' ? palette.face : palette.text,
+    );
+    drawArrow(
+      ctx,
+      'right',
+      x + component.width - cross,
+      y,
+      cross,
+      component.height,
+      pressedPart === 'increment' ? palette.face : palette.text,
+    );
     const thumbX = x + cross + resolveUiShapeScrollbarOffset(
       travel,
       state.value ?? 0.5,
       subpixel,
     );
-    drawMacFrame(ctx, thumbX, y, thumb, component.height, palette, state.pressed ? palette.text : palette.face);
+    drawMacFrame(
+      ctx,
+      thumbX,
+      y,
+      thumb,
+      component.height,
+      palette,
+      state.pressed || pressedPart === 'thumb' ? palette.text : palette.face,
+    );
   }
 };
 
@@ -718,6 +833,7 @@ const drawMacComponent = (
   palette: UiShapePalette,
   state: UiShapeComponentState,
   subpixelScrollbars: boolean,
+  pressedPart?: UiShapeScrollbarPressedPart,
 ): void => {
   const { width, height } = component;
   switch (component.kind) {
@@ -764,10 +880,30 @@ const drawMacComponent = (
       drawRadioButton(ctx, x, y, width, height, palette, state, 'macintosh-system-1');
       break;
     case 'scrollbar-horizontal':
-      drawMacScrollbar(ctx, component, x, y, palette, state, false, subpixelScrollbars);
+      drawMacScrollbar(
+        ctx,
+        component,
+        x,
+        y,
+        palette,
+        state,
+        false,
+        subpixelScrollbars,
+        pressedPart,
+      );
       break;
     case 'scrollbar-vertical':
-      drawMacScrollbar(ctx, component, x, y, palette, state, true, subpixelScrollbars);
+      drawMacScrollbar(
+        ctx,
+        component,
+        x,
+        y,
+        palette,
+        state,
+        true,
+        subpixelScrollbars,
+        pressedPart,
+      );
       break;
     case 'selection-field': {
       const selected = state.active !== false;
@@ -980,6 +1116,7 @@ const drawWindows95Scrollbar = (
   state: UiShapeComponentState,
   vertical: boolean,
   subpixel: boolean,
+  pressedPart?: UiShapeScrollbarPressedPart,
 ): void => {
   const {
     crossSize: cross,
@@ -993,7 +1130,15 @@ const drawWindows95Scrollbar = (
   });
   drawWindows95Track(ctx, x, y, component.width, component.height, palette);
   if (vertical) {
-    drawWindows95ScrollbarBox(ctx, x, y, component.width, cross, palette);
+    drawWindows95ScrollbarBox(
+      ctx,
+      x,
+      y,
+      component.width,
+      cross,
+      palette,
+      pressedPart === 'decrement',
+    );
     drawWindows95ScrollbarBox(
       ctx,
       x,
@@ -1001,6 +1146,7 @@ const drawWindows95Scrollbar = (
       component.width,
       cross,
       palette,
+      pressedPart === 'increment',
     );
     drawArrow(ctx, 'up', x, y, component.width, cross, palette.text);
     drawArrow(
@@ -1024,10 +1170,18 @@ const drawWindows95Scrollbar = (
       component.width,
       thumbLength,
       palette,
-      state.pressed === true,
+      state.pressed === true || pressedPart === 'thumb',
     );
   } else {
-    drawWindows95ScrollbarBox(ctx, x, y, cross, component.height, palette);
+    drawWindows95ScrollbarBox(
+      ctx,
+      x,
+      y,
+      cross,
+      component.height,
+      palette,
+      pressedPart === 'decrement',
+    );
     drawWindows95ScrollbarBox(
       ctx,
       x + component.width - cross,
@@ -1035,6 +1189,7 @@ const drawWindows95Scrollbar = (
       cross,
       component.height,
       palette,
+      pressedPart === 'increment',
     );
     drawArrow(ctx, 'left', x, y, cross, component.height, palette.text);
     drawArrow(
@@ -1058,7 +1213,7 @@ const drawWindows95Scrollbar = (
       thumbLength,
       component.height,
       palette,
-      state.pressed === true,
+      state.pressed === true || pressedPart === 'thumb',
     );
   }
 };
@@ -1071,6 +1226,7 @@ const drawWindows95Component = (
   palette: UiShapePalette,
   state: UiShapeComponentState,
   subpixelScrollbars: boolean,
+  pressedPart?: UiShapeScrollbarPressedPart,
 ): void => {
   const { width, height } = component;
   switch (component.kind) {
@@ -1148,6 +1304,7 @@ const drawWindows95Component = (
         state,
         false,
         subpixelScrollbars,
+        pressedPart,
       );
       break;
     case 'scrollbar-vertical':
@@ -1160,6 +1317,7 @@ const drawWindows95Component = (
         state,
         true,
         subpixelScrollbars,
+        pressedPart,
       );
       break;
     case 'selection-field': {
@@ -1213,6 +1371,7 @@ export const drawUiShapeComponent = (
   stateOverride?: UiShapeComponentState,
   theme: UiShapeTheme = 'windows-3.1',
   subpixelScrollbars = false,
+  interaction?: UiShapeComponentInteraction,
 ): void => {
   const x = Math.round(originX + component.x);
   const y = Math.round(originY + component.y);
@@ -1226,12 +1385,30 @@ export const drawUiShapeComponent = (
     return;
   }
   if (theme === 'macintosh-system-1') {
-    drawMacComponent(ctx, component, x, y, palette, state, subpixelScrollbars);
+    drawMacComponent(
+      ctx,
+      component,
+      x,
+      y,
+      palette,
+      state,
+      subpixelScrollbars,
+      interaction?.scrollbarPressedPart,
+    );
     ctx.restore();
     return;
   }
   if (theme === 'windows-95') {
-    drawWindows95Component(ctx, component, x, y, palette, state, subpixelScrollbars);
+    drawWindows95Component(
+      ctx,
+      component,
+      x,
+      y,
+      palette,
+      state,
+      subpixelScrollbars,
+      interaction?.scrollbarPressedPart,
+    );
     ctx.restore();
     return;
   }
@@ -1297,10 +1474,30 @@ export const drawUiShapeComponent = (
       drawRadioButton(ctx, x, y, width, height, palette, state, 'windows-3.1');
       break;
     case 'scrollbar-horizontal':
-      drawScrollbar(ctx, component, x, y, palette, state, false, subpixelScrollbars);
+      drawScrollbar(
+        ctx,
+        component,
+        x,
+        y,
+        palette,
+        state,
+        false,
+        subpixelScrollbars,
+        interaction?.scrollbarPressedPart,
+      );
       break;
     case 'scrollbar-vertical':
-      drawScrollbar(ctx, component, x, y, palette, state, true, subpixelScrollbars);
+      drawScrollbar(
+        ctx,
+        component,
+        x,
+        y,
+        palette,
+        state,
+        true,
+        subpixelScrollbars,
+        interaction?.scrollbarPressedPart,
+      );
       break;
     case 'selection-field': {
       const selected = state.active !== false;
@@ -1361,6 +1558,7 @@ export const drawUiShape = (
       stateOverride,
       shape.theme,
       options.subpixelScrollbars === true && stateOverride !== undefined,
+      options.interactions?.get(component.id),
     );
   });
   ctx.restore();

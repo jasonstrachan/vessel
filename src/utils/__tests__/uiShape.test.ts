@@ -90,6 +90,28 @@ describe('UI Shape document helpers', () => {
     });
   });
 
+  it('renders scrollbar arrow presses from transient draw interaction state', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 96;
+    const context = canvas.getContext('2d')!;
+    const shape = createShape({
+      theme: 'windows-95',
+      palette: { ...WINDOWS_95_UI_SHAPE_PALETTE },
+    });
+
+    drawUiShape(context, shape, undefined, {
+      interactions: new Map([[
+        'scroll-1',
+        { scrollbarPressedPart: 'decrement' as const },
+      ]]),
+    });
+
+    expect([...context.getImageData(shape.x, shape.y, 1, 1).data])
+      .toEqual([0, 0, 0, 255]);
+    expect(shape.components[0]?.canonicalState).toEqual({ value: 0.25 });
+  });
+
   it('normalizes durable geometry, palette and animation state', () => {
     const [shape] = normalizeUiShapes([{
       ...createShape(),
