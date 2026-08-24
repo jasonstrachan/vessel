@@ -8,6 +8,7 @@ import {
   drawTxtShapesToCanvas,
   drawUnselectedTxtShapesToCanvas,
   getContrastingTxtColor,
+  getProjectTxtShapePlaybackSettings,
   getTxtShapeClipPath,
   getTxtShapeFlowInsetPath,
   getTxtShapeHorizontalSpan,
@@ -21,6 +22,7 @@ import {
   getTxtShapeTransientSelectionRevision,
   normalizeTxtShapeSelections,
   normalizeTxtShapeSampleTone,
+  normalizeTxtShapePlaybackSettings,
   normalizeTxtShapes,
   setTxtShapeTransientSelectionOverrides,
   splitTxtShapeSegments,
@@ -67,6 +69,55 @@ const createShape = (updates: Partial<TxtShape> = {}): TxtShape => ({
 });
 
 describe('TXT Shape document helpers', () => {
+  it('normalizes project-owned playback settings and migrates legacy brush settings', () => {
+    expect(normalizeTxtShapePlaybackSettings({
+      blockGap: 120,
+      cursorCount: 7.4,
+      dragSpeed: 313,
+    })).toEqual({
+      blockGap: 100,
+      cursorCount: 7,
+      dragSpeed: 310,
+    });
+
+    expect(getProjectTxtShapePlaybackSettings({
+      brushSpecificSettings: {
+        'txt-shape': {
+          extensionSettings: {
+            txtShape: {
+              blockGap: 35,
+              cursorCount: 6,
+              dragSpeed: 260,
+            },
+          },
+        },
+      },
+    })).toEqual({
+      blockGap: 35,
+      cursorCount: 6,
+      dragSpeed: 260,
+    });
+
+    expect(getProjectTxtShapePlaybackSettings({
+      brushSpecificSettings: {
+        'txt-shape': {
+          extensionSettings: {
+            txtShape: { cursorCount: 1 },
+          },
+        },
+      },
+      txtShapePlayback: {
+        blockGap: 70,
+        cursorCount: 5,
+        dragSpeed: 180,
+      },
+    })).toEqual({
+      blockGap: 70,
+      cursorCount: 5,
+      dragSpeed: 180,
+    });
+  });
+
   it('keeps bundled font metadata and minimum sizes authoritative', () => {
     expect(TXT_SHAPE_FONT_DEFINITIONS.map((font) => font.family)).toEqual([
       'mek-sans',
@@ -230,12 +281,16 @@ describe('TXT Shape document helpers', () => {
   });
 
   it('normalizes persisted sampled-tone controls without changing legacy shapes', () => {
-    const [adjusted, legacy] = normalizeTxtShapes([
+    const [adjusted, emptyMap, legacy] = normalizeTxtShapes([
       createShape({
         id: 'adjusted',
         sampledBackgroundColor: '#345678',
         sampledColorRanges: [{ start: 0, end: 2, color: '#123456' }],
         sampleTone: { darks: 120, lights: -20, contrast: 140 },
+      }),
+      createShape({
+        id: 'empty-map',
+        sampledColorRanges: [],
       }),
       createShape({ id: 'legacy' }),
     ], 200, 100);
@@ -243,6 +298,8 @@ describe('TXT Shape document helpers', () => {
     expect(adjusted.sampleTone).toEqual({ darks: 99, lights: 100, contrast: 100 });
     expect(adjusted.sampledBackgroundColor).toBe('#345678');
     expect(adjusted.sampledColorRanges).toEqual([{ start: 0, end: 2, color: '#123456' }]);
+    expect(adjusted.referenceMapped).toBe(true);
+    expect(emptyMap.referenceMapped).toBe(true);
     expect(legacy.sampleTone).toBeUndefined();
     expect(normalizeTxtShapeSampleTone({ darks: -20, lights: 80, contrast: -140 })).toEqual({
       darks: 0,

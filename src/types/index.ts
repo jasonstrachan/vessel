@@ -348,6 +348,12 @@ export interface TxtShapeSampleTone {
   contrast: number;
 }
 
+export interface TxtShapePlaybackSettings {
+  blockGap: number;
+  cursorCount: number;
+  dragSpeed: number;
+}
+
 export interface LayerOwnedProjectObject {
   layerId: string;
 }
@@ -466,6 +472,7 @@ export interface TxtShape extends LayerOwnedProjectObject {
   fontSize: number;
   letterSpacing?: number;
   lineHeight: number;
+  referenceMapped?: boolean;
   renderMode?: TxtShapeRenderMode;
   sampledBackgroundColor?: string;
   sampledColorRanges?: TxtShapeColorRange[];
@@ -573,6 +580,7 @@ export interface Project {
   defaultCustomBrushId?: string | null;
   canvasShape?: CanvasShape;
   txtShapes?: TxtShape[];
+  txtShapePlayback?: TxtShapePlaybackSettings;
   uiShapes?: UiShape[];
   // Canvas view state
   viewState?: {

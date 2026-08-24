@@ -101,6 +101,7 @@ import {
 } from '@/utils/export/goblet/gobletSizeReport';
 import {
   createTxtShapeLayerRasterCache,
+  getProjectTxtShapePlaybackSettings,
   getTxtShapesForLayer,
   normalizeTxtShapes,
 } from '@/utils/txtShape';
@@ -997,6 +998,7 @@ export const buildProjectGobletArtifact = async (
     textShapes: normalizedTextShapes.filter((shape) => (
       metadataLayers.some((layer) => layer.id === shape.layerId && layer.visible !== false)
     )),
+    txtShapePlayback: getProjectTxtShapePlaybackSettings(options.project),
     uiShapes: normalizedUiShapes.filter((shape) => (
       metadataLayers.some((layer) => layer.id === shape.layerId && layer.visible !== false)
     )),

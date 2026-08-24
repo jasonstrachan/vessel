@@ -395,6 +395,11 @@ describe('webglExporter bundle contracts', () => {
       createdAt: 1,
       updatedAt: 2,
     }];
+    project.txtShapePlayback = {
+      blockGap: 65,
+      cursorCount: 7,
+      dragSpeed: 310,
+    };
 
     try {
       const metadata = await exportProjectAsWebGL({
@@ -405,6 +410,7 @@ describe('webglExporter bundle contracts', () => {
       });
 
       expect(metadata.textShapes).toEqual(project.txtShapes);
+      expect(metadata.txtShapePlayback).toEqual(project.txtShapePlayback);
     } finally {
       Object.defineProperty(document, 'fonts', {
         configurable: true,

@@ -23,7 +23,11 @@ import JSZip from 'jszip';
 import { gunzipSync } from 'fflate';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
-import { drawTxtShapesForLayer, normalizeTxtShapes } from '@/utils/txtShape';
+import {
+  drawTxtShapesForLayer,
+  getProjectTxtShapePlaybackSettings,
+  normalizeTxtShapes,
+} from '@/utils/txtShape';
 import { drawUiShapesForLayer, normalizeUiShapes } from '@/utils/uiShape';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
@@ -476,6 +480,7 @@ export interface VesselProject {
     palette?: PaletteState;
     canvasShape?: Project['canvasShape'];
     txtShapes?: Project['txtShapes'];
+    txtShapePlayback?: Project['txtShapePlayback'];
     uiShapes?: Project['uiShapes'];
     viewState?: Project['viewState'];
   };
@@ -4589,6 +4594,7 @@ const buildSerializedProjectArtifacts = async (
         project.height,
         layersToSerialize,
       ),
+      txtShapePlayback: getProjectTxtShapePlaybackSettings(project),
       uiShapes: normalizeUiShapes(
         project.uiShapes,
         project.width,
@@ -5888,6 +5894,13 @@ export async function deserializeProjectWithReport(
       serializedProject.height,
       layers,
     ),
+    txtShapePlayback: getProjectTxtShapePlaybackSettings({
+      brushSpecificSettings: serializedProject.brushSpecificSettings as Record<
+        string,
+        Partial<BrushSettings>
+      > | undefined,
+      txtShapePlayback: serializedProject.txtShapePlayback,
+    }),
     uiShapes: normalizeUiShapes(
       serializedProject.uiShapes,
       serializedProject.width,

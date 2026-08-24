@@ -1,8 +1,10 @@
 import type {
   Layer,
+  Project,
   TxtShape,
   TxtShapeColorRange,
   TxtShapeColorSource,
+  TxtShapePlaybackSettings,
   TxtShapeRegionPoint,
   TxtShapeSampleTone,
   TxtShapeSelectionRange,
@@ -31,6 +33,11 @@ export const DEFAULT_TXT_SHAPE_SAMPLE_TONE: Readonly<TxtShapeSampleTone> = {
   darks: 0,
   lights: 100,
   contrast: 0,
+};
+export const DEFAULT_TXT_SHAPE_PLAYBACK_SETTINGS: Readonly<TxtShapePlaybackSettings> = {
+  blockGap: 50,
+  cursorCount: 2,
+  dragSpeed: 140,
 };
 
 export interface TxtShapePaintRect {
@@ -78,6 +85,48 @@ const clamp = (value: number, min: number, max: number): number =>
 
 const finite = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const asRecord = (value: unknown): Record<string, unknown> => (
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+);
+
+export const normalizeTxtShapePlaybackSettings = (
+  value: unknown,
+): TxtShapePlaybackSettings => {
+  const candidate = asRecord(value);
+  return {
+    blockGap: clamp(
+      Math.round(finite(candidate.blockGap, DEFAULT_TXT_SHAPE_PLAYBACK_SETTINGS.blockGap)),
+      0,
+      100,
+    ),
+    cursorCount: clamp(
+      Math.round(finite(candidate.cursorCount, DEFAULT_TXT_SHAPE_PLAYBACK_SETTINGS.cursorCount)),
+      1,
+      8,
+    ),
+    dragSpeed: clamp(
+      Math.round(finite(candidate.dragSpeed, DEFAULT_TXT_SHAPE_PLAYBACK_SETTINGS.dragSpeed) / 10)
+        * 10,
+      40,
+      480,
+    ),
+  };
+};
+
+export const getProjectTxtShapePlaybackSettings = (
+  project: Pick<Project, 'txtShapePlayback' | 'brushSpecificSettings'> | null | undefined,
+): TxtShapePlaybackSettings => {
+  if (project?.txtShapePlayback) {
+    return normalizeTxtShapePlaybackSettings(project.txtShapePlayback);
+  }
+  const legacyBrushSettings = project?.brushSpecificSettings?.['txt-shape'];
+  const legacyExtensionSettings = asRecord(legacyBrushSettings?.extensionSettings);
+  const legacyTxtShapeSettings = asRecord(legacyExtensionSettings.txtShape);
+  return normalizeTxtShapePlaybackSettings(legacyTxtShapeSettings);
+};
 
 export const normalizeTxtShapeSampleTone = (value: unknown): TxtShapeSampleTone => {
   const candidate = value && typeof value === 'object' && !Array.isArray(value)
@@ -311,6 +360,9 @@ export const normalizeTxtShape = (
     candidate.sampledColorRanges,
     content.length,
   );
+  const referenceMapped = candidate.referenceMapped === true
+    || Array.isArray(candidate.sampledColorRanges)
+    || candidate.renderMode === 'glyph-map';
   const letterSpacing = clamp(finite(candidate.letterSpacing, 0), 0, 64);
   const sampleTone = normalizeTxtShapeSampleTone(candidate.sampleTone);
 
@@ -342,6 +394,7 @@ export const normalizeTxtShape = (
     fontSize: normalizeTxtShapeFontSize(fontFamily, finite(candidate.fontSize, 24)),
     ...(letterSpacing > 0 ? { letterSpacing } : {}),
     lineHeight: clamp(finite(candidate.lineHeight, 1.2), 0.75, 4),
+    ...(referenceMapped ? { referenceMapped: true } : {}),
     ...(candidate.renderMode === 'glyph-map' ? { renderMode: 'glyph-map' as const } : {}),
     ...(isCssColor(candidate.sampledBackgroundColor)
       ? { sampledBackgroundColor: candidate.sampledBackgroundColor }

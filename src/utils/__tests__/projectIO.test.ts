@@ -7197,6 +7197,11 @@ describe('projectIO serialize/deserialize layering', () => {
         createdAt: 1,
         updatedAt: 2,
       }],
+      txtShapePlayback: {
+        blockGap: 72,
+        cursorCount: 7,
+        dragSpeed: 310,
+      },
       uiShapes: [{
         id: 'ui-1',
         layerId: 'layer-1',
@@ -7242,12 +7247,54 @@ describe('projectIO serialize/deserialize layering', () => {
     const restoredLayer1 = restored.layers[0];
     const restoredLayer2 = restored.layers[1];
 
+    expect(restored.txtShapePlayback).toEqual(project.txtShapePlayback);
+
     expect(readPixel(restoredLayer1.imageData, 0, 0)).toEqual([255, 0, 0, 255]);
     expect(readPixel(restoredLayer2.imageData, 0, 0)).toEqual([0, 0, 255, 255]);
     expect(restored.canvasShape?.kind).toBe('circle');
     expect(restored.txtShapes).toEqual(project.txtShapes);
     expect(restored.uiShapes).toEqual(project.uiShapes);
     expect(restored.referenceLayerId).toBe('layer-2');
+  });
+
+  it('migrates legacy TXT Shape brush playback into project-owned settings', async () => {
+    const legacyProject = {
+      version: '1.0.0',
+      metadata: {
+        name: 'legacy-txt-playback',
+        created: '2025-01-01T00:00:00.000Z',
+        modified: '2025-01-01T00:00:00.000Z',
+        appVersion: '1.0.0',
+      },
+      project: {
+        id: 'legacy-txt-playback',
+        name: 'legacy-txt-playback',
+        width: 2,
+        height: 2,
+        backgroundColor: 'transparent',
+        layers: [],
+        customBrushes: [],
+        brushSpecificSettings: {
+          'txt-shape': {
+            extensionSettings: {
+              txtShape: {
+                blockGap: 72,
+                cursorCount: 7,
+                dragSpeed: 310,
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const restored = await deserializeProject(JSON.stringify(legacyProject));
+
+    expect(restored.txtShapePlayback).toEqual({
+      blockGap: 72,
+      cursorCount: 7,
+      dragSpeed: 310,
+    });
   });
 
   it('persists layer types and reference layer metadata in serialized manifest', async () => {
