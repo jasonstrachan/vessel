@@ -76,6 +76,8 @@ export const MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE: UiShapePalette = {
   selectionText: '#ffffff',
 };
 
+const ACTIVE_TITLE_BAR_STATE: UiShapeComponentState = { active: true };
+
 export const WINDOWS_95_UI_SHAPE_PALETTE: UiShapePalette = {
   ...WINDOWS_31_UI_SHAPE_PALETTE,
 };
@@ -1393,7 +1395,9 @@ export const drawUiShapeComponent = (
 ): void => {
   const x = Math.round(originX + component.x);
   const y = Math.round(originY + component.y);
-  const state = stateOverride ?? component.canonicalState;
+  const state = component.kind === 'title-bar'
+    ? ACTIVE_TITLE_BAR_STATE
+    : stateOverride ?? component.canonicalState;
   const { width, height } = component;
   ctx.save();
   ctx.imageSmoothingEnabled = false;

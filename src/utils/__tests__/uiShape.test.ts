@@ -299,7 +299,7 @@ describe('UI Shape document helpers', () => {
     expect(render(mac)).not.toEqual(render(windows95));
   });
 
-  it('renders System 7 striped chrome without selection blue', () => {
+  it('renders System 7 title bars as active striped chrome even from inactive saved state', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 20;
@@ -311,7 +311,7 @@ describe('UI Shape document helpers', () => {
       y: 0,
       width: 64,
       height: 20,
-      canonicalState: { active: true },
+      canonicalState: { active: false },
     }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
 
     expect([...context.getImageData(1, 1, 1, 1).data]).toEqual([232, 232, 232, 255]);
