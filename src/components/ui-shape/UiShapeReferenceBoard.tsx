@@ -11,6 +11,7 @@ import {
 
 const THEMES: readonly { label: string; value: UiShapeTheme }[] = [
   { label: 'System 1', value: 'macintosh-system-1' },
+  { label: 'System 7', value: 'macintosh-system-7' },
   { label: 'Windows 3.1', value: 'windows-3.1' },
   { label: 'Windows 95', value: 'windows-95' },
 ];

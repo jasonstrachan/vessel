@@ -7,7 +7,7 @@ Overview
 Button Groups
 - Component: `src/components/ui/ButtonGroup.tsx`
 - Purpose: Segmented, mutually exclusive options (Exact style used in Color Cycle Shape).
-- Features: wraps on small widths, compact sizes (`sm`, `md`, `lg`), per-button backgrounds.
+- Features: wraps on small widths, compact sizes (`xs`, `sm`, `md`, `lg`), per-button backgrounds.
 - Example:
   
   import ButtonGroup from '@/components/ui/ButtonGroup';

@@ -16,7 +16,7 @@ export interface ButtonGroupProps {
   value: string;
   onChange: (value: string) => void;
   className?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   wrap?: boolean;
 }
 

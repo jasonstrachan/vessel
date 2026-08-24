@@ -7,7 +7,7 @@ interface TabsProps {
   activeTab: string;
   onTabChange: (value: string) => void;
   className?: string;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   wrap?: boolean;
 }
 
@@ -25,7 +25,8 @@ const Tabs: React.FC<TabsProps> = ({
   size = 'md',
   wrap = true,
 }) => {
-  const fontSize = size === 'sm' ? '12px' : size === 'lg' ? '16px' : '14px';
+  const isExtraSmall = size === 'xs';
+  const fontSize = isExtraSmall ? '10px' : size === 'sm' ? '12px' : size === 'lg' ? '16px' : '14px';
   const containerRef = useRef<HTMLDivElement>(null);
   const [rowMeta, setRowMeta] = useState<RowMeta[]>([]);
   const rowMetaRef = useRef<RowMeta[]>([]);
@@ -122,7 +123,7 @@ const Tabs: React.FC<TabsProps> = ({
             disabled={isDisabled}
             title={tab.title}
             className={`
-              px-2.5 h-[25px] transition-all duration-200 border bg-transparent
+              ${isExtraSmall ? 'px-0.5 whitespace-nowrap' : 'px-2.5'} h-[25px] transition-all duration-200 border bg-transparent
               ${isActive ? 'font-semibold' : isDisabled ? 'cursor-not-allowed opacity-60' : 'hover:text-[#F3F3F7] hover:border-[#F3F3F7]'}
             `}
             style={style}

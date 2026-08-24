@@ -10,6 +10,7 @@ import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { DisplayFilterConfig, ExportContainerLayout, Layer, Project } from '@/types';
 import {
   MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+  MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
   WINDOWS_31_UI_SHAPE_PALETTE,
   WINDOWS_95_UI_SHAPE_PALETTE,
 } from '@/utils/uiShape';
@@ -464,7 +465,7 @@ describe('webglExporter bundle contracts', () => {
 
   it('bakes outward arrows and edge-to-edge tracks into the Goblet texture', async () => {
     const project = createProject();
-    project.height = 64;
+    project.height = 80;
     const ownerLayer = createNormalLayer('layer-ui-raster', 0);
     const framebuffer = ownerLayer.framebuffer as HTMLCanvasElement;
     framebuffer.height = project.height;
@@ -480,8 +481,16 @@ describe('webglExporter bundle contracts', () => {
         trackBottom: [255, 255, 255, 255],
       },
       {
-        theme: 'windows-3.1' as const,
+        theme: 'macintosh-system-7' as const,
         y: 20,
+        height: 16,
+        palette: MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+        trackTop: [0, 0, 0, 255],
+        trackBottom: [0, 0, 0, 255],
+      },
+      {
+        theme: 'windows-3.1' as const,
+        y: 40,
         height: 17,
         palette: WINDOWS_31_UI_SHAPE_PALETTE,
         trackTop: [223, 223, 223, 255],
@@ -489,7 +498,7 @@ describe('webglExporter bundle contracts', () => {
       },
       {
         theme: 'windows-95' as const,
-        y: 41,
+        y: 61,
         height: 16,
         palette: WINDOWS_95_UI_SHAPE_PALETTE,
         trackTop: [192, 192, 192, 255],
@@ -552,11 +561,28 @@ describe('webglExporter bundle contracts', () => {
       return [...imageData.data.slice(offset, offset + 4)];
     };
 
-    themes.forEach(({ y, height, trackTop, trackBottom }) => {
+    themes.forEach(({ theme, y, height, trackTop, trackBottom }) => {
       const radius = 3;
       const center = Math.floor((height - 1) / 2);
       const start = center - Math.floor(radius / 2);
       const rightButtonX = 64 - height;
+      if (theme === 'macintosh-system-7') {
+        const system7Center = Math.floor(height / 2);
+        expect(pixel(system7Center - radius, y + system7Center)).toEqual([0, 0, 0, 255]);
+        expect(pixel(system7Center - radius, y + system7Center - 1))
+          .not.toEqual([0, 0, 0, 255]);
+        expect(pixel(system7Center + radius, y + system7Center - radius))
+          .toEqual([0, 0, 0, 255]);
+        expect(pixel(rightButtonX + system7Center - radius, y + system7Center - radius))
+          .toEqual([0, 0, 0, 255]);
+        expect(pixel(rightButtonX + system7Center + radius, y + system7Center))
+          .toEqual([0, 0, 0, 255]);
+        expect(pixel(rightButtonX + system7Center + radius, y + system7Center - 1))
+          .not.toEqual([0, 0, 0, 255]);
+        expect(pixel(18, y)).toEqual(trackTop);
+        expect(pixel(18, y + height - 1)).toEqual(trackBottom);
+        return;
+      }
       expect(pixel(start, y + center)).toEqual([0, 0, 0, 255]);
       expect(pixel(start, y + center - 1)).not.toEqual([0, 0, 0, 255]);
       expect(pixel(start + radius, y + center - radius)).toEqual([0, 0, 0, 255]);

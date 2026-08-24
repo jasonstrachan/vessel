@@ -11,6 +11,7 @@ import {
 
 const THEMES: readonly UiShapeTheme[] = [
   'macintosh-system-1',
+  'macintosh-system-7',
   'windows-3.1',
   'windows-95',
 ];
@@ -77,6 +78,22 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
     board: '4226aded5f6be7837e9d351f23a6d20ee3af2284243c3f8de2cd8fab5149b773',
   },
+  'macintosh-system-7': {
+    window: 'cf374a3ec8f30259eb9163478c3e979a098bb568ca54f4462ebb1cb3fbad406b',
+    'title-bar': 'd0e51ee2db9cce35933c6347e0f83622ce6a542587070de6900d3bc99db133c6',
+    'menu-strip': '4d50ade5a9109a8f8ed2d303001b90ac8569dfda7165f387a0867734256eaba2',
+    panel: '5079998b4313a635001d2b40ce17d0ad64268ffc7a92e32f5944e591e5cb9fb9',
+    'group-box': '02b6d1e4bd4ba98c86180ff89d058c0efca3dab34494868eec785d7b8bfe0286',
+    button: '66a47ada982f42455b7e8e71bc8e1205cbc5fc859051da342eb6346ef259cf2d',
+    'radio-button': '140327610f9a4ae21093b35b6f26b0560c71f18a00220789d5c0dacbf7d51f72',
+    'scrollbar-horizontal': 'e9c937572f72d9fc849628410d6139edb6b56c4c8e9220845fe36551d0d58cbb',
+    'scrollbar-vertical': '7d4621409fd8aab788a92ca8fbc54a841c3f60d5bf7c00758441cddbdc1557b6',
+    'selection-field': '50e6409dcc8e3d6d84479a688920065206ee49a1799b91a9e79e1e9bd5fefd72',
+    separator: 'a7f99e564140614e3e2d04222af8d231846f2c59243aab39f34dfbf842ea8093',
+    'resize-corner': '843aa0ae1ed522398935be82e12f077cabf827a6ad3db09212e5004858c29a92',
+    icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
+    board: 'b027cb352a662165aad8504ab75d5bac15d06bb951873672776e3d321ae5149c',
+  },
   'windows-3.1': {
     window: '306378426928c0388711bd1665fc1a38e16e940bdf09fd4bcbf0b0fd2e36a2ec',
     'title-bar': '644c843efed4cb4358f90c1ee315a80480a3f8fbb3fd4bb64eab74763d93648c',
@@ -115,6 +132,7 @@ describe('UI Shape native reference board', () => {
   it('encodes theme-specific native control metrics', () => {
     expect(getUiShapeComponentReferenceSpec('macintosh-system-1', 'scrollbar-vertical').width)
       .toBe(16);
+    expect(getUiShapeComponentReferenceSpec('macintosh-system-7', 'title-bar').height).toBe(20);
     expect(getUiShapeComponentReferenceSpec('windows-3.1', 'scrollbar-vertical').width)
       .toBe(17);
     expect(getUiShapeComponentReferenceSpec('windows-95', 'title-bar').height).toBe(18);

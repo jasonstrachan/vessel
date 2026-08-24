@@ -13,6 +13,7 @@ import {
   drawUiShapeIcon,
   normalizeUiShapeIconId,
 } from '@/utils/uiShapeIcons';
+import { drawSystem7Component } from '@/utils/uiShapeSystem7';
 
 export const UI_SHAPE_MIN_GRID_SIZE = 2;
 export const UI_SHAPE_MAX_GRID_SIZE = 128;
@@ -62,18 +63,33 @@ export const MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE: UiShapePalette = {
   selectionText: '#ffffff',
 };
 
+export const MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE: UiShapePalette = {
+  face: '#e8e8e8',
+  highlight: '#ffffff',
+  light: '#d9d9d9',
+  shadow: '#808080',
+  darkShadow: '#000000',
+  text: '#000000',
+  active: '#0000ff',
+  activeText: '#ffffff',
+  selection: '#0000ff',
+  selectionText: '#ffffff',
+};
+
 export const WINDOWS_95_UI_SHAPE_PALETTE: UiShapePalette = {
   ...WINDOWS_31_UI_SHAPE_PALETTE,
 };
 
 export const UI_SHAPE_THEME_PALETTES: Record<UiShapeTheme, UiShapePalette> = {
   'macintosh-system-1': MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+  'macintosh-system-7': MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
   'windows-3.1': WINDOWS_31_UI_SHAPE_PALETTE,
   'windows-95': WINDOWS_95_UI_SHAPE_PALETTE,
 };
 
 const THEMES = new Set<UiShapeTheme>([
   'macintosh-system-1',
+  'macintosh-system-7',
   'windows-3.1',
   'windows-95',
 ]);
@@ -132,7 +148,9 @@ export const resolveUiShapeScrollbarGeometry = ({
     ? Math.max(1, Math.floor(Math.min(16, crossAxisSize, mainSize / 3)))
     : Math.max(1, Math.min(crossAxisSize, mainSize / 3));
   const trackLength = Math.max(0, mainSize - crossSize * 2);
-  const unconstrainedThumbLength = Math.max(crossSize, Math.round(trackLength * 0.28));
+  const unconstrainedThumbLength = theme === 'macintosh-system-7'
+    ? Math.max(10, Math.round(trackLength * 0.28))
+    : Math.max(crossSize, Math.round(trackLength * 0.28));
   const thumbLength = Math.min(trackLength, unconstrainedThumbLength);
   return {
     crossSize,
@@ -1395,6 +1413,14 @@ export const drawUiShapeComponent = (
       subpixelScrollbars,
       interaction?.scrollbarPressedPart,
     );
+    ctx.restore();
+    return;
+  }
+  if (theme === 'macintosh-system-7') {
+    drawSystem7Component(ctx, component, x, y, palette, state, {
+      subpixelScrollbars,
+      scrollbarPressedPart: interaction?.scrollbarPressedPart,
+    });
     ctx.restore();
     return;
   }

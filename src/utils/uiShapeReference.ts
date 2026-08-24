@@ -182,6 +182,7 @@ export const UI_SHAPE_REFERENCE_SPECS: Record<
       canonicalState: { active: true },
     },
   },
+  'macintosh-system-7': common({ scrollbar: 16, caption: 20, menu: 20, buttonHeight: 20 }),
   'windows-3.1': common({ scrollbar: 17, caption: 18, menu: 19, buttonHeight: 23 }),
   'windows-95': common({ scrollbar: 16, caption: 18, menu: 19, buttonHeight: 23 }),
 };

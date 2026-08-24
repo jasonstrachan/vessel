@@ -352,7 +352,11 @@ export interface LayerOwnedProjectObject {
   layerId: string;
 }
 
-export type UiShapeTheme = 'macintosh-system-1' | 'windows-3.1' | 'windows-95';
+export type UiShapeTheme =
+  | 'macintosh-system-1'
+  | 'macintosh-system-7'
+  | 'windows-3.1'
+  | 'windows-95';
 export type UiShapeDrawMode = 'place' | 'fill';
 export type UiShapeColorSource = 'default' | 'manual' | 'sample' | 'derived';
 export type UiShapeRegionKind = 'rectangle' | 'freehand';

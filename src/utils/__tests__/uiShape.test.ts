@@ -4,6 +4,7 @@ import {
   drawUiShape,
   drawUiShapeComponent,
   MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+  MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
   normalizeUiShapes,
   resolveUiShapeScrollbarGeometry,
   resolveUiShapeScrollbarOffset,
@@ -162,6 +163,15 @@ describe('UI Shape document helpers', () => {
 
     expect(shape?.theme).toBe('macintosh-system-1');
     expect(shape?.palette).toEqual(MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE);
+
+    const [system7Shape] = normalizeUiShapes([{
+      ...createShape(),
+      theme: 'macintosh-system-7',
+      palette: {},
+    }], 100, 80, [{ id: 'layer-1', layerType: 'normal', order: 0 }]);
+
+    expect(system7Shape?.theme).toBe('macintosh-system-7');
+    expect(system7Shape?.palette).toEqual(MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE);
   });
 
   it('preserves a bounded grouping identifier without inventing one', () => {
@@ -289,6 +299,49 @@ describe('UI Shape document helpers', () => {
     expect(render(mac)).not.toEqual(render(windows95));
   });
 
+  it('renders System 7 striped chrome without selection blue', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 20;
+    const context = canvas.getContext('2d')!;
+    drawUiShapeComponent(context, {
+      id: 'system-7-title',
+      kind: 'title-bar',
+      x: 0,
+      y: 0,
+      width: 64,
+      height: 20,
+      canonicalState: { active: true },
+    }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
+
+    expect([...context.getImageData(1, 1, 1, 1).data]).toEqual([232, 232, 232, 255]);
+    expect([...context.getImageData(30, 3, 1, 1).data]).toEqual([232, 232, 232, 255]);
+    expect([...context.getImageData(30, 4, 1, 1).data]).toEqual([128, 128, 128, 255]);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      expect([...pixels.slice(offset, offset + 4)]).not.toEqual([0, 0, 255, 255]);
+    }
+  });
+
+  it('keeps short System 7 windows inside their authored bounds', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 20;
+    canvas.height = 9;
+    const context = canvas.getContext('2d')!;
+    drawUiShapeComponent(context, {
+      id: 'short-system-7-window',
+      kind: 'window',
+      x: 0,
+      y: 0,
+      width: 16,
+      height: 7,
+      canonicalState: { active: true, open: true },
+    }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
+
+    expect([...context.getImageData(1, 6, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expect([...context.getImageData(1, 7, 1, 1).data]).toEqual([0, 0, 0, 0]);
+  });
+
   it('renders exact theme-specific radio pixels from canonical checked state', () => {
     const render = (theme: UiShape['theme'], checked: boolean) => {
       const canvas = document.createElement('canvas');
@@ -297,6 +350,8 @@ describe('UI Shape document helpers', () => {
       const context = canvas.getContext('2d')!;
       const palette = theme === 'macintosh-system-1'
         ? MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE
+        : theme === 'macintosh-system-7'
+          ? MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE
         : theme === 'windows-95'
           ? WINDOWS_95_UI_SHAPE_PALETTE
           : WINDOWS_31_UI_SHAPE_PALETTE;
@@ -315,14 +370,17 @@ describe('UI Shape document helpers', () => {
       [...context.getImageData(x, y, 1, 1).data]
     );
     const mac = render('macintosh-system-1', false);
+    const system7 = render('macintosh-system-7', false);
     const windows31 = render('windows-3.1', false);
     const windows95 = render('windows-95', false);
 
     expect(pixel(mac, 0, 4)).toEqual([0, 0, 0, 255]);
+    expect(pixel(system7, 0, 4)).toEqual([0, 0, 0, 255]);
     expect(pixel(windows31, 0, 4)).toEqual([0, 0, 0, 255]);
     expect(pixel(windows95, 0, 4)).toEqual([128, 128, 128, 255]);
     expect(pixel(mac, 5, 5)).toEqual([255, 255, 255, 255]);
     expect(pixel(render('macintosh-system-1', true), 5, 5)).toEqual([0, 0, 0, 255]);
+    expect(pixel(render('macintosh-system-7', true), 5, 5)).toEqual([0, 0, 0, 255]);
     expect(pixel(render('windows-3.1', true), 5, 5)).toEqual([0, 0, 0, 255]);
     expect(pixel(render('windows-95', true), 5, 5)).toEqual([0, 0, 0, 255]);
   });
@@ -452,6 +510,13 @@ describe('UI Shape document helpers', () => {
       trackBottom: [223, 223, 223, 255],
     },
     {
+      theme: 'macintosh-system-7' as const,
+      palette: MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      height: 16,
+      trackTop: [0, 0, 0, 255],
+      trackBottom: [0, 0, 0, 255],
+    },
+    {
       theme: 'windows-95' as const,
       palette: WINDOWS_95_UI_SHAPE_PALETTE,
       height: 16,
@@ -493,6 +558,19 @@ describe('UI Shape document helpers', () => {
     const start = center - Math.floor(radius / 2);
     const rightButtonX = 64 - height;
 
+    if (theme === 'macintosh-system-7') {
+      const system7Center = Math.floor(height / 2);
+      expect(pixel(system7Center - radius, system7Center)).toEqual([0, 0, 0, 255]);
+      expect(pixel(system7Center - radius, system7Center - 1)).not.toEqual([0, 0, 0, 255]);
+      expect(pixel(system7Center + radius, system7Center - radius)).toEqual([0, 0, 0, 255]);
+      expect(pixel(rightButtonX + system7Center - radius, system7Center - radius)).toEqual([0, 0, 0, 255]);
+      expect(pixel(rightButtonX + system7Center + radius, system7Center)).toEqual([0, 0, 0, 255]);
+      expect(pixel(rightButtonX + system7Center + radius, system7Center - 1)).not.toEqual([0, 0, 0, 255]);
+      expect(pixel(18, 0)).toEqual(trackTop);
+      expect(pixel(18, height - 1)).toEqual(trackBottom);
+      return;
+    }
+
     expect(pixel(start, center)).toEqual([0, 0, 0, 255]);
     expect(pixel(start, center - 1)).not.toEqual([0, 0, 0, 255]);
     expect(pixel(start + radius, center - radius)).toEqual([0, 0, 0, 255]);
@@ -501,6 +579,62 @@ describe('UI Shape document helpers', () => {
     expect(pixel(rightButtonX + start + radius, center - 1)).not.toEqual([0, 0, 0, 255]);
     expect(pixel(18, 0)).toEqual(trackTop);
     expect(pixel(18, height - 1)).toEqual(trackBottom);
+  });
+
+  it('uses the System 7 source greys and grip geometry for scrollbars', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 160;
+    canvas.height = 16;
+    const context = canvas.getContext('2d')!;
+    drawUiShapeComponent(context, {
+      id: 'system-7-scrollbar',
+      kind: 'scrollbar-horizontal',
+      x: 0,
+      y: 0,
+      width: 160,
+      height: 16,
+      canonicalState: { value: 0.36 },
+    }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
+
+    const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+    expect(pixel(4, 4)).toEqual([208, 208, 208, 255]);
+    expect(pixel(18, 4)).toEqual([224, 224, 224, 255]);
+    expect(pixel(66, 8)).toEqual([128, 128, 128, 255]);
+    expect(pixel(67, 8)).toEqual([188, 188, 188, 255]);
+    expect(pixel(68, 8)).toEqual([128, 128, 128, 255]);
+  });
+
+  it('draws the System 7 rounded default button and focused selection field', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 120;
+    canvas.height = 50;
+    const context = canvas.getContext('2d')!;
+    drawUiShapeComponent(context, {
+      id: 'system-7-button',
+      kind: 'button',
+      x: 10,
+      y: 10,
+      width: 75,
+      height: 20,
+      canonicalState: { active: true, pressed: false },
+    }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
+    expect([...context.getImageData(10, 10, 1, 1).data]).toEqual([255, 255, 255, 255]);
+    expect([...context.getImageData(14, 10, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expect([...context.getImageData(10, 6, 1, 1).data]).toEqual([0, 0, 0, 0]);
+    expect([...context.getImageData(18, 6, 1, 1).data]).toEqual([0, 0, 0, 255]);
+
+    drawUiShapeComponent(context, {
+      id: 'system-7-field',
+      kind: 'selection-field',
+      x: 0,
+      y: 34,
+      width: 100,
+      height: 16,
+      canonicalState: { active: true },
+    }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
+    expect([...context.getImageData(0, 34, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expect([...context.getImageData(1, 35, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expect([...context.getImageData(2, 36, 1, 1).data]).toEqual([0, 0, 255, 255]);
   });
 
   it('deep-clones component state and animation', () => {
