@@ -326,6 +326,7 @@ export type TxtShapeFontFamily =
 export type TxtShapeTextAlign = 'left' | 'center' | 'right';
 export type TxtShapeColorSource = 'foreground' | 'palette' | 'sample' | 'manual';
 export type TxtShapeRegionKind = 'rectangle' | 'oval' | 'freehand';
+export type TxtShapeRenderMode = 'selection' | 'glyph-map';
 
 export interface TxtShapeRegionPoint {
   x: number;
@@ -339,6 +340,12 @@ export interface TxtShapeSelectionRange {
 
 export interface TxtShapeColorRange extends TxtShapeSelectionRange {
   color: string;
+}
+
+export interface TxtShapeSampleTone {
+  darks: number;
+  lights: number;
+  contrast: number;
 }
 
 export interface LayerOwnedProjectObject {
@@ -451,7 +458,12 @@ export interface TxtShape extends LayerOwnedProjectObject {
   content: string;
   fontFamily: TxtShapeFontFamily;
   fontSize: number;
+  letterSpacing?: number;
   lineHeight: number;
+  renderMode?: TxtShapeRenderMode;
+  sampledBackgroundColor?: string;
+  sampledColorRanges?: TxtShapeColorRange[];
+  sampleTone?: TxtShapeSampleTone;
   textAlign: TxtShapeTextAlign;
   colorSource: TxtShapeColorSource;
   color: string;

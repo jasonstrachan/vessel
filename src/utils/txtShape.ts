@@ -4,6 +4,7 @@ import type {
   TxtShapeColorRange,
   TxtShapeColorSource,
   TxtShapeRegionPoint,
+  TxtShapeSampleTone,
   TxtShapeSelectionRange,
   TxtShapeTextAlign,
 } from '@/types';
@@ -26,6 +27,11 @@ import {
 
 export const TXT_SHAPE_MIN_SIZE = 16;
 export const TXT_SHAPE_DEFAULT_CONTENT = 'SELECTED TEXT';
+export const DEFAULT_TXT_SHAPE_SAMPLE_TONE: Readonly<TxtShapeSampleTone> = {
+  darks: 0,
+  lights: 100,
+  contrast: 0,
+};
 
 export interface TxtShapePaintRect {
   x: number;
@@ -72,6 +78,27 @@ const clamp = (value: number, min: number, max: number): number =>
 
 const finite = (value: unknown, fallback: number): number =>
   typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+export const normalizeTxtShapeSampleTone = (value: unknown): TxtShapeSampleTone => {
+  const candidate = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Partial<TxtShapeSampleTone>
+    : {};
+  const darks = clamp(finite(candidate.darks, DEFAULT_TXT_SHAPE_SAMPLE_TONE.darks), 0, 99);
+  const lights = clamp(
+    finite(candidate.lights, DEFAULT_TXT_SHAPE_SAMPLE_TONE.lights),
+    darks + 1,
+    100,
+  );
+  return {
+    darks,
+    lights,
+    contrast: clamp(
+      finite(candidate.contrast, DEFAULT_TXT_SHAPE_SAMPLE_TONE.contrast),
+      -100,
+      100,
+    ),
+  };
+};
 
 const doesTxtShapePaintRectIntersect = (
   left: TxtShapePaintRect,
@@ -280,6 +307,12 @@ export const normalizeTxtShape = (
   const columns = clamp(Math.round(finite(candidate.columns, 1)), 1, 6);
   const colorCount = clamp(Math.round(finite(candidate.colorCount, 2)), 2, 8);
   const colorRanges = normalizeTxtShapeColorRanges(candidate.colorRanges, content.length);
+  const sampledColorRanges = normalizeTxtShapeColorRanges(
+    candidate.sampledColorRanges,
+    content.length,
+  );
+  const letterSpacing = clamp(finite(candidate.letterSpacing, 0), 0, 64);
+  const sampleTone = normalizeTxtShapeSampleTone(candidate.sampleTone);
 
   return {
     id: typeof candidate.id === 'string' && candidate.id.trim()
@@ -307,7 +340,14 @@ export const normalizeTxtShape = (
     content,
     fontFamily,
     fontSize: normalizeTxtShapeFontSize(fontFamily, finite(candidate.fontSize, 24)),
+    ...(letterSpacing > 0 ? { letterSpacing } : {}),
     lineHeight: clamp(finite(candidate.lineHeight, 1.2), 0.75, 4),
+    ...(candidate.renderMode === 'glyph-map' ? { renderMode: 'glyph-map' as const } : {}),
+    ...(isCssColor(candidate.sampledBackgroundColor)
+      ? { sampledBackgroundColor: candidate.sampledBackgroundColor }
+      : {}),
+    ...(sampledColorRanges.length > 0 ? { sampledColorRanges } : {}),
+    ...(candidate.sampleTone ? { sampleTone } : {}),
     textAlign,
     colorSource,
     color: isCssColor(candidate.color) ? candidate.color : '#000000',
@@ -344,6 +384,17 @@ export const getTxtShapeColumns = (shape: Pick<TxtShape, 'columns'>): number => 
 export const getTxtShapeColorCount = (shape: Pick<TxtShape, 'colorCount'>): number => (
   clamp(Math.round(finite(shape.colorCount, 2)), 2, 8)
 );
+
+export const getTxtShapeLetterSpacing = (
+  shape: Pick<TxtShape, 'letterSpacing'>,
+): number => clamp(finite(shape.letterSpacing, 0), 0, 64);
+
+export const getTxtShapeRasterLetterSpacing = (
+  shape: Pick<TxtShape, 'fontFamily' | 'fontSize' | 'letterSpacing'>,
+): number => {
+  const pixelScale = getTxtShapePixelScale(shape.fontFamily, shape.fontSize);
+  return Math.max(0, Math.round(getTxtShapeLetterSpacing(shape) / pixelScale));
+};
 
 export const getTxtShapeHorizontalSpan = (
   shape: Pick<TxtShape, 'width' | 'height' | 'regionKind' | 'regionPath'>,
@@ -628,6 +679,7 @@ const prepareHardEdgedTxtShapeText = ({
   fontFamily,
   fontSize,
   lineHeightPx,
+  letterSpacing,
 }: {
   text: string;
   x: number;
@@ -636,6 +688,7 @@ const prepareHardEdgedTxtShapeText = ({
   fontFamily: TxtShape['fontFamily'];
   fontSize: number;
   lineHeightPx: number;
+  letterSpacing: number;
 }): PreparedHardEdgedTxtShapeText | null => {
   const rasterFontSize = getTxtShapeRasterFontSize(fontFamily, fontSize);
   const pixelScale = getTxtShapePixelScale(fontFamily, fontSize);
@@ -654,6 +707,7 @@ const prepareHardEdgedTxtShapeText = ({
         fontFamily,
         rasterFontSize,
         rasterLineHeight,
+        letterSpacing,
         nativeWidth,
         text,
       ])
@@ -699,6 +753,7 @@ const prepareHardEdgedTxtShapeText = ({
     x: PIXEL_TEXT_MASK_PADDING,
     y: 0,
     lineHeight: rasterLineHeight,
+    letterSpacing,
   });
   if (!didDrawMono) {
     maskContext.fillText(text, PIXEL_TEXT_MASK_PADDING, 0);
@@ -870,10 +925,12 @@ const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
   const contentWidth = Math.max(0, shape.width - padding * 2);
   const columnWidth = Math.max(0, (contentWidth - columnGap * (columns - 1)) / columns);
   const layoutScale = pixelScale;
+  const rasterLetterSpacing = getTxtShapeRasterLetterSpacing(shape);
   const hasMonoMetrics = measureTxtShapeMonoText(
     shape.fontFamily,
     shape.fontSize,
     '',
+    rasterLetterSpacing,
   ) !== null;
   const lines: TxtShapeLayoutLine[] = [];
   let sourceOffset = 0;
@@ -900,6 +957,7 @@ const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
           shape.fontFamily,
           shape.fontSize,
           text,
+          rasterLetterSpacing,
         ) ?? 0,
       }),
     });
@@ -973,6 +1031,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       shape.fontSize,
     );
     const pixelScale = getTxtShapePixelScale(shape.fontFamily, shape.fontSize);
+    const rasterLetterSpacing = getTxtShapeRasterLetterSpacing(shape);
     const font = `${rasterFontSize}px ${getTxtShapeFontDefinition(shape.fontFamily).stack}`;
     ctx.font = font;
     ctx.textBaseline = 'top';
@@ -980,6 +1039,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       shape.fontFamily,
       shape.fontSize,
       '',
+      rasterLetterSpacing,
     ) !== null;
     const measureLineText = (text: string): number => {
       if (hasMonoMetrics) {
@@ -987,9 +1047,11 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           shape.fontFamily,
           shape.fontSize,
           text,
+          rasterLetterSpacing,
         ) ?? 0;
       }
-      return Math.round(ctx.measureText(text).width);
+      const gapCount = Math.max(0, Array.from(text).length - 1);
+      return Math.round(ctx.measureText(text).width) + gapCount * rasterLetterSpacing;
     };
     const { lines, padding, lineHeightPx } = getTxtShapeTextLayout(shape);
 
@@ -1056,14 +1118,19 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         fontFamily: shape.fontFamily,
         fontSize: shape.fontSize,
         lineHeightPx,
+        letterSpacing: rasterLetterSpacing,
       });
       let fragmentX = lineX;
       fragments.forEach(({ color, selected, width }) => {
-        if (selected) {
+        if (selected && shape.renderMode !== 'glyph-map') {
           ctx.fillStyle = color ?? shape.selectionBackgroundColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
         }
-        const textColor = selected ? shape.selectionColor : shape.color;
+        const textColor = selected
+          ? shape.renderMode === 'glyph-map'
+            ? color ?? shape.selectionColor
+            : shape.selectionColor
+          : shape.color;
         ctx.save();
         ctx.beginPath();
         ctx.rect(fragmentX, shape.y, width, shape.height);

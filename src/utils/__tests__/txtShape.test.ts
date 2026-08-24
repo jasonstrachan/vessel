@@ -20,6 +20,7 @@ import {
   getTxtShapeTextLayout,
   getTxtShapeTransientSelectionRevision,
   normalizeTxtShapeSelections,
+  normalizeTxtShapeSampleTone,
   normalizeTxtShapes,
   setTxtShapeTransientSelectionOverrides,
   splitTxtShapeSegments,
@@ -228,6 +229,28 @@ describe('TXT Shape document helpers', () => {
     expect(invalid.backgroundColor).toBeUndefined();
   });
 
+  it('normalizes persisted sampled-tone controls without changing legacy shapes', () => {
+    const [adjusted, legacy] = normalizeTxtShapes([
+      createShape({
+        id: 'adjusted',
+        sampledBackgroundColor: '#345678',
+        sampledColorRanges: [{ start: 0, end: 2, color: '#123456' }],
+        sampleTone: { darks: 120, lights: -20, contrast: 140 },
+      }),
+      createShape({ id: 'legacy' }),
+    ], 200, 100);
+
+    expect(adjusted.sampleTone).toEqual({ darks: 99, lights: 100, contrast: 100 });
+    expect(adjusted.sampledBackgroundColor).toBe('#345678');
+    expect(adjusted.sampledColorRanges).toEqual([{ start: 0, end: 2, color: '#123456' }]);
+    expect(legacy.sampleTone).toBeUndefined();
+    expect(normalizeTxtShapeSampleTone({ darks: -20, lights: 80, contrast: -140 })).toEqual({
+      darks: 0,
+      lights: 80,
+      contrast: -100,
+    });
+  });
+
   it('preserves partially off-canvas authored geometry', () => {
     const [shape] = normalizeTxtShapes([
       createShape({ x: -20, y: 80, width: 120, height: 40 }),
@@ -358,6 +381,60 @@ describe('TXT Shape document helpers', () => {
     expect(fillStyles).toContain('#336699');
     expect(fillStyles).toContain('#ff00ff');
     expect(shape.selections).toEqual([{ start: 1, end: 2 }]);
+  });
+
+  it('renders glyph maps as sampled text colours without selection blocks', () => {
+    const fillStyles: string[] = [];
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(ctx, 'fillStyle', {
+      configurable: true,
+      get: () => fillStyles.at(-1) ?? '',
+      set: (value: string) => fillStyles.push(value),
+    });
+
+    drawTxtShapesToCanvas(ctx, [createShape({
+      content: 'AB',
+      renderMode: 'glyph-map',
+      selections: [{ start: 0, end: 2 }],
+      colorRanges: [
+        { start: 0, end: 1, color: '#336699' },
+        { start: 1, end: 2, color: '#cc5500' },
+      ],
+    })]);
+
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+    expect(fillStyles).toContain('#336699');
+    expect(fillStyles).toContain('#cc5500');
+    expect(fillStyles).not.toContain('#ffffff');
+  });
+
+  it('uses authored letter spacing for layout and monochrome mask drawing', () => {
+    const measureMonoText = jest
+      .spyOn(txtShapeMonoRenderer, 'measureTxtShapeMonoText')
+      .mockImplementation((_family, _fontSize, text, letterSpacing = 0) => (
+        text.length * 5 + Math.max(0, text.length - 1) * letterSpacing
+      ));
+    const drawMonoTextMask = jest
+      .spyOn(txtShapeMonoRenderer, 'drawTxtShapeMonoTextMask')
+      .mockReturnValue(true);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    const spaced = createShape({ content: 'AB', letterSpacing: 6, selections: [] });
+
+    const layout = getTxtShapeTextLayout(spaced);
+    drawTxtShapesToCanvas(ctx!, [spaced]);
+
+    expect(layout.lines[0]?.width).toBe(16);
+    expect(measureMonoText).toHaveBeenCalledWith('departure-mono', 11, 'AB', 6);
+    expect(drawMonoTextMask).toHaveBeenCalledWith(expect.objectContaining({ letterSpacing: 6 }));
+    drawMonoTextMask.mockRestore();
+    measureMonoText.mockRestore();
   });
 
   it('uses prepared text across variable shape widths while preserving hard-break offsets', () => {

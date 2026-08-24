@@ -176,6 +176,7 @@ export const measureTxtShapeMonoText = (
   family: TxtShapeFontFamily,
   fontSize: number,
   text: string,
+  letterSpacing = 0,
 ): number | null => {
   const cachedFace = faceCache.get(family);
   if (!cachedFace) {
@@ -187,9 +188,14 @@ export const measureTxtShapeMonoText = (
   cachedFace.face.setPixelSize(rasterSize);
   let width = 0;
   let previousGlyphIndex = 0;
+  let characterIndex = 0;
+  const resolvedLetterSpacing = Number.isFinite(letterSpacing)
+    ? Math.max(0, Math.round(letterSpacing))
+    : 0;
   for (const character of text) {
     const glyph = getGlyph(family, fontSize, character.codePointAt(0)!);
     if (!glyph) return null;
+    if (characterIndex > 0) width += resolvedLetterSpacing;
     width += getKerning(
       cachedFace.face,
       family,
@@ -199,6 +205,7 @@ export const measureTxtShapeMonoText = (
     );
     width += glyph.advance;
     previousGlyphIndex = glyph.glyphIndex;
+    characterIndex += 1;
   }
   return width;
 };
@@ -252,6 +259,7 @@ export const drawTxtShapeMonoTextMask = ({
   x,
   y,
   lineHeight,
+  letterSpacing = 0,
 }: {
   context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   family: TxtShapeFontFamily;
@@ -260,6 +268,7 @@ export const drawTxtShapeMonoTextMask = ({
   x: number;
   y: number;
   lineHeight: number;
+  letterSpacing?: number;
 }): boolean => {
   const cachedFace = faceCache.get(family);
   if (!cachedFace) {
@@ -278,9 +287,14 @@ export const drawTxtShapeMonoTextMask = ({
   });
   let penX = Math.round(x);
   let previousGlyphIndex = 0;
+  let characterIndex = 0;
+  const resolvedLetterSpacing = Number.isFinite(letterSpacing)
+    ? Math.max(0, Math.round(letterSpacing))
+    : 0;
   for (const character of text) {
     const glyph = getGlyph(family, fontSize, character.codePointAt(0)!);
     if (!glyph) return false;
+    if (characterIndex > 0) penX += resolvedLetterSpacing;
     penX += getKerning(
       cachedFace.face,
       family,
@@ -295,6 +309,7 @@ export const drawTxtShapeMonoTextMask = ({
     });
     penX += glyph.advance;
     previousGlyphIndex = glyph.glyphIndex;
+    characterIndex += 1;
   }
   return true;
 };
