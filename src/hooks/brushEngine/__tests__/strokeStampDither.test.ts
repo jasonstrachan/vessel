@@ -1,5 +1,6 @@
 import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
+import { PRESSURE_RESOLUTION_MAX_PX } from '@/utils/pressureResolution';
 
 import * as stampDither from '../strokeStampDither';
 import {
@@ -483,64 +484,56 @@ describe('strokeStampDither', () => {
     });
   });
 
-  it('updates pressure-linked tile scale with pressure changes', () => {
-    const width = 16;
-    const height = 16;
-    const animator = buildAnimator(width, height);
-    const state = {
-      paint: new Uint8Array(width * height),
-      gradientIdBuffer: new Uint8Array(width * height),
-      speedBuffer: new Uint8Array(width * height),
-      stampDitherStrokeScale: 1,
-    };
+  it.each([
+    'square',
+    'checkered',
+    'round',
+    'diamond',
+    'diamond5',
+    'diamond7',
+    'diamond9',
+    'triangle',
+  ] as const)('updates pressure-linked tile scale for the %s stamp', (stampShape) => {
+    const width = 48;
+    const height = 48;
     const config = {
       algorithm: 'sierra-lite' as const,
-      pixelSize: 2,
+      pixelSize: 12,
       patternStyle: 'dots' as const,
       bgFill: true,
       pressureLinked: true,
       seed: 42,
     };
-    const runtime = stampDither.createStampDitherRuntime();
+    const resolveScale = (pressure: number) => {
+      const animator = buildAnimator(width, height);
+      const state = {
+        paint: new Uint8Array(width * height),
+        gradientIdBuffer: new Uint8Array(width * height),
+        speedBuffer: new Uint8Array(width * height),
+        stampDitherStrokeScale: 1,
+      };
+      stampDither.applyStampDitherStamp({
+        animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+        state,
+        config,
+        runtime: stampDither.createStampDitherRuntime(),
+        stampShape,
+        x: 24,
+        y: 24,
+        pressure,
+        pressureSize: 20,
+        primaryIndex: 5,
+        flowSlot: 1,
+        cycleSpeed: 1,
+        width,
+        height,
+        isAnimating: false,
+      });
+      return state.stampDitherStrokeScale ?? 0;
+    };
 
-    stampDither.applyStampDitherStamp({
-      animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
-      state,
-      config,
-      runtime,
-      stampShape: 'round',
-      x: 6,
-      y: 6,
-      pressure: 0.2,
-      pressureSize: 4,
-      primaryIndex: 5,
-      flowSlot: 1,
-      cycleSpeed: 1,
-      width,
-      height,
-      isAnimating: false,
-    });
-    const firstScale = state.stampDitherStrokeScale ?? 0;
-
-    stampDither.applyStampDitherStamp({
-      animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
-      state,
-      config,
-      runtime,
-      stampShape: 'round',
-      x: 8,
-      y: 8,
-      pressure: 1.0,
-      pressureSize: 4,
-      primaryIndex: 5,
-      flowSlot: 1,
-      cycleSpeed: 1,
-      width,
-      height,
-      isAnimating: false,
-    });
-
-    expect(state.stampDitherStrokeScale).toBeGreaterThanOrEqual(firstScale);
+    expect(resolveScale(0)).toBe(1);
+    expect(resolveScale(1)).toBe(PRESSURE_RESOLUTION_MAX_PX);
   });
 
   it('caps pressure-linked tile scale to standardized max resolution', () => {

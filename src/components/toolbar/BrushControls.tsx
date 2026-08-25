@@ -66,8 +66,9 @@ import {
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import {
-  PRESSURE_BASE_PERCENT,
-  clampPressureDeltaPercent,
+  PRESSURE_MAX_PERCENT,
+  PRESSURE_MIN_PERCENT,
+  clampPressurePercent,
   getDefaultMaxPressurePercent,
 } from '@/utils/pressureSettings';
 import {
@@ -103,13 +104,70 @@ import {
   type SavedBrushGradient,
 } from './brushGradientStorage';
 
-const PRESSURE_MIN_BOUND = 0;
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
 const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
 type SliderComponent = React.ComponentType<React.ComponentProps<typeof ProgressSlider>>;
 const BRUSH_COLOR_CYCLE_SLIDER_MIN = 0;
 const BRUSH_COLOR_CYCLE_SLIDER_MAX = 1;
 const BRUSH_COLOR_CYCLE_SLIDER_STEP = 0.001;
+
+type PressureRangeInputsProps = {
+  settings: Pick<BrushSettings, 'brushShape' | 'minPressure' | 'maxPressure'>;
+  onCommit: (settings: Partial<BrushSettings>) => void;
+  className?: string;
+  showSeparator?: boolean;
+};
+
+const PressureRangeInputs: React.FC<PressureRangeInputsProps> = ({
+  settings,
+  onCommit,
+  className = 'w-16 bg-transparent text-right',
+  showSeparator = false,
+}) => {
+  const minPressure = clampPressurePercent(
+    settings.minPressure ?? PRESSURE_MIN_PERCENT,
+  );
+  const maxPressure = Math.max(
+    minPressure,
+    clampPressurePercent(
+      settings.maxPressure ?? getDefaultMaxPressurePercent(settings.brushShape),
+    ),
+  );
+
+  return (
+    <>
+      <CommittedNumberInput
+        value={minPressure}
+        onCommit={(value) => {
+          const nextMin = clampPressurePercent(value);
+          onCommit({
+            minPressure: nextMin,
+            ...(nextMin > maxPressure ? { maxPressure: nextMin } : {}),
+          });
+        }}
+        min={PRESSURE_MIN_PERCENT}
+        max={PRESSURE_MAX_PERCENT}
+        className={className}
+        ariaLabel="Pressure minimum percent"
+      />
+      {showSeparator && (
+        <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
+          -
+        </span>
+      )}
+      <CommittedNumberInput
+        value={maxPressure}
+        onCommit={(value) => onCommit({
+          maxPressure: Math.max(minPressure, clampPressurePercent(value)),
+        })}
+        min={PRESSURE_MIN_PERCENT}
+        max={PRESSURE_MAX_PERCENT}
+        className={className}
+        ariaLabel="Pressure maximum percent"
+      />
+    </>
+  );
+};
 
 type CcSampledGradientDebugPayload = {
   source: string;
@@ -864,17 +922,6 @@ const BrushControls = () => {
     [currentStops, fgColor, setActiveSettings]
   );
 
-  const [pressureDraft, setPressureDraft] = React.useState(() => ({
-    min: (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString(),
-    max: (
-      activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape)
-    ).toString(),
-  }));
-  const [pressureEditing, setPressureEditing] = React.useState<{ min: boolean; max: boolean }>({
-    min: false,
-    max: false,
-  });
-
   React.useEffect(() => {
     if (
       currentTool === 'brush' &&
@@ -884,147 +931,6 @@ const BrushControls = () => {
       setBrushSettings({ ditherEnabled: true });
     }
   }, [currentTool, capability.forceDither, brushSettings.ditherEnabled, setBrushSettings]);
-
-  const updatePressureEditing = React.useCallback((key: 'min' | 'max', value: boolean) => {
-    setPressureEditing((prev) => {
-      if (prev[key] === value) {
-        return prev;
-      }
-      return { ...prev, [key]: value };
-    });
-  }, []);
-
-  React.useEffect(() => {
-    if (pressureEditing.min) {
-      return;
-    }
-    const nextMin = (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString();
-    setPressureDraft((draft) => (draft.min === nextMin ? draft : { ...draft, min: nextMin }));
-  }, [activeSettings.minPressure, pressureEditing.min]);
-
-  React.useEffect(() => {
-    if (pressureEditing.max) {
-      return;
-    }
-    const nextMax = (
-      activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape)
-    ).toString();
-    setPressureDraft((draft) => (draft.max === nextMax ? draft : { ...draft, max: nextMax }));
-  }, [activeSettings.maxPressure, activeSettings.brushShape, pressureEditing.max]);
-
-  React.useEffect(() => {
-    if (activeSettings.pressureEnabled) {
-      return;
-    }
-    setPressureEditing((prev) =>
-      prev.min === false && prev.max === false ? prev : { min: false, max: false }
-    );
-    const nextMin = (activeSettings.minPressure ?? PRESSURE_MIN_BOUND).toString();
-    const nextMax = (
-      activeSettings.maxPressure ?? getDefaultMaxPressurePercent(activeSettings.brushShape)
-    ).toString();
-    setPressureDraft((draft) =>
-      draft.min === nextMin && draft.max === nextMax ? draft : { min: nextMin, max: nextMax }
-    );
-  }, [
-    activeSettings.pressureEnabled,
-    activeSettings.minPressure,
-    activeSettings.maxPressure,
-    activeSettings.brushShape,
-  ]);
-
-  const handleMinChange = React.useCallback(
-    (raw: string) => {
-      if (raw === '') {
-        setPressureDraft((draft) => (draft.min === '' ? draft : { ...draft, min: '' }));
-        return;
-      }
-      const parsed = Number.parseInt(raw, 10);
-      if (Number.isNaN(parsed)) {
-        return;
-      }
-      const clamped = clampPressureDeltaPercent(parsed);
-      setActiveSettings({ minPressure: clamped });
-      setPressureDraft((draft) => {
-        const minString = clamped.toString();
-        if (draft.min === minString) {
-          return draft;
-        }
-        return { ...draft, min: minString };
-      });
-    },
-    [setActiveSettings]
-  );
-
-  const handleMinFocus = React.useCallback(() => {
-    updatePressureEditing('min', true);
-  }, [updatePressureEditing]);
-
-  const handleMinBlur = React.useCallback(() => {
-    updatePressureEditing('min', false);
-    if (pressureDraft.min === '') {
-      const fallback = clampPressureDeltaPercent(activeSettings.minPressure ?? PRESSURE_MIN_BOUND);
-      setActiveSettings({ minPressure: fallback });
-      setPressureDraft((draft) => {
-        const minString = fallback.toString();
-        if (draft.min === minString) {
-          return draft;
-        }
-        return { ...draft, min: minString };
-      });
-      return;
-    }
-    handleMinChange(pressureDraft.min);
-  }, [
-    pressureDraft.min,
-    activeSettings.minPressure,
-    updatePressureEditing,
-    handleMinChange,
-    setActiveSettings,
-  ]);
-
-  const handleMaxChange = React.useCallback(
-    (raw: string) => {
-      if (raw === '') {
-        setPressureDraft((draft) => (draft.max === '' ? draft : { ...draft, max: '' }));
-        return;
-      }
-      const parsed = Number.parseInt(raw, 10);
-      if (Number.isNaN(parsed)) {
-        return;
-      }
-      const clamped = clampPressureDeltaPercent(parsed);
-      const nextString = clamped.toString();
-      setActiveSettings({ maxPressure: clamped });
-      setPressureDraft((draft) => (draft.max === nextString ? draft : { ...draft, max: nextString }));
-    },
-    [setActiveSettings]
-  );
-
-  const handleMaxFocus = React.useCallback(() => {
-    updatePressureEditing('max', true);
-  }, [updatePressureEditing]);
-
-  const handleMaxBlur = React.useCallback(() => {
-    updatePressureEditing('max', false);
-    if (pressureDraft.max === '') {
-      setActiveSettings({ maxPressure: undefined });
-      const fallbackOver = Math.max(
-        0,
-        getDefaultMaxPressurePercent(activeSettings.brushShape) - PRESSURE_BASE_PERCENT
-      ).toString();
-      const fallback = fallbackOver;
-      setPressureDraft((draft) => (draft.max === fallback ? draft : { ...draft, max: fallback }));
-      return;
-    }
-    handleMaxChange(pressureDraft.max);
-  }, [
-    pressureDraft.max,
-    activeSettings.brushShape,
-    updatePressureEditing,
-    handleMaxChange,
-    setActiveSettings,
-  ]);
 
   React.useEffect(() => {
     // Only auto-enable shapeMode for SHAPE_FILL when the current tool is 'brush'
@@ -2220,7 +2126,7 @@ const BrushControls = () => {
                 className="text-[#D9D9D9] w-16"
                 style={{ fontSize: "14px" }}
               >
-                Pressure
+                Pressure %
               </label>
               <CustomSwitch
                 id="pressure-enabled-color-cycle"
@@ -2231,27 +2137,9 @@ const BrushControls = () => {
               />
               {(activeSettings.pressureEnabled || false) && (
                 <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    variant="compact"
-                    value={pressureDraft.min}
-                    onChange={(e) => handleMinChange(e.target.value)}
-                    onFocus={handleMinFocus}
-                    onBlur={handleMinBlur}
-                    min="1"
-                    max="1000"
-                    className="w-16 bg-transparent text-right"
-                  />
-                  <Input
-                    type="number"
-                    variant="compact"
-                    value={pressureDraft.max}
-                    onChange={(e) => handleMaxChange(e.target.value)}
-                    onFocus={handleMaxFocus}
-                    onBlur={handleMaxBlur}
-                    min="1"
-                    max="1000"
-                    className="w-16 bg-transparent text-right"
+                  <PressureRangeInputs
+                    settings={activeSettings}
+                    onCommit={setActiveSettings}
                   />
                 </div>
               )}
@@ -2650,7 +2538,7 @@ const BrushControls = () => {
               className="text-[#D9D9D9] w-16"
               style={{ fontSize: "14px" }}
             >
-              Pressure
+              Pressure %
             </label>
             <CustomSwitch
               id="pressure-enabled-spam"
@@ -2658,33 +2546,11 @@ const BrushControls = () => {
               onChange={(checked) => setActiveSettings({ pressureEnabled: checked })}
             />
             {(activeSettings.pressureEnabled || false) && (
-              <>
-                  <Input
-                    type="number"
-                    variant="compact"
-                    value={pressureDraft.min}
-                    onChange={(e) => handleMinChange(e.target.value)}
-                    onFocus={handleMinFocus}
-                    onBlur={handleMinBlur}
-                    min="1"
-                    max="1000"
-                    className="w-16 bg-transparent text-right"
-                  />
-                <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
-                  -
-                </span>
-                  <Input
-                    type="number"
-                    variant="compact"
-                    value={pressureDraft.max}
-                    onChange={(e) => handleMaxChange(e.target.value)}
-                    onFocus={handleMaxFocus}
-                    onBlur={handleMaxBlur}
-                    min="1"
-                    max="1000"
-                    className="w-16 bg-transparent text-right"
-                  />
-              </>
+              <PressureRangeInputs
+                settings={activeSettings}
+                onCommit={setActiveSettings}
+                showSeparator
+              />
             )}
           </div>
         </div>
@@ -2989,7 +2855,7 @@ const BrushControls = () => {
               className="text-[#D9D9D9] w-16"
               style={{ fontSize: '14px' }}
             >
-              Pressure
+              Pressure %
             </label>
             <CustomSwitch
               id="pressure-enabled-mosaic"
@@ -2999,30 +2865,11 @@ const BrushControls = () => {
               }}
             />
             {(activeSettings.pressureEnabled || false) && (
-              <>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.min}
-                  onChange={(e) => handleMinChange(e.target.value)}
-                  onFocus={handleMinFocus}
-                  onBlur={handleMinBlur}
-                  min="1"
-                  max="1000"
-                  className="w-12 bg-transparent text-right"
-                />
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.max}
-                  onChange={(e) => handleMaxChange(e.target.value)}
-                  onFocus={handleMaxFocus}
-                  onBlur={handleMaxBlur}
-                  min="1"
-                  max="1000"
-                  className="w-12 bg-transparent text-right"
-                />
-              </>
+              <PressureRangeInputs
+                settings={activeSettings}
+                onCommit={setActiveSettings}
+                className="w-12 bg-transparent text-right"
+              />
             )}
           </div>
         </div>
@@ -3231,7 +3078,7 @@ const BrushControls = () => {
               className="text-[#D9D9D9] w-16"
               style={{ fontSize: "14px" }}
             >
-              Pressure
+              Pressure %
             </label>
             <CustomSwitch
               id="pressure-enabled-resampler"
@@ -3241,33 +3088,11 @@ const BrushControls = () => {
               }}
             />
             {(activeSettings.pressureEnabled || false) && (
-              <>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.min}
-                  onChange={(e) => handleMinChange(e.target.value)}
-                  onFocus={handleMinFocus}
-                  onBlur={handleMinBlur}
-                  min="1"
-                  max="1000"
-                  className="w-16 bg-transparent text-right"
-                />
-                <span className="text-[#D9D9D9]" style={{ fontSize: "14px" }}>
-                  -
-                </span>
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.max}
-                  onChange={(e) => handleMaxChange(e.target.value)}
-                  onFocus={handleMaxFocus}
-                  onBlur={handleMaxBlur}
-                  min="1"
-                  max="1000"
-                  className="w-16 bg-transparent text-right"
-                />
-              </>
+              <PressureRangeInputs
+                settings={activeSettings}
+                onCommit={setActiveSettings}
+                showSeparator
+              />
             )}
           </div>
         </div>
@@ -4445,7 +4270,7 @@ const BrushControls = () => {
             className="text-[#D9D9D9] w-16"
             style={{ fontSize: "14px" }}
           >
-            Pressure
+            Pressure %
           </label>
           <CustomSwitch
             id="pressure-enabled"
@@ -4456,26 +4281,9 @@ const BrushControls = () => {
           />
             {(activeSettings.pressureEnabled || false) && (
               <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.min}
-                  onChange={(e) => handleMinChange(e.target.value)}
-                  onFocus={handleMinFocus}
-                  onBlur={handleMinBlur}
-                  min="1"
-                  max="1000"
-                  className="w-12 bg-transparent text-right"
-                />
-                <Input
-                  type="number"
-                  variant="compact"
-                  value={pressureDraft.max}
-                  onChange={(e) => handleMaxChange(e.target.value)}
-                  onFocus={handleMaxFocus}
-                  onBlur={handleMaxBlur}
-                  min="1"
-                  max="1000"
+                <PressureRangeInputs
+                  settings={activeSettings}
+                  onCommit={setActiveSettings}
                   className="w-12 bg-transparent text-right"
                 />
               </div>

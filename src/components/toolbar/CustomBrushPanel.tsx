@@ -162,7 +162,7 @@ export const CustomBrushPanel = () => {
       size: normalizedSize,
       customBrushSizePercent: 100,
       pressureEnabled: false,
-      minPressure: 99,
+      minPressure: 1,
       maxPressure: undefined,
       customBrushColorCycle: hasColorCycle,
       customBrushColorCycleMode: getCustomBrushColorCycleDefaultMode(options?.colorCycleData),

@@ -64,8 +64,8 @@ export const pixelBrushSettings: BrushSettings = {
   rotation: 0,
   antialiasing: false,
   pressureEnabled: false,
-  minPressure: 0,   // Maintain 1px at light pressure (0% under base)
-  maxPressure: 200,   // Grow to 3px at firm pressure (200% over base)
+  minPressure: 100,   // Maintain 1px at light pressure
+  maxPressure: 300,   // Grow to 3px at firm pressure
   rotationEnabled: false,
   rotationConfig: {
     enabled: false,
@@ -172,7 +172,7 @@ export const defaultBrushSettings: BrushSettings = {
   brushShape: BrushShape.SQUARE,
   lastRegularBrushSize: 100,
   pressureEnabled: false,
-  minPressure: 99,
+  minPressure: 1,
   maxPressure: undefined,
   rotationEnabled: false,
   rotationConfig: {
@@ -341,8 +341,8 @@ export const pixelBrushPreset: BrushPreset = {
     size: 1,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 0,
-    maxPressure: 200,
+    minPressure: 100,
+    maxPressure: 300,
     rotationEnabled: false,
     dashedEnabled: false,
     gridSnapEnabled: false,
@@ -1203,8 +1203,8 @@ export const spamBrushPreset: BrushPreset = {
     spacing: 10,  // Optimized spacing for letter-by-letter text flow
     pressureEnabled: false,  // Disable pressure for consistent text
     gridSnapEnabled: true,  // Grid snap on by default
-    minPressure: 99,
-    maxPressure: 0,
+    minPressure: 1,
+    maxPressure: 1,
     spamFont: 'courier',
     spamContentType: 'mixed'
   }
@@ -1266,8 +1266,8 @@ export const resamplerBrushPreset: BrushPreset = {
     antialiasing: true,
     spacing: 1,
     pressureEnabled: false,
-    minPressure: 99,
-    maxPressure: 0,
+    minPressure: 1,
+    maxPressure: 100,
     rotationEnabled: true,
     dashedEnabled: false,
     dashLength: 10,
@@ -1300,8 +1300,8 @@ export const pixelDitherPreset: BrushPreset = {
     spacing: 1,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 0,
-    maxPressure: 200,
+    minPressure: 100,
+    maxPressure: 300,
     ditherEnabled: true,
     ditherAlgorithm: 'sierra-lite',
     ditherPaletteSpread: 0,
@@ -1334,8 +1334,8 @@ export const shapeDitherPreset: BrushPreset = {
     spacing: 1,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 0,
-    maxPressure: 200,
+    minPressure: 100,
+    maxPressure: 300,
     ditherEnabled: true,
     ditherAlgorithm: 'sierra-lite',
     ditherPaletteSpread: 0,
@@ -1369,8 +1369,8 @@ export const checkeredBrushPreset: BrushPreset = {
     spacing: 8,
     antialiasing: false,
     pressureEnabled: false,
-    minPressure: 0,
-    maxPressure: 200,
+    minPressure: 100,
+    maxPressure: 300,
     colorCycleFPS: 10,
     colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     gradientBands: 12,
@@ -1433,13 +1433,13 @@ export const applyBrushPreset = (preset: BrushPreset, userSavedSettings?: Partia
     settings.size = 20; // 20px default for resampler brush
     settings.antialiasing = true;
     settings.pressureEnabled = false;
-    settings.minPressure = 50;  // 50% under base => min at 50%
-    settings.maxPressure = 100; // 100% over base => max at 200%
+    settings.minPressure = 50;
+    settings.maxPressure = 200;
   } else if (preset.category === 'Custom') {
     // Handle custom brush presets - apply sensible defaults
     settings.antialiasing = true;
     settings.pressureEnabled = false;
-    settings.minPressure = 99;
+    settings.minPressure = 1;
     settings.maxPressure = undefined;
   }
   // Removed hardcoded opacity, spacing, colorJitter - these should come from user preferences or store defaults

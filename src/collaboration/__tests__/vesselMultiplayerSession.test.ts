@@ -1,10 +1,11 @@
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { commitColorCycleLayerStroke } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
 import { createBrushEngineFacade } from '@/hooks/brushEngine/BrushEngineFacade';
+import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { AppState } from '@/stores/useAppStore';
-import type { Layer } from '@/types';
+import { BrushShape, type Layer } from '@/types';
 
 import {
   __resetVesselMultiplayerSessionForTests,
@@ -43,6 +44,9 @@ const mockedCommitColorCycleLayerStroke = commitColorCycleLayerStroke as jest.Mo
 >;
 const mockedCreateBrushEngineFacade = createBrushEngineFacade as jest.MockedFunction<
   typeof createBrushEngineFacade
+>;
+const mockedApplyColorCycleBrushSettingsPatch = applyColorCycleBrushSettingsPatch as jest.MockedFunction<
+  typeof applyColorCycleBrushSettingsPatch
 >;
 
 const observationFence = {
@@ -95,7 +99,7 @@ const createState = (layerType: 'normal' | 'color-cycle' = 'color-cycle') => {
         size: 12,
         opacity: 1,
         spacing: 2,
-        brushShape: 'color-cycle',
+        brushShape: BrushShape.COLOR_CYCLE,
         colorCycleGradient: [
           { position: 0, color: '#000000' },
           { position: 1, color: '#ffffff' },
@@ -309,6 +313,39 @@ describe('vesselMultiplayerSession', () => {
     expect(mockedCreateBrushEngineFacade).toHaveBeenCalledWith(expect.objectContaining({
       brushSettings: expect.objectContaining({ size: 18 }),
     }));
+  });
+
+  it('uses the shared direct pressure range for Color Cycle multiplayer marks', async () => {
+    const state = createState();
+    state.tools.brushSettings.pressureEnabled = true;
+    state.tools.brushSettings.minPressure = 1;
+    state.tools.brushSettings.maxPressure = undefined;
+    mockedGetAppStoreState.mockReturnValue(state);
+    mockedCommitColorCycleLayerStroke.mockResolvedValue({ deferredLayerCanvas: null });
+    await startVesselMultiplayerSession({ sessionId: 'pressure-range' });
+
+    await executeVesselMultiplayerGesture({
+      ...observationFence,
+      sessionId: 'pressure-range',
+      gestureId: 'pressure-shape',
+      actor: 'ai',
+      kind: 'shape',
+      points: [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 20 }],
+    }, {
+      compositeCanvasDirtyRef: { current: false },
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+      scheduleHistoryCommit: jest.fn(async () => undefined),
+    });
+
+    expect(mockedApplyColorCycleBrushSettingsPatch).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        pressureEnabled: true,
+        minPressure: 1,
+        maxPressure: 200,
+      }),
+    );
   });
 
   it('waits for renderer presentation acknowledgement before advancing the AI stroke', async () => {

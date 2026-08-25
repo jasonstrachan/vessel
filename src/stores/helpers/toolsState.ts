@@ -2,8 +2,8 @@ import type { BrushSettings, ToolState } from '@/types';
 type AppState = import('../useAppStore').AppState;
 type RectangleBrushState = AppState['rectangleBrushState'];
 import { BrushShape } from '@/types';
-import { MAX_CANVAS_ZOOM } from '@/constants/canvas';
 import { sanitizeAuthoredBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
+import { clampPressurePercent as clampDirectPressurePercent } from '@/utils/pressureSettings';
 
 type GradientStops = BrushSettings['colorCycleGradient'];
 
@@ -19,7 +19,7 @@ export const applyPressureUpdate = (
 ): PressureSettings => {
   const nextEnabled = updates.enabled ?? current.enabled;
   const nextMin = clampPressurePercent(updates.min ?? current.min);
-  const nextMax = clampPressurePercent(updates.max ?? current.max);
+  const nextMax = Math.max(nextMin, clampPressurePercent(updates.max ?? current.max));
 
   return {
     enabled: nextEnabled,
@@ -81,8 +81,7 @@ const CUSTOM_BRUSH_PERCENT_MAX = 1000;
 const CUSTOM_BRUSH_PERCENT_STEP = 0.001;
 
 export const clampPressurePercent = (value: number): number => {
-  const clamped = Math.max(0, Math.min(MAX_CANVAS_ZOOM * 100, value));
-  return Number.isFinite(clamped) ? clamped : 0;
+  return clampDirectPressurePercent(value);
 };
 
 export const clampCustomBrushPercent = (value: number): number => {

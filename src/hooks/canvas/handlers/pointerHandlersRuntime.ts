@@ -934,24 +934,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         pressureEnabled ||
         pressureLinkedFillResolution ||
         colorCycleStampDitherPressureLinked;
-      const hasVariableMousePressure =
-        raw != null &&
-        raw > 0 &&
-        raw < 1 &&
-        Math.abs(raw - 0.5) > 0.02;
+      if (pressureEnabled && shiftKey) return 0.1;
+      if (pressureEnabled && ctrlKey) return 0.9;
 
-      // Some pen/tablet drivers report pen input as pointerType=mouse while still
-      // providing variable pressure. Prefer that signal when pressure features are enabled.
-      if (pressureFeaturesEnabled && hasVariableMousePressure) {
+      // Some tablet drivers expose pen input as mouse input. Preserve every usable
+      // sample, including the browser's neutral 0.5 value and full pressure at 1.
+      if (pressureFeaturesEnabled && raw != null && raw > 0) {
         return raw;
       }
 
-      if (!pressureEnabled) {
-        return 0.5;
-      }
-      if (shiftKey) return 0.1;
-      if (ctrlKey) return 0.9;
-      return 0;
+      // A mouse event without a usable pressure signal should stay neutral instead
+      // of collapsing every pressure-aware brush to its minimum size.
+      return 0.5;
     }
 
     const value = Number.isFinite(rawPressure) ? (rawPressure as number) : fallback;

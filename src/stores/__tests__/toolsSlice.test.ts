@@ -1226,7 +1226,7 @@ describe('tools slice', () => {
       expect(settings.customBrushSizePercent).toBe(100);
       expect(settings.size).toBe(8);
       expect(settings.pressureEnabled).toBe(false);
-      expect(settings.minPressure).toBe(99);
+      expect(settings.minPressure).toBe(1);
       expect(settings.maxPressure).toBeUndefined();
     });
   });

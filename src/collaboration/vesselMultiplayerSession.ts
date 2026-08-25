@@ -21,8 +21,9 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { RenderStaticCompositeOptions } from '@/stores/layers/layersSliceTypes';
 import type { BrushSettings, Layer } from '@/types';
-import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { PRESSURE_BASE_PERCENT, resolveBrushPressureRange } from '@/utils/pressureSettings';
 
 import type { VesselCollaborationPoint } from './vesselCollaborationProtocol';
 
@@ -390,28 +391,31 @@ export const resolveVesselMultiplayerPointsPerFrame = ({
   return Math.max(1, Math.min(8, requested ?? defaultPacing));
 };
 
-const brushSettingsPatch = (settings: BrushSettings): CCBrushSettingsPatch => ({
-  brushSize: Math.max(1, Math.round(settings.size ?? 1)),
-  cycleSpeed: settings.colorCycleSpeed ?? 1,
-  gradientBands: settings.gradientBands ?? 12,
-  bandSpacing: settings.colorCycleBandSpacingPx ?? settings.spacing ?? 12,
-  pressureEnabled: settings.pressureEnabled === true,
-  minPressure: settings.minPressure ?? 100,
-  maxPressure: settings.maxPressure ?? 100,
-  ditherEnabled: settings.ditherEnabled === true,
-  ditherPixelSize: Math.max(1, Math.round(settings.fillResolution ?? 1)),
-  pxlEdgeEnabled: settings.pxlEdge === true,
-  stampShape: settings.colorCycleStampShape ?? 'square',
-  stampDitherEnabled: settings.colorCycleStampDitherEnabled === true,
-  stampDitherAlgorithm: settings.ditherAlgorithm ?? 'sierra-lite',
-  stampDitherPatternStyle: settings.patternStyle ?? 'dots',
-  stampDitherPressureLinked: settings.colorCycleStampDitherPressureLinked === true,
-  stampDitherBgFill: settings.colorCycleStampDitherBgFill !== false,
-  stampDitherPixelSize: Math.max(
-    1,
-    Math.round(settings.colorCycleStampDitherPixelSize ?? settings.fillResolution ?? 1),
-  ),
-});
+const brushSettingsPatch = (settings: BrushSettings): CCBrushSettingsPatch => {
+  const pressureRange = resolveBrushPressureRange(settings);
+  return {
+    brushSize: Math.max(1, Math.round(settings.size ?? 1)),
+    cycleSpeed: settings.colorCycleSpeed ?? 1,
+    gradientBands: settings.gradientBands ?? 12,
+    bandSpacing: settings.colorCycleBandSpacingPx ?? settings.spacing ?? 12,
+    pressureEnabled: pressureRange.enabled,
+    minPressure: pressureRange.enabled ? pressureRange.minPercent : PRESSURE_BASE_PERCENT,
+    maxPressure: pressureRange.enabled ? pressureRange.maxPercent : PRESSURE_BASE_PERCENT,
+    ditherEnabled: settings.ditherEnabled === true,
+    ditherPixelSize: Math.max(1, Math.round(settings.fillResolution ?? 1)),
+    pxlEdgeEnabled: settings.pxlEdge === true,
+    stampShape: settings.colorCycleStampShape ?? 'square',
+    stampDitherEnabled: settings.colorCycleStampDitherEnabled === true,
+    stampDitherAlgorithm: settings.ditherAlgorithm ?? 'sierra-lite',
+    stampDitherPatternStyle: settings.patternStyle ?? 'dots',
+    stampDitherPressureLinked: settings.colorCycleStampDitherPressureLinked === true,
+    stampDitherBgFill: settings.colorCycleStampDitherBgFill !== false,
+    stampDitherPixelSize: Math.max(
+      1,
+      Math.round(settings.colorCycleStampDitherPixelSize ?? settings.fillResolution ?? 1),
+    ),
+  };
+};
 
 const pointBounds = (
   points: VesselCollaborationPoint[],

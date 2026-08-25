@@ -63,6 +63,36 @@ describe('ColorCycleCoreBrushSettingsState', () => {
     expect(state.getMaxPressure()).toBe(25);
   });
 
+  it('resolves a 1% minimum on a 50px brush to the 1px floor', () => {
+    const state = new ColorCycleCoreBrushSettingsState({ brushSize: 50 });
+    state.setPressureEnabled(true);
+    state.setMinPressure(1);
+    state.setMaxPressure(98);
+
+    expect(state.resolvePressureBrushSize(0)).toBe(1);
+    expect(state.resolvePressureBrushSize(1)).toBe(49);
+  });
+
+  it.each([
+    'square',
+    'checkered',
+    'round',
+    'diamond',
+    'diamond5',
+    'diamond7',
+    'diamond9',
+    'triangle',
+  ] as const)('applies pressure-adjusted size to the %s stamp', (stampShape) => {
+    const state = new ColorCycleCoreBrushSettingsState({ brushSize: 60 });
+    state.setStampShape(stampShape);
+    state.setPressureEnabled(true);
+    state.setMinPressure(50);
+    state.setMaxPressure(200);
+
+    expect(state.resolvePressureBrushSize(0.2)).toBeCloseTo(48);
+    expect(state.resolvePressureBrushSize(1)).toBeCloseTo(120);
+  });
+
   it('normalizes stamp shape and gradient phase preservation', () => {
     const state = new ColorCycleCoreBrushSettingsState();
 

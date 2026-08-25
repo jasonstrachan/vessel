@@ -92,8 +92,8 @@ describe('BrushEngineFacade grid snap stamping', () => {
       brushSettings: {
         ...createBaseSettings(),
         pressureEnabled: true,
-        minPressure: 0,
-        maxPressure: 100,
+        minPressure: 100,
+        maxPressure: 200,
       },
     });
     const canvas = document.createElement('canvas');

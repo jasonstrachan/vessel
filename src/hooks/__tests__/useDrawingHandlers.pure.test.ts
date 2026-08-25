@@ -24,9 +24,8 @@ describe('useDrawingHandlers pure utilities', () => {
       { width: 40, height: 20, isResampler: false } as any
     );
 
-    // radius (max of brush size & maxPressure) / 2 + antialias/soft padding
-    expect(padding).toBeGreaterThan(80);
-    expect(padding).toBeCloseTo(82, 0);
+    // 40px custom stamp at 80% size => 32px; 160% pressure => 51.2px.
+    expect(padding).toBeCloseTo(27.6, 1);
   });
 
   it('dedupes polyline and measures length', () => {

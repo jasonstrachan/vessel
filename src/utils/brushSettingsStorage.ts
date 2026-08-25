@@ -1,6 +1,6 @@
 import { debugWarn } from '@/utils/debug';
 import type { BrushSettings } from '@/types';
-import { clampPressureDeltaPercent } from '@/utils/pressureSettings';
+import { clampPressurePercent } from '@/utils/pressureSettings';
 
 const STORAGE_KEY = 'vessel:brush-settings';
 const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = new Set(['dither-grad']);
@@ -156,16 +156,23 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
     if (payload.pressureSettings) {
       const { enabled, min, max } = payload.pressureSettings;
       const pressure: PressureSettingsPayload = {};
+      const sanitizedMin = Number.isFinite(min)
+        ? clampPressurePercent(min as number)
+        : undefined;
+      const sanitizedMax = Number.isFinite(max)
+        ? clampPressurePercent(max as number)
+        : undefined;
       if (typeof enabled === 'boolean') {
         pressure.enabled = enabled;
       }
-      if (Number.isFinite(min)) {
-        pressure.min = clampPressureDeltaPercent(min as number);
+      if (sanitizedMin !== undefined) {
+        pressure.min = sanitizedMin;
       }
-      if (Number.isFinite(max)) {
-        pressure.max = clampPressureDeltaPercent(max as number);
+      if (sanitizedMax !== undefined) {
+        pressure.max = sanitizedMin === undefined
+          ? sanitizedMax
+          : Math.max(sanitizedMin, sanitizedMax);
       }
-      // min/max are independent deltas from the base pressure
       if (Object.keys(pressure).length > 0) {
         sanitized.pressureSettings = pressure;
       }

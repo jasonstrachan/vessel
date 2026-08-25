@@ -69,8 +69,8 @@ describe('Brush Utilities', () => {
         ...mockBrushSettings,
         gridSnapSize: 10,
         pressureEnabled: true,
-        minPressure: 0,
-        maxPressure: 100,
+        minPressure: 100,
+        maxPressure: 200,
       };
 
       expect(calculatePressureAwareGridSpacing(settings, 0)).toBe(10);
@@ -286,8 +286,8 @@ describe('Brush Utilities', () => {
         ...mockBrushSettings,
         gridSnapSize: 8,
         pressureEnabled: true,
-        minPressure: 0,
-        maxPressure: 100,
+        minPressure: 100,
+        maxPressure: 200,
       });
       const utils = createBrushUtilities(getSettings);
 

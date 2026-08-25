@@ -41,4 +41,17 @@ describe('computeStrokeCapturePadding', () => {
     const stamp = createStamp(128, 128, { isResampler: true });
     expect(computeStrokeCapturePadding(settings, stamp)).toBeCloseTo(16);
   });
+
+  it('uses the shared direct-percent maximum for pressure padding', () => {
+    const settings = makeSettings({
+      size: 50,
+      brushShape: BrushShape.SQUARE,
+      antialiasing: false,
+      pressureEnabled: true,
+      minPressure: 1,
+      maxPressure: 300,
+    });
+
+    expect(computeStrokeCapturePadding(settings)).toBe(75);
+  });
 });

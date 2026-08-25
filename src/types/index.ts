@@ -1376,9 +1376,9 @@ export interface BrushSettings {
   // Pressure sensitivity settings
   pressureEnabled: boolean;
   /**
-   * Pressure range expressed as deltas from the base (100%).
-   * minPressure: percent under base (0-1000) => absolute min = 100 - minPressure
-   * maxPressure: percent over base (0-1000) => absolute max = 100 + maxPressure
+   * Pressure range expressed as percentages of the base size.
+   * minPressure/maxPressure are direct percentages of the authored brush size.
+   * 100 preserves the authored size; values below/above 100 shrink/grow it.
    */
   minPressure: number;
   maxPressure?: number;

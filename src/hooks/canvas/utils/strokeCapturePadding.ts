@@ -1,5 +1,6 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
+import { resolveBrushPressureRange } from '@/utils/pressureSettings';
 
 export const computeStrokeCapturePadding = (
   settings?: BrushSettings | null,
@@ -26,12 +27,8 @@ export const computeStrokeCapturePadding = (
   }
 
   if (settings.pressureEnabled) {
-    const maxPressure = typeof settings.maxPressure === 'number' && Number.isFinite(settings.maxPressure)
-      ? settings.maxPressure
-      : undefined;
-    if (typeof maxPressure === 'number') {
-      effectiveSize = Math.max(effectiveSize, maxPressure);
-    }
+    const { maxPercent } = resolveBrushPressureRange(settings);
+    effectiveSize = Math.max(effectiveSize, effectiveSize * (maxPercent / 100));
   }
 
   const radius = Math.max(1, effectiveSize) / 2;

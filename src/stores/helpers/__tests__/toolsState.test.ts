@@ -1,4 +1,5 @@
 import {
+  applyPressureUpdate,
   normalizePersistedBrushSettings,
   pixelsFromCustomPercent,
   percentFromPixelSize,
@@ -38,6 +39,26 @@ const createState = (partial: Partial<AppState> = {}): AppState => ({
   project: null,
   ...partial,
 } as unknown as AppState);
+
+describe('pressure state updates', () => {
+  it('stores direct percentages and keeps the maximum at least the minimum', () => {
+    expect(
+      applyPressureUpdate(
+        { enabled: false, min: 1, max: 100 },
+        { enabled: true, min: 98, max: 1 },
+      ),
+    ).toEqual({ enabled: true, min: 98, max: 98 });
+  });
+
+  it('clamps the authored range to the shared 1%-1000% limits', () => {
+    expect(
+      applyPressureUpdate(
+        { enabled: true, min: 1, max: 100 },
+        { min: 0, max: 1200 },
+      ),
+    ).toEqual({ enabled: true, min: 1, max: 1000 });
+  });
+});
 
 describe('custom brush size conversions', () => {
   it('converts percent to pixels using stored metadata', () => {

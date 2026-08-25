@@ -48,7 +48,7 @@ import {
   createEraserTipSettingsPatch,
   sanitizeEraserTipSettings,
 } from '@/stores/helpers/eraserSettings';
-import { getDefaultMaxPressurePercent, PRESSURE_BASE_PERCENT } from '@/utils/pressureSettings';
+import { getDefaultMaxPressurePercent, PRESSURE_MIN_PERCENT } from '@/utils/pressureSettings';
 import { applyPaletteSnapshot } from '@/stores/helpers/paletteState';
 import { brushCache } from '@/utils/brushCache';
 import { scaledBrushCache } from '@/utils/scaledBrushCache';
@@ -202,10 +202,10 @@ const sanitizeBrushSpecificDitherPatternSettings = (
 
 export const defaultPressureSettings: PressureSettings = {
   enabled: Boolean(defaultBrushSettingsForStore.pressureEnabled),
-  min: clampPressurePercent(defaultBrushSettingsForStore.minPressure ?? 0),
+  min: clampPressurePercent(defaultBrushSettingsForStore.minPressure ?? PRESSURE_MIN_PERCENT),
   max: clampPressurePercent(
     defaultBrushSettingsForStore.maxPressure ??
-      Math.max(0, getDefaultMaxPressurePercent(defaultBrushSettingsForStore.brushShape) - PRESSURE_BASE_PERCENT)
+      getDefaultMaxPressurePercent(defaultBrushSettingsForStore.brushShape)
   ),
 };
 
@@ -471,16 +471,18 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
   setPressureSettings: (updates) => {
     set((state) => {
-      let nextPressure = applyPressureUpdate(state.pressureSettings, updates);
-      if (
+      const shouldRestoreDefaultRange =
         updates.enabled === true &&
         updates.min === undefined &&
         updates.max === undefined &&
-        nextPressure.min === 0 &&
-        nextPressure.max === 0
-      ) {
-        const fallbackMaxDelta = PRESSURE_BASE_PERCENT;
-        nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+        state.pressureSettings.min <= 0 &&
+        state.pressureSettings.max <= 0;
+      let nextPressure = applyPressureUpdate(state.pressureSettings, updates);
+      if (shouldRestoreDefaultRange) {
+        nextPressure = applyPressureUpdate(nextPressure, {
+          min: PRESSURE_MIN_PERCENT,
+          max: getDefaultMaxPressurePercent(state.tools.brushSettings.brushShape),
+        });
       }
       return {
         pressureSettings: nextPressure,
@@ -628,6 +630,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
 
     const currentSettings = state.tools.brushSettings;
     const nextBrushShapeForPressure = settings.brushShape ?? currentSettings.brushShape;
+    const hasExplicitPressureRange =
+      Object.prototype.hasOwnProperty.call(incomingSettings, 'minPressure') ||
+      Object.prototype.hasOwnProperty.call(incomingSettings, 'maxPressure');
     const pressureUpdates: Partial<PressureSettings> = {};
     let hasPressureUpdate = false;
 
@@ -661,19 +666,16 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     let nextPressure = hasPressureUpdate
       ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
       : state.pressureSettings;
-    if (
+    const shouldRestoreDefaultRange =
       pressureUpdates.enabled === true &&
-      !Object.prototype.hasOwnProperty.call(settings, 'minPressure') &&
-      !Object.prototype.hasOwnProperty.call(settings, 'maxPressure') &&
-      nextPressure.min === 0 &&
-      nextPressure.max === 0
-    ) {
-      const defaultMaxDelta = Math.max(
-        0,
-        getDefaultMaxPressurePercent(nextBrushShapeForPressure) - PRESSURE_BASE_PERCENT
-      );
-      const fallbackMaxDelta = defaultMaxDelta > 0 ? defaultMaxDelta : PRESSURE_BASE_PERCENT;
-      nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+      !hasExplicitPressureRange &&
+      state.pressureSettings.min <= 0 &&
+      state.pressureSettings.max <= 0;
+    if (shouldRestoreDefaultRange) {
+      nextPressure = applyPressureUpdate(nextPressure, {
+        min: PRESSURE_MIN_PERCENT,
+        max: getDefaultMaxPressurePercent(nextBrushShapeForPressure),
+      });
     }
 
     if (settings.colorCycleFlowForward !== undefined) {
@@ -1401,6 +1403,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const currentEraserSettings = state.tools.eraserSettings;
     const nextEraserShapeForPressure =
       currentEraserSettings.brushShape ?? state.tools.brushSettings.brushShape;
+    const hasExplicitPressureRange =
+      Object.prototype.hasOwnProperty.call(incomingSettings, 'minPressure') ||
+      Object.prototype.hasOwnProperty.call(incomingSettings, 'maxPressure');
 
     const pressureUpdates: Partial<PressureSettings> = {};
     let hasPressureUpdate = false;
@@ -1435,19 +1440,16 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     let nextPressure = hasPressureUpdate
       ? applyPressureUpdate(state.pressureSettings, pressureUpdates)
       : state.pressureSettings;
-    if (
+    const shouldRestoreDefaultRange =
       pressureUpdates.enabled === true &&
-      !Object.prototype.hasOwnProperty.call(settings, 'minPressure') &&
-      !Object.prototype.hasOwnProperty.call(settings, 'maxPressure') &&
-      nextPressure.min === 0 &&
-      nextPressure.max === 0
-    ) {
-      const defaultMaxDelta = Math.max(
-        0,
-        getDefaultMaxPressurePercent(nextEraserShapeForPressure) - PRESSURE_BASE_PERCENT
-      );
-      const fallbackMaxDelta = defaultMaxDelta > 0 ? defaultMaxDelta : PRESSURE_BASE_PERCENT;
-      nextPressure = applyPressureUpdate(nextPressure, { max: fallbackMaxDelta });
+      !hasExplicitPressureRange &&
+      state.pressureSettings.min <= 0 &&
+      state.pressureSettings.max <= 0;
+    if (shouldRestoreDefaultRange) {
+      nextPressure = applyPressureUpdate(nextPressure, {
+        min: PRESSURE_MIN_PERCENT,
+        max: getDefaultMaxPressurePercent(nextEraserShapeForPressure),
+      });
     }
 
     const settingsKeys = Object.keys(settings);
@@ -2105,7 +2107,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       newBrushSettings.brushShape = BrushShape.CUSTOM;
       newBrushSettings.selectedCustomBrush = customBrushId;
       newBrushSettings.pressureEnabled = false;
-      newBrushSettings.minPressure = 99;
+      newBrushSettings.minPressure = 1;
       newBrushSettings.maxPressure = undefined;
       newBrushSettings.useSwatchColor = false;
       newBrushSettings.hueShift = 0;

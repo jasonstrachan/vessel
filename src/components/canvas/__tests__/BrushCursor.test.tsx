@@ -448,7 +448,7 @@ describe('BrushCursor', () => {
             rotationEnabled: true,
             pressureEnabled: true,
             minPressure: 50,
-            maxPressure: 50,
+            maxPressure: 150,
           },
           eraserSettings: {},
         },

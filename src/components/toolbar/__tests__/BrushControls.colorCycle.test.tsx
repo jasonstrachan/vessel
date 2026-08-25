@@ -501,6 +501,46 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(useAppStore.getState().tools.brushSettings.cornerRadiusPx).toBe(18);
   });
 
+  it('commits pressure values on blur and keeps them after remounting', async () => {
+    const user = userEvent.setup();
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          pressureEnabled: true,
+          minPressure: 50,
+          maxPressure: 100,
+        },
+      },
+    }));
+
+    const { unmount } = render(<BrushControls />);
+    const minInput = screen.getByLabelText('Pressure minimum percent') as HTMLInputElement;
+    const maxInput = screen.getByLabelText('Pressure maximum percent') as HTMLInputElement;
+
+    await user.clear(minInput);
+    await user.type(minInput, '1');
+    await user.tab();
+    await user.clear(maxInput);
+    await user.type(maxInput, '98');
+    await user.tab();
+
+    await waitFor(() => {
+      expect(useAppStore.getState().tools.brushSettings.minPressure).toBe(1);
+      expect(useAppStore.getState().tools.brushSettings.maxPressure).toBe(98);
+    });
+    expect(minInput).toHaveValue(1);
+    expect(maxInput).toHaveValue(98);
+
+    unmount();
+    render(<BrushControls />);
+
+    expect(screen.getByLabelText('Pressure minimum percent')).toHaveValue(1);
+    expect(screen.getByLabelText('Pressure maximum percent')).toHaveValue(98);
+  });
+
   it('updates brush speed without mutating the active layer CC base speed', async () => {
     const updateLayer = useAppStore.getState().updateLayer as jest.Mock;
     render(<BrushControls />);

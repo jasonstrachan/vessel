@@ -207,7 +207,7 @@ describe('CustomBrushPanel CC capture hint', () => {
     const latestCallArg = setBrushSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(latestCallArg.customBrushColorCycle).toBe(true);
     expect(latestCallArg.pressureEnabled).toBe(false);
-    expect(latestCallArg.minPressure).toBe(99);
+    expect(latestCallArg.minPressure).toBe(1);
     expect(latestCallArg.maxPressure).toBeUndefined();
     const setTemporaryCustomBrush =
       (useAppStore as unknown as { getState: () => MockState }).getState().setTemporaryCustomBrush as jest.Mock;
@@ -248,7 +248,7 @@ describe('CustomBrushPanel CC capture hint', () => {
     const latestCallArg = setBrushSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(latestCallArg.customBrushColorCycle).toBe(false);
     expect(latestCallArg.pressureEnabled).toBe(false);
-    expect(latestCallArg.minPressure).toBe(99);
+    expect(latestCallArg.minPressure).toBe(1);
     expect(latestCallArg.maxPressure).toBeUndefined();
     const setTemporaryCustomBrush =
       (useAppStore as unknown as { getState: () => MockState }).getState().setTemporaryCustomBrush as jest.Mock;
@@ -312,7 +312,7 @@ describe('CustomBrushPanel CC capture hint', () => {
     const latestCallArg = setBrushSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(latestCallArg.customBrushColorCycle).toBe(true);
     expect(latestCallArg.pressureEnabled).toBe(false);
-    expect(latestCallArg.minPressure).toBe(99);
+    expect(latestCallArg.minPressure).toBe(1);
     expect(latestCallArg.maxPressure).toBeUndefined();
     const setCurrentTool =
       (useAppStore as unknown as { getState: () => MockState }).getState().setCurrentTool as jest.Mock;
