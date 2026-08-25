@@ -178,6 +178,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
           { position: 1, color: '#dc0000' },
         ],
         pixelCount: 16,
+        detailScore: 0.5,
       }],
     });
     manager = {
@@ -268,6 +269,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
             { position: 1, color: '#aa0000' },
           ],
           pixelCount: 8,
+          detailScore: 0.9,
         },
         {
           points: [{ x: 2, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 2, y: 4 }],
@@ -278,6 +280,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
             { position: 1, color: '#000088' },
           ],
           pixelCount: 8,
+          detailScore: 0.1,
         },
       ],
     });
@@ -409,6 +412,72 @@ describe('autoConvertActiveImageToColorCycle', () => {
     }));
   });
 
+  it('uses resolution 1 for the most detailed region through 4 for the least detailed', async () => {
+    const createRegion = (detailScore: number, pixelCount: number, pointCount: number) => ({
+      points: Array.from({ length: pointCount }, (_, index) => ({ x: index, y: index % 2 })),
+      direction: { x: 1, y: 0 },
+      linearGradientSpan: 4,
+      sampledStops: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      pixelCount,
+      detailScore,
+    });
+    mockedRunRegions.mockResolvedValueOnce({
+      analysisWidth: 8,
+      analysisHeight: 8,
+      regions: [
+        createRegion(0.05, 8, 8),
+        createRegion(0.95, 64, 4),
+        createRegion(0.25, 24, 5),
+        createRegion(0.65, 40, 6),
+      ],
+    });
+
+    await autoConvertActiveImageToColorCycle({ targetShapes: 4, detail: 100 });
+
+    expect(mockedFillLinear).toHaveBeenCalledTimes(4);
+    expect(mockedFillLinear.mock.calls.map(([call]) => call.options?.ditherPixelSize)).toEqual([
+      4,
+      1,
+      3,
+      2,
+    ]);
+  });
+
+  it('does not invent resolution differences when regions have equal measured detail', async () => {
+    const regions = Array.from({ length: 4 }, (_, index) => ({
+      points: [
+        { x: index, y: 0 },
+        { x: index + 1, y: 0 },
+        { x: index + 1, y: 1 },
+      ],
+      direction: { x: 1, y: 0 },
+      linearGradientSpan: 1,
+      sampledStops: [
+        { position: 0, color: '#777777' },
+        { position: 1, color: '#777777' },
+      ],
+      pixelCount: 16,
+      detailScore: 0,
+    }));
+    mockedRunRegions.mockResolvedValueOnce({
+      analysisWidth: 8,
+      analysisHeight: 8,
+      regions,
+    });
+
+    await autoConvertActiveImageToColorCycle({ targetShapes: 4, detail: 100 });
+
+    expect(mockedFillLinear.mock.calls.map(([call]) => call.options?.ditherPixelSize)).toEqual([
+      4,
+      4,
+      4,
+      4,
+    ]);
+  });
+
   it('removes the temporary CC layer and preserves history when painting fails', async () => {
     mockedFillLinear.mockRejectedValueOnce(new Error('paint failed'));
 
@@ -443,6 +512,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
           { position: 1, color: '#dc0000' },
         ],
         pixelCount: 16,
+        detailScore: 0.5,
       }],
     });
 
@@ -514,6 +584,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
           { position: 1, color: '#dc0000' },
         ],
         pixelCount: 16,
+        detailScore: 0.5,
       }],
     });
 

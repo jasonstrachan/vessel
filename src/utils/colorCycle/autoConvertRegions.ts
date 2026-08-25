@@ -11,6 +11,7 @@ export type AutoConvertRegion = {
   linearGradientSpan: number;
   sampledStops: AutoConvertGradientStop[];
   pixelCount: number;
+  detailScore: number;
 };
 
 export type AutoConvertRegionsResult = {
@@ -127,7 +128,8 @@ const buildAnalysisPixels = ({
   height: number;
   detail: number;
 }): { pixels: AnalysisPixel[]; width: number; height: number } => {
-  const maxAnalysisDimension = Math.round(48 + clamp(detail, 0, 100) * 1.12);
+  const normalizedDetail = clamp(detail, 0, 100) / 100;
+  const maxAnalysisDimension = Math.round(48 + 336 * normalizedDetail ** 1.5);
   const scale = Math.min(1, maxAnalysisDimension / Math.max(width, height));
   const analysisWidth = Math.max(1, Math.round(width * scale));
   const analysisHeight = Math.max(1, Math.round(height * scale));
@@ -167,11 +169,112 @@ const buildAnalysisPixels = ({
   return { pixels: analysisPixels, width: analysisWidth, height: analysisHeight };
 };
 
+const colorDistance = (left: AnalysisPixel, right: AnalysisPixel): number => {
+  const red = left.r - right.r;
+  const green = left.g - right.g;
+  const blue = left.b - right.b;
+  return Math.sqrt(red * red * 0.3 + green * green * 0.59 + blue * blue * 0.11) / 255;
+};
+
+const buildDetailMap = (
+  pixels: AnalysisPixel[],
+  width: number,
+  height: number,
+): Float32Array => {
+  const rawDetail = new Float32Array(pixels.length);
+  const positiveValues: number[] = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      const pixel = pixels[index];
+      if (pixel.a <= 8) {
+        continue;
+      }
+      let totalDifference = 0;
+      let neighbourCount = 0;
+      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+          if (offsetX === 0 && offsetY === 0) {
+            continue;
+          }
+          const neighbourX = x + offsetX;
+          const neighbourY = y + offsetY;
+          if (
+            neighbourX < 0
+            || neighbourY < 0
+            || neighbourX >= width
+            || neighbourY >= height
+          ) {
+            continue;
+          }
+          const neighbour = pixels[neighbourY * width + neighbourX];
+          const alphaDifference = Math.abs(pixel.a - neighbour.a) / 255;
+          const visibleWeight = Math.min(pixel.a, neighbour.a) / 255;
+          totalDifference += colorDistance(pixel, neighbour) * visibleWeight
+            + alphaDifference * 0.35;
+          neighbourCount += 1;
+        }
+      }
+      const value = neighbourCount > 0 ? totalDifference / neighbourCount : 0;
+      rawDetail[index] = value;
+      if (value > 0) {
+        positiveValues.push(value);
+      }
+    }
+  }
+  if (positiveValues.length === 0) {
+    return rawDetail;
+  }
+  positiveValues.sort((left, right) => left - right);
+  const low = positiveValues[Math.floor((positiveValues.length - 1) * 0.1)];
+  const high = positiveValues[Math.floor((positiveValues.length - 1) * 0.95)];
+  const range = high - low;
+  const normalized = new Float32Array(rawDetail.length);
+  for (let index = 0; index < rawDetail.length; index += 1) {
+    if (range > Number.EPSILON) {
+      normalized[index] = clamp((rawDetail[index] - low) / range, 0, 1);
+    } else {
+      normalized[index] = rawDetail[index] > 0 ? 1 : 0;
+    }
+  }
+  const expanded = new Float32Array(rawDetail.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      if (pixels[index].a <= 8) {
+        continue;
+      }
+      let total = 0;
+      let count = 0;
+      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+          const neighbourX = x + offsetX;
+          const neighbourY = y + offsetY;
+          if (
+            neighbourX < 0
+            || neighbourY < 0
+            || neighbourX >= width
+            || neighbourY >= height
+          ) {
+            continue;
+          }
+          total += normalized[neighbourY * width + neighbourX];
+          count += 1;
+        }
+      }
+      expanded[index] = count > 0 ? total / count : normalized[index];
+    }
+  }
+  return expanded;
+};
+
 const selectInitialClusters = (
   pixels: AnalysisPixel[],
   width: number,
   height: number,
   requestedCount: number,
+  detailMap: Float32Array,
+  detail: number,
 ): Cluster[] => {
   const visibleIndices = pixels
     .map((pixel, index) => (pixel.a > 8 ? index : -1))
@@ -203,6 +306,7 @@ const selectInitialClusters = (
   const seedIndices = [firstIndex];
   const minimumDistances = new Float64Array(width * height);
   minimumDistances.fill(Infinity);
+  const detailBias = 6 * (clamp(detail, 0, 100) / 100) ** 1.5;
   while (seedIndices.length < count) {
     const latest = seedIndices[seedIndices.length - 1];
     const latestX = latest % width;
@@ -214,8 +318,10 @@ const selectInitialClusters = (
       const y = Math.floor(index / width);
       const distance = (x - latestX) ** 2 + (y - latestY) ** 2;
       minimumDistances[index] = Math.min(minimumDistances[index], distance);
-      if (minimumDistances[index] > nextDistance) {
-        nextDistance = minimumDistances[index];
+      const weightedDistance = minimumDistances[index]
+        * (1 + detailBias * detailMap[index] ** 1.5);
+      if (weightedDistance > nextDistance) {
+        nextDistance = weightedDistance;
         nextIndex = index;
       }
     }
@@ -419,10 +525,29 @@ const traceComponentBoundary = (
 
 const toHex = (value: number): string => clamp(Math.round(value), 0, 255).toString(16).padStart(2, '0');
 
+const resolveComponentDetailScore = (
+  component: number[],
+  detailMap: Float32Array,
+): number => {
+  if (component.length === 0) {
+    return 0;
+  }
+  const values = component
+    .map((index) => detailMap[index])
+    .sort((left, right) => left - right);
+  const highDetailStart = Math.floor(values.length * 0.75);
+  let total = 0;
+  for (let index = highDetailStart; index < values.length; index += 1) {
+    total += values[index];
+  }
+  return clamp(total / Math.max(1, values.length - highDetailStart), 0, 1);
+};
+
 const buildRegion = ({
   component,
   boundary,
   analysisPixels,
+  detailMap,
   analysisWidth,
   analysisHeight,
   sourceWidth,
@@ -433,6 +558,7 @@ const buildRegion = ({
   component: number[];
   boundary: GridPoint[];
   analysisPixels: AnalysisPixel[];
+  detailMap: Float32Array;
   analysisWidth: number;
   analysisHeight: number;
   sourceWidth: number;
@@ -560,6 +686,7 @@ const buildRegion = ({
     linearGradientSpan: sourceDirectionLength * 2,
     sampledStops,
     pixelCount: component.length,
+    detailScore: resolveComponentDetailScore(component, detailMap),
   };
 };
 
@@ -582,11 +709,14 @@ export const extractAutoConvertRegions = ({
     throw new Error('Invalid source image for Color Cycle auto conversion');
   }
   const analysis = buildAnalysisPixels({ pixels, width, height, detail });
+  const detailMap = buildDetailMap(analysis.pixels, analysis.width, analysis.height);
   const clusters = selectInitialClusters(
     analysis.pixels,
     analysis.width,
     analysis.height,
     clamp(Math.round(targetShapes), 2, 100),
+    detailMap,
+    detail,
   );
   if (clusters.length === 0) {
     return {
@@ -609,6 +739,7 @@ export const extractAutoConvertRegions = ({
       component,
       boundary,
       analysisPixels: analysis.pixels,
+      detailMap,
       analysisWidth: analysis.width,
       analysisHeight: analysis.height,
       sourceWidth: width,

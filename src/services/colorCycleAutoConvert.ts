@@ -24,6 +24,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { BrushSettings, Layer } from '@/types';
 import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
+import type { AutoConvertRegion } from '@/utils/colorCycle/autoConvertRegions';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { composeLayerOwnedProjectObjectsIntoLayerSource } from '@/utils/layerOwnedProjectObjects';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -182,6 +183,26 @@ const hasSameLayerStack = (layers: Layer[], expectedLayers: Layer[]): boolean =>
   layers.length === expectedLayers.length
   && layers.every((layer, index) => layer.id === expectedLayers[index]?.id);
 
+const resolveRegionDitherPixelSizes = (regions: AutoConvertRegion[]): number[] => {
+  if (regions.length === 0) {
+    return [];
+  }
+  const detailScores = regions.map((region) => (
+    Number.isFinite(region.detailScore)
+      ? Math.max(0, Math.min(1, region.detailScore))
+      : 0
+  ));
+  const minimum = Math.min(...detailScores);
+  const maximum = Math.max(...detailScores);
+  const range = maximum - minimum;
+  return detailScores.map((score) => {
+    const normalizedScore = range > Number.EPSILON
+      ? (score - minimum) / range
+      : score;
+    return 4 - Math.round(normalizedScore * 3);
+  });
+};
+
 export const autoConvertActiveImageToColorCycle = async ({
   targetShapes,
   detail,
@@ -301,6 +322,7 @@ export const autoConvertActiveImageToColorCycle = async ({
       isRuntimePalette: false,
     };
     const ditherMode = resolveCcDitherBandMode(settings.gradientBands ?? 16);
+    const regionDitherPixelSizes = resolveRegionDitherPixelSizes(segmentation.regions);
     const sharedFillArgs = {
       initializeColorCycleBrush: () => fillBrush,
       activeLayerId: targetLayerId,
@@ -367,7 +389,7 @@ export const autoConvertActiveImageToColorCycle = async ({
         flowMode: currentTargetLayer?.colorCycleData?.flowMode,
       });
       const options = {
-        ditherPixelSize: settings.fillResolution,
+        ditherPixelSize: regionDitherPixelSizes[index],
         ditherSampledStops: resolvedSampledSourceStops,
         ditherBaseOffsetOverride: 0,
         paintSlotOverride: regionGradient.slot,
