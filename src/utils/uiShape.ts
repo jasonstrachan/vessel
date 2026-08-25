@@ -11,7 +11,7 @@ import type {
 } from '@/types';
 import {
   drawUiShapeIcon,
-  normalizeUiShapeIconId,
+  normalizeUiShapeIconIdForTheme,
 } from '@/utils/uiShapeIcons';
 import { drawSystem7Component } from '@/utils/uiShapeSystem7';
 
@@ -277,7 +277,7 @@ const normalizeComponent = (
       ? { label: component.label.slice(0, 64) }
       : {}),
     ...(component.kind === 'icon'
-      ? { iconId: normalizeUiShapeIconId(component.iconId) }
+      ? { iconId: normalizeUiShapeIconIdForTheme(component.iconId, theme) }
       : {}),
     ...(component.palette && typeof component.palette === 'object'
       ? { palette: normalizePalette(component.palette, theme) }

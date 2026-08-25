@@ -1,3 +1,4 @@
+import type { UiShapeTheme } from '@/types';
 import { UI_SHAPE_MACINTOSH_ICONS } from '@/utils/uiShapeMacintoshIcons';
 import { UI_SHAPE_WIN98_ICONS } from '@/utils/uiShapeWin98Icons';
 
@@ -3588,7 +3589,25 @@ export const UI_SHAPE_ICONS: readonly UiShapeIconDefinition[] = [
 
 export const DEFAULT_UI_SHAPE_ICON_ID = 'computer16';
 
+const WINDOWS_THEME_DEFAULT_ICON_ID = 'win98-computer-0';
+
+export const getUiShapeIconsForTheme = (
+  theme: UiShapeTheme,
+): readonly UiShapeIconDefinition[] => (
+  theme === 'macintosh-system-1' || theme === 'macintosh-system-7'
+    ? UI_SHAPE_MACINTOSH_ICONS
+    : UI_SHAPE_WIN98_ICONS
+);
+
+export const getDefaultUiShapeIconIdForTheme = (theme: UiShapeTheme): string => (
+  theme === 'macintosh-system-1' || theme === 'macintosh-system-7'
+    ? 'mac1-happy-mac'
+    : WINDOWS_THEME_DEFAULT_ICON_ID
+);
+
 const ICONS_BY_ID = new Map(UI_SHAPE_ICONS.map((icon) => [icon.id, icon]));
+const MACINTOSH_ICON_IDS = new Set(UI_SHAPE_MACINTOSH_ICONS.map((icon) => icon.id));
+const WINDOWS_ICON_IDS = new Set(UI_SHAPE_WIN98_ICONS.map((icon) => icon.id));
 const PIXEL_CACHE = new Map<string, Uint8Array>();
 const ICON_MATCH_CACHE = new Map<string, string>();
 const ICON_MATCH_CACHE_LIMIT = 4_096;
@@ -3620,6 +3639,18 @@ export const normalizeUiShapeIconId = (value: unknown): string => (
     ? value
     : DEFAULT_UI_SHAPE_ICON_ID
 );
+
+export const normalizeUiShapeIconIdForTheme = (
+  value: unknown,
+  theme: UiShapeTheme,
+): string => {
+  const iconIds = theme === 'macintosh-system-1' || theme === 'macintosh-system-7'
+    ? MACINTOSH_ICON_IDS
+    : WINDOWS_ICON_IDS;
+  return typeof value === 'string' && iconIds.has(value)
+    ? value
+    : getDefaultUiShapeIconIdForTheme(theme);
+};
 
 export const getUiShapeIcon = (value: unknown): UiShapeIconDefinition => (
   ICONS_BY_ID.get(normalizeUiShapeIconId(value))!
@@ -3705,9 +3736,13 @@ const toOklab = ([red, green, blue]: [number, number, number]): OklabColor => {
 export const resolveUiShapeIconForSamples = (
   samples: readonly string[],
   fallback: unknown = DEFAULT_UI_SHAPE_ICON_ID,
+  theme?: UiShapeTheme,
 ): string => {
-  const normalizedFallback = normalizeUiShapeIconId(fallback);
-  const cacheKey = `${normalizedFallback}\u0000${samples.join('\u0000')}`;
+  const candidates = theme ? getUiShapeIconsForTheme(theme) : UI_SHAPE_ICONS;
+  const normalizedFallback = theme
+    ? normalizeUiShapeIconIdForTheme(fallback, theme)
+    : normalizeUiShapeIconId(fallback);
+  const cacheKey = `${theme ?? 'all'}\u0000${normalizedFallback}\u0000${samples.join('\u0000')}`;
   const cached = ICON_MATCH_CACHE.get(cacheKey);
   if (cached) return cached;
   const colors = samples.flatMap((sample) => {
@@ -3723,7 +3758,7 @@ export const resolveUiShapeIconForSamples = (
   }), { lightness: 0, a: 0, b: 0, chroma: 0 });
   let best = getUiShapeIcon(normalizedFallback);
   let bestScore = Number.POSITIVE_INFINITY;
-  UI_SHAPE_ICONS.forEach((icon) => {
+  candidates.forEach((icon) => {
     const lightnessDistance = Math.abs(icon.signature.lightness - target.lightness);
     const hueDistance = Math.hypot(icon.signature.a - target.a, icon.signature.b - target.b);
     const chromaDistance = Math.abs(icon.signature.chroma - target.chroma);
@@ -3748,6 +3783,7 @@ export const resolveUiShapeIconForSampleRegion = ({
   height,
   sampleColorAtPosition,
   fallback,
+  theme,
 }: {
   x: number;
   y: number;
@@ -3755,10 +3791,11 @@ export const resolveUiShapeIconForSampleRegion = ({
   height: number;
   sampleColorAtPosition: (x: number, y: number) => string;
   fallback?: unknown;
+  theme?: UiShapeTheme;
 }): string => {
   const fractions = [0.16, 0.5, 0.84];
   const samples = fractions.flatMap((vertical) => fractions.map((horizontal) => (
     sampleColorAtPosition(x + width * horizontal, y + height * vertical)
   )));
-  return resolveUiShapeIconForSamples(samples, fallback);
+  return resolveUiShapeIconForSamples(samples, fallback, theme);
 };

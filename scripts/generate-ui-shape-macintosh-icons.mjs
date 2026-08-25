@@ -1,25 +1,28 @@
-import { writeFile } from 'node:fs/promises';
+import { readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import sharp from 'sharp';
 
 const SOURCE_COMMIT = 'e976bf66ca181d6f14d7f120d3c665e2197a59d8';
-const SOURCE_GRID_SIZE = 40;
-const ICON_SIZE = 32;
-const SOURCE_INSET = (SOURCE_GRID_SIZE - ICON_SIZE) / 2;
+const SOURCE_PIXELS_PER_OUTPUT_PIXEL = 50;
+const SOURCE_INSET = 4;
+const EXCLUDED_FILENAMES = new Set([
+  'Shadowgate.png',
+]);
 
-const ICONS = [
-  ['happy-mac', 'Happy Mac', 'Happy Mac.png'],
-  ['sad-mac', 'Sad Mac', 'Sad Mac.png'],
-  ['floppy', 'Floppy', 'Floppy.png'],
-  ['trash', 'Trash', 'Trash.png'],
-  ['text-file', 'Text File', 'Text file.png'],
-  ['font-suitcase', 'Font Suitcase', 'Font suitcase.png'],
-  ['command', 'Command', 'Command.png'],
-  ['watch', 'Watch', 'Watch.png'],
-  ['macpaint', 'MacPaint', 'MacPaint.png'],
-  ['paint-brush', 'Paint Brush', 'Paint brush.png'],
-];
+const iconLabel = (filename) => {
+  const basename = filename.replace(/\.png$/i, '');
+  const capitalized = basename === 'bomb' ? 'Bomb' : basename;
+  return capitalized.replaceAll(' - ', ' — ');
+};
+
+const iconSlug = (filename) => filename
+  .replace(/\.png$/i, '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-|-$/g, '');
+
+const byteHex = (value) => value.toString(16).padStart(2, '0');
 
 const srgbToLinear = (value) => {
   const channel = value / 255;
@@ -56,50 +59,77 @@ const encodeRuns = (pixels) => {
   return Buffer.from(runs).toString('base64');
 };
 
-const readIcon = async (sourceRoot, [slug, label, filename]) => {
-  const { data, info } = await sharp(path.join(sourceRoot, 'png', filename))
-    .resize(SOURCE_GRID_SIZE, SOURCE_GRID_SIZE, { kernel: sharp.kernel.nearest })
+const readIcon = async (sourceRoot, filename) => {
+  const sourcePath = path.join(sourceRoot, 'png', filename);
+  const metadata = await sharp(sourcePath).metadata();
+  if (!metadata.width || !metadata.height) {
+    throw new Error(`Could not read source dimensions for ${filename}.`);
+  }
+  const sourceWidth = Math.round(metadata.width / SOURCE_PIXELS_PER_OUTPUT_PIXEL);
+  const sourceHeight = Math.round(metadata.height / SOURCE_PIXELS_PER_OUTPUT_PIXEL);
+  const iconWidth = sourceWidth - SOURCE_INSET * 2;
+  const iconHeight = sourceHeight - SOURCE_INSET * 2;
+  if (iconWidth < 1 || iconHeight < 1) {
+    throw new Error(`Source is too small after inset removal: ${filename}.`);
+  }
+  const { data, info } = await sharp(sourcePath)
+    .resize(sourceWidth, sourceHeight, { kernel: sharp.kernel.nearest })
     .extract({
       left: SOURCE_INSET,
       top: SOURCE_INSET,
-      width: ICON_SIZE,
-      height: ICON_SIZE,
+      width: iconWidth,
+      height: iconHeight,
     })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
+  const palette = ['#00000000'];
+  const paletteIndexes = new Map([[palette[0], 0]]);
   const pixels = [];
-  let opaqueCount = 0;
+  let opacity = 0;
   let red = 0;
   let green = 0;
   let blue = 0;
+  let hasChromaticPixel = false;
   for (let offset = 0; offset < data.length; offset += info.channels) {
-    const alpha = data[offset + 3];
-    if (alpha < 128) {
-      pixels.push(0);
-      continue;
+    const pixelRed = data[offset] ?? 0;
+    const pixelGreen = data[offset + 1] ?? 0;
+    const pixelBlue = data[offset + 2] ?? 0;
+    const alpha = data[offset + 3] ?? 255;
+    const color = alpha === 0
+      ? palette[0]
+      : `#${byteHex(pixelRed)}${byteHex(pixelGreen)}${byteHex(pixelBlue)}${byteHex(alpha)}`;
+    let paletteIndex = paletteIndexes.get(color);
+    if (paletteIndex === undefined) {
+      paletteIndex = palette.length;
+      if (paletteIndex > 255) {
+        throw new Error(`Source uses more than 256 colours: ${filename}.`);
+      }
+      palette.push(color);
+      paletteIndexes.set(color, paletteIndex);
     }
-    const pixelRed = data[offset];
-    const pixelGreen = data[offset + 1];
-    const pixelBlue = data[offset + 2];
-    const isBlack = (pixelRed + pixelGreen + pixelBlue) / 3 < 128;
-    pixels.push(isBlack ? 2 : 1);
-    opaqueCount += 1;
-    red += pixelRed;
-    green += pixelGreen;
-    blue += pixelBlue;
+    pixels.push(paletteIndex);
+    if (alpha > 0 && (pixelRed !== pixelGreen || pixelGreen !== pixelBlue)) {
+      hasChromaticPixel = true;
+    }
+    const alphaWeight = alpha / 255;
+    opacity += alphaWeight;
+    red += pixelRed * alphaWeight;
+    green += pixelGreen * alphaWeight;
+    blue += pixelBlue * alphaWeight;
   }
+  if (hasChromaticPixel) return null;
   const signature = toOklab([
-    red / opaqueCount,
-    green / opaqueCount,
-    blue / opaqueCount,
+    red / opacity,
+    green / opacity,
+    blue / opacity,
   ]);
   return {
-    id: `mac1-${slug}`,
-    label: `System 1 · ${label}`,
-    width: ICON_SIZE,
-    height: ICON_SIZE,
-    palette: ['#00000000', '#ffffffff', '#000000ff'],
+    id: `mac1-${iconSlug(filename)}`,
+    label: `Classic Mac · ${iconLabel(filename)}`,
+    width: iconWidth,
+    height: iconHeight,
+    palette,
     pixels: encodeRuns(pixels),
     encoding: 'rle',
     signature: Object.fromEntries(Object.entries(signature).map(([key, value]) => (
@@ -119,7 +149,14 @@ if (!sourceRoot || !outputPath) {
   );
 }
 
-const icons = await Promise.all(ICONS.map((icon) => readIcon(sourceRoot, icon)));
+const filenames = (await readdir(path.join(sourceRoot, 'png')))
+  .filter((filename) => (
+    filename.toLowerCase().endsWith('.png')
+    && !EXCLUDED_FILENAMES.has(filename)
+  ))
+  .sort((left, right) => left.localeCompare(right));
+const icons = (await Promise.all(filenames.map((filename) => readIcon(sourceRoot, filename))))
+  .filter((icon) => icon !== null);
 const output = `// Generated from thomasareed/Classic-Mac-icons commit ${SOURCE_COMMIT}.
 // The upstream repository does not declare a licence; see THIRD_PARTY_NOTICES.md.
 

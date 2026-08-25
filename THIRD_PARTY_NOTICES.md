@@ -31,7 +31,7 @@ has SHA-256
 Windows icon artwork is property of Microsoft Corporation; the source does not
 declare an open-content licence for those assets.
 
-UI Shape also bundles ten pixel-perfect classic Macintosh icon recreations by
+UI Shape also bundles thirty-four pixel-perfect classic Macintosh icon recreations by
 Thomas Reed from https://github.com/thomasareed/Classic-Mac-icons at commit
 `e976bf66ca181d6f14d7f120d3c665e2197a59d8`. The upstream repository does not
 declare a licence. The underlying classic Macintosh icon designs are property
