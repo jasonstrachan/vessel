@@ -282,6 +282,9 @@ const normalizeComponent = (
     ...(component.palette && typeof component.palette === 'object'
       ? { palette: normalizePalette(component.palette, theme) }
       : {}),
+    ...(component.paletteSource && typeof component.paletteSource === 'object'
+      ? { paletteSource: normalizePalette(component.paletteSource, theme) }
+      : {}),
     canonicalState: normalizeState(component.canonicalState),
     ...(animation ? { animation } : {}),
   };
@@ -361,7 +364,13 @@ export const normalizeUiShapes = (
         || shape.colorSource === 'derived'
           ? shape.colorSource
           : 'default',
+      ...(shape.colorCount !== undefined
+        ? { colorCount: clamp(Math.round(finiteNumber(shape.colorCount, 8)), 2, 8) }
+        : {}),
       palette: normalizePalette(shape.palette, theme),
+      ...(shape.paletteSource && typeof shape.paletteSource === 'object'
+        ? { paletteSource: normalizePalette(shape.paletteSource, theme) }
+        : {}),
       components,
       createdAt: finiteNumber(shape.createdAt, now),
       updatedAt: finiteNumber(shape.updatedAt, now),
@@ -372,11 +381,15 @@ export const normalizeUiShapes = (
 export const cloneUiShapes = (shapes: readonly UiShape[]): UiShape[] => shapes.map((shape) => ({
   ...shape,
   palette: { ...shape.palette },
+  ...(shape.paletteSource ? { paletteSource: { ...shape.paletteSource } } : {}),
   regionPath: shape.regionPath?.map((point) => ({ ...point })),
   componentKinds: [...shape.componentKinds],
   components: shape.components.map((component) => ({
     ...component,
     ...(component.palette ? { palette: { ...component.palette } } : {}),
+    ...(component.paletteSource
+      ? { paletteSource: { ...component.paletteSource } }
+      : {}),
     canonicalState: { ...component.canonicalState },
     animation: component.animation ? { ...component.animation } : undefined,
   })),

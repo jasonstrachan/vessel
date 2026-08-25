@@ -119,10 +119,13 @@ describe('UI Shape document helpers', () => {
       x: -10,
       width: 500,
       gridSize: 1,
+      colorCount: 99,
       palette: { face: 'not-a-colour' },
+      paletteSource: { ...WINDOWS_31_UI_SHAPE_PALETTE, face: '#234567' },
       components: [{
         ...createShape().components[0],
         palette: { ...WINDOWS_31_UI_SHAPE_PALETTE, face: '#123456' },
+        paletteSource: { ...WINDOWS_31_UI_SHAPE_PALETTE, face: '#345678' },
         canonicalState: { value: 4 },
         animation: {
           enabled: true,
@@ -140,10 +143,13 @@ describe('UI Shape document helpers', () => {
       x: 0,
       width: 100,
       gridSize: 2,
+      colorCount: 8,
       theme: 'windows-3.1',
     }));
     expect(shape?.palette.face).toBe(WINDOWS_31_UI_SHAPE_PALETTE.face);
+    expect(shape?.paletteSource?.face).toBe('#234567');
     expect(shape?.components[0]?.palette?.face).toBe('#123456');
+    expect(shape?.components[0]?.paletteSource?.face).toBe('#345678');
     expect(shape?.components[0]?.canonicalState.value).toBe(1);
     expect(shape?.components[0]?.animation).toEqual(expect.objectContaining({
       speed: 8,
@@ -637,18 +643,25 @@ describe('UI Shape document helpers', () => {
     expect([...context.getImageData(2, 36, 1, 1).data]).toEqual([0, 0, 255, 255]);
   });
 
-  it('deep-clones component state and animation', () => {
+  it('deep-clones palettes, component state and animation', () => {
     const original = createShape({
+      paletteSource: { ...WINDOWS_31_UI_SHAPE_PALETTE },
       components: [{
         ...createShape().components[0]!,
         palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
+        paletteSource: { ...WINDOWS_31_UI_SHAPE_PALETTE },
       }],
     });
     const [clone] = cloneUiShapes([original]);
+    clone!.paletteSource!.face = '#00ff00';
     clone!.components[0]!.palette!.face = '#ff0000';
+    clone!.components[0]!.paletteSource!.face = '#0000ff';
     clone!.components[0]!.canonicalState.value = 0.8;
     clone!.components[0]!.animation!.speed = 2;
+    expect(original.paletteSource!.face).toBe(WINDOWS_31_UI_SHAPE_PALETTE.face);
     expect(original.components[0]!.palette!.face).toBe(WINDOWS_31_UI_SHAPE_PALETTE.face);
+    expect(original.components[0]!.paletteSource!.face)
+      .toBe(WINDOWS_31_UI_SHAPE_PALETTE.face);
     expect(original.components[0]!.canonicalState.value).toBe(0.25);
     expect(original.components[0]!.animation!.speed).toBe(0.2);
   });

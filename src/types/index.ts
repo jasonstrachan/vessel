@@ -443,6 +443,7 @@ export interface UiShapeComponent {
   label?: string;
   iconId?: string;
   palette?: UiShapePalette;
+  paletteSource?: UiShapePalette;
   canonicalState: UiShapeComponentState;
   animation?: UiShapeComponentAnimation;
 }
@@ -463,7 +464,9 @@ export interface UiShape extends LayerOwnedProjectObject {
   regionPath?: UiShapeRegionPoint[];
   componentKinds: UiShapeComponentKind[];
   colorSource: UiShapeColorSource;
+  colorCount?: number;
   palette: UiShapePalette;
+  paletteSource?: UiShapePalette;
   components: UiShapeComponent[];
   createdAt: number;
   updatedAt: number;
