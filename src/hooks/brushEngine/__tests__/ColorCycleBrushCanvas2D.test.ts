@@ -2538,6 +2538,25 @@ describe('ColorCycleBrushCanvas2D', () => {
     expect(phaseA).not.toBe(phaseB);
   });
 
+  it('distributes auto conversion-style shape seeds across distinct animation phases', () => {
+    const phases = Array.from({ length: 200 }, (_, index) => {
+      const phaseBase = resolveColorCycleShapePhaseBaseByte({
+        ccGradient: true,
+        pairBandCount: 2,
+        markId: `layer:auto:${index}`,
+        bounds: { minX: 0, minY: 0, width: 10, height: 10 },
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+      });
+      return resolveColorCycleShapePhaseByte(0.5, {
+        ccGradient: true,
+        pairBandCount: 2,
+        shapePhaseBaseByte: phaseBase,
+      });
+    });
+
+    expect(new Set(phases).size).toBeGreaterThan(100);
+  });
+
   it('applies perceptual dithering for continuous linear fills when enabled', async () => {
     const canvas = makeCanvas();
     const brush = new ColorCycleBrushCanvas2D(canvas);

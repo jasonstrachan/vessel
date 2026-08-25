@@ -198,7 +198,7 @@ const buildDetailMap = (
     for (let x = 0; x < width; x += 1) {
       const index = y * width + x;
       const pixel = pixels[index];
-      if (pixel.a <= 8) {
+      if (pixel.a <= 0) {
         continue;
       }
       let totalDifference = 0;
@@ -252,7 +252,7 @@ const buildDetailMap = (
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const index = y * width + x;
-      if (pixels[index].a <= 8) {
+      if (pixels[index].a <= 0) {
         continue;
       }
       let total = 0;
@@ -288,7 +288,7 @@ const selectInitialClusters = (
   focus: number,
 ): Cluster[] => {
   const visibleIndices = pixels
-    .map((pixel, index) => (pixel.a > 8 ? index : -1))
+    .map((pixel, index) => (pixel.a > 0 ? index : -1))
     .filter((index) => index >= 0);
   if (visibleIndices.length === 0) {
     return [];
@@ -317,10 +317,12 @@ const selectInitialClusters = (
   const seedIndices = [firstIndex];
   const minimumDistances = new Float64Array(width * height);
   minimumDistances.fill(Infinity);
-  const focusBias = 24 * (
-    clamp(focus, AUTO_CONVERT_MIN_FOCUS, AUTO_CONVERT_MAX_FOCUS)
-      / AUTO_CONVERT_MAX_FOCUS
-  ) ** 1.5;
+  const normalizedFocus = clamp(
+    focus,
+    AUTO_CONVERT_MIN_FOCUS,
+    AUTO_CONVERT_MAX_FOCUS,
+  ) / AUTO_CONVERT_MAX_FOCUS;
+  const focusBias = 96 * normalizedFocus ** 2;
   while (seedIndices.length < count) {
     const latest = seedIndices[seedIndices.length - 1];
     const latestX = latest % width;
@@ -397,7 +399,7 @@ const assignClusters = (
     const cluster = clusters[clusterIndex];
     const x = index % width;
     const y = Math.floor(index / width);
-    const colorDistance = pixel.a > 8
+    const colorDistance = pixel.a > 0
       ? (
           (pixel.r - cluster.r) ** 2 * 0.3
           + (pixel.g - cluster.g) ** 2 * 0.59
@@ -583,6 +585,10 @@ const buildRegion = ({
   if (boundary.length < 3 || component.length === 0) {
     return null;
   }
+  const visibleComponent = component.filter((index) => analysisPixels[index].a > 0);
+  if (visibleComponent.length === 0) {
+    return null;
+  }
   const simplified = simplifyClosedPolygon(
     boundary,
     2.4 - clamp(focus, AUTO_CONVERT_MIN_FOCUS, AUTO_CONVERT_MAX_FOCUS) * 0.021,
@@ -599,16 +605,16 @@ const buildRegion = ({
 
   let meanX = 0;
   let meanY = 0;
-  for (const index of component) {
+  for (const index of visibleComponent) {
     meanX += (index % analysisWidth) + 0.5;
     meanY += Math.floor(index / analysisWidth) + 0.5;
   }
-  meanX /= component.length;
-  meanY /= component.length;
+  meanX /= visibleComponent.length;
+  meanY /= visibleComponent.length;
   let covarianceXX = 0;
   let covarianceXY = 0;
   let covarianceYY = 0;
-  for (const index of component) {
+  for (const index of visibleComponent) {
     const dx = (index % analysisWidth) + 0.5 - meanX;
     const dy = Math.floor(index / analysisWidth) + 0.5 - meanY;
     covarianceXX += dx * dx;
@@ -622,12 +628,12 @@ const buildRegion = ({
   let projectionMax = -Infinity;
   let luminanceProjectionCovariance = 0;
   let meanLuminance = 0;
-  for (const index of component) {
+  for (const index of visibleComponent) {
     const pixel = analysisPixels[index];
     meanLuminance += pixel.r * 0.299 + pixel.g * 0.587 + pixel.b * 0.114;
   }
-  meanLuminance /= component.length;
-  for (const index of component) {
+  meanLuminance /= visibleComponent.length;
+  for (const index of visibleComponent) {
     const x = (index % analysisWidth) + 0.5;
     const y = Math.floor(index / analysisWidth) + 0.5;
     const projection = (x - meanX) * directionX + (y - meanY) * directionY;
@@ -647,7 +653,7 @@ const buildRegion = ({
   const projectionSpan = Math.max(1, orientedProjectionMax - orientedProjectionMin);
   const binCount = clamp(Math.round(maxColors), 2, 16);
   const bins = Array.from({ length: binCount }, () => ({ r: 0, g: 0, b: 0, weight: 0 }));
-  for (const index of component) {
+  for (const index of visibleComponent) {
     const x = (index % analysisWidth) + 0.5;
     const y = Math.floor(index / analysisWidth) + 0.5;
     const rawProjection = (x - meanX) * directionX + (y - meanY) * directionY;
@@ -699,8 +705,8 @@ const buildRegion = ({
     },
     linearGradientSpan: sourceDirectionLength * 2,
     sampledStops,
-    pixelCount: component.length,
-    detailScore: resolveComponentDetailScore(component, detailMap),
+    pixelCount: visibleComponent.length,
+    detailScore: resolveComponentDetailScore(visibleComponent, detailMap),
   };
 };
 

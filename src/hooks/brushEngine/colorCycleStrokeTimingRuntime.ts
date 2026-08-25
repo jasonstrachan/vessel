@@ -150,7 +150,14 @@ export function resolveColorCycleShapePhaseBaseByte(options?: {
     bounds: options.bounds ?? { minX: 0, minY: 0, width: 1, height: 1 },
     points: options.points ?? [],
   });
-  return Math.max(0, Math.min(255, stableSeed % 224));
+  // Sequential mark IDs share patterned low bits, so avalanche before reducing to a phase byte.
+  let mixedSeed = stableSeed >>> 0;
+  mixedSeed ^= mixedSeed >>> 16;
+  mixedSeed = Math.imul(mixedSeed, 0x7feb352d);
+  mixedSeed ^= mixedSeed >>> 15;
+  mixedSeed = Math.imul(mixedSeed, 0x846ca68b);
+  mixedSeed ^= mixedSeed >>> 16;
+  return 1 + ((mixedSeed >>> 0) % 223);
 }
 
 export function mapColorCycleBandIndexToPaletteIndex(bandIndex: number, bandsToUse: number): number {

@@ -78,6 +78,68 @@ describe('extractAutoConvertRegions', () => {
     expect(result.regions).toEqual([]);
   });
 
+  it('treats every nonzero alpha value as visible image content', () => {
+    const width = 4;
+    const height = 4;
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    const offset = (1 * width + 1) * 4;
+    pixels[offset] = 120;
+    pixels[offset + 1] = 60;
+    pixels[offset + 2] = 30;
+    pixels[offset + 3] = 1;
+
+    const result = extractAutoConvertRegions({
+      pixels,
+      width,
+      height,
+      targetShapes: 24,
+      focus: 100,
+      maxColors: 4,
+    });
+
+    expect(result.regions).toHaveLength(1);
+    expect(result.regions[0].pixelCount).toBe(1);
+    expect(result.regions[0].sampledStops.every((stop) => stop.color === '#783c1e')).toBe(true);
+  });
+
+  it('seeds only from visible pixels while allowing their contours to cross transparency', () => {
+    const width = 12;
+    const height = 8;
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let index = 0; index < width * height; index += 1) {
+      pixels[index * 4 + 1] = 255;
+    }
+    for (let y = 3; y <= 4; y += 1) {
+      for (let x = 1; x <= 2; x += 1) {
+        const offset = (y * width + x) * 4;
+        pixels[offset] = 250;
+        pixels[offset + 1] = 20;
+        pixels[offset + 2] = 20;
+        pixels[offset + 3] = 255;
+      }
+    }
+
+    const result = extractAutoConvertRegions({
+      pixels,
+      width,
+      height,
+      targetShapes: 20,
+      focus: 100,
+      maxColors: 4,
+    });
+
+    expect(result.regions).toHaveLength(4);
+    expect(result.regions.reduce((total, region) => total + region.pixelCount, 0)).toBe(4);
+    expect(result.regions.flatMap((region) => region.sampledStops))
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({ color: '#fa1414' }),
+      ]));
+    expect(result.regions.every((region) =>
+      region.sampledStops.every((stop) => stop.color === '#fa1414'))).toBe(true);
+    expect(result.regions.some((region) => region.points.some((point) =>
+      point.x < 1 || point.x > 3 || point.y < 3 || point.y > 5))).toBe(true);
+  });
+
   it('enforces the 200-shape maximum in the owning algorithm', () => {
     const width = 32;
     const height = 32;
@@ -170,7 +232,7 @@ describe('extractAutoConvertRegions', () => {
     };
 
     expect(countDetailedRegions(highFocus)).toBeGreaterThan(countDetailedRegions(lowFocus));
-    expect(countDetailedRegions(highFocus)).toBeGreaterThanOrEqual(16);
+    expect(countDetailedRegions(highFocus)).toBeGreaterThanOrEqual(18);
     expect(meanRegionDetail(true)).toBeGreaterThan(meanRegionDetail(false));
     expect(highFocus.regions).toHaveLength(20);
   });

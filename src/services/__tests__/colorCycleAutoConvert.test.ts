@@ -259,6 +259,26 @@ describe('autoConvertActiveImageToColorCycle', () => {
     }));
   });
 
+  it('does not clip converted contours to transparent source pixels', async () => {
+    sourceImage.data[3] = 0;
+
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 24,
+      focus: 50,
+      resolutionRange: [1, 8],
+    });
+
+    expect(mockedFillLinear).toHaveBeenCalledWith(expect.objectContaining({
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 4 },
+        { x: 0, y: 4 },
+      ],
+    }));
+    expect(mockedClearRegion).not.toHaveBeenCalled();
+  });
+
   it('clamps shape and focus requests at their supported maxima', async () => {
     await autoConvertActiveImageToColorCycle({
       targetShapes: 999,
@@ -272,7 +292,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
     }));
   });
 
-  it('binds a distinct image-derived gradient definition to every converted shape', async () => {
+  it('binds distinct image-derived gradients and phase seeds to every converted shape', async () => {
     mockedRunRegions.mockResolvedValueOnce({
       analysisWidth: 4,
       analysisHeight: 4,
@@ -394,6 +414,12 @@ describe('autoConvertActiveImageToColorCycle', () => {
     expect(mockedFillLinear).toHaveBeenNthCalledWith(2, expect.objectContaining({
       options: expect.objectContaining({ paintSlotOverride: 32, paintDefIdOverride: 22 }),
     }));
+    const phaseSeeds = mockedFillLinear.mock.calls.map(
+      ([call]) => call.options?.shapePhaseSeedMarkId,
+    );
+    expect(phaseSeeds).toHaveLength(2);
+    expect(phaseSeeds.every((seed) => typeof seed === 'string' && seed.length > 0)).toBe(true);
+    expect(new Set(phaseSeeds).size).toBe(2);
   });
 
   it('uses the reused runtime palette as the dither source when sampled capacity is exhausted', async () => {

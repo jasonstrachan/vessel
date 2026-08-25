@@ -20,7 +20,6 @@ import {
 } from '@/hooks/brushEngine/engineShared';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { captureLayerStructureSnapshot, commitLayerStructureHistory } from '@/stores/helpers/layerStructureHistory';
-import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import {
   getInsertionIndexAboveActiveLayer,
   insertLayerAtIndex,
@@ -99,18 +98,6 @@ const captureSourceImage = (layer: Layer): ImageData => {
     baseContext.drawImage(composedSource, 0, 0, project.width, project.height);
   }
   return baseContext.getImageData(0, 0, project.width, project.height);
-};
-
-const createTransparentClearMask = (source: ImageData): Uint8Array | null => {
-  const mask = new Uint8Array(source.width * source.height);
-  let hasTransparentPixels = false;
-  for (let index = 0; index < mask.length; index += 1) {
-    if (source.data[index * 4 + 3] <= 8) {
-      mask[index] = 255;
-      hasTransparentPixels = true;
-    }
-  }
-  return hasTransparentPixels ? mask : null;
 };
 
 const createTargetLayer = ({
@@ -447,28 +434,6 @@ export const autoConvertActiveImageToColorCycle = async ({
           direction: region.direction,
           options,
         });
-      }
-    }
-
-    const transparentMask = createTransparentClearMask(sourceImage);
-    if (transparentMask) {
-      const currentState = getAppStoreState();
-      const currentTarget = currentState.layers.find((layer) => layer.id === targetLayerId);
-      if (currentTarget) {
-        clearColorCycleRegion(
-          currentState,
-          currentTarget,
-          project,
-          { x: 0, y: 0, width: project.width, height: project.height },
-          {
-            alphaData: transparentMask,
-            alphaWidth: project.width,
-            alphaHeight: project.height,
-            alphaStride: 1,
-            alphaChannelOffset: 0,
-            auditSource: 'auto-convert-transparent-source',
-          },
-        );
       }
     }
 
