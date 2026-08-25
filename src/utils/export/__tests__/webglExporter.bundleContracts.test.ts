@@ -397,6 +397,7 @@ describe('webglExporter bundle contracts', () => {
         end: 10,
         treatment: 'selected-crossed-out',
       }],
+      nonCanonicalState: 'invisible',
       createdAt: 1,
       updatedAt: 2,
     }];

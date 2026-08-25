@@ -11,6 +11,7 @@ import type {
   TxtShapeSelectionTreatment,
   TxtShapeSelectionTreatmentRange,
   TxtShapeTextAlign,
+  TxtShapeTextState,
 } from '@/types';
 import {
   layoutTxtShapeTextPage,
@@ -250,9 +251,18 @@ const isTxtShapeSelectionTreatment = (
   || value === 'selected-crossed-out'
   || value === 'overwritten'
   || value === 'erased'
+  || value === 'invisible'
   || value === 'redacted'
   || value === 'redacted-crossed-out'
 );
+
+export const normalizeTxtShapeTextState = (
+  value: unknown,
+): TxtShapeTextState => value === 'none' || value === 'selected'
+  ? value
+  : isTxtShapeSelectionTreatment(value)
+    ? value
+    : 'none';
 
 export const normalizeTxtShapeSelectionTreatments = (
   ranges: unknown,
@@ -451,6 +461,7 @@ export const normalizeTxtShape = (
     selections,
     content.length,
   );
+  const nonCanonicalState = normalizeTxtShapeTextState(candidate.nonCanonicalState);
   const sampledColorRanges = normalizeTxtShapeColorRanges(
     candidate.sampledColorRanges,
     content.length,
@@ -524,6 +535,7 @@ export const normalizeTxtShape = (
       : {}),
     selections,
     ...(selectionTreatments.length > 0 ? { selectionTreatments } : {}),
+    ...(nonCanonicalState !== 'none' ? { nonCanonicalState } : {}),
     createdAt: finite(candidate.createdAt, now),
     updatedAt: finite(candidate.updatedAt, now),
   };
@@ -829,7 +841,10 @@ export interface TxtShapeSegment {
 }
 
 export const splitTxtShapeSegments = (
-  shape: Pick<TxtShape, 'colorRanges' | 'content' | 'selections' | 'selectionTreatments'>,
+  shape: Pick<
+    TxtShape,
+    'colorRanges' | 'content' | 'nonCanonicalState' | 'selections' | 'selectionTreatments'
+  >,
 ): TxtShapeSegment[] => {
   if (!shape.content) {
     return [];
@@ -848,6 +863,10 @@ export const splitTxtShapeSegments = (
     shape.selectionTreatments,
     shape.content.length,
   );
+  const nonCanonicalState = normalizeTxtShapeTextState(shape.nonCanonicalState);
+  const nonCanonicalTreatment = nonCanonicalState !== 'none' && nonCanonicalState !== 'selected'
+    ? nonCanonicalState
+    : undefined;
   selectionTreatments.forEach(({ start, end }) => {
     boundaries.add(start);
     boundaries.add(end);
@@ -862,13 +881,16 @@ export const splitTxtShapeSegments = (
     const color = colorRanges.find((range) => (
       start >= range.start && start < range.end
     ))?.color;
-    const treatment = selectionTreatments.find((range) => (
-      start >= range.start && start < range.end
-    ))?.treatment;
+    const selected = isTxtShapeIndexSelected(shape.selections, start);
+    const treatment = selected
+      ? selectionTreatments.find((range) => (
+          start >= range.start && start < range.end
+        ))?.treatment
+      : nonCanonicalTreatment;
     segments.push({
       ...(color ? { color } : {}),
       text,
-      selected: isTxtShapeIndexSelected(shape.selections, start),
+      selected,
       ...(treatment ? { treatment } : {}),
     });
   }
@@ -1272,7 +1294,7 @@ export const getTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
 const drawTxtShapesToCanvasWithSelectionMode = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
-  selectionMode: 'canonical' | 'none' | 'transient',
+  selectionMode: 'canonical' | 'goblet-base' | 'none' | 'transient',
   dirtyRects?: readonly TxtShapePaintRect[],
 ): void => {
   if (!shapes?.length) {
@@ -1281,20 +1303,32 @@ const drawTxtShapesToCanvasWithSelectionMode = (
 
   shapes.forEach((shape) => {
     if (!doesAnyTxtShapePaintRectIntersect(shape, dirtyRects)) return;
+    const gobletInvisibleTreatments = selectionMode === 'goblet-base'
+      ? normalizeTxtShapeSelectionTreatmentsForSelections(
+          shape.selectionTreatments,
+          shape.selections,
+          shape.content.length,
+        ).filter(({ treatment }) => treatment === 'invisible')
+      : [];
     const selections = selectionMode === 'none'
       ? []
-      : selectionMode === 'transient' && transientSelectionOverrides.has(shape.id)
-        ? normalizeTxtShapeSelections(resolveTxtShapeSelections(shape), shape.content.length)
-        : shape.selections;
-    const colorRanges = selectionMode === 'none'
+      : selectionMode === 'goblet-base'
+        ? gobletInvisibleTreatments.map(({ start, end }) => ({ start, end }))
+        : selectionMode === 'transient' && transientSelectionOverrides.has(shape.id)
+          ? normalizeTxtShapeSelections(resolveTxtShapeSelections(shape), shape.content.length)
+          : shape.selections;
+    const colorRanges = selectionMode === 'none' || selectionMode === 'goblet-base'
       ? []
       : normalizeTxtShapeColorRanges(shape.colorRanges, shape.content.length);
     const selectionTreatments = selectionMode === 'none'
       ? []
-      : normalizeTxtShapeSelectionTreatments(
-          shape.selectionTreatments,
-          shape.content.length,
-        );
+      : selectionMode === 'goblet-base'
+        ? gobletInvisibleTreatments
+        : normalizeTxtShapeSelectionTreatments(
+            shape.selectionTreatments,
+            shape.content.length,
+          );
+    const nonCanonicalState = normalizeTxtShapeTextState(shape.nonCanonicalState);
     const hiddenUnmappedRanges = resolveTxtShapeHiddenUnmappedRanges(shape);
     ctx.save();
     clipTxtShapeRegion(ctx, shape);
@@ -1378,9 +1412,8 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       const fragments = [] as Array<{
         color?: string;
         hidden: boolean;
-        selected: boolean;
         sourceStart: number;
-        treatment?: TxtShapeSelectionTreatment;
+        state: TxtShapeTextState;
         width: number;
       }>;
       for (let index = 0; index < orderedBoundaries.length - 1; index += 1) {
@@ -1402,12 +1435,12 @@ const drawTxtShapesToCanvasWithSelectionMode = (
             ))?.color
           : undefined;
         const sourceStart = line.sourceStart + start;
-        const treatment = selected
+        const state = selected
           ? selectionTreatments.find((range) => (
               sourceStart >= range.start && sourceStart < range.end
-            ))?.treatment
-          : undefined;
-        fragments.push({ color, hidden, selected, sourceStart, treatment, width });
+            ))?.treatment ?? 'selected'
+          : nonCanonicalState;
+        fragments.push({ color, hidden, sourceStart, state, width });
       }
 
       const paintedWidth = fragments.reduce((total, fragment) => total + fragment.width, 0);
@@ -1426,26 +1459,26 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         letterSpacing: rasterLetterSpacing,
       });
       let fragmentX = lineX;
-      fragments.forEach(({ color, hidden, selected, sourceStart, treatment, width }) => {
-        if (hidden) {
+      fragments.forEach(({ color, hidden, sourceStart, state, width }) => {
+        if (hidden || state === 'invisible') {
           fragmentX = Math.round(fragmentX + width);
           return;
         }
         const treatmentColor = color ?? shape.selectionBackgroundColor;
-        const keepsSelectionHighlight = treatment === 'selected-crossed-out';
-        const isRedacted = treatment === 'redacted' || treatment === 'redacted-crossed-out';
+        const keepsSelectionHighlight = state === 'selected'
+          || state === 'selected-crossed-out';
+        const isRedacted = state === 'redacted' || state === 'redacted-crossed-out';
         if (
-          selected
-          && (!treatment || keepsSelectionHighlight)
+          keepsSelectionHighlight
           && shape.renderMode !== 'glyph-map'
         ) {
           ctx.fillStyle = color ?? shape.selectionBackgroundColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
         }
-        if (selected && isRedacted) {
+        if (isRedacted) {
           ctx.fillStyle = treatmentColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
-          if (treatment === 'redacted-crossed-out') {
+          if (state === 'redacted-crossed-out') {
             const strikeHeight = Math.max(1, Math.round(shape.fontSize * 0.08));
             ctx.fillStyle = shape.selectionColor;
             ctx.fillRect(
@@ -1458,7 +1491,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           fragmentX = Math.round(fragmentX + width);
           return;
         }
-        const textColor = selected && (!treatment || keepsSelectionHighlight)
+        const textColor = keepsSelectionHighlight
           ? shape.renderMode === 'glyph-map'
             ? color ?? shape.selectionColor
             : shape.selectionColor
@@ -1489,7 +1522,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           }
           ctx.restore();
         };
-        if (treatment === 'erased') {
+        if (state === 'erased') {
           const bandHeight = Math.max(1, Math.round(lineHeightPx * 0.12));
           const isMirrored = sourceStart % 2 === 1;
           ctx.beginPath();
@@ -1516,16 +1549,18 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         } else {
           drawTextPass(textColor);
         }
-        if (treatment === 'crossed-out' || keepsSelectionHighlight) {
+        if (state === 'crossed-out' || state === 'selected-crossed-out') {
           const strikeHeight = Math.max(1, Math.round(shape.fontSize * 0.08));
-          ctx.fillStyle = keepsSelectionHighlight ? shape.selectionColor : treatmentColor;
+          ctx.fillStyle = state === 'selected-crossed-out'
+            ? shape.selectionColor
+            : treatmentColor;
           ctx.fillRect(
             fragmentX,
             Math.round(y + lineHeightPx * 0.52 - strikeHeight / 2),
             width,
             strikeHeight,
           );
-        } else if (treatment === 'overwritten') {
+        } else if (state === 'overwritten') {
           const offset = Math.max(1, Math.round(pixelScale));
           drawTextPass(treatmentColor, 0.82, offset, -offset);
           drawTextPass(treatmentColor, 0.62, -offset, offset);
@@ -1553,6 +1588,11 @@ export const drawUnselectedTxtShapesToCanvas = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
 ): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, 'none');
+
+export const drawGobletBaseTxtShapesToCanvas = (
+  ctx: TxtShapeCanvasContext,
+  shapes: readonly TxtShape[] | undefined,
+): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, 'goblet-base');
 
 export const drawTxtShapesForLayer = (
   ctx: TxtShapeCanvasContext,
@@ -1716,7 +1756,7 @@ export const createTxtShapeLayerRasterCache = ({
   } else if (layer.imageData) {
     context.putImageData(layer.imageData, 0, 0);
   }
-  drawUnselectedTxtShapesToCanvas(
+  drawGobletBaseTxtShapesToCanvas(
     context,
     getTxtShapesForLayer(shapes, layer.id),
   );

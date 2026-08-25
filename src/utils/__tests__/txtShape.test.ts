@@ -4,6 +4,7 @@ import {
   composeTxtShapesIntoLayerSource,
   drawCanonicalTxtShapesToCanvas,
   drawCachedTxtShapesForLayer,
+  drawGobletBaseTxtShapesToCanvas,
   drawTxtShapesForLayer,
   drawTxtShapesToCanvas,
   drawUnselectedTxtShapesToCanvas,
@@ -25,6 +26,7 @@ import {
   normalizeTxtShapeSelections,
   normalizeTxtShapeSampleTone,
   normalizeTxtShapePlaybackSettings,
+  normalizeTxtShapeTextState,
   normalizeTxtShapes,
   resolveTxtShapeHiddenUnmappedRanges,
   setTxtShapeTransientSelectionOverrides,
@@ -531,12 +533,24 @@ describe('TXT Shape document helpers', () => {
     ]);
   });
 
+  it('keeps the non-canonical treatment separate from canonical geometry', () => {
+    expect(splitTxtShapeSegments(createShape({
+      nonCanonicalState: 'invisible',
+    }))).toEqual([
+      { text: 'LIGHT ', selected: false, treatment: 'invisible' },
+      { text: 'DARK', selected: true },
+    ]);
+    expect(normalizeTxtShapeTextState('invisible')).toBe('invisible');
+    expect(normalizeTxtShapeTextState('invalid')).toBe('none');
+  });
+
   it.each([
     ['selected', undefined, 1, 1],
     ['crossed out', 'crossed-out', 1, 1],
     ['selected and crossed out', 'selected-crossed-out', 2, 1],
     ['overwritten', 'overwritten', 0, 3],
     ['erased', 'erased', 0, 1],
+    ['invisible', 'invisible', 0, 0],
     ['redacted', 'redacted', 1, 0],
     ['redacted and crossed out', 'redacted-crossed-out', 2, 0],
   ] as const)('renders the %s selection treatment through Canvas 2D', (
@@ -563,6 +577,25 @@ describe('TXT Shape document helpers', () => {
 
     expect(ctx.fillRect).toHaveBeenCalledTimes(fillRectCount);
     expect(ctx.fillText).toHaveBeenCalledTimes(fillTextCount);
+  });
+
+  it('hides only non-canonical text when its state is Invisible', () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+      fillStyle: '', globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+
+    drawTxtShapesToCanvas(ctx, [createShape({
+      content: 'AB',
+      selections: [{ start: 0, end: 1 }],
+      nonCanonicalState: 'invisible',
+    })]);
+
+    expect(ctx.fillRect).toHaveBeenCalledTimes(1);
+    expect(ctx.fillText).toHaveBeenCalledTimes(1);
   });
 
   it('rasterizes mapped colour bands without changing their selected ranges', () => {
@@ -1121,6 +1154,26 @@ describe('TXT Shape document helpers', () => {
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
     expect(ctx.fillRect).toHaveBeenCalledWith(5, 6, 100, 50);
     expect(shape.selections).toEqual([{ start: 0, end: 2 }]);
+  });
+
+  it('omits canonical Invisible glyphs from the Goblet base raster', () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+      fillStyle: '', globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const shape = createShape({
+      content: 'AB',
+      selections: [{ start: 0, end: 2 }],
+      selectionTreatments: [{ start: 0, end: 2, treatment: 'invisible' }],
+    });
+
+    drawGobletBaseTxtShapesToCanvas(ctx, [shape]);
+
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+    expect(ctx.fillText).not.toHaveBeenCalled();
   });
 
   it('reuses immutable text layout while transient selections advance', () => {

@@ -332,8 +332,10 @@ export type TxtShapeSelectionTreatment =
   | 'selected-crossed-out'
   | 'overwritten'
   | 'erased'
+  | 'invisible'
   | 'redacted'
   | 'redacted-crossed-out';
+export type TxtShapeTextState = 'none' | 'selected' | TxtShapeSelectionTreatment;
 
 export interface TxtShapeRegionPoint {
   x: number;
@@ -498,6 +500,7 @@ export interface TxtShape extends LayerOwnedProjectObject {
   backgroundColor?: string;
   selections: TxtShapeSelectionRange[];
   selectionTreatments?: TxtShapeSelectionTreatmentRange[];
+  nonCanonicalState?: TxtShapeTextState;
   createdAt: number;
   updatedAt: number;
 }

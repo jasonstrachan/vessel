@@ -57,6 +57,7 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('box.style.columnGap = `${columnGap}px`;');
       expect(viewer).toContain("box.style.columnFill = 'auto';");
       expect(viewer).toContain('const colorRanges = Array.isArray(shape.colorRanges)');
+      expect(viewer).toContain("const nonCanonicalState = typeof shape.nonCanonicalState === 'string'");
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-bg'");
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-color', String(shape.selectionColor");
       expect(viewer).toContain('cell.dataset.txtShapeCellStart = String(sourceIndex);');
@@ -75,9 +76,14 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('[data-selection-treatment="selected-crossed-out"]');
       expect(viewer).toContain('[data-selection-treatment="overwritten"]');
       expect(viewer).toContain('[data-selection-treatment="erased"]');
+      expect(viewer).toContain('[data-selection-treatment="invisible"]');
       expect(viewer).toContain('[data-selection-treatment="redacted"]');
       expect(viewer).toContain('[data-selection-treatment="redacted-crossed-out"]');
       expect(viewer).toContain("box.style.setProperty('--txt-base-color'");
+      expect(viewer).toContain('cell.dataset.nonCanonicalState = nonCanonicalState;');
+      expect(viewer).toContain('cell.dataset.inactiveState = nonCanonicalState;');
+      expect(viewer).toContain('visibility: hidden');
+      expect(viewer).toContain('[data-inactive-state="none"]');
       expect(viewer).toContain('mask-image: repeating-linear-gradient');
       expect(viewer).toContain('box-shadow: 0 var(--txt-selection-fill-gap, 0px)');
       expect(viewer).toContain('const updateSelectionFillGaps = () => {');

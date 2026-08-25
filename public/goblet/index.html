@@ -207,15 +207,17 @@
         const style = document.createElement('style');
         style.textContent = [
           '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); }',
-          '#vessel-txt-shapes [data-canonical-selected], #vessel-txt-shapes [data-vessel-txt-cell-selected="true"] { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
-          '#vessel-txt-shapes [data-selection-treatment="crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="crossed-out"][data-vessel-txt-cell-selected="true"] { color: var(--txt-base-color); background: transparent; box-shadow: none; text-decoration-line: line-through; text-decoration-color: var(--txt-selection-bg); text-decoration-thickness: 0.1em; }',
-          '#vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-vessel-txt-cell-selected="true"] { text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
-          '#vessel-txt-shapes [data-selection-treatment="overwritten"] { position: relative; }',
-          '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"] { color: var(--txt-base-color); background: transparent; box-shadow: none; }',
-          '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected]::after, #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"]::after { content: attr(data-overwrite-text); position: absolute; left: 1px; top: -1px; color: var(--txt-selection-bg); text-shadow: -1px 1px 0 var(--txt-selection-bg); }',
-          '#vessel-txt-shapes [data-selection-treatment="erased"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="erased"][data-vessel-txt-cell-selected="true"] { color: var(--txt-base-color); background: transparent; box-shadow: none; opacity: 0.38; -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 0.12em, transparent 0.12em 0.34em); mask-image: repeating-linear-gradient(to bottom, #000 0 0.12em, transparent 0.12em 0.34em); }',
-          '#vessel-txt-shapes [data-selection-treatment="redacted"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted"][data-vessel-txt-cell-selected="true"] { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
-          '#vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-vessel-txt-cell-selected="true"] { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
+          '#vessel-txt-shapes [data-inactive-state="none"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; opacity: 1; text-decoration: none; visibility: visible; }',
+          '#vessel-txt-shapes [data-canonical-selected], #vessel-txt-shapes [data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-non-canonical-state="selected"], #vessel-txt-shapes [data-inactive-state="selected"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
+          '#vessel-txt-shapes [data-selection-treatment="crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; text-decoration-line: line-through; text-decoration-color: var(--txt-selection-bg); text-decoration-thickness: 0.1em; }',
+          '#vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="selected-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
+          '#vessel-txt-shapes [data-selection-treatment="overwritten"], #vessel-txt-shapes [data-inactive-state="overwritten"] { position: relative; }',
+          '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="overwritten"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="overwritten"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; }',
+          '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected]::after, #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"]::after, #vessel-txt-shapes [data-selection-treatment="overwritten"][data-non-canonical-state]::after, #vessel-txt-shapes [data-inactive-state="overwritten"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"])::after { content: attr(data-overwrite-text); position: absolute; left: 1px; top: -1px; color: var(--txt-selection-bg); text-shadow: -1px 1px 0 var(--txt-selection-bg); }',
+          '#vessel-txt-shapes [data-selection-treatment="erased"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="erased"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="erased"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="erased"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; opacity: 0.38; -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 0.12em, transparent 0.12em 0.34em); mask-image: repeating-linear-gradient(to bottom, #000 0 0.12em, transparent 0.12em 0.34em); }',
+          '#vessel-txt-shapes [data-selection-treatment="redacted"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="redacted"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="redacted"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
+          '#vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="redacted-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
+          '#vessel-txt-shapes [data-selection-treatment="invisible"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="invisible"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="invisible"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="invisible"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: transparent !important; background: transparent !important; box-shadow: none !important; text-decoration: none !important; visibility: hidden; }',
           '#vessel-txt-shapes [data-unmapped-hidden="true"] { color: transparent !important; background: transparent !important; box-shadow: none !important; text-decoration: none !important; }',
         ].join(' ');
         overlay.appendChild(style);
@@ -410,6 +412,9 @@
           const content = String(shape.content || '');
           const ranges = Array.isArray(shape.selections) ? shape.selections : [];
           const colorRanges = Array.isArray(shape.colorRanges) ? shape.colorRanges : [];
+          const nonCanonicalState = typeof shape.nonCanonicalState === 'string'
+            ? shape.nonCanonicalState
+            : 'none';
           const hiddenUnmappedRanges = getHiddenUnmappedRanges(shape);
           const boundaries = new Set([0, content.length]);
           ranges.forEach((range) => {
@@ -462,6 +467,12 @@
                 if (treatment) {
                   cell.dataset.selectionTreatment = String(treatment);
                   if (treatment === 'overwritten') cell.dataset.overwriteText = character;
+                  if (treatment === 'invisible') {
+                    cell.dataset.inactiveState = nonCanonicalState;
+                    if (nonCanonicalState === 'overwritten') {
+                      cell.dataset.overwriteText = character;
+                    }
+                  }
                 }
                 if (colorRange?.color) {
                   cell.style.setProperty('--txt-selection-bg', String(colorRange.color));
@@ -471,14 +482,31 @@
               }
               continue;
             }
-            const span = document.createElement('span');
-            span.textContent = content.slice(start, end);
-            if (hiddenUnmappedRanges.some((range) => (
+            const isUnmappedHidden = hiddenUnmappedRanges.some((range) => (
               start >= range.start && start < range.end
-            ))) {
-              span.dataset.unmappedHidden = 'true';
+            ));
+            if (nonCanonicalState === 'none') {
+              const span = document.createElement('span');
+              span.textContent = content.slice(start, end);
+              if (isUnmappedHidden) span.dataset.unmappedHidden = 'true';
+              box.appendChild(span);
+              continue;
             }
-            box.appendChild(span);
+            let sourceIndex = start;
+            for (const character of content.slice(start, end)) {
+              const cell = document.createElement('span');
+              cell.textContent = character;
+              cell.dataset.txtShapeCellStart = String(sourceIndex);
+              sourceIndex += character.length;
+              cell.dataset.txtShapeCellEnd = String(sourceIndex);
+              cell.dataset.nonCanonicalState = nonCanonicalState;
+              if (nonCanonicalState !== 'selected') {
+                cell.dataset.selectionTreatment = nonCanonicalState;
+                if (nonCanonicalState === 'overwritten') cell.dataset.overwriteText = character;
+              }
+              if (isUnmappedHidden) cell.dataset.unmappedHidden = 'true';
+              box.appendChild(cell);
+            }
           }
           stage.appendChild(box);
         });

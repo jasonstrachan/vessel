@@ -11,6 +11,40 @@ const read = (relativePath: string): string => fs.readFileSync(
 
 const PROJECT_WIDTH = 100;
 const PROJECT_HEIGHT = 1_200;
+const TXT_SHAPE_STATES = [
+  'selected',
+  'crossed-out',
+  'selected-crossed-out',
+  'overwritten',
+  'erased',
+  'invisible',
+  'redacted',
+  'redacted-crossed-out',
+] as const;
+
+const createStateMatrixShape = (
+  state: typeof TXT_SHAPE_STATES[number],
+  index: number,
+) => ({
+  id: `state-matrix-non-canonical-${state}`,
+  layerId: 'text-layer',
+  x: 5,
+  y: 980 + index * 10,
+  width: 90,
+  height: 10,
+  padding: 0,
+  columns: 1,
+  fontFamily: 'tiny5',
+  fontSize: 8,
+  lineHeight: 1.2,
+  textAlign: 'left',
+  color: '#000000',
+  selectionColor: '#ffffff',
+  selectionBackgroundColor: '#000000',
+  content: 'AB',
+  selections: [{ start: 0, end: 1 }],
+  nonCanonicalState: state,
+});
 
 const metadata = {
   project: {
@@ -61,6 +95,49 @@ const metadata = {
       { start: 0, end: 5, treatment: 'selected-crossed-out' },
       { start: 9, end: 17, treatment: 'redacted' },
     ],
+  }, {
+    id: 'canonical-state-matrix',
+    layerId: 'text-layer',
+    x: 5,
+    y: 950,
+    width: 90,
+    height: 10,
+    padding: 0,
+    columns: 1,
+    fontFamily: 'tiny5',
+    fontSize: 8,
+    lineHeight: 1.2,
+    textAlign: 'left',
+    color: '#000000',
+    selectionColor: '#ffffff',
+    selectionBackgroundColor: '#000000',
+    content: 'ABCDEFGH',
+    selections: [{ start: 0, end: 8 }],
+    nonCanonicalState: 'crossed-out',
+    selectionTreatments: TXT_SHAPE_STATES.flatMap((state, index) => (
+      state === 'selected'
+        ? []
+        : [{ start: index, end: index + 1, treatment: state }]
+    )),
+  }, ...TXT_SHAPE_STATES.map(createStateMatrixShape), {
+    id: 'non-canonical-invisible',
+    layerId: 'text-layer',
+    x: 5,
+    y: 1_100,
+    width: 90,
+    height: 40,
+    padding: 0,
+    columns: 1,
+    fontFamily: 'tiny5',
+    fontSize: 8,
+    lineHeight: 1.2,
+    textAlign: 'left',
+    color: '#000000',
+    selectionColor: '#ffffff',
+    selectionBackgroundColor: '#000000',
+    content: 'SHOW HIDE',
+    selections: [{ start: 0, end: 4 }],
+    nonCanonicalState: 'invisible',
   }, {
     id: 'bottom-left-overflow',
     layerId: 'text-layer',
@@ -185,6 +262,153 @@ const readUnmappedText = async (page: Page) => page.evaluate(() => {
   };
 });
 
+const readNonCanonicalInvisibleText = async (page: Page) => page.evaluate(() => {
+  const shape = document.querySelector<HTMLElement>(
+    '[data-txt-shape-id="non-canonical-invisible"]',
+  );
+  const invisible = Array.from(shape?.querySelectorAll<HTMLElement>(
+    '[data-non-canonical-state="invisible"]',
+  ) ?? []);
+  return {
+    completeText: shape?.textContent ?? null,
+    invisibleText: invisible.map((cell) => cell.textContent).join(''),
+    visibility: invisible.map((cell) => getComputedStyle(cell).visibility),
+  };
+});
+
+const readStateMatrix = async (page: Page) => page.evaluate(() => {
+  const states = [
+    'selected',
+    'crossed-out',
+    'selected-crossed-out',
+    'overwritten',
+    'erased',
+    'invisible',
+    'redacted',
+    'redacted-crossed-out',
+  ];
+  const readCell = (cell: HTMLElement | null) => {
+    if (!cell) return null;
+    const style = getComputedStyle(cell);
+    return {
+      background: style.backgroundColor,
+      color: style.color,
+      decoration: style.textDecorationLine,
+      mask: style.maskImage,
+      opacity: style.opacity,
+      treatment: cell.dataset.selectionTreatment ?? null,
+      visibility: style.visibility,
+    };
+  };
+  const canonicalShape = document.querySelector<HTMLElement>(
+    '[data-txt-shape-id="canonical-state-matrix"]',
+  );
+  const canonical = Object.fromEntries(states.map((state, index) => [
+    state,
+    readCell(canonicalShape?.querySelector<HTMLElement>(
+      `[data-txt-shape-cell-start="${index}"]`,
+    ) ?? null),
+  ]));
+  const nonCanonical = Object.fromEntries(states.map((state) => [
+    state,
+    readCell(document.querySelector<HTMLElement>(
+      `[data-txt-shape-id="state-matrix-non-canonical-${state}"] [data-non-canonical-state]`,
+    )),
+  ]));
+  return { canonical, nonCanonical };
+});
+
+const readCanonicalInvisibleInactiveState = async (page: Page) => page.evaluate(() => {
+  const cell = document.querySelector<HTMLElement>(
+    '[data-txt-shape-id="canonical-state-matrix"] [data-txt-shape-cell-start="5"]',
+  );
+  if (!cell) return null;
+  delete cell.dataset.canonicalSelected;
+  const style = getComputedStyle(cell);
+  return {
+    background: style.backgroundColor,
+    color: style.color,
+    decoration: style.textDecorationLine,
+    inactiveState: cell.dataset.inactiveState ?? null,
+    visibility: style.visibility,
+  };
+});
+
+const expectedStateMatrix = {
+  selected: {
+    background: 'rgb(0, 0, 0)',
+    color: 'rgb(255, 255, 255)',
+    decoration: 'none',
+    mask: 'none',
+    opacity: '1',
+    treatment: null,
+    visibility: 'visible',
+  },
+  'crossed-out': {
+    background: 'rgba(0, 0, 0, 0)',
+    color: 'rgb(0, 0, 0)',
+    decoration: 'line-through',
+    mask: 'none',
+    opacity: '1',
+    treatment: 'crossed-out',
+    visibility: 'visible',
+  },
+  'selected-crossed-out': {
+    background: 'rgb(0, 0, 0)',
+    color: 'rgb(255, 255, 255)',
+    decoration: 'line-through',
+    mask: 'none',
+    opacity: '1',
+    treatment: 'selected-crossed-out',
+    visibility: 'visible',
+  },
+  overwritten: {
+    background: 'rgba(0, 0, 0, 0)',
+    color: 'rgb(0, 0, 0)',
+    decoration: 'none',
+    mask: 'none',
+    opacity: '1',
+    treatment: 'overwritten',
+    visibility: 'visible',
+  },
+  erased: {
+    background: 'rgba(0, 0, 0, 0)',
+    color: 'rgb(0, 0, 0)',
+    decoration: 'none',
+    mask: expect.stringContaining('repeating-linear-gradient'),
+    opacity: '0.38',
+    treatment: 'erased',
+    visibility: 'visible',
+  },
+  invisible: {
+    background: 'rgba(0, 0, 0, 0)',
+    color: 'rgba(0, 0, 0, 0)',
+    decoration: 'none',
+    mask: 'none',
+    opacity: '1',
+    treatment: 'invisible',
+    visibility: 'hidden',
+  },
+  redacted: {
+    background: 'rgb(0, 0, 0)',
+    color: 'rgba(0, 0, 0, 0)',
+    decoration: 'none',
+    mask: 'none',
+    opacity: '1',
+    treatment: 'redacted',
+    visibility: 'visible',
+  },
+  'redacted-crossed-out': {
+    background: 'rgb(0, 0, 0)',
+    color: 'rgba(0, 0, 0, 0)',
+    decoration: 'line-through',
+    mask: 'none',
+    opacity: '1',
+    treatment: 'redacted-crossed-out',
+    visibility: 'visible',
+  },
+};
+
 const readBottomLeftClip = async (page: Page) => page.evaluate(() => {
   const canvas = document.getElementById('preview-canvas');
   const overlay = document.getElementById('vessel-txt-shapes');
@@ -242,6 +466,22 @@ test.describe('Goblet TXT Shape overlay positioning and layout', () => {
         completeText: 'STATE A: semantic overlay',
         hiddenText: 'A:overlay',
         hiddenColors: ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)'],
+      });
+      await expect.poll(() => readNonCanonicalInvisibleText(page)).toEqual({
+        completeText: 'SHOW HIDE',
+        invisibleText: ' HIDE',
+        visibility: ['hidden', 'hidden', 'hidden', 'hidden', 'hidden'],
+      });
+      await expect.poll(() => readStateMatrix(page)).toEqual({
+        canonical: expectedStateMatrix,
+        nonCanonical: expectedStateMatrix,
+      });
+      await expect.poll(() => readCanonicalInvisibleInactiveState(page)).toEqual({
+        background: 'rgba(0, 0, 0, 0)',
+        color: 'rgb(0, 0, 0)',
+        decoration: 'line-through',
+        inactiveState: 'crossed-out',
+        visibility: 'visible',
       });
       await expect.poll(() => readCanvasOverlayDelta(page)).toEqual({
         x: 0,
