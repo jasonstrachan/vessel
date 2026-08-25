@@ -29,6 +29,7 @@ import {
   getTxtShapeMonoRasterRevision,
   measureTxtShapeMonoText,
 } from '@/utils/txtShapeMonoRenderer';
+import { simplifyRDP } from '@/utils/polygonSimplify';
 
 export const TXT_SHAPE_MIN_SIZE = 16;
 export const TXT_SHAPE_DEFAULT_CONTENT = 'SELECTED TEXT';
@@ -196,6 +197,35 @@ export const getTxtShapeRegionPathArea = (points: readonly TxtShapeRegionPoint[]
     return total + point.x * next.y - next.x * point.y;
   }, 0);
   return Math.abs(doubledArea) / 2;
+};
+
+const TXT_SHAPE_FREEHAND_SIMPLIFY_TOLERANCE_PX = 2;
+
+export const simplifyTxtShapeFreehandPath = (
+  points: readonly { x: number; y: number }[],
+  tolerance = TXT_SHAPE_FREEHAND_SIMPLIFY_TOLERANCE_PX,
+): Array<{ x: number; y: number }> => {
+  if (points.length < 4) return points.map((point) => ({ ...point }));
+  const first = points[0]!;
+  const last = points.at(-1)!;
+  const closeTolerance = Math.max(0.01, tolerance);
+  const openPoints = Math.hypot(last.x - first.x, last.y - first.y) <= closeTolerance
+    ? points.slice(0, -1)
+    : points;
+  if (openPoints.length < 3) return points.map((point) => ({ ...point }));
+  const closedPoints = [...openPoints, openPoints[0]!];
+  const simplified = simplifyRDP(closedPoints, closeTolerance);
+  const simplifiedOpen = simplified.length > 1
+    && Math.hypot(
+      simplified.at(-1)!.x - simplified[0]!.x,
+      simplified.at(-1)!.y - simplified[0]!.y,
+    ) <= 0.000_001
+    ? simplified.slice(0, -1)
+    : simplified;
+  if (simplifiedOpen.length < 3 || getTxtShapeRegionPathArea(simplifiedOpen) < 0.0001) {
+    return openPoints.map((point) => ({ ...point }));
+  }
+  return simplifiedOpen;
 };
 
 const normalizeRegionPath = (value: unknown): TxtShapeRegionPoint[] | undefined => {
@@ -574,84 +604,170 @@ export const getTxtShapeRasterLetterSpacing = (
   return Math.max(0, Math.round(getTxtShapeLetterSpacing(shape) / pixelScale));
 };
 
-export const getTxtShapeHorizontalSpan = (
+const simplifiedTxtShapeRegionPathCache = new WeakMap<
+  readonly TxtShapeRegionPoint[],
+  { height: number; points: Array<{ x: number; y: number }>; width: number }
+>();
+
+const getSimplifiedTxtShapeRegionPath = (
+  shape: Pick<TxtShape, 'width' | 'height' | 'regionPath'>,
+): Array<{ x: number; y: number }> => {
+  if (!shape.regionPath) return [];
+  const cached = simplifiedTxtShapeRegionPathCache.get(shape.regionPath);
+  if (cached?.width === shape.width && cached.height === shape.height) return cached.points;
+  const tolerance = Math.max(
+    0.25,
+    Math.min(
+      TXT_SHAPE_FREEHAND_SIMPLIFY_TOLERANCE_PX,
+      Math.min(shape.width, shape.height) * 0.02,
+    ),
+  );
+  const points = simplifyTxtShapeFreehandPath(
+    shape.regionPath.map((point) => ({
+      x: point.x * shape.width,
+      y: point.y * shape.height,
+    })),
+    tolerance,
+  );
+  simplifiedTxtShapeRegionPathCache.set(shape.regionPath, {
+    height: shape.height,
+    points,
+    width: shape.width,
+  });
+  return points;
+};
+
+const selectTxtShapeHorizontalSpan = (
+  spans: readonly TxtShapeHorizontalSpan[],
+  preferred?: TxtShapeHorizontalSpan | null,
+): TxtShapeHorizontalSpan | null => spans.reduce<TxtShapeHorizontalSpan | null>(
+  (best, span) => {
+    if (!best) return span;
+    const width = span.right - span.left;
+    const bestWidth = best.right - best.left;
+    if (!preferred) return width > bestWidth ? span : best;
+    const overlap = Math.max(
+      0,
+      Math.min(span.right, preferred.right) - Math.max(span.left, preferred.left),
+    );
+    const bestOverlap = Math.max(
+      0,
+      Math.min(best.right, preferred.right) - Math.max(best.left, preferred.left),
+    );
+    if (overlap !== bestOverlap) return overlap > bestOverlap ? span : best;
+    if (width !== bestWidth) return width > bestWidth ? span : best;
+    const preferredCenter = (preferred.left + preferred.right) / 2;
+    const distance = Math.abs((span.left + span.right) / 2 - preferredCenter);
+    const bestDistance = Math.abs((best.left + best.right) / 2 - preferredCenter);
+    return distance < bestDistance ? span : best;
+  },
+  null,
+);
+
+const getTxtShapeHorizontalSpans = (
   shape: Pick<TxtShape, 'width' | 'height' | 'regionKind' | 'regionPath'>,
   y: number,
-): TxtShapeHorizontalSpan | null => {
-  if (shape.width <= 0 || shape.height <= 0 || y < 0 || y > shape.height) return null;
+): TxtShapeHorizontalSpan[] => {
+  if (shape.width <= 0 || shape.height <= 0 || y < 0 || y > shape.height) return [];
   if (shape.regionKind === 'oval') {
     const normalizedY = (y / shape.height - 0.5) * 2;
     const halfSpan = Math.sqrt(Math.max(0, 1 - normalizedY * normalizedY)) * shape.width / 2;
-    return { left: shape.width / 2 - halfSpan, right: shape.width / 2 + halfSpan };
+    return [{ left: shape.width / 2 - halfSpan, right: shape.width / 2 + halfSpan }];
   }
   if (shape.regionKind !== 'freehand' || !shape.regionPath || shape.regionPath.length < 3) {
-    return { left: 0, right: shape.width };
+    return [{ left: 0, right: shape.width }];
   }
 
-  const normalizedY = y / shape.height;
+  const points = getSimplifiedTxtShapeRegionPath(shape);
   const intersections: number[] = [];
-  shape.regionPath.forEach((point, index) => {
-    const next = shape.regionPath?.[(index + 1) % shape.regionPath.length];
+  points.forEach((point, index) => {
+    const next = points[(index + 1) % points.length];
     if (!next || point.y === next.y) return;
-    const crosses = (point.y <= normalizedY && next.y > normalizedY)
-      || (next.y <= normalizedY && point.y > normalizedY);
+    const crosses = (point.y <= y && next.y > y) || (next.y <= y && point.y > y);
     if (!crosses) return;
-    const ratio = (normalizedY - point.y) / (next.y - point.y);
-    intersections.push((point.x + (next.x - point.x) * ratio) * shape.width);
+    const ratio = (y - point.y) / (next.y - point.y);
+    intersections.push(point.x + (next.x - point.x) * ratio);
   });
   intersections.sort((a, b) => a - b);
-  let widest: TxtShapeHorizontalSpan | null = null;
+  const spans: TxtShapeHorizontalSpan[] = [];
   for (let index = 0; index + 1 < intersections.length; index += 2) {
-    const span = { left: intersections[index], right: intersections[index + 1] };
-    if (!widest || span.right - span.left > widest.right - widest.left) widest = span;
+    spans.push({ left: intersections[index]!, right: intersections[index + 1]! });
   }
-  return widest;
+  return spans;
+};
+
+export const getTxtShapeHorizontalSpan = (
+  shape: Pick<TxtShape, 'width' | 'height' | 'regionKind' | 'regionPath'>,
+  y: number,
+): TxtShapeHorizontalSpan | null => selectTxtShapeHorizontalSpan(
+  getTxtShapeHorizontalSpans(shape, y),
+);
+
+const intersectTxtShapeHorizontalSpans = (
+  left: readonly TxtShapeHorizontalSpan[],
+  right: readonly TxtShapeHorizontalSpan[],
+): TxtShapeHorizontalSpan[] => left.flatMap((leftSpan) => right.flatMap((rightSpan) => {
+  const intersection = {
+    left: Math.max(leftSpan.left, rightSpan.left),
+    right: Math.min(leftSpan.right, rightSpan.right),
+  };
+  return intersection.right - intersection.left > 0.01 ? [intersection] : [];
+}));
+
+const getTxtShapeHorizontalSpansForBand = (
+  shape: Pick<TxtShape, 'width' | 'height' | 'regionKind' | 'regionPath'>,
+  top: number,
+  bottom: number,
+): TxtShapeHorizontalSpan[] => {
+  if (bottom <= top || top < 0 || bottom > shape.height) return [];
+  if (shape.regionKind !== 'oval' && shape.regionKind !== 'freehand') {
+    return [{ left: 0, right: shape.width }];
+  }
+
+  const bandYs = [top, bottom];
+  if (shape.regionKind === 'freehand') {
+    getSimplifiedTxtShapeRegionPath(shape).forEach((point) => {
+      if (point.y > top && point.y < bottom) bandYs.push(point.y);
+    });
+  }
+  bandYs.sort((left, right) => left - right);
+  const sampleYs = bandYs.flatMap((sampleY, index) => {
+    const nextY = bandYs[index + 1];
+    return nextY === undefined ? [sampleY] : [sampleY, sampleY + (nextY - sampleY) / 2];
+  });
+  const freehandBottomEpsilon = Math.min(0.001, shape.height * 0.000001);
+  let spans: TxtShapeHorizontalSpan[] | null = null;
+  for (const sampleY of sampleYs) {
+    const y = shape.regionKind === 'freehand' && sampleY === shape.height
+      ? Math.max(0, sampleY - freehandBottomEpsilon)
+      : sampleY;
+    const sampleSpans = getTxtShapeHorizontalSpans(shape, y)
+      .filter((span) => span.right - span.left > 0.01);
+    if (sampleSpans.length === 0) return [];
+    spans = spans ? intersectTxtShapeHorizontalSpans(spans, sampleSpans) : sampleSpans;
+    if (spans.length === 0) return [];
+  }
+  return spans ?? [];
 };
 
 export const getTxtShapeHorizontalSpanForBand = (
   shape: Pick<TxtShape, 'width' | 'height' | 'regionKind' | 'regionPath'>,
   top: number,
   bottom: number,
-): TxtShapeHorizontalSpan | null => {
-  if (bottom <= top || top < 0 || bottom > shape.height) return null;
-  if (shape.regionKind !== 'oval' && shape.regionKind !== 'freehand') {
-    return { left: 0, right: shape.width };
-  }
-
-  const bandYs = [top, bottom];
-  if (shape.regionKind === 'freehand') {
-    shape.regionPath?.forEach((point) => {
-      const y = point.y * shape.height;
-      if (y > top && y < bottom) bandYs.push(y);
-    });
-  }
-  bandYs.sort((left, right) => left - right);
-  const sampleYs = bandYs.flatMap((y, index) => {
-    const nextY = bandYs[index + 1];
-    return nextY === undefined ? [y] : [y, y + (nextY - y) / 2];
-  });
-  const freehandBottomEpsilon = Math.min(0.001, shape.height * 0.000001);
-  let left = 0;
-  let right = shape.width;
-  for (const sampleY of sampleYs) {
-    const y = shape.regionKind === 'freehand' && sampleY === shape.height
-      ? Math.max(0, sampleY - freehandBottomEpsilon)
-      : sampleY;
-    const span = getTxtShapeHorizontalSpan(shape, y);
-    if (!span) return null;
-    left = Math.max(left, span.left);
-    right = Math.min(right, span.right);
-    if (right - left <= 0.01) return null;
-  }
-  return { left, right };
-};
+  preferred?: TxtShapeHorizontalSpan | null,
+): TxtShapeHorizontalSpan | null => selectTxtShapeHorizontalSpan(
+  getTxtShapeHorizontalSpansForBand(shape, top, bottom),
+  preferred,
+);
 
 export const getTxtShapeClipPath = (
-  shape: Pick<TxtShape, 'regionKind' | 'regionPath'>,
+  shape: Pick<TxtShape, 'width' | 'height' | 'regionKind' | 'regionPath'>,
 ): string | undefined => {
   if (shape.regionKind === 'oval') return 'ellipse(50% 50% at 50% 50%)';
   if (shape.regionKind !== 'freehand' || !shape.regionPath?.length) return undefined;
-  return `polygon(${shape.regionPath.map((point) => `${point.x * 100}% ${point.y * 100}%`).join(', ')})`;
+  return `polygon(${getSimplifiedTxtShapeRegionPath(shape).map((point) => (
+    `${point.x / shape.width * 100}% ${point.y / shape.height * 100}%`
+  )).join(', ')})`;
 };
 
 export const getTxtShapeFlowInsetPath = (
@@ -674,11 +790,18 @@ export const getTxtShapeFlowInsetPath = (
   const lineHeight = getTxtShapeLineHeightPx(shape);
   const bandCount = Math.max(1, Math.floor(contentHeight / lineHeight));
   const points: string[] = [side === 'left' ? '0% 0%' : '100% 0%'];
+  let previousSpan: TxtShapeHorizontalSpan | null = null;
   for (let index = 0; index <= bandCount; index += 1) {
     const y = Math.min(contentHeight, index * lineHeight);
     const outerTop = Math.min(shape.height - padding, padding + y);
     const outerBottom = Math.min(shape.height - padding, outerTop + lineHeight);
-    const span = getTxtShapeHorizontalSpanForBand(shape, outerTop, outerBottom);
+    const span = getTxtShapeHorizontalSpanForBand(
+      shape,
+      outerTop,
+      outerBottom,
+      previousSpan,
+    );
+    if (span) previousSpan = span;
     const inset = side === 'left'
       ? Math.max(0, (span?.left ?? shape.width / 2) - padding)
       : Math.max(0, shape.width - padding - (span?.right ?? shape.width / 2));
@@ -1172,10 +1295,15 @@ export const getTxtShapeLineBlockBands = (
   }
   const lineHeightPx = getTxtShapeLineHeightPx(shape);
   const bandCount = Math.max(1, Math.ceil(shape.height / lineHeightPx));
+  let previousSpan: TxtShapeHorizontalSpan | null = null;
   return Array.from({ length: bandCount }, (_, index) => {
     const top = index * lineHeightPx;
     const bottom = Math.min(shape.height, top + lineHeightPx);
-    const span = getTxtShapeHorizontalSpan(shape, top + (bottom - top) / 2);
+    const span = selectTxtShapeHorizontalSpan(
+      getTxtShapeHorizontalSpans(shape, top + (bottom - top) / 2),
+      previousSpan,
+    );
+    if (span) previousSpan = span;
     return span && span.right > span.left
       ? { ...span, top, bottom }
       : null;
@@ -1229,6 +1357,7 @@ const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
   for (let columnIndex = 0; columnIndex < columns && sourceOffset < shape.content.length; columnIndex += 1) {
     const columnLeft = padding + columnIndex * (columnWidth + columnGap);
     const columnRight = columnLeft + columnWidth;
+    let previousRegionSpan: TxtShapeHorizontalSpan | null = null;
     const page = layoutTxtShapeTextPage({
       content: shape.content.slice(sourceOffset),
       font: `${rasterFontSize}px ${getTxtShapeFontDefinition(shape.fontFamily).stack}`,
@@ -1236,13 +1365,21 @@ const computeTxtShapeTextLayout = (shape: TxtShape): TxtShapeTextLayout => {
       getSpan: (lineIndex) => {
         const lineTop = padding + lineIndex * lineHeightPx;
         const lineBottom = lineTop + lineHeightPx;
-        const regionSpan = getTxtShapeHorizontalSpanForBand(shape, lineTop, lineBottom);
+        const regionSpans = getTxtShapeHorizontalSpansForBand(shape, lineTop, lineBottom)
+          .flatMap((span) => {
+            const clipped = {
+              left: Math.max(span.left, columnLeft),
+              right: Math.min(span.right, columnRight),
+            };
+            return clipped.right > clipped.left ? [clipped] : [];
+          });
+        const regionSpan = selectTxtShapeHorizontalSpan(regionSpans, previousRegionSpan);
         if (!regionSpan) return null;
-        const left = Math.max(regionSpan.left, columnLeft);
-        const right = Math.min(regionSpan.right, columnRight);
-        return right > left
-          ? { left: left / layoutScale, right: right / layoutScale }
-          : null;
+        previousRegionSpan = regionSpan;
+        return {
+          left: regionSpan.left / layoutScale,
+          right: regionSpan.right / layoutScale,
+        };
       },
       ...(hasMonoMetrics && {
         measureText: (text: string) => measureTxtShapeMonoText(

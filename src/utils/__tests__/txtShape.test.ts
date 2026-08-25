@@ -30,6 +30,7 @@ import {
   normalizeTxtShapes,
   resolveTxtShapeHiddenUnmappedRanges,
   setTxtShapeTransientSelectionOverrides,
+  simplifyTxtShapeFreehandPath,
   splitTxtShapeSegments,
   thresholdTxtShapePixelAlpha,
   updateTxtShapeSelectionTreatmentsForContent,
@@ -502,6 +503,66 @@ describe('TXT Shape document helpers', () => {
     expect(getTxtShapeRegionPathArea(triangle.regionPath ?? [])).toBeCloseTo(0.5);
     expect(getTxtShapeFlowInsetPath(oval, 'left')).toContain('polygon(');
     expect(getTxtShapePadding(createShape({ padding: 60 }))).toBe(24.5);
+  });
+
+  it('removes sub-line Free-path noise while preserving meaningful contours', () => {
+    const noisyPath = [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 100, y: 40 },
+      { x: 98.5, y: 50 },
+      { x: 100, y: 60 },
+      { x: 100, y: 100 },
+      { x: 0, y: 100 },
+    ];
+    const simplified = simplifyTxtShapeFreehandPath(noisyPath);
+    const noisyShape = createShape({
+      width: 100,
+      height: 100,
+      regionKind: 'freehand',
+      regionPath: noisyPath.map(({ x, y }) => ({ x: x / 100, y: y / 100 })),
+    });
+    const indentedShape = createShape({
+      ...noisyShape,
+      regionPath: noisyPath.map(({ x, y }) => ({
+        x: (x === 98.5 ? 94 : x) / 100,
+        y: y / 100,
+      })),
+    });
+
+    expect(simplified.length).toBeLessThan(noisyPath.length);
+    expect(getTxtShapeHorizontalSpan(noisyShape, 50)?.right).toBeCloseTo(100);
+    expect(getTxtShapeHorizontalSpan(indentedShape, 50)?.right).toBeCloseTo(94);
+  });
+
+  it('keeps shaped rows on the previous horizontal lobe when both remain usable', () => {
+    const concave = createShape({
+      width: 100,
+      height: 100,
+      regionKind: 'freehand',
+      regionPath: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 1, y: 1 },
+        { x: 0.6, y: 1 },
+        { x: 0.6, y: 0.4 },
+        { x: 0.4, y: 0.4 },
+        { x: 0.4, y: 1 },
+        { x: 0, y: 1 },
+      ],
+    });
+
+    expect(getTxtShapeHorizontalSpanForBand(concave, 50, 60)).toEqual({
+      left: 0,
+      right: 40,
+    });
+    expect(getTxtShapeHorizontalSpanForBand(concave, 50, 60, {
+      left: 60,
+      right: 100,
+    })).toEqual({
+      left: 60,
+      right: 100,
+    });
   });
 
   it('splits authored selected and unselected text without losing content', () => {
