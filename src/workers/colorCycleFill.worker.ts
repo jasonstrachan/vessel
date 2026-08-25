@@ -3,6 +3,7 @@
 import { applyDitheringWithFillResolution } from '@/hooks/brushEngine/dithering';
 import { fillConcentricToBuffer } from '@/utils/colorCycle/concentricFillCore';
 import { sampleShapeFootprintGradient } from '@/utils/colorCycle/ccShapeFootprintSamplingCore';
+import { extractAutoConvertRegions } from '@/utils/colorCycle/autoConvertRegions';
 import type {
   ColorCycleFillWorkerResponse,
   ConcentricFillJob,
@@ -95,6 +96,17 @@ const handleShapeGradientSample = (job: ShapeGradientSampleJob) => sampleShapeFo
   directionY: job.directionY,
 });
 
+const handleAutoConvertRegions = (
+  job: import('./colorCycleFillTypes').AutoConvertRegionsJob,
+) => extractAutoConvertRegions({
+  pixels: new Uint8ClampedArray(job.pixels),
+  width: job.width,
+  height: job.height,
+  targetShapes: job.targetShapes,
+  detail: job.detail,
+  maxColors: job.maxColors,
+});
+
 ctx.onmessage = (event: MessageEvent<WorkerMessage>) => {
   const { id, job } = event.data;
   const response: ColorCycleFillWorkerResponse = { id, ok: false, type: job.type };
@@ -121,6 +133,12 @@ ctx.onmessage = (event: MessageEvent<WorkerMessage>) => {
           throw new Error('No visible source pixels inside the sampled shape');
         }
         response.result = result;
+        response.ok = true;
+        ctx.postMessage(response);
+        return;
+      }
+      case 'auto-convert-regions': {
+        response.result = handleAutoConvertRegions(job);
         response.ok = true;
         ctx.postMessage(response);
         return;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { create } from 'zustand';
 import userEvent from '@testing-library/user-event';
 
@@ -452,6 +452,7 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     render(<BrushControls />);
 
     expect(screen.queryByTestId('gradient-editor')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Auto Convert' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Brush Size (px)')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
@@ -1008,6 +1009,36 @@ describe('BrushControls – Custom brush captured data mode', () => {
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {
+  it('shows Auto Convert only for the Color Cycle Gradient brush', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        currentTool: 'brush',
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          selectedCustomBrush: undefined,
+          colorCycleFillMode: 'linear',
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+    expect(screen.getByRole('button', { name: 'Auto Convert' })).toBeInTheDocument();
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        brushPresets: [{ id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['brushPresets'][number]],
+        currentBrushPreset: { id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['currentBrushPreset'],
+      }));
+    });
+    expect(screen.queryByRole('button', { name: 'Auto Convert' })).not.toBeInTheDocument();
+  });
+
   it.each([
     {
       id: 'color-cycle-gradient',

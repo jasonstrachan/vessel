@@ -1,4 +1,6 @@
 import type {
+  AutoConvertRegionsJob,
+  AutoConvertRegionsResult,
   ColorCycleFillJob,
   ColorCycleFillResult,
   ConcentricFillJob,
@@ -190,6 +192,11 @@ export const runConcentricFillJob = async (
 export const runShapeGradientSampleJob = async (
   job: ShapeGradientSampleJob
 ): Promise<ShapeGradientSampleResult> => runWorkerJob<ShapeGradientSampleJob, ShapeGradientSampleResult>(job);
+
+export const runAutoConvertRegionsJob = async (
+  job: AutoConvertRegionsJob,
+): Promise<AutoConvertRegionsResult> =>
+  runWorkerJob<AutoConvertRegionsJob, AutoConvertRegionsResult>(job);
 
 export const sampleShapeGradientFromCanvases = async ({
   compositeCanvas,
