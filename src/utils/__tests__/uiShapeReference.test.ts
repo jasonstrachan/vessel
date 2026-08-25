@@ -38,6 +38,7 @@ const renderGoldenHashes = (): Record<UiShapeTheme, Record<string, string>> => O
         width: spec.width,
         height: spec.height,
         ...(spec.label ? { label: spec.label } : {}),
+        ...(spec.iconId ? { iconId: spec.iconId } : {}),
         canonicalState: { ...spec.canonicalState },
       };
       drawUiShapeComponent(
@@ -63,20 +64,20 @@ const renderGoldenHashes = (): Record<UiShapeTheme, Record<string, string>> => O
 
 const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
   'macintosh-system-1': {
-    window: 'c350ab0519f938ac5afd3164ed121670e7fe716964d6e58213ad01ceae98b74f',
-    'title-bar': '0a8be420012f50acb193b3b897a0594755965b9723994b35439d29a11665251d',
-    'menu-strip': 'aa7ac0b5b6b3e715bebd4c6da969d5b0a0612641018d1735ebcac73e0acaf7ad',
+    window: '9e9ef751933d42f0ad0f4bf505dfeed0ca727d29b6c794dbe9b5c2dc80bfa4eb',
+    'title-bar': '2f2e1f056fe0c7074fbec8089c6bb469ee21a9387df1d19a9732dbbc12b9f72b',
+    'menu-strip': '24cf45cc6bcbbbaac8b803469c0c2e8eaebfa419110f154e12ea52ad835449e8',
     panel: 'df8f960f32786f3a84604524ca6667b60454645d265fdccdcec4c0e7a3a33599',
-    'group-box': 'e063fb37b693efacf2ae10cc8b0abf73dcf6b420b97d5286b510ecc818c91eca',
-    button: 'd4f646811a9b741b0c16a778b4224bd308a758e4f0b0ac93858d065e19a32a97',
-    'radio-button': 'a4c792e2e95e94da8ab39041e082433163f45bc04281903bc2235216e6a81a12',
+    'group-box': '55616608bf154e24b6ae4712d723c74964cd53bddb6c7ee0e5047de93fdb03cc',
+    button: '7502da93b0af5b66813ffb821fa92d7ec94f62c0a1feb8989b25f386c388f3d9',
+    'radio-button': '344be6ad6b69e90a0b264845587254ed14b25e2a18bf5cabc4211588b60f4906',
     'scrollbar-horizontal': '142460fc6fdaebf8441f6637fd3d1a7a6b4408687bb266e7c931a53e6031eb80',
     'scrollbar-vertical': '6cc752c65a5bb9e21319172e78e8e95704f017e32935883beb5820f15bccd16b',
     'selection-field': 'b89fef6537bd102d6c3af0fd4005a2ba839edc78b67c1b9428de5ffdb1d074d8',
     separator: '02864edacda05f7c46332d4fa90ab9088dd22418eb839f5a081dc97108f830dc',
-    'resize-corner': '5f4ecdb7b71c3e403983fe405cddcdc2f2576b655fdb3e80d94a6f7c32e58bc2',
-    icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
-    board: '4226aded5f6be7837e9d351f23a6d20ee3af2284243c3f8de2cd8fab5149b773',
+    'resize-corner': '6b0a78a120f8e73491b73aa746c8bd4c51aa0f3aab125c44ee57cae2c876f0d7',
+    icon: 'a2ca7ab3eeb2796b9aad5e4edb1299d2d593710b8ec82a0f505eb040076fba5b',
+    board: 'a42992a6fe0d76f50cfe218eb1d67a123af4532bce4374eb17566b918f440f8a',
   },
   'macintosh-system-7': {
     window: 'cf374a3ec8f30259eb9163478c3e979a098bb568ca54f4462ebb1cb3fbad406b',
@@ -138,6 +139,8 @@ describe('UI Shape native reference board', () => {
     expect(getUiShapeComponentReferenceSpec('windows-95', 'title-bar').height).toBe(18);
     expect(getUiShapeComponentReferenceSpec('windows-95', 'button'))
       .toEqual(expect.objectContaining({ width: 75, height: 23 }));
+    expect(getUiShapeComponentReferenceSpec('macintosh-system-1', 'icon').iconId)
+      .toBe('mac1-happy-mac');
     THEMES.forEach((theme) => {
       expect(getUiShapeComponentReferenceSpec(theme, 'radio-button')).toEqual(
         expect.objectContaining({
@@ -184,6 +187,38 @@ describe('UI Shape native reference board', () => {
         expect(render('VISIBLE TEXT')).toBe(render('DIFFERENT WORDS'));
       });
     });
+  });
+
+  it('keeps undersized System 1 grow boxes inside their component bounds', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 8;
+    canvas.height = 8;
+    const context = canvas.getContext('2d')!;
+    drawUiShapeComponent(
+      context,
+      {
+        id: 'small-grow-box',
+        kind: 'resize-corner',
+        x: 0,
+        y: 0,
+        width: 2,
+        height: 2,
+        canonicalState: {},
+      },
+      3,
+      3,
+      UI_SHAPE_THEME_PALETTES['macintosh-system-1'],
+      undefined,
+      'macintosh-system-1',
+    );
+
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let y = 0; y < canvas.height; y += 1) {
+      for (let x = 0; x < canvas.width; x += 1) {
+        if (x >= 3 && x <= 4 && y >= 3 && y <= 4) continue;
+        expect(pixels[(y * canvas.width + x) * 4 + 3]).toBe(0);
+      }
+    }
   });
 
   it('matches the exact per-component and complete-board pixel goldens', () => {

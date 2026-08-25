@@ -498,6 +498,21 @@ const RADIO_BUTTON_LAYERS = [
   '....1111....',
 ] as const;
 
+const MACINTOSH_RADIO_BUTTON_LAYERS = [
+  '....1111....',
+  '..11333311..',
+  '.1333333331.',
+  '.1333333331.',
+  '133333333331',
+  '133333333331',
+  '133333333331',
+  '133333333331',
+  '.1333333331.',
+  '.1333333331.',
+  '..11333311..',
+  '....1111....',
+] as const;
+
 const radioButtonPixel = (
   theme: UiShapeTheme,
   palette: UiShapePalette,
@@ -530,9 +545,12 @@ const drawRadioButton = (
   const size = Math.max(1, Math.min(12, width, height));
   const left = x + Math.floor((width - size) / 2);
   const top = y + Math.floor((height - size) / 2);
+  const layers = theme === 'macintosh-system-1'
+    ? MACINTOSH_RADIO_BUTTON_LAYERS
+    : RADIO_BUTTON_LAYERS;
   for (let targetY = 0; targetY < size; targetY += 1) {
     const sourceY = Math.floor(targetY * 12 / size);
-    const row = RADIO_BUTTON_LAYERS[sourceY]!;
+    const row = layers[sourceY]!;
     for (let targetX = 0; targetX < size; targetX += 1) {
       const sourceX = Math.floor(targetX * 12 / size);
       const color = radioButtonPixel(theme, palette, row[sourceX]!, sourceX, sourceY);
@@ -688,6 +706,130 @@ const drawMacFrame = (
   ctx.fillRect(x + width - 1, y, 1, height);
 };
 
+const drawMacRoundedOutline = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: string,
+): void => {
+  if (width < 3 || height < 3) return;
+  const radius = Math.max(1, Math.min(4, Math.floor(Math.min(width, height) / 4)));
+  ctx.fillStyle = color;
+  ctx.fillRect(x + radius, y, Math.max(0, width - radius * 2), 1);
+  ctx.fillRect(x + radius, y + height - 1, Math.max(0, width - radius * 2), 1);
+  for (let offset = 1; offset < radius; offset += 1) {
+    const inset = radius - offset;
+    ctx.fillRect(x + inset, y + offset, Math.max(0, width - inset * 2), 1);
+    ctx.fillRect(
+      x + inset,
+      y + height - offset - 1,
+      Math.max(0, width - inset * 2),
+      1,
+    );
+  }
+  ctx.fillRect(x, y + radius, 1, Math.max(0, height - radius * 2));
+  ctx.fillRect(x + width - 1, y + radius, 1, Math.max(0, height - radius * 2));
+};
+
+const drawMacRoundedFill = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: string,
+): void => {
+  const radius = Math.max(1, Math.min(4, Math.floor(Math.min(width, height) / 4)));
+  ctx.fillStyle = color;
+  for (let row = 0; row < height; row += 1) {
+    const edgeDistance = Math.min(row, height - row - 1);
+    const inset = edgeDistance < radius ? radius - edgeDistance : 0;
+    ctx.fillRect(x + inset, y + row, Math.max(0, width - inset * 2), 1);
+  }
+};
+
+const drawMacButton = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+  state: UiShapeComponentState,
+): void => {
+  drawMacRoundedFill(
+    ctx,
+    x,
+    y,
+    width,
+    height,
+    state.pressed === true ? palette.text : palette.face,
+  );
+  drawMacRoundedOutline(ctx, x, y, width, height, palette.text);
+  if (state.active === true && width > 8 && height > 8) {
+    drawMacRoundedOutline(
+      ctx,
+      x + 3,
+      y + 3,
+      width - 6,
+      height - 6,
+      state.pressed === true ? palette.face : palette.text,
+    );
+  }
+};
+
+const MACINTOSH_APPLE_GLYPH = [
+  '.....11..',
+  '....11...',
+  '....1....',
+  '.111.111.',
+  '111111111',
+  '1111111..',
+  '1111111..',
+  '111111111',
+  '111111111',
+  '.1111111.',
+  '..11.11..',
+] as const;
+
+const drawMacAppleGlyph = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  color: string,
+): void => {
+  ctx.fillStyle = color;
+  MACINTOSH_APPLE_GLYPH.forEach((row, rowIndex) => {
+    for (let column = 0; column < row.length; column += 1) {
+      if (row[column] === '1') ctx.fillRect(x + column, y + rowIndex, 1, 1);
+    }
+  });
+};
+
+const drawMacResizeCorner = (
+  ctx: UiShapeCanvasContext,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  palette: UiShapePalette,
+): void => {
+  drawMacFrame(ctx, x, y, width, height, palette);
+  const squareSize = Math.min(9, width - 5, height - 5);
+  if (squareSize < 3) return;
+  drawMacFrame(
+    ctx,
+    x + width - squareSize - 2,
+    y + height - squareSize - 2,
+    squareSize,
+    squareSize,
+    palette,
+  );
+  drawMacFrame(ctx, x + 2, y + 2, squareSize, squareSize, palette);
+};
+
 const drawMacTitleBar = (
   ctx: UiShapeCanvasContext,
   component: Pick<UiShapeComponent, 'height' | 'width'>,
@@ -706,14 +848,14 @@ const drawMacTitleBar = (
       ctx.fillRect(x + 1, y + offset, Math.max(0, component.width - 2), 1);
     }
   }
-  const closeSize = Math.max(4, Math.min(11, component.height - 4));
-  if (state.active !== false && component.width >= closeSize + 5) {
+  const closeSize = Math.max(4, Math.min(12, component.height - 6));
+  if (state.active !== false && component.width >= closeSize + 10) {
     drawMacFrame(
       ctx,
-      x + 4,
-      y + 2,
+      x + 8,
+      y + Math.floor((component.height - closeSize) / 2),
       closeSize,
-      Math.max(3, component.height - 4),
+      closeSize,
       palette,
     );
   }
@@ -871,31 +1013,24 @@ const drawMacComponent = (
       ctx.fillRect(x, y, width, height);
       ctx.fillStyle = palette.text;
       ctx.fillRect(x, y + height - 1, width, 1);
-      if (width >= 8 && height >= 7) {
-        ctx.fillRect(x + 3, y + 3, 4, 3);
-        ctx.fillRect(x + 4, y + 2, 2, 1);
-        ctx.fillRect(x + 5, y + 1, 2, 1);
-        ctx.fillStyle = palette.face;
-        ctx.fillRect(x + 6, y + 3, 1, 1);
+      if (width >= 10 && height >= 12) {
+        drawMacAppleGlyph(
+          ctx,
+          x + Math.min(17, Math.max(1, width - 10)),
+          y + Math.floor((height - 12) / 2),
+          palette.text,
+        );
       }
       break;
     case 'panel':
       drawMacFrame(ctx, x, y, width, height, palette);
       break;
     case 'group-box':
-      drawMacFrame(ctx, x, y + Math.max(3, Math.floor(height * 0.16)), width, Math.max(1, height - Math.max(3, Math.floor(height * 0.16))), palette);
+      drawMacFrame(ctx, x, y, width, height, palette);
       break;
-    case 'button': {
-      drawMacFrame(ctx, x, y, width, height, palette, state.pressed ? palette.text : palette.face);
-      if (width > 4 && height > 4) {
-        ctx.fillStyle = state.pressed ? palette.activeText : palette.darkShadow;
-        ctx.fillRect(x + 2, y + 2, width - 4, 1);
-        ctx.fillRect(x + 2, y + height - 3, width - 4, 1);
-        ctx.fillRect(x + 2, y + 2, 1, height - 4);
-        ctx.fillRect(x + width - 3, y + 2, 1, height - 4);
-      }
+    case 'button':
+      drawMacButton(ctx, x, y, width, height, palette, state);
       break;
-    }
     case 'radio-button':
       drawRadioButton(ctx, x, y, width, height, palette, state, 'macintosh-system-1');
       break;
@@ -935,15 +1070,7 @@ const drawMacComponent = (
       ctx.fillRect(x, y + Math.floor(height / 2), width, 1);
       break;
     case 'resize-corner':
-      ctx.fillStyle = palette.face;
-      ctx.fillRect(x, y, width, height);
-      ctx.strokeStyle = palette.text;
-      for (let offset = 2; offset < Math.min(width, height); offset += 3) {
-        ctx.beginPath();
-        ctx.moveTo(x + width - offset, y + height - 1);
-        ctx.lineTo(x + width - 1, y + height - offset);
-        ctx.stroke();
-      }
+      drawMacResizeCorner(ctx, x, y, width, height, palette);
       break;
   }
 };

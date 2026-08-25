@@ -1,3 +1,4 @@
+import { UI_SHAPE_MACINTOSH_ICONS } from '@/utils/uiShapeMacintoshIcons';
 import { UI_SHAPE_WIN98_ICONS } from '@/utils/uiShapeWin98Icons';
 
 // Generated unchanged from tstamborski/pixelart-icons commit 5e3810b968e6f0c8507a78807e32ade7e9db2372 (CC0-1.0).
@@ -3581,6 +3582,7 @@ const UI_SHAPE_PIXELART_ICONS: readonly UiShapeIconDefinition[] = [
 
 export const UI_SHAPE_ICONS: readonly UiShapeIconDefinition[] = [
   ...UI_SHAPE_PIXELART_ICONS,
+  ...UI_SHAPE_MACINTOSH_ICONS,
   ...UI_SHAPE_WIN98_ICONS,
 ];
 

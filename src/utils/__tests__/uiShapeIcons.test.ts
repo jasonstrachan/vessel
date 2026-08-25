@@ -40,8 +40,14 @@ const renderIcon = (iconId: string, componentPalette = palette): Uint8ClampedArr
 };
 
 describe('UI Shape icon catalogue', () => {
-  it('combines the curated CC0 icons with the complete Windows 98 archive', () => {
-    expect(UI_SHAPE_ICONS).toHaveLength(2_011);
+  it('combines the curated CC0, System 1, and complete Windows 98 catalogues', () => {
+    expect(UI_SHAPE_ICONS).toHaveLength(2_021);
+    expect(getUiShapeIcon('mac1-happy-mac')).toEqual(expect.objectContaining({
+      label: 'System 1 · Happy Mac',
+      width: 32,
+      height: 32,
+      encoding: 'rle',
+    }));
     expect(getUiShapeIcon('win98-ms_dos-1')).toEqual(expect.objectContaining({
       label: 'Win98 · MS DOS 1',
       width: 32,
@@ -55,6 +61,26 @@ describe('UI Shape icon catalogue', () => {
     drawUiShapeIcon(context, DEFAULT_UI_SHAPE_ICON_ID, 0, 0, 16, 16);
     expect([...context.getImageData(0, 0, 16, 16).data]
       .some((channel) => channel !== 0)).toBe(true);
+  });
+
+  it('contains complete, palette-safe run data for every System 1 icon', () => {
+    const macintoshIcons = UI_SHAPE_ICONS.filter((icon) => icon.id.startsWith('mac1-'));
+    expect(macintoshIcons).toHaveLength(10);
+    macintoshIcons.forEach((icon) => {
+      const encoded = Uint8Array.from(
+        atob(icon.pixels),
+        (character) => character.charCodeAt(0),
+      );
+      expect(encoded.length % 2).toBe(0);
+      let pixels = 0;
+      let isPaletteSafe = true;
+      for (let index = 0; index < encoded.length; index += 2) {
+        pixels += encoded[index]!;
+        isPaletteSafe = isPaletteSafe && encoded[index + 1]! < icon.palette.length;
+      }
+      expect(isPaletteSafe).toBe(true);
+      expect(pixels).toBe(icon.width * icon.height);
+    });
   });
 
   it('contains complete, palette-safe run data for every Windows 98 icon', () => {
@@ -93,6 +119,8 @@ describe('UI Shape icon catalogue', () => {
 
     expect(renderIcon('folder-yellow16', palette))
       .toEqual(renderIcon('folder-yellow16', alternatePalette));
+    expect(renderIcon('mac1-happy-mac', palette))
+      .toEqual(renderIcon('mac1-happy-mac', alternatePalette));
     expect(renderIcon('win98-ms_dos-1', palette))
       .toEqual(renderIcon('win98-ms_dos-1', alternatePalette));
   });

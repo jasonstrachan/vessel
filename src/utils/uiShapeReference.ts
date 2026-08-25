@@ -15,6 +15,7 @@ export interface UiShapeComponentReferenceSpec {
   minimumWidth: number;
   minimumHeight: number;
   label?: string;
+  iconId?: string;
   canonicalState: UiShapeComponentState;
 }
 
@@ -181,6 +182,10 @@ export const UI_SHAPE_REFERENCE_SPECS: Record<
       label: 'SELECTED',
       canonicalState: { active: true },
     },
+    icon: {
+      ...common({ scrollbar: 16, caption: 18, menu: 20, buttonHeight: 20 }).icon,
+      iconId: 'mac1-happy-mac',
+    },
   },
   'macintosh-system-7': common({ scrollbar: 16, caption: 20, menu: 20, buttonHeight: 20 }),
   'windows-3.1': common({ scrollbar: 17, caption: 18, menu: 19, buttonHeight: 23 }),
@@ -214,6 +219,7 @@ export const createUiShapeReferenceBoard = (theme: UiShapeTheme): UiShapeReferen
       width: spec.width,
       height: spec.height,
       ...(spec.label ? { label: spec.label } : {}),
+      ...(spec.iconId ? { iconId: spec.iconId } : {}),
       canonicalState: { ...spec.canonicalState },
     };
     return {
