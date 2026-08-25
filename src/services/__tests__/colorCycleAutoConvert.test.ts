@@ -259,6 +259,23 @@ describe('autoConvertActiveImageToColorCycle', () => {
     }));
   });
 
+  it('reports analysis and painting progress without changing conversion behavior', async () => {
+    const onProgress = jest.fn();
+
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 24,
+      focus: 50,
+      resolutionRange: [1, 8],
+      onProgress,
+    });
+
+    expect(onProgress.mock.calls.map(([progress]) => progress)).toEqual([
+      { phase: 'analyzing' },
+      { phase: 'painting', completed: 0, total: 1 },
+      { phase: 'painting', completed: 1, total: 1 },
+    ]);
+  });
+
   it('does not clip converted contours to transparent source pixels', async () => {
     sourceImage.data[3] = 0;
 
@@ -281,13 +298,13 @@ describe('autoConvertActiveImageToColorCycle', () => {
 
   it('clamps shape and focus requests at their supported maxima', async () => {
     await autoConvertActiveImageToColorCycle({
-      targetShapes: 999,
+      targetShapes: 9999,
       focus: 999,
       resolutionRange: [1, 8],
     });
 
     expect(mockedRunRegions).toHaveBeenCalledWith(expect.objectContaining({
-      targetShapes: 200,
+      targetShapes: 1000,
       focus: 100,
     }));
   });
@@ -463,6 +480,45 @@ describe('autoConvertActiveImageToColorCycle', () => {
     }));
   });
 
+  it('clusters more than 240 shape gradients onto image-derived representatives', async () => {
+    const regions = Array.from({ length: 242 }, (_, index) => {
+      const color = `#${index.toString(16).padStart(2, '0')}0000`;
+      return {
+        points: [
+          { x: index, y: 0 },
+          { x: index + 1, y: 0 },
+          { x: index + 1, y: 1 },
+        ],
+        direction: { x: 1, y: 0 },
+        linearGradientSpan: 1,
+        sampledStops: [
+          { position: 0, color },
+          { position: 1, color },
+        ],
+        pixelCount: 242 - index,
+        detailScore: index / 241,
+      };
+    });
+    mockedRunRegions.mockResolvedValueOnce({
+      analysisWidth: 242,
+      analysisHeight: 1,
+      regions,
+    });
+
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 242,
+      focus: 100,
+      resolutionRange: [1, 8],
+    });
+
+    const sourceSignatures = new Set(regions.map((region) => JSON.stringify(region.sampledStops)));
+    const committedSignatures = mockedEnsureGradientDef.mock.calls.map(([call]) => (
+      JSON.stringify(call.sourceStops)
+    ));
+    expect(new Set(committedSignatures).size).toBeLessThanOrEqual(240);
+    expect(committedSignatures.every((signature) => sourceSignatures.has(signature))).toBe(true);
+  });
+
   it('maps measured detail across the requested resolution range', async () => {
     const createRegion = (detailScore: number, pixelCount: number, pointCount: number) => ({
       points: Array.from({ length: pointCount }, (_, index) => ({ x: index, y: index % 2 })),
@@ -496,9 +552,47 @@ describe('autoConvertActiveImageToColorCycle', () => {
     expect(mockedFillLinear.mock.calls.map(([call]) => call.options?.ditherPixelSize)).toEqual([
       10,
       2,
-      8,
-      5,
+      2,
+      2,
     ]);
+  });
+
+  it('keeps low Res values in detailed regions and reserves high Res for the flattest tail', async () => {
+    const regions = Array.from({ length: 100 }, (_, index) => ({
+      points: [
+        { x: index, y: 0 },
+        { x: index + 1, y: 0 },
+        { x: index + 1, y: 1 },
+      ],
+      direction: { x: 1, y: 0 },
+      linearGradientSpan: 1,
+      sampledStops: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      pixelCount: 1,
+      detailScore: 1 - index / 99,
+    }));
+    mockedRunRegions.mockResolvedValueOnce({
+      analysisWidth: 100,
+      analysisHeight: 1,
+      regions,
+    });
+
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 100,
+      focus: 100,
+      resolutionRange: [1, 8],
+    });
+
+    const resolutions = mockedFillLinear.mock.calls.map(
+      ([call]) => call.options?.ditherPixelSize ?? 0,
+    );
+    expect(resolutions.filter((resolution) => resolution === 1).length).toBeGreaterThan(75);
+    expect(resolutions.filter((resolution) => resolution === 8)).toHaveLength(1);
+    expect(resolutions.every((resolution, index) => (
+      index === 0 || resolution >= resolutions[index - 1]
+    ))).toBe(true);
   });
 
   it('does not invent resolution differences when regions have equal measured detail', async () => {

@@ -40,6 +40,7 @@ type Cluster = {
   b: number;
   x: number;
   y: number;
+  detail: number;
 };
 
 type GridPoint = { x: number; y: number };
@@ -194,6 +195,50 @@ const buildDetailMap = (
 ): Float32Array => {
   const rawDetail = new Float32Array(pixels.length);
   const positiveValues: number[] = [];
+  const integralWidth = width + 1;
+  const integralSize = integralWidth * (height + 1);
+  const redIntegral = new Float64Array(integralSize);
+  const greenIntegral = new Float64Array(integralSize);
+  const blueIntegral = new Float64Array(integralSize);
+  const alphaIntegral = new Float64Array(integralSize);
+  for (let y = 0; y < height; y += 1) {
+    let rowRed = 0;
+    let rowGreen = 0;
+    let rowBlue = 0;
+    let rowAlpha = 0;
+    for (let x = 0; x < width; x += 1) {
+      const pixel = pixels[y * width + x];
+      const alpha = pixel.a / 255;
+      rowRed += pixel.r * alpha;
+      rowGreen += pixel.g * alpha;
+      rowBlue += pixel.b * alpha;
+      rowAlpha += alpha;
+      const integralIndex = (y + 1) * integralWidth + x + 1;
+      const above = integralIndex - integralWidth;
+      redIntegral[integralIndex] = redIntegral[above] + rowRed;
+      greenIntegral[integralIndex] = greenIntegral[above] + rowGreen;
+      blueIntegral[integralIndex] = blueIntegral[above] + rowBlue;
+      alphaIntegral[integralIndex] = alphaIntegral[above] + rowAlpha;
+    }
+  }
+  const sumRect = (
+    integral: Float64Array,
+    minX: number,
+    minY: number,
+    maxX: number,
+    maxY: number,
+  ): number => {
+    const topLeft = minY * integralWidth + minX;
+    const topRight = minY * integralWidth + maxX;
+    const bottomLeft = maxY * integralWidth + minX;
+    const bottomRight = maxY * integralWidth + maxX;
+    return integral[bottomRight] - integral[topRight] - integral[bottomLeft] + integral[topLeft];
+  };
+  const scales = [
+    { radius: 1, weight: 0.5 },
+    { radius: 3, weight: 0.3 },
+    { radius: 7, weight: 0.2 },
+  ] as const;
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < width; x += 1) {
       const index = y * width + x;
@@ -201,32 +246,28 @@ const buildDetailMap = (
       if (pixel.a <= 0) {
         continue;
       }
-      let totalDifference = 0;
-      let neighbourCount = 0;
-      for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
-        for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
-          if (offsetX === 0 && offsetY === 0) {
-            continue;
-          }
-          const neighbourX = x + offsetX;
-          const neighbourY = y + offsetY;
-          if (
-            neighbourX < 0
-            || neighbourY < 0
-            || neighbourX >= width
-            || neighbourY >= height
-          ) {
-            continue;
-          }
-          const neighbour = pixels[neighbourY * width + neighbourX];
-          const alphaDifference = Math.abs(pixel.a - neighbour.a) / 255;
-          const visibleWeight = Math.min(pixel.a, neighbour.a) / 255;
-          totalDifference += colorDistance(pixel, neighbour) * visibleWeight
-            + alphaDifference * 0.35;
-          neighbourCount += 1;
-        }
+      let value = 0;
+      for (const scale of scales) {
+        const minX = Math.max(0, x - scale.radius);
+        const minY = Math.max(0, y - scale.radius);
+        const maxX = Math.min(width, x + scale.radius + 1);
+        const maxY = Math.min(height, y + scale.radius + 1);
+        const area = Math.max(1, (maxX - minX) * (maxY - minY));
+        const alphaWeight = sumRect(alphaIntegral, minX, minY, maxX, maxY);
+        const meanAlpha = alphaWeight / area;
+        const meanPixel: AnalysisPixel = alphaWeight > Number.EPSILON
+          ? {
+              r: sumRect(redIntegral, minX, minY, maxX, maxY) / alphaWeight,
+              g: sumRect(greenIntegral, minX, minY, maxX, maxY) / alphaWeight,
+              b: sumRect(blueIntegral, minX, minY, maxX, maxY) / alphaWeight,
+              a: meanAlpha * 255,
+            }
+          : pixel;
+        value += scale.weight * (
+          colorDistance(pixel, meanPixel) * Math.min(1, alphaWeight)
+          + Math.abs(pixel.a / 255 - meanAlpha) * 0.35
+        );
       }
-      const value = neighbourCount > 0 ? totalDifference / neighbourCount : 0;
       rawDetail[index] = value;
       if (value > 0) {
         positiveValues.push(value);
@@ -294,6 +335,11 @@ const selectInitialClusters = (
     return [];
   }
   const count = Math.min(requestedCount, visibleIndices.length);
+  const normalizedFocus = clamp(
+    focus,
+    AUTO_CONVERT_MIN_FOCUS,
+    AUTO_CONVERT_MAX_FOCUS,
+  ) / AUTO_CONVERT_MAX_FOCUS;
   const centroid = visibleIndices.reduce(
     (accumulator, index) => ({
       x: accumulator.x + index % width,
@@ -308,51 +354,112 @@ const selectInitialClusters = (
   for (const index of visibleIndices) {
     const x = index % width;
     const y = Math.floor(index / width);
-    const distance = (x - centroid.x) ** 2 + (y - centroid.y) ** 2;
+    const distance = (x - centroid.x) ** 2
+      + (y - centroid.y) ** 2
+      + normalizedFocus * detailMap[index] * (width * width + height * height) * 0.05;
     if (distance < firstDistance) {
       firstDistance = distance;
       firstIndex = index;
     }
   }
-  const seedIndices = [firstIndex];
-  const minimumDistances = new Float64Array(width * height);
-  minimumDistances.fill(Infinity);
-  const normalizedFocus = clamp(
-    focus,
-    AUTO_CONVERT_MIN_FOCUS,
-    AUTO_CONVERT_MAX_FOCUS,
-  ) / AUTO_CONVERT_MAX_FOCUS;
-  const focusBias = 96 * normalizedFocus ** 2;
-  while (seedIndices.length < count) {
-    const latest = seedIndices[seedIndices.length - 1];
-    const latestX = latest % width;
-    const latestY = Math.floor(latest / width);
-    let nextIndex = visibleIndices[0];
-    let nextDistance = -1;
-    for (const index of visibleIndices) {
-      const x = index % width;
-      const y = Math.floor(index / width);
-      const distance = (x - latestX) ** 2 + (y - latestY) ** 2;
-      minimumDistances[index] = Math.min(minimumDistances[index], distance);
-      const weightedDistance = minimumDistances[index]
-        * (1 + focusBias * detailMap[index] ** 1.5);
-      if (weightedDistance > nextDistance) {
-        nextDistance = weightedDistance;
-        nextIndex = index;
-      }
-    }
-    seedIndices.push(nextIndex);
-  }
-  return seedIndices.map((index) => {
+  const assignments = new Int16Array(width * height);
+  assignments.fill(-1);
+  const minimumErrors = new Float64Array(width * height);
+  minimumErrors.fill(Infinity);
+  const detailWeight = (index: number): number => (
+    (1 - normalizedFocus) + normalizedFocus * (0.2 + 64 * detailMap[index] ** 2)
+  );
+  const featureError = (index: number, cluster: Cluster): number => {
     const pixel = pixels[index];
+    const x = index % width;
+    const y = Math.floor(index / width);
+    const spatialError = ((x - cluster.x) ** 2 + (y - cluster.y) ** 2)
+      / Math.max(1, width * width + height * height);
+    const red = pixel.r - cluster.r;
+    const green = pixel.g - cluster.g;
+    const blue = pixel.b - cluster.b;
+    const colorError = (
+      red * red * 0.3
+      + green * green * 0.59
+      + blue * blue * 0.11
+    ) / 65025;
+    const localDetail = Math.max(detailMap[index], cluster.detail);
+    return colorError * (0.35 + normalizedFocus * 0.65)
+      + spatialError * (0.65 + normalizedFocus * localDetail * 8);
+  };
+  const createCluster = (seedIndex: number): Cluster => {
+    const pixel = pixels[seedIndex];
     return {
       r: pixel.r,
       g: pixel.g,
       b: pixel.b,
-      x: index % width,
-      y: Math.floor(index / width),
+      x: seedIndex % width,
+      y: Math.floor(seedIndex / width),
+      detail: detailMap[seedIndex],
     };
-  });
+  };
+  const clusters: Cluster[] = [createCluster(firstIndex)];
+  const clusterMembers: number[][] = [visibleIndices];
+  const clusterErrors: number[] = [0];
+  for (const index of visibleIndices) {
+    assignments[index] = 0;
+    minimumErrors[index] = featureError(index, clusters[0]);
+    clusterErrors[0] += minimumErrors[index] * detailWeight(index);
+  }
+  while (clusters.length < count) {
+    let splitClusterIndex = 0;
+    for (let index = 1; index < clusterErrors.length; index += 1) {
+      if (
+        clusterMembers[index].length > 1
+        && (
+          clusterMembers[splitClusterIndex].length <= 1
+          || clusterErrors[index] > clusterErrors[splitClusterIndex]
+        )
+      ) {
+        splitClusterIndex = index;
+      }
+    }
+    const sourceMembers = clusterMembers[splitClusterIndex];
+    if (sourceMembers.length <= 1) {
+      break;
+    }
+    let nextIndex = -1;
+    let nextError = -1;
+    for (const index of sourceMembers) {
+      const weightedError = minimumErrors[index] * detailWeight(index);
+      if (weightedError > nextError) {
+        nextError = weightedError;
+        nextIndex = index;
+      }
+    }
+    if (nextIndex < 0) {
+      break;
+    }
+    const nextClusterIndex = clusters.length;
+    const nextCluster = createCluster(nextIndex);
+    const retainedMembers: number[] = [];
+    const nextMembers: number[] = [];
+    let retainedError = 0;
+    let nextClusterError = 0;
+    for (const index of sourceMembers) {
+      const nextErrorForPixel = featureError(index, nextCluster);
+      if (nextErrorForPixel < minimumErrors[index]) {
+        assignments[index] = nextClusterIndex;
+        minimumErrors[index] = nextErrorForPixel;
+        nextMembers.push(index);
+        nextClusterError += nextErrorForPixel * detailWeight(index);
+      } else {
+        retainedMembers.push(index);
+        retainedError += minimumErrors[index] * detailWeight(index);
+      }
+    }
+    clusters.push(nextCluster);
+    clusterMembers[splitClusterIndex] = retainedMembers;
+    clusterMembers.push(nextMembers);
+    clusterErrors[splitClusterIndex] = retainedError;
+    clusterErrors.push(nextClusterError);
+  }
+  return clusters;
 };
 
 const assignClusters = (
@@ -360,10 +467,17 @@ const assignClusters = (
   width: number,
   height: number,
   clusters: Cluster[],
+  detailMap: Float32Array,
+  focus: number,
 ): Int16Array => {
   const labels = new Int16Array(width * height);
   labels.fill(-1);
   const spatialScale = 0.85 / Math.max(1, width * width + height * height);
+  const normalizedFocus = clamp(
+    focus,
+    AUTO_CONVERT_MIN_FOCUS,
+    AUTO_CONVERT_MAX_FOCUS,
+  ) / AUTO_CONVERT_MAX_FOCUS;
   type Candidate = { index: number; clusterIndex: number; score: number };
   const heap: Candidate[] = [];
   const pushCandidate = (candidate: Candidate): void => {
@@ -406,7 +520,10 @@ const assignClusters = (
           + (pixel.b - cluster.b) ** 2 * 0.11
         ) / 65025
       : 0;
-    const spatialDistance = ((x - cluster.x) ** 2 + (y - cluster.y) ** 2) * spatialScale;
+    const detailBarrier = Math.max(detailMap[index], cluster.detail);
+    const spatialDistance = ((x - cluster.x) ** 2 + (y - cluster.y) ** 2)
+      * spatialScale
+      * (1 + normalizedFocus * detailBarrier * 8);
     return colorDistance + spatialDistance;
   };
   const neighbours = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
@@ -749,7 +866,14 @@ export const extractAutoConvertRegions = ({
       analysisHeight: analysis.height,
     };
   }
-  const labels = assignClusters(analysis.pixels, analysis.width, analysis.height, clusters);
+  const labels = assignClusters(
+    analysis.pixels,
+    analysis.width,
+    analysis.height,
+    clusters,
+    detailMap,
+    focus,
+  );
   const regions: AutoConvertRegion[] = [];
   for (let clusterIndex = 0; clusterIndex < clusters.length; clusterIndex += 1) {
     const component = collectLargestClusterComponent(

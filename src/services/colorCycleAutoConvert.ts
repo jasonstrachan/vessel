@@ -1,6 +1,7 @@
 import {
   AUTO_CONVERT_MAX_FOCUS,
   AUTO_CONVERT_MAX_RESOLUTION,
+  AUTO_CONVERT_MAX_SAMPLED_GRADIENTS,
   AUTO_CONVERT_MAX_SHAPES,
   AUTO_CONVERT_MIN_FOCUS,
   AUTO_CONVERT_MIN_RESOLUTION,
@@ -29,6 +30,7 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { BrushSettings, Layer } from '@/types';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 import type { AutoConvertRegion } from '@/utils/colorCycle/autoConvertRegions';
@@ -42,7 +44,12 @@ export type ColorCycleAutoConvertOptions = {
   targetShapes: number;
   focus: number;
   resolutionRange: [number, number];
+  onProgress?: (progress: ColorCycleAutoConvertProgress) => void;
 };
+
+export type ColorCycleAutoConvertProgress =
+  | { phase: 'analyzing' }
+  | { phase: 'painting'; completed: number; total: number };
 
 export type ColorCycleAutoConvertResult = {
   layerId: string;
@@ -188,6 +195,8 @@ const clampResolution = (value: number): number => (
     : AUTO_CONVERT_MIN_RESOLUTION
 );
 
+const AUTO_CONVERT_RESOLUTION_RANK_EXPONENT = 16;
+
 const resolveRegionDitherPixelSizes = (
   regions: AutoConvertRegion[],
   resolutionRange: [number, number],
@@ -208,11 +217,98 @@ const resolveRegionDitherPixelSizes = (
   const minimum = Math.min(...detailScores);
   const maximum = Math.max(...detailScores);
   const range = maximum - minimum;
+  if (range <= Number.EPSILON) {
+    return regions.map(() => maximumResolution);
+  }
+  const rankedScores = [...new Set(detailScores)].sort((left, right) => right - left);
+  const rankByScore = new Map(rankedScores.map((score, index) => [
+    score,
+    rankedScores.length > 1 ? index / (rankedScores.length - 1) : 1,
+  ]));
   return detailScores.map((score) => {
-    const normalizedScore = range > Number.EPSILON
-      ? (score - minimum) / range
-      : score;
-    return maximumResolution - Math.round(normalizedScore * resolutionSpan);
+    const detailRank = rankByScore.get(score) ?? 1;
+    const longTailRank = detailRank ** AUTO_CONVERT_RESOLUTION_RANK_EXPONENT;
+    return minimumResolution + Math.round(longTailRank * resolutionSpan);
+  });
+};
+
+const describeGradient = (region: AutoConvertRegion): number[] => {
+  const stops = [...region.sampledStops].sort((left, right) => left.position - right.position);
+  return [0, 0.25, 0.5, 0.75, 1].flatMap((position) => {
+    const rightIndex = stops.findIndex((stop) => stop.position >= position);
+    const right = stops[rightIndex < 0 ? stops.length - 1 : rightIndex];
+    const left = stops[Math.max(0, rightIndex <= 0 ? 0 : rightIndex - 1)];
+    if (!left || !right) {
+      return [0, 0, 0];
+    }
+    const span = Math.max(Number.EPSILON, right.position - left.position);
+    const amount = Math.max(0, Math.min(1, (position - left.position) / span));
+    const leftColor = parseCssColor(left.color);
+    const rightColor = parseCssColor(right.color);
+    return [
+      leftColor.r + (rightColor.r - leftColor.r) * amount,
+      leftColor.g + (rightColor.g - leftColor.g) * amount,
+      leftColor.b + (rightColor.b - leftColor.b) * amount,
+    ];
+  });
+};
+
+const clusterRegionGradientStops = (
+  regions: AutoConvertRegion[],
+): AutoConvertRegion['sampledStops'][] => {
+  if (regions.length <= AUTO_CONVERT_MAX_SAMPLED_GRADIENTS) {
+    return regions.map((region) => region.sampledStops);
+  }
+  const descriptors = regions.map(describeGradient);
+  const distance = (left: number[], right: number[]): number => left.reduce(
+    (total, value, index) => total + (value - right[index]) ** 2,
+    0,
+  );
+  let largestRegionIndex = 0;
+  for (let index = 1; index < regions.length; index += 1) {
+    if (regions[index].pixelCount > regions[largestRegionIndex].pixelCount) {
+      largestRegionIndex = index;
+    }
+  }
+  const representativeIndexes = [largestRegionIndex];
+  const minimumDistances = descriptors.map((descriptor) => (
+    distance(descriptor, descriptors[largestRegionIndex])
+  ));
+  minimumDistances[largestRegionIndex] = 0;
+  while (representativeIndexes.length < AUTO_CONVERT_MAX_SAMPLED_GRADIENTS) {
+    let nextIndex = -1;
+    let nextScore = 0;
+    for (let index = 0; index < regions.length; index += 1) {
+      const score = minimumDistances[index] * Math.sqrt(Math.max(1, regions[index].pixelCount));
+      if (score > nextScore) {
+        nextScore = score;
+        nextIndex = index;
+      }
+    }
+    if (nextIndex < 0) {
+      break;
+    }
+    representativeIndexes.push(nextIndex);
+    minimumDistances[nextIndex] = 0;
+    for (let index = 0; index < descriptors.length; index += 1) {
+      minimumDistances[index] = Math.min(
+        minimumDistances[index],
+        distance(descriptors[index], descriptors[nextIndex]),
+      );
+    }
+  }
+  return descriptors.map((descriptor) => {
+    let nearestIndex = representativeIndexes[0];
+    let nearestDistance = distance(descriptor, descriptors[nearestIndex]);
+    for (let index = 1; index < representativeIndexes.length; index += 1) {
+      const candidateIndex = representativeIndexes[index];
+      const candidateDistance = distance(descriptor, descriptors[candidateIndex]);
+      if (candidateDistance < nearestDistance) {
+        nearestDistance = candidateDistance;
+        nearestIndex = candidateIndex;
+      }
+    }
+    return regions[nearestIndex].sampledStops;
   });
 };
 
@@ -220,6 +316,7 @@ export const autoConvertActiveImageToColorCycle = async ({
   targetShapes,
   focus,
   resolutionRange,
+  onProgress,
 }: ColorCycleAutoConvertOptions): Promise<ColorCycleAutoConvertResult> => {
   const stateBefore = getAppStoreState();
   const project = stateBefore.project;
@@ -231,6 +328,7 @@ export const autoConvertActiveImageToColorCycle = async ({
   if (fillMode === 'stroke') {
     throw new Error('Choose Grad or Concentric before auto converting');
   }
+  onProgress?.({ phase: 'analyzing' });
   const sourceImage = captureSourceImage(sourceLayer);
   const sourceVersion = sourceLayer.version;
   const settings: BrushSettings = {
@@ -346,6 +444,12 @@ export const autoConvertActiveImageToColorCycle = async ({
       segmentation.regions,
       resolutionRange,
     );
+    const regionGradientStops = clusterRegionGradientStops(segmentation.regions);
+    onProgress?.({
+      phase: 'painting',
+      completed: 0,
+      total: segmentation.regions.length,
+    });
     const sharedFillArgs = {
       initializeColorCycleBrush: () => fillBrush,
       activeLayerId: targetLayerId,
@@ -359,9 +463,10 @@ export const autoConvertActiveImageToColorCycle = async ({
     };
     for (let index = 0; index < segmentation.regions.length; index += 1) {
       const region = segmentation.regions[index];
+      const clusteredStops = regionGradientStops[index];
       const sampledSourceStops = resolveMarkSessionRuntimeStops(
         regionGradientSession,
-        region.sampledStops,
+        clusteredStops,
         {
           enabled: false,
           rangeContrast: settings.ccGradientRangeContrast,
@@ -369,7 +474,7 @@ export const autoConvertActiveImageToColorCycle = async ({
       );
       const runtimeStops = resolveMarkSessionRuntimeStops(
         regionGradientSession,
-        region.sampledStops,
+        clusteredStops,
         {
           enabled: Boolean(settings.ditherEnabled),
           pairBandCount: ditherMode.pairBandCount,
@@ -385,7 +490,7 @@ export const autoConvertActiveImageToColorCycle = async ({
         layerId: targetLayerId,
         kind: gradientKind,
         stops: runtimeStops,
-        sourceStops: region.sampledStops,
+        sourceStops: clusteredStops,
         source: 'sampled',
         seamProfile: settings.colorCycleGradientSeamProfile,
         sampledCapacityFallback: 'reuse-nearest-compatible',
@@ -433,6 +538,16 @@ export const autoConvertActiveImageToColorCycle = async ({
           vertices: region.points,
           direction: region.direction,
           options,
+        });
+      }
+      const completed = index + 1;
+      const previousPercent = Math.floor((index * 100) / segmentation.regions.length);
+      const completedPercent = Math.floor((completed * 100) / segmentation.regions.length);
+      if (completed === segmentation.regions.length || completedPercent > previousPercent) {
+        onProgress?.({
+          phase: 'painting',
+          completed,
+          total: segmentation.regions.length,
         });
       }
     }

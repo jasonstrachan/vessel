@@ -10,7 +10,10 @@ import {
   AUTO_CONVERT_MIN_RESOLUTION,
   AUTO_CONVERT_MIN_SHAPES,
 } from '@/constants/colorCycleAutoConvert';
-import { autoConvertActiveImageToColorCycle } from '@/services/colorCycleAutoConvert';
+import {
+  autoConvertActiveImageToColorCycle,
+  type ColorCycleAutoConvertProgress,
+} from '@/services/colorCycleAutoConvert';
 import { useAppStore } from '@/stores/useAppStore';
 
 import LabeledSlider from '../ui/LabeledSlider';
@@ -32,18 +35,29 @@ export const ColorCycleAutoConvertControls = () => {
     DEFAULT_RESOLUTION_RANGE,
   );
   const [isConverting, setIsConverting] = React.useState(false);
+  const [progress, setProgress] = React.useState<ColorCycleAutoConvertProgress | null>(null);
   const canConvert = activeLayerType === 'normal';
+  const paintingPercent = progress?.phase === 'painting'
+    ? Math.round((progress.completed / Math.max(1, progress.total)) * 100)
+    : null;
+  const buttonLabel = !isConverting
+    ? 'Auto Convert'
+    : progress?.phase === 'painting'
+      ? `Painting ${progress.completed} / ${progress.total}`
+      : 'Analyzing…';
 
   const handleConvert = React.useCallback(async () => {
     if (isConverting) {
       return;
     }
     setIsConverting(true);
+    setProgress({ phase: 'analyzing' });
     try {
       const result = await autoConvertActiveImageToColorCycle({
         targetShapes: shapes,
         focus,
         resolutionRange,
+        onProgress: setProgress,
       });
       addNotification?.({
         type: 'success',
@@ -60,6 +74,7 @@ export const ColorCycleAutoConvertControls = () => {
       });
     } finally {
       setIsConverting(false);
+      setProgress(null);
     }
   }, [addNotification, focus, isConverting, resolutionRange, shapes]);
 
@@ -102,16 +117,44 @@ export const ColorCycleAutoConvertControls = () => {
         maxAriaLabel="Auto Convert Resolution Maximum"
         className="mb-2"
       />
-      <button
-        type="button"
-        className="h-8 w-full border border-[#5A5A5A] bg-[#2A2A2A] px-2 text-sm text-[#E5E5E5] hover:bg-[#333333] disabled:cursor-not-allowed disabled:opacity-45"
-        onClick={handleConvert}
-        disabled={!canConvert || isConverting}
-        aria-busy={isConverting}
-        title={canConvert ? 'Convert the selected image layer' : 'Select an image layer'}
-      >
-        {isConverting ? 'Converting…' : 'Auto Convert'}
-      </button>
+      <div>
+        <button
+          type="button"
+          className={`relative h-8 w-full overflow-hidden border border-[#5A5A5A] bg-[#2A2A2A] px-2 text-sm text-[#E5E5E5] hover:bg-[#333333] disabled:cursor-not-allowed ${canConvert ? '' : 'opacity-45'}`}
+          onClick={handleConvert}
+          disabled={!canConvert || isConverting}
+          aria-busy={isConverting}
+          aria-label={buttonLabel}
+          title={canConvert ? 'Convert the selected image layer' : 'Select an image layer'}
+        >
+          {isConverting && progress?.phase === 'analyzing' && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-0 left-0 w-full animate-pulse bg-[#35414A]"
+            />
+          )}
+          {isConverting && progress?.phase === 'painting' && paintingPercent !== null && (
+            <span
+              aria-hidden="true"
+              className="absolute inset-y-0 left-0 bg-[#40586A] transition-[width] duration-150"
+              style={{ width: `${paintingPercent}%` }}
+            />
+          )}
+          <span className="relative z-10">{buttonLabel}</span>
+        </button>
+        {isConverting && progress?.phase === 'painting' && paintingPercent !== null && (
+          <span
+            role="progressbar"
+            aria-label="Auto Convert progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={paintingPercent}
+            className="sr-only"
+          >
+            {buttonLabel}
+          </span>
+        )}
+      </div>
     </div>
   );
 };

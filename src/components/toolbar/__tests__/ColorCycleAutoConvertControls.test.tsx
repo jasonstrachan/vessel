@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { ColorCycleAutoConvertControls } from '@/components/toolbar/ColorCycleAutoConvertControls';
 import { autoConvertActiveImageToColorCycle } from '@/services/colorCycleAutoConvert';
@@ -117,7 +117,7 @@ describe('ColorCycleAutoConvertControls', () => {
     mockedAutoConvert.mockResolvedValue({ layerId: 'cc-layer', shapeCount: 37 });
     render(<ColorCycleAutoConvertControls />);
 
-    expect(screen.getByLabelText('Auto Convert Shapes')).toHaveAttribute('max', '200');
+    expect(screen.getByLabelText('Auto Convert Shapes')).toHaveAttribute('max', '1000');
     expect(screen.getByLabelText('Auto Convert Resolution Minimum')).toHaveAttribute('max', '64');
     expect(screen.getByLabelText('Auto Convert Resolution Maximum')).toHaveAttribute('max', '64');
     fireEvent.change(screen.getByLabelText('Auto Convert Shapes'), { target: { value: '142' } });
@@ -135,12 +135,49 @@ describe('ColorCycleAutoConvertControls', () => {
         targetShapes: 142,
         focus: 73,
         resolutionRange: [2, 12],
+        onProgress: expect.any(Function),
       });
     });
     expect(mockAddNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'success',
       message: 'Created 37 CC shapes in one Color Cycle layer.',
     }));
+  });
+
+  it('shows analysis and determinate painting progress inside the button', async () => {
+    let reportProgress: Parameters<typeof autoConvertActiveImageToColorCycle>[0]['onProgress'];
+    let resolveConversion!: (value: { layerId: string; shapeCount: number }) => void;
+    mockedAutoConvert.mockImplementation(({ onProgress }) => {
+      reportProgress = onProgress;
+      return new Promise((resolve) => {
+        resolveConversion = resolve;
+      });
+    });
+    render(<ColorCycleAutoConvertControls />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Convert' }));
+    expect(screen.getByRole('button', { name: 'Analyzing…' })).toBeDisabled();
+
+    act(() => {
+      reportProgress?.({ phase: 'painting', completed: 120, total: 400 });
+    });
+    const convertingButton = screen.getByRole('button', { name: 'Painting 120 / 400' });
+    const progressbar = screen.getByRole('progressbar', { name: 'Auto Convert progress' });
+    expect(convertingButton).toBeDisabled();
+    expect(progressbar).toHaveAttribute(
+      'aria-valuenow',
+      '30',
+    );
+    expect(convertingButton).not.toContainElement(progressbar);
+    expect(convertingButton.querySelector('[aria-hidden="true"][style*="width: 30%"]'))
+      .not.toBeNull();
+
+    await act(async () => {
+      resolveConversion({ layerId: 'cc-layer', shapeCount: 400 });
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('button', { name: 'Auto Convert' })).toBeEnabled();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
   it('requires a regular image layer', () => {
