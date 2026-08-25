@@ -51,7 +51,14 @@ const metadata = {
     selectionColor: '#ffffff',
     selectionBackgroundColor: '#000000',
     content: 'STATE A: semantic overlay',
-    selections: [{ start: 0, end: 7 }],
+    selections: [
+      { start: 0, end: 5 },
+      { start: 9, end: 17 },
+    ],
+    selectionTreatments: [
+      { start: 0, end: 5, treatment: 'selected-crossed-out' },
+      { start: 9, end: 17, treatment: 'redacted' },
+    ],
   }, {
     id: 'bottom-left-overflow',
     layerId: 'text-layer',
@@ -137,6 +144,33 @@ const readTxtShapeColumnGap = async (page: Page) => page.evaluate(() => {
   return shape instanceof HTMLElement ? getComputedStyle(shape).columnGap : null;
 });
 
+const readSelectionTreatments = async (page: Page) => page.evaluate(() => {
+  const cells = Array.from(document.querySelectorAll<HTMLElement>(
+    '[data-txt-shape-id="text-shape"] [data-selection-treatment]',
+  ));
+  const selectedCrossedOut = cells.filter(
+    (cell) => cell.dataset.selectionTreatment === 'selected-crossed-out',
+  );
+  const redacted = cells.filter(
+    (cell) => cell.dataset.selectionTreatment === 'redacted',
+  );
+  return {
+    selectedCrossedOutText: selectedCrossedOut.map((cell) => cell.textContent).join(''),
+    selectedCrossedOutDecoration: selectedCrossedOut[0]
+      ? getComputedStyle(selectedCrossedOut[0]).textDecorationLine
+      : null,
+    selectedCrossedOutBackground: selectedCrossedOut[0]
+      ? getComputedStyle(selectedCrossedOut[0]).backgroundColor
+      : null,
+    selectedCrossedOutColor: selectedCrossedOut[0]
+      ? getComputedStyle(selectedCrossedOut[0]).color
+      : null,
+    redactedText: redacted.map((cell) => cell.textContent).join(''),
+    redactedColor: redacted[0] ? getComputedStyle(redacted[0]).color : null,
+    allCanonical: cells.every((cell) => cell.dataset.canonicalSelected === 'true'),
+  };
+});
+
 const readBottomLeftClip = async (page: Page) => page.evaluate(() => {
   const canvas = document.getElementById('preview-canvas');
   const overlay = document.getElementById('vessel-txt-shapes');
@@ -181,6 +215,15 @@ test.describe('Goblet TXT Shape overlay positioning and layout', () => {
       await page.goto(viewer.url, { waitUntil: 'load' });
       await page.waitForSelector('#vessel-txt-shapes');
       await expect.poll(() => readTxtShapeColumnGap(page)).toBe('5px');
+      await expect.poll(() => readSelectionTreatments(page)).toEqual({
+        selectedCrossedOutText: 'STATE',
+        selectedCrossedOutDecoration: 'line-through',
+        selectedCrossedOutBackground: 'rgb(0, 0, 0)',
+        selectedCrossedOutColor: 'rgb(255, 255, 255)',
+        redactedText: 'semantic',
+        redactedColor: 'rgba(0, 0, 0, 0)',
+        allCanonical: true,
+      });
       await expect.poll(() => readCanvasOverlayDelta(page)).toEqual({
         x: 0,
         y: 0,

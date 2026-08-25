@@ -72,9 +72,11 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('#vessel-txt-shapes [data-canonical-selected]');
       expect(viewer).toContain('[data-vessel-txt-cell-selected="true"]');
       expect(viewer).toContain('[data-selection-treatment="crossed-out"]');
+      expect(viewer).toContain('[data-selection-treatment="selected-crossed-out"]');
       expect(viewer).toContain('[data-selection-treatment="overwritten"]');
       expect(viewer).toContain('[data-selection-treatment="erased"]');
       expect(viewer).toContain('[data-selection-treatment="redacted"]');
+      expect(viewer).toContain('[data-selection-treatment="redacted-crossed-out"]');
       expect(viewer).toContain("box.style.setProperty('--txt-base-color'");
       expect(viewer).toContain('mask-image: repeating-linear-gradient');
       expect(viewer).toContain('box-shadow: 0 var(--txt-selection-fill-gap, 0px)');

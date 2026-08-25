@@ -329,9 +329,11 @@ export type TxtShapeRegionKind = 'rectangle' | 'oval' | 'freehand';
 export type TxtShapeRenderMode = 'selection' | 'glyph-map';
 export type TxtShapeSelectionTreatment =
   | 'crossed-out'
+  | 'selected-crossed-out'
   | 'overwritten'
   | 'erased'
-  | 'redacted';
+  | 'redacted'
+  | 'redacted-crossed-out';
 
 export interface TxtShapeRegionPoint {
   x: number;

@@ -232,9 +232,11 @@ const isTxtShapeSelectionTreatment = (
   value: unknown,
 ): value is TxtShapeSelectionTreatment => (
   value === 'crossed-out'
+  || value === 'selected-crossed-out'
   || value === 'overwritten'
   || value === 'erased'
   || value === 'redacted'
+  || value === 'redacted-crossed-out'
 );
 
 export const normalizeTxtShapeSelectionTreatments = (
@@ -266,6 +268,21 @@ export const normalizeTxtShapeSelectionTreatments = (
     return result;
   }, []);
 };
+
+export const normalizeTxtShapeSelectionTreatmentsForSelections = (
+  ranges: unknown,
+  selections: readonly TxtShapeSelectionRange[],
+  contentLength: number,
+): TxtShapeSelectionTreatmentRange[] => normalizeTxtShapeSelectionTreatments(
+  normalizeTxtShapeSelectionTreatments(ranges, contentLength).flatMap((treatment) => (
+    selections.flatMap((selection) => {
+      const start = Math.max(treatment.start, selection.start);
+      const end = Math.min(treatment.end, selection.end);
+      return start < end ? [{ ...treatment, start, end }] : [];
+    })
+  )),
+  contentLength,
+);
 
 export const normalizeTxtShapeColorRanges = (
   ranges: unknown,
@@ -414,15 +431,9 @@ export const normalizeTxtShape = (
   const colorCount = clamp(Math.round(finite(candidate.colorCount, 2)), 2, 8);
   const colorRanges = normalizeTxtShapeColorRanges(candidate.colorRanges, content.length);
   const selections = normalizeTxtShapeSelections(candidate.selections, content.length);
-  const selectionTreatments = normalizeTxtShapeSelectionTreatments(
-    normalizeTxtShapeSelectionTreatments(
-      candidate.selectionTreatments,
-      content.length,
-    ).flatMap((treatment) => selections.flatMap((selection) => {
-      const start = Math.max(treatment.start, selection.start);
-      const end = Math.min(treatment.end, selection.end);
-      return start < end ? [{ ...treatment, start, end }] : [];
-    })),
+  const selectionTreatments = normalizeTxtShapeSelectionTreatmentsForSelections(
+    candidate.selectionTreatments,
+    selections,
     content.length,
   );
   const sampledColorRanges = normalizeTxtShapeColorRanges(
@@ -1283,17 +1294,33 @@ const drawTxtShapesToCanvasWithSelectionMode = (
       let fragmentX = lineX;
       fragments.forEach(({ color, selected, sourceStart, treatment, width }) => {
         const treatmentColor = color ?? shape.selectionBackgroundColor;
-        if (selected && !treatment && shape.renderMode !== 'glyph-map') {
+        const keepsSelectionHighlight = treatment === 'selected-crossed-out';
+        const isRedacted = treatment === 'redacted' || treatment === 'redacted-crossed-out';
+        if (
+          selected
+          && (!treatment || keepsSelectionHighlight)
+          && shape.renderMode !== 'glyph-map'
+        ) {
           ctx.fillStyle = color ?? shape.selectionBackgroundColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
         }
-        if (selected && treatment === 'redacted') {
+        if (selected && isRedacted) {
           ctx.fillStyle = treatmentColor;
           ctx.fillRect(fragmentX, y, width, lineHeightPx);
+          if (treatment === 'redacted-crossed-out') {
+            const strikeHeight = Math.max(1, Math.round(shape.fontSize * 0.08));
+            ctx.fillStyle = shape.selectionColor;
+            ctx.fillRect(
+              fragmentX,
+              Math.round(y + lineHeightPx * 0.52 - strikeHeight / 2),
+              width,
+              strikeHeight,
+            );
+          }
           fragmentX = Math.round(fragmentX + width);
           return;
         }
-        const textColor = selected && !treatment
+        const textColor = selected && (!treatment || keepsSelectionHighlight)
           ? shape.renderMode === 'glyph-map'
             ? color ?? shape.selectionColor
             : shape.selectionColor
@@ -1351,9 +1378,9 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         } else {
           drawTextPass(textColor);
         }
-        if (treatment === 'crossed-out') {
+        if (treatment === 'crossed-out' || keepsSelectionHighlight) {
           const strikeHeight = Math.max(1, Math.round(shape.fontSize * 0.08));
-          ctx.fillStyle = treatmentColor;
+          ctx.fillStyle = keepsSelectionHighlight ? shape.selectionColor : treatmentColor;
           ctx.fillRect(
             fragmentX,
             Math.round(y + lineHeightPx * 0.52 - strikeHeight / 2),

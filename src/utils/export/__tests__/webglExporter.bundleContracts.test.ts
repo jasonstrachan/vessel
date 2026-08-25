@@ -392,6 +392,11 @@ describe('webglExporter bundle contracts', () => {
       selectionBackgroundColor: '#222222',
       backgroundColor: '#336699',
       selections: [{ start: 6, end: 10 }],
+      selectionTreatments: [{
+        start: 6,
+        end: 10,
+        treatment: 'selected-crossed-out',
+      }],
       createdAt: 1,
       updatedAt: 2,
     }];

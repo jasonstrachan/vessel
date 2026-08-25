@@ -458,9 +458,11 @@ describe('TXT Shape document helpers', () => {
   it.each([
     ['selected', undefined, 1, 1],
     ['crossed out', 'crossed-out', 1, 1],
+    ['selected and crossed out', 'selected-crossed-out', 2, 1],
     ['overwritten', 'overwritten', 0, 3],
     ['erased', 'erased', 0, 1],
     ['redacted', 'redacted', 1, 0],
+    ['redacted and crossed out', 'redacted-crossed-out', 2, 0],
   ] as const)('renders the %s selection treatment through Canvas 2D', (
     _label,
     treatment,
