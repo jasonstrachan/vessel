@@ -333,6 +333,7 @@ export type TxtShapeSelectionTreatment =
   | 'overwritten'
   | 'erased'
   | 'invisible'
+  | 'invisible-crossed-out'
   | 'redacted'
   | 'redacted-crossed-out';
 export type TxtShapeTextState = 'none' | 'selected' | TxtShapeSelectionTreatment;

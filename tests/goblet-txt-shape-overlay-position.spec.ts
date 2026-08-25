@@ -18,6 +18,7 @@ const TXT_SHAPE_STATES = [
   'overwritten',
   'erased',
   'invisible',
+  'invisible-crossed-out',
   'redacted',
   'redacted-crossed-out',
 ] as const;
@@ -111,8 +112,8 @@ const metadata = {
     color: '#000000',
     selectionColor: '#ffffff',
     selectionBackgroundColor: '#000000',
-    content: 'ABCDEFGH',
-    selections: [{ start: 0, end: 8 }],
+    content: 'ABCDEFGHI',
+    selections: [{ start: 0, end: 9 }],
     nonCanonicalState: 'crossed-out',
     selectionTreatments: TXT_SHAPE_STATES.flatMap((state, index) => (
       state === 'selected'
@@ -284,6 +285,7 @@ const readStateMatrix = async (page: Page) => page.evaluate(() => {
     'overwritten',
     'erased',
     'invisible',
+    'invisible-crossed-out',
     'redacted',
     'redacted-crossed-out',
   ];
@@ -388,6 +390,15 @@ const expectedStateMatrix = {
     opacity: '1',
     treatment: 'invisible',
     visibility: 'hidden',
+  },
+  'invisible-crossed-out': {
+    background: 'rgba(0, 0, 0, 0)',
+    color: 'rgba(0, 0, 0, 0)',
+    decoration: 'line-through',
+    mask: 'none',
+    opacity: '1',
+    treatment: 'invisible-crossed-out',
+    visibility: 'visible',
   },
   redacted: {
     background: 'rgb(0, 0, 0)',

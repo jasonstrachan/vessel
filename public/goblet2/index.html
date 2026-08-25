@@ -218,6 +218,7 @@
           '#vessel-txt-shapes [data-selection-treatment="redacted"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="redacted"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="redacted"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
           '#vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="redacted-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
           '#vessel-txt-shapes [data-selection-treatment="invisible"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="invisible"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="invisible"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="invisible"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: transparent !important; background: transparent !important; box-shadow: none !important; text-decoration: none !important; visibility: hidden; }',
+          '#vessel-txt-shapes [data-selection-treatment="invisible-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="invisible-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="invisible-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="invisible-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: transparent !important; background: transparent !important; box-shadow: none !important; text-decoration-line: line-through !important; text-decoration-color: var(--txt-selection-bg) !important; text-decoration-thickness: 0.1em; visibility: visible; }',
           '#vessel-txt-shapes [data-unmapped-hidden="true"] { color: transparent !important; background: transparent !important; box-shadow: none !important; text-decoration: none !important; }',
         ].join(' ');
         overlay.appendChild(style);
@@ -467,7 +468,7 @@
                 if (treatment) {
                   cell.dataset.selectionTreatment = String(treatment);
                   if (treatment === 'overwritten') cell.dataset.overwriteText = character;
-                  if (treatment === 'invisible') {
+                  if (treatment === 'invisible' || treatment === 'invisible-crossed-out') {
                     cell.dataset.inactiveState = nonCanonicalState;
                     if (nonCanonicalState === 'overwritten') {
                       cell.dataset.overwriteText = character;

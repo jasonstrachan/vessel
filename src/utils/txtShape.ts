@@ -252,6 +252,7 @@ const isTxtShapeSelectionTreatment = (
   || value === 'overwritten'
   || value === 'erased'
   || value === 'invisible'
+  || value === 'invisible-crossed-out'
   || value === 'redacted'
   || value === 'redacted-crossed-out'
 );
@@ -1308,7 +1309,11 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           shape.selectionTreatments,
           shape.selections,
           shape.content.length,
-        ).filter(({ treatment }) => treatment === 'invisible')
+        ).flatMap<TxtShapeSelectionTreatmentRange>(({ start, end, treatment }) => (
+          treatment === 'invisible' || treatment === 'invisible-crossed-out'
+            ? [{ start, end, treatment: 'invisible' }]
+            : []
+        ))
       : [];
     const selections = selectionMode === 'none'
       ? []
@@ -1465,6 +1470,18 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           return;
         }
         const treatmentColor = color ?? shape.selectionBackgroundColor;
+        if (state === 'invisible-crossed-out') {
+          const strikeHeight = Math.max(1, Math.round(shape.fontSize * 0.08));
+          ctx.fillStyle = treatmentColor;
+          ctx.fillRect(
+            fragmentX,
+            Math.round(y + lineHeightPx * 0.52 - strikeHeight / 2),
+            width,
+            strikeHeight,
+          );
+          fragmentX = Math.round(fragmentX + width);
+          return;
+        }
         const keepsSelectionHighlight = state === 'selected'
           || state === 'selected-crossed-out';
         const isRedacted = state === 'redacted' || state === 'redacted-crossed-out';

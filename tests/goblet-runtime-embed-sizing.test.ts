@@ -77,6 +77,7 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('[data-selection-treatment="overwritten"]');
       expect(viewer).toContain('[data-selection-treatment="erased"]');
       expect(viewer).toContain('[data-selection-treatment="invisible"]');
+      expect(viewer).toContain('[data-selection-treatment="invisible-crossed-out"]');
       expect(viewer).toContain('[data-selection-treatment="redacted"]');
       expect(viewer).toContain('[data-selection-treatment="redacted-crossed-out"]');
       expect(viewer).toContain("box.style.setProperty('--txt-base-color'");

@@ -551,6 +551,7 @@ describe('TXT Shape document helpers', () => {
     ['overwritten', 'overwritten', 0, 3],
     ['erased', 'erased', 0, 1],
     ['invisible', 'invisible', 0, 0],
+    ['invisible and crossed out', 'invisible-crossed-out', 1, 0],
     ['redacted', 'redacted', 1, 0],
     ['redacted and crossed out', 'redacted-crossed-out', 2, 0],
   ] as const)('renders the %s selection treatment through Canvas 2D', (
@@ -1168,6 +1169,30 @@ describe('TXT Shape document helpers', () => {
       content: 'AB',
       selections: [{ start: 0, end: 2 }],
       selectionTreatments: [{ start: 0, end: 2, treatment: 'invisible' }],
+    });
+
+    drawGobletBaseTxtShapesToCanvas(ctx, [shape]);
+
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+    expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+
+  it('omits canonical Invisible + crossed out glyphs and strike from the Goblet base raster', () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+      fillStyle: '', globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const shape = createShape({
+      content: 'AB',
+      selections: [{ start: 0, end: 2 }],
+      selectionTreatments: [{
+        start: 0,
+        end: 2,
+        treatment: 'invisible-crossed-out',
+      }],
     });
 
     drawGobletBaseTxtShapesToCanvas(ctx, [shape]);
