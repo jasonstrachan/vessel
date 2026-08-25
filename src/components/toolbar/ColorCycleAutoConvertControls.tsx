@@ -3,9 +3,11 @@
 import React from 'react';
 
 import {
+  AUTO_CONVERT_MAX_COVERAGE,
   AUTO_CONVERT_MAX_FOCUS,
   AUTO_CONVERT_MAX_RESOLUTION,
   AUTO_CONVERT_MAX_SHAPES,
+  AUTO_CONVERT_MIN_COVERAGE,
   AUTO_CONVERT_MIN_FOCUS,
   AUTO_CONVERT_MIN_RESOLUTION,
   AUTO_CONVERT_MIN_SHAPES,
@@ -16,12 +18,14 @@ import {
 } from '@/services/colorCycleAutoConvert';
 import { useAppStore } from '@/stores/useAppStore';
 
+import {
+  DEFAULT_AUTO_CONVERT_SETTINGS,
+  loadColorCycleAutoConvertSettings,
+  saveColorCycleAutoConvertSettings,
+  type ColorCycleAutoConvertSettings,
+} from './colorCycleAutoConvertSettings';
 import LabeledSlider from '../ui/LabeledSlider';
 import LabeledRangeSlider from '../ui/LabeledRangeSlider';
-
-const DEFAULT_SHAPES = 24;
-const DEFAULT_FOCUS = 50;
-const DEFAULT_RESOLUTION_RANGE: [number, number] = [1, 8];
 
 export const ColorCycleAutoConvertControls = () => {
   const activeLayerId = useAppStore((state) => state.activeLayerId);
@@ -29,13 +33,13 @@ export const ColorCycleAutoConvertControls = () => {
     (state) => state.layers.find((layer) => layer.id === activeLayerId)?.layerType ?? null,
   );
   const addNotification = useAppStore((state) => state.addNotification);
-  const [shapes, setShapes] = React.useState(DEFAULT_SHAPES);
-  const [focus, setFocus] = React.useState(DEFAULT_FOCUS);
-  const [resolutionRange, setResolutionRange] = React.useState<[number, number]>(
-    DEFAULT_RESOLUTION_RANGE,
-  );
+  const [settings, setSettings] = React.useState<ColorCycleAutoConvertSettings>({
+    ...DEFAULT_AUTO_CONVERT_SETTINGS,
+    resolutionRange: [...DEFAULT_AUTO_CONVERT_SETTINGS.resolutionRange],
+  });
   const [isConverting, setIsConverting] = React.useState(false);
   const [progress, setProgress] = React.useState<ColorCycleAutoConvertProgress | null>(null);
+  const { shapes, focus, coverage, resolutionRange } = settings;
   const canConvert = activeLayerType === 'normal';
   const paintingPercent = progress?.phase === 'painting'
     ? Math.round((progress.completed / Math.max(1, progress.total)) * 100)
@@ -45,6 +49,15 @@ export const ColorCycleAutoConvertControls = () => {
     : progress?.phase === 'painting'
       ? `Painting ${progress.completed} / ${progress.total}`
       : 'Analyzing…';
+
+  React.useEffect(() => {
+    setSettings(loadColorCycleAutoConvertSettings());
+  }, []);
+
+  const rememberSettings = React.useCallback((nextSettings: ColorCycleAutoConvertSettings) => {
+    setSettings(nextSettings);
+    saveColorCycleAutoConvertSettings(nextSettings);
+  }, []);
 
   const handleConvert = React.useCallback(async () => {
     if (isConverting) {
@@ -56,6 +69,7 @@ export const ColorCycleAutoConvertControls = () => {
       const result = await autoConvertActiveImageToColorCycle({
         targetShapes: shapes,
         focus,
+        coverage,
         resolutionRange,
         onProgress: setProgress,
       });
@@ -76,7 +90,7 @@ export const ColorCycleAutoConvertControls = () => {
       setIsConverting(false);
       setProgress(null);
     }
-  }, [addNotification, focus, isConverting, resolutionRange, shapes]);
+  }, [addNotification, coverage, focus, isConverting, resolutionRange, shapes]);
 
   return (
     <div className="mb-3 border-t border-[#3A3A3A] pt-2">
@@ -86,10 +100,13 @@ export const ColorCycleAutoConvertControls = () => {
         min={AUTO_CONVERT_MIN_SHAPES}
         max={AUTO_CONVERT_MAX_SHAPES}
         step={1}
-        onChange={(value) => setShapes(Math.max(
-          AUTO_CONVERT_MIN_SHAPES,
-          Math.min(AUTO_CONVERT_MAX_SHAPES, Math.round(value)),
-        ))}
+        onChange={(value) => rememberSettings({
+          ...settings,
+          shapes: Math.max(
+            AUTO_CONVERT_MIN_SHAPES,
+            Math.min(AUTO_CONVERT_MAX_SHAPES, Math.round(value)),
+          ),
+        })}
         ariaLabel="Auto Convert Shapes"
         className="mb-2"
       />
@@ -99,11 +116,30 @@ export const ColorCycleAutoConvertControls = () => {
         min={AUTO_CONVERT_MIN_FOCUS}
         max={AUTO_CONVERT_MAX_FOCUS}
         step={1}
-        onChange={(value) => setFocus(Math.max(
-          AUTO_CONVERT_MIN_FOCUS,
-          Math.min(AUTO_CONVERT_MAX_FOCUS, Math.round(value)),
-        ))}
+        onChange={(value) => rememberSettings({
+          ...settings,
+          focus: Math.max(
+            AUTO_CONVERT_MIN_FOCUS,
+            Math.min(AUTO_CONVERT_MAX_FOCUS, Math.round(value)),
+          ),
+        })}
         ariaLabel="Auto Convert Focus"
+        className="mb-2"
+      />
+      <LabeledSlider
+        label="Coverage"
+        value={coverage}
+        min={AUTO_CONVERT_MIN_COVERAGE}
+        max={AUTO_CONVERT_MAX_COVERAGE}
+        step={1}
+        onChange={(value) => rememberSettings({
+          ...settings,
+          coverage: Math.max(
+            AUTO_CONVERT_MIN_COVERAGE,
+            Math.min(AUTO_CONVERT_MAX_COVERAGE, Math.round(value)),
+          ),
+        })}
+        ariaLabel="Auto Convert Coverage"
         className="mb-2"
       />
       <LabeledRangeSlider
@@ -112,7 +148,10 @@ export const ColorCycleAutoConvertControls = () => {
         min={AUTO_CONVERT_MIN_RESOLUTION}
         max={AUTO_CONVERT_MAX_RESOLUTION}
         step={1}
-        onChange={setResolutionRange}
+        onChange={(nextResolutionRange) => rememberSettings({
+          ...settings,
+          resolutionRange: nextResolutionRange,
+        })}
         minAriaLabel="Auto Convert Resolution Minimum"
         maxAriaLabel="Auto Convert Resolution Maximum"
         className="mb-2"

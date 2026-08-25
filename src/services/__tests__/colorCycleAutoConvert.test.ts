@@ -276,8 +276,9 @@ describe('autoConvertActiveImageToColorCycle', () => {
     ]);
   });
 
-  it('does not clip converted contours to transparent source pixels', async () => {
+  it('clears fully transparent source pixels from the converted CC layer', async () => {
     sourceImage.data[3] = 0;
+    sourceImage.data[7] = 1;
 
     await autoConvertActiveImageToColorCycle({
       targetShapes: 24,
@@ -285,15 +286,23 @@ describe('autoConvertActiveImageToColorCycle', () => {
       resolutionRange: [1, 8],
     });
 
-    expect(mockedFillLinear).toHaveBeenCalledWith(expect.objectContaining({
-      vertices: [
-        { x: 0, y: 0 },
-        { x: 4, y: 0 },
-        { x: 4, y: 4 },
-        { x: 0, y: 4 },
-      ],
-    }));
-    expect(mockedClearRegion).not.toHaveBeenCalled();
+    expect(mockedClearRegion).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ layerType: 'color-cycle' }),
+      expect.objectContaining({ width: 4, height: 4 }),
+      { x: 0, y: 0, width: 4, height: 4 },
+      expect.objectContaining({
+        alphaData: expect.any(Uint8Array),
+        alphaWidth: 4,
+        alphaHeight: 4,
+        alphaStride: 1,
+        alphaChannelOffset: 0,
+        auditSource: 'auto-convert-transparent-source',
+      }),
+    );
+    const mask = mockedClearRegion.mock.calls[0][4]?.alphaData;
+    expect(mask?.[0]).toBe(255);
+    expect(mask?.[1]).toBe(0);
   });
 
   it('clamps shape and focus requests at their supported maxima', async () => {
@@ -307,6 +316,58 @@ describe('autoConvertActiveImageToColorCycle', () => {
       targetShapes: 1000,
       focus: 100,
     }));
+  });
+
+  it('applies partial coverage to detailed shapes before large flat high-Res shapes', async () => {
+    const createRegion = (detailScore: number, pixelCount: number, startX: number) => ({
+      points: [
+        { x: startX, y: 0 },
+        { x: startX + 1, y: 0 },
+        { x: startX + 1, y: 1 },
+      ],
+      direction: { x: 1, y: 0 },
+      linearGradientSpan: 1,
+      sampledStops: [
+        { position: 0, color: '#111111' },
+        { position: 1, color: '#eeeeee' },
+      ],
+      pixelCount,
+      detailScore,
+    });
+    mockedRunRegions.mockResolvedValueOnce({
+      analysisWidth: 10,
+      analysisHeight: 10,
+      regions: [
+        createRegion(0, 70, 0),
+        createRegion(0.8, 20, 4),
+        createRegion(1, 10, 2),
+      ],
+    });
+
+    const result = await autoConvertActiveImageToColorCycle({
+      targetShapes: 3,
+      focus: 100,
+      coverage: 20,
+      resolutionRange: [1, 8],
+    });
+
+    expect(result.shapeCount).toBe(2);
+    expect(mockedFillLinear.mock.calls.map(([call]) => call.vertices[0].x)).toEqual([2, 4]);
+    expect(mockedFillLinear.mock.calls.map(
+      ([call]) => call.options?.ditherPixelSize,
+    )).toEqual([1, 1]);
+  });
+
+  it('creates no shapes at zero coverage', async () => {
+    const result = await autoConvertActiveImageToColorCycle({
+      targetShapes: 24,
+      focus: 50,
+      coverage: 0,
+      resolutionRange: [1, 8],
+    });
+
+    expect(result.shapeCount).toBe(0);
+    expect(mockedFillLinear).not.toHaveBeenCalled();
   });
 
   it('binds distinct image-derived gradients and phase seeds to every converted shape', async () => {
@@ -550,10 +611,10 @@ describe('autoConvertActiveImageToColorCycle', () => {
 
     expect(mockedFillLinear).toHaveBeenCalledTimes(4);
     expect(mockedFillLinear.mock.calls.map(([call]) => call.options?.ditherPixelSize)).toEqual([
+      2,
+      2,
+      2,
       10,
-      2,
-      2,
-      2,
     ]);
   });
 

@@ -1,8 +1,10 @@
 import {
+  AUTO_CONVERT_MAX_COVERAGE,
   AUTO_CONVERT_MAX_FOCUS,
   AUTO_CONVERT_MAX_RESOLUTION,
   AUTO_CONVERT_MAX_SAMPLED_GRADIENTS,
   AUTO_CONVERT_MAX_SHAPES,
+  AUTO_CONVERT_MIN_COVERAGE,
   AUTO_CONVERT_MIN_FOCUS,
   AUTO_CONVERT_MIN_RESOLUTION,
   AUTO_CONVERT_MIN_SHAPES,
@@ -20,6 +22,7 @@ import {
   clampColorCycleBandSpacing,
 } from '@/hooks/brushEngine/engineShared';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { captureLayerStructureSnapshot, commitLayerStructureHistory } from '@/stores/helpers/layerStructureHistory';
 import {
   getInsertionIndexAboveActiveLayer,
@@ -43,6 +46,7 @@ import { runAutoConvertRegionsJob } from '@/workers/colorCycleFillClient';
 export type ColorCycleAutoConvertOptions = {
   targetShapes: number;
   focus: number;
+  coverage?: number;
   resolutionRange: [number, number];
   onProgress?: (progress: ColorCycleAutoConvertProgress) => void;
 };
@@ -105,6 +109,18 @@ const captureSourceImage = (layer: Layer): ImageData => {
     baseContext.drawImage(composedSource, 0, 0, project.width, project.height);
   }
   return baseContext.getImageData(0, 0, project.width, project.height);
+};
+
+const createTransparentPixelMask = (source: ImageData): Uint8Array | null => {
+  const mask = new Uint8Array(source.width * source.height);
+  let hasTransparentPixels = false;
+  for (let index = 0; index < mask.length; index += 1) {
+    if (source.data[index * 4 + 3] === 0) {
+      mask[index] = 255;
+      hasTransparentPixels = true;
+    }
+  }
+  return hasTransparentPixels ? mask : null;
 };
 
 const createTargetLayer = ({
@@ -197,6 +213,12 @@ const clampResolution = (value: number): number => (
 
 const AUTO_CONVERT_RESOLUTION_RANK_EXPONENT = 16;
 
+const resolveRegionDetailScore = (region: AutoConvertRegion): number => (
+  Number.isFinite(region.detailScore)
+    ? Math.max(0, Math.min(1, region.detailScore))
+    : 0
+);
+
 const resolveRegionDitherPixelSizes = (
   regions: AutoConvertRegion[],
   resolutionRange: [number, number],
@@ -209,11 +231,7 @@ const resolveRegionDitherPixelSizes = (
   const minimumResolution = Math.min(firstResolution, secondResolution);
   const maximumResolution = Math.max(firstResolution, secondResolution);
   const resolutionSpan = maximumResolution - minimumResolution;
-  const detailScores = regions.map((region) => (
-    Number.isFinite(region.detailScore)
-      ? Math.max(0, Math.min(1, region.detailScore))
-      : 0
-  ));
+  const detailScores = regions.map(resolveRegionDetailScore);
   const minimum = Math.min(...detailScores);
   const maximum = Math.max(...detailScores);
   const range = maximum - minimum;
@@ -230,6 +248,53 @@ const resolveRegionDitherPixelSizes = (
     const longTailRank = detailRank ** AUTO_CONVERT_RESOLUTION_RANK_EXPONENT;
     return minimumResolution + Math.round(longTailRank * resolutionSpan);
   });
+};
+
+const selectRegionIndexesForCoverage = (
+  regions: AutoConvertRegion[],
+  requestedCoverage: number,
+): number[] => {
+  if (regions.length === 0) {
+    return [];
+  }
+  const coverage = Number.isFinite(requestedCoverage)
+    ? Math.max(AUTO_CONVERT_MIN_COVERAGE, Math.min(AUTO_CONVERT_MAX_COVERAGE, requestedCoverage))
+    : AUTO_CONVERT_MAX_COVERAGE;
+  if (coverage <= AUTO_CONVERT_MIN_COVERAGE) {
+    return [];
+  }
+  const totalVisiblePixels = regions.reduce(
+    (total, region) => total + Math.max(0, region.pixelCount),
+    0,
+  );
+  if (totalVisiblePixels <= 0) {
+    return [];
+  }
+  const targetVisiblePixels = totalVisiblePixels * coverage / AUTO_CONVERT_MAX_COVERAGE;
+  const rankedIndexes = regions
+    .map((_region, index) => index)
+    .sort((leftIndex, rightIndex) => {
+      const detailDifference = resolveRegionDetailScore(regions[rightIndex])
+        - resolveRegionDetailScore(regions[leftIndex]);
+      if (Math.abs(detailDifference) > Number.EPSILON) {
+        return detailDifference;
+      }
+      const sizeDifference = regions[leftIndex].pixelCount - regions[rightIndex].pixelCount;
+      return sizeDifference !== 0 ? sizeDifference : leftIndex - rightIndex;
+    });
+  if (coverage >= AUTO_CONVERT_MAX_COVERAGE) {
+    return rankedIndexes;
+  }
+  const selectedIndexes: number[] = [];
+  let selectedVisiblePixels = 0;
+  for (const index of rankedIndexes) {
+    selectedIndexes.push(index);
+    selectedVisiblePixels += Math.max(0, regions[index].pixelCount);
+    if (selectedVisiblePixels >= targetVisiblePixels) {
+      break;
+    }
+  }
+  return selectedIndexes;
 };
 
 const describeGradient = (region: AutoConvertRegion): number[] => {
@@ -315,6 +380,7 @@ const clusterRegionGradientStops = (
 export const autoConvertActiveImageToColorCycle = async ({
   targetShapes,
   focus,
+  coverage = AUTO_CONVERT_MAX_COVERAGE,
   resolutionRange,
   onProgress,
 }: ColorCycleAutoConvertOptions): Promise<ColorCycleAutoConvertResult> => {
@@ -440,15 +506,23 @@ export const autoConvertActiveImageToColorCycle = async ({
       isRuntimePalette: false,
     };
     const ditherMode = resolveCcDitherBandMode(settings.gradientBands ?? 16);
-    const regionDitherPixelSizes = resolveRegionDitherPixelSizes(
+    const allRegionDitherPixelSizes = resolveRegionDitherPixelSizes(
       segmentation.regions,
       resolutionRange,
     );
-    const regionGradientStops = clusterRegionGradientStops(segmentation.regions);
+    const selectedRegionIndexes = selectRegionIndexesForCoverage(
+      segmentation.regions,
+      coverage,
+    );
+    const selectedRegions = selectedRegionIndexes.map((index) => segmentation.regions[index]);
+    const regionDitherPixelSizes = selectedRegionIndexes.map(
+      (index) => allRegionDitherPixelSizes[index],
+    );
+    const regionGradientStops = clusterRegionGradientStops(selectedRegions);
     onProgress?.({
       phase: 'painting',
       completed: 0,
-      total: segmentation.regions.length,
+      total: selectedRegions.length,
     });
     const sharedFillArgs = {
       initializeColorCycleBrush: () => fillBrush,
@@ -461,8 +535,8 @@ export const autoConvertActiveImageToColorCycle = async ({
       flushGradientApply,
       renderBrushToLayerCanvas,
     };
-    for (let index = 0; index < segmentation.regions.length; index += 1) {
-      const region = segmentation.regions[index];
+    for (let index = 0; index < selectedRegions.length; index += 1) {
+      const region = selectedRegions[index];
       const clusteredStops = regionGradientStops[index];
       const sampledSourceStops = resolveMarkSessionRuntimeStops(
         regionGradientSession,
@@ -522,9 +596,9 @@ export const autoConvertActiveImageToColorCycle = async ({
         ditherBaseOffsetOverride: 0,
         paintSlotOverride: regionGradient.slot,
         paintDefIdOverride: regionGradient.def.id,
-        shapePhaseSeedMarkId: `${targetLayerId}:auto:${index}`,
+        shapePhaseSeedMarkId: `${targetLayerId}:auto:${selectedRegionIndexes[index]}`,
         linearGradientSpan: region.linearGradientSpan,
-        skipPostRender: index < segmentation.regions.length - 1,
+        skipPostRender: index < selectedRegions.length - 1,
       };
       if (fillMode === 'concentric' || fillMode === 'circular') {
         await fillColorCycleConcentric({
@@ -541,14 +615,36 @@ export const autoConvertActiveImageToColorCycle = async ({
         });
       }
       const completed = index + 1;
-      const previousPercent = Math.floor((index * 100) / segmentation.regions.length);
-      const completedPercent = Math.floor((completed * 100) / segmentation.regions.length);
-      if (completed === segmentation.regions.length || completedPercent > previousPercent) {
+      const previousPercent = Math.floor((index * 100) / selectedRegions.length);
+      const completedPercent = Math.floor((completed * 100) / selectedRegions.length);
+      if (completed === selectedRegions.length || completedPercent > previousPercent) {
         onProgress?.({
           phase: 'painting',
           completed,
-          total: segmentation.regions.length,
+          total: selectedRegions.length,
         });
+      }
+    }
+
+    if (selectedRegions.length > 0) {
+      const transparentPixelMask = createTransparentPixelMask(sourceImage);
+      const currentState = getAppStoreState();
+      const currentTargetLayer = currentState.layers.find((layer) => layer.id === targetLayerId);
+      if (transparentPixelMask && currentTargetLayer) {
+        clearColorCycleRegion(
+          currentState,
+          currentTargetLayer,
+          project,
+          { x: 0, y: 0, width: project.width, height: project.height },
+          {
+            alphaData: transparentPixelMask,
+            alphaWidth: project.width,
+            alphaHeight: project.height,
+            alphaStride: 1,
+            alphaChannelOffset: 0,
+            auditSource: 'auto-convert-transparent-source',
+          },
+        );
       }
     }
 
@@ -578,10 +674,10 @@ export const autoConvertActiveImageToColorCycle = async ({
       metadata: {
         sourceLayerId: sourceLayer.id,
         targetLayerId,
-        shapeCount: segmentation.regions.length,
+        shapeCount: selectedRegions.length,
       },
     });
-    return { layerId: targetLayerId, shapeCount: segmentation.regions.length };
+    return { layerId: targetLayerId, shapeCount: selectedRegions.length };
   } catch (error) {
     rollbackTargetLayer({
       layerId: targetLayerId,

@@ -107,10 +107,39 @@ const mockAddNotification = mockState.addNotification;
 
 describe('ColorCycleAutoConvertControls', () => {
   beforeEach(() => {
+    window.localStorage.clear();
     mockState.activeLayerId = 'source-layer';
     mockState.layers = [{ id: 'source-layer', layerType: 'normal' }];
     mockAddNotification.mockClear();
     mockedAutoConvert.mockReset();
+  });
+
+  it('restores the last control values after the controls remount', async () => {
+    mockedAutoConvert.mockResolvedValue({ layerId: 'cc-layer', shapeCount: 492 });
+    const firstRender = render(<ColorCycleAutoConvertControls />);
+
+    fireEvent.change(screen.getByLabelText('Auto Convert Shapes'), { target: { value: '492' } });
+    fireEvent.change(screen.getByLabelText('Auto Convert Focus'), { target: { value: '100' } });
+    fireEvent.change(screen.getByLabelText('Auto Convert Coverage'), { target: { value: '37' } });
+    fireEvent.change(screen.getByLabelText('Auto Convert Resolution Minimum'), {
+      target: { value: '3' },
+    });
+    fireEvent.change(screen.getByLabelText('Auto Convert Resolution Maximum'), {
+      target: { value: '11' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Auto Convert' }));
+    await waitFor(() => expect(mockedAutoConvert).toHaveBeenCalled());
+
+    firstRender.unmount();
+    render(<ColorCycleAutoConvertControls />);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Auto Convert Shapes')).toHaveValue('492');
+      expect(screen.getByLabelText('Auto Convert Focus')).toHaveValue('100');
+      expect(screen.getByLabelText('Auto Convert Coverage')).toHaveValue('37');
+      expect(screen.getByLabelText('Auto Convert Resolution Minimum')).toHaveValue('3');
+      expect(screen.getByLabelText('Auto Convert Resolution Maximum')).toHaveValue('11');
+    });
   });
 
   it('uses the requested shape, focus, and resolution range values', async () => {
@@ -122,6 +151,7 @@ describe('ColorCycleAutoConvertControls', () => {
     expect(screen.getByLabelText('Auto Convert Resolution Maximum')).toHaveAttribute('max', '64');
     fireEvent.change(screen.getByLabelText('Auto Convert Shapes'), { target: { value: '142' } });
     fireEvent.change(screen.getByLabelText('Auto Convert Focus'), { target: { value: '73' } });
+    fireEvent.change(screen.getByLabelText('Auto Convert Coverage'), { target: { value: '62' } });
     fireEvent.change(screen.getByLabelText('Auto Convert Resolution Minimum'), {
       target: { value: '2' },
     });
@@ -134,6 +164,7 @@ describe('ColorCycleAutoConvertControls', () => {
       expect(mockedAutoConvert).toHaveBeenCalledWith({
         targetShapes: 142,
         focus: 73,
+        coverage: 62,
         resolutionRange: [2, 12],
         onProgress: expect.any(Function),
       });
