@@ -230,7 +230,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
   });
 
   it('keeps the source and commits one new CC layer as one history action', async () => {
-    const result = await autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 });
+    const result = await autoConvertActiveImageToColorCycle({
+      targetShapes: 24,
+      focus: 50,
+      resolutionRange: [1, 8],
+    });
 
     expect(result.shapeCount).toBe(1);
     expect(state.layers).toHaveLength(2);
@@ -252,6 +256,19 @@ describe('autoConvertActiveImageToColorCycle', () => {
         paintSlotOverride: 11,
         paintDefIdOverride: 7,
       }),
+    }));
+  });
+
+  it('clamps shape and focus requests at their supported maxima', async () => {
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 999,
+      focus: 999,
+      resolutionRange: [1, 8],
+    });
+
+    expect(mockedRunRegions).toHaveBeenCalledWith(expect.objectContaining({
+      targetShapes: 200,
+      focus: 100,
     }));
   });
 
@@ -314,7 +331,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
         hash: 'linear:blue',
       }));
 
-    await autoConvertActiveImageToColorCycle({ targetShapes: 2, detail: 50 });
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 2,
+      focus: 50,
+      resolutionRange: [1, 8],
+    });
 
     expect(mockedEnsureGradientDef).toHaveBeenNthCalledWith(1, expect.objectContaining({
       source: 'sampled',
@@ -398,7 +419,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
       reusedForCapacity: true,
     });
 
-    await autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 });
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 24,
+      focus: 50,
+      resolutionRange: [1, 8],
+    });
 
     expect(mockedFillLinear).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
@@ -412,7 +437,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
     }));
   });
 
-  it('uses resolution 1 for the most detailed region through 4 for the least detailed', async () => {
+  it('maps measured detail across the requested resolution range', async () => {
     const createRegion = (detailScore: number, pixelCount: number, pointCount: number) => ({
       points: Array.from({ length: pointCount }, (_, index) => ({ x: index, y: index % 2 })),
       direction: { x: 1, y: 0 },
@@ -435,14 +460,18 @@ describe('autoConvertActiveImageToColorCycle', () => {
       ],
     });
 
-    await autoConvertActiveImageToColorCycle({ targetShapes: 4, detail: 100 });
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 4,
+      focus: 100,
+      resolutionRange: [2, 10],
+    });
 
     expect(mockedFillLinear).toHaveBeenCalledTimes(4);
     expect(mockedFillLinear.mock.calls.map(([call]) => call.options?.ditherPixelSize)).toEqual([
-      4,
-      1,
-      3,
+      10,
       2,
+      8,
+      5,
     ]);
   });
 
@@ -468,13 +497,17 @@ describe('autoConvertActiveImageToColorCycle', () => {
       regions,
     });
 
-    await autoConvertActiveImageToColorCycle({ targetShapes: 4, detail: 100 });
+    await autoConvertActiveImageToColorCycle({
+      targetShapes: 4,
+      focus: 100,
+      resolutionRange: [2, 10],
+    });
 
     expect(mockedFillLinear.mock.calls.map(([call]) => call.options?.ditherPixelSize)).toEqual([
-      4,
-      4,
-      4,
-      4,
+      10,
+      10,
+      10,
+      10,
     ]);
   });
 
@@ -482,7 +515,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
     mockedFillLinear.mockRejectedValueOnce(new Error('paint failed'));
 
     await expect(
-      autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 }),
+      autoConvertActiveImageToColorCycle({
+        targetShapes: 24,
+        focus: 50,
+        resolutionRange: [1, 8],
+      }),
     ).rejects.toThrow('paint failed');
 
     expect(manager.deleteBrush).toHaveBeenCalledTimes(1);
@@ -497,7 +534,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
     mockedRunRegions.mockReturnValueOnce(new Promise((resolve) => {
       resolveRegions = resolve;
     }));
-    const conversion = autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 });
+    const conversion = autoConvertActiveImageToColorCycle({
+      targetShapes: 24,
+      focus: 50,
+      resolutionRange: [1, 8],
+    });
     const extraLayer = { ...sourceLayer, id: 'extra-layer', name: 'Extra' };
     state.layers = [sourceLayer, extraLayer];
     resolveRegions({
@@ -533,7 +574,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
     });
 
     await expect(
-      autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 }),
+      autoConvertActiveImageToColorCycle({
+        targetShapes: 24,
+        focus: 50,
+        resolutionRange: [1, 8],
+      }),
     ).rejects.toThrow('paint failed');
 
     expect(state.layers.map((layer) => layer.id)).toEqual([sourceLayer.id, extraLayer.id]);
@@ -544,7 +589,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
     manager.getFillBrush.mockReturnValue(null);
 
     await expect(
-      autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 }),
+      autoConvertActiveImageToColorCycle({
+        targetShapes: 24,
+        focus: 50,
+        resolutionRange: [1, 8],
+      }),
     ).rejects.toThrow('Unable to initialize the new Color Cycle fill brush');
 
     expect(state.layers).toEqual([sourceLayer]);
@@ -556,7 +605,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
     manager.getGradientApplyBrush.mockReturnValue(null);
 
     await expect(
-      autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 }),
+      autoConvertActiveImageToColorCycle({
+        targetShapes: 24,
+        focus: 50,
+        resolutionRange: [1, 8],
+      }),
     ).rejects.toThrow('Unable to initialize the new Color Cycle gradient brush');
 
     expect(state.layers).toEqual([sourceLayer]);
@@ -570,7 +623,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
     mockedRunRegions.mockReturnValueOnce(new Promise((resolve) => {
       resolveRegions = resolve;
     }));
-    const conversion = autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 });
+    const conversion = autoConvertActiveImageToColorCycle({
+      targetShapes: 24,
+      focus: 50,
+      resolutionRange: [1, 8],
+    });
     sourceLayer.version = 2;
     resolveRegions({
       analysisWidth: 4,

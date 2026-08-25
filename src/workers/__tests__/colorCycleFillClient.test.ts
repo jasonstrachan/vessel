@@ -159,7 +159,7 @@ describe('colorCycleFillClient', () => {
       width: 2,
       height: 2,
       targetShapes: 24,
-      detail: 50,
+      focus: 50,
       maxColors: 5,
       pixels: new ArrayBuffer(16),
     });

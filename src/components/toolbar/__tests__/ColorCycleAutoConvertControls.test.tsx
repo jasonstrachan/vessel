@@ -51,6 +51,47 @@ jest.mock('@/components/ui/LabeledSlider', () => ({
   ),
 }));
 
+jest.mock('@/components/ui/LabeledRangeSlider', () => ({
+  __esModule: true,
+  default: ({
+    label,
+    value,
+    min,
+    max,
+    onChange,
+    minAriaLabel,
+    maxAriaLabel,
+  }: {
+    label: string;
+    value: [number, number];
+    min: number;
+    max: number;
+    onChange: (value: [number, number]) => void;
+    minAriaLabel: string;
+    maxAriaLabel: string;
+  }) => (
+    <fieldset>
+      <legend>{label}</legend>
+      <input
+        type="range"
+        aria-label={minAriaLabel}
+        value={value[0]}
+        min={min}
+        max={max}
+        onChange={(event) => onChange([Number(event.target.value), value[1]])}
+      />
+      <input
+        type="range"
+        aria-label={maxAriaLabel}
+        value={value[1]}
+        min={min}
+        max={max}
+        onChange={(event) => onChange([value[0], Number(event.target.value)])}
+      />
+    </fieldset>
+  ),
+}));
+
 const mockedAutoConvert = autoConvertActiveImageToColorCycle as jest.MockedFunction<
   typeof autoConvertActiveImageToColorCycle
 >;
@@ -72,17 +113,29 @@ describe('ColorCycleAutoConvertControls', () => {
     mockedAutoConvert.mockReset();
   });
 
-  it('uses the requested shape/detail values and reports one CC layer result', async () => {
+  it('uses the requested shape, focus, and resolution range values', async () => {
     mockedAutoConvert.mockResolvedValue({ layerId: 'cc-layer', shapeCount: 37 });
     render(<ColorCycleAutoConvertControls />);
 
-    expect(screen.getByLabelText('Auto Convert Shapes')).toHaveAttribute('max', '100');
-    fireEvent.change(screen.getByLabelText('Auto Convert Shapes'), { target: { value: '42' } });
-    fireEvent.change(screen.getByLabelText('Auto Convert Detail'), { target: { value: '73' } });
+    expect(screen.getByLabelText('Auto Convert Shapes')).toHaveAttribute('max', '200');
+    expect(screen.getByLabelText('Auto Convert Resolution Minimum')).toHaveAttribute('max', '64');
+    expect(screen.getByLabelText('Auto Convert Resolution Maximum')).toHaveAttribute('max', '64');
+    fireEvent.change(screen.getByLabelText('Auto Convert Shapes'), { target: { value: '142' } });
+    fireEvent.change(screen.getByLabelText('Auto Convert Focus'), { target: { value: '73' } });
+    fireEvent.change(screen.getByLabelText('Auto Convert Resolution Minimum'), {
+      target: { value: '2' },
+    });
+    fireEvent.change(screen.getByLabelText('Auto Convert Resolution Maximum'), {
+      target: { value: '12' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Auto Convert' }));
 
     await waitFor(() => {
-      expect(mockedAutoConvert).toHaveBeenCalledWith({ targetShapes: 42, detail: 73 });
+      expect(mockedAutoConvert).toHaveBeenCalledWith({
+        targetShapes: 142,
+        focus: 73,
+        resolutionRange: [2, 12],
+      });
     });
     expect(mockAddNotification).toHaveBeenCalledWith(expect.objectContaining({
       type: 'success',

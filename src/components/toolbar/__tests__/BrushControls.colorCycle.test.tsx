@@ -92,6 +92,11 @@ jest.mock('@/components/ui/ProgressSlider', () => ({
   ),
 }));
 
+jest.mock('@/components/ui/LabeledRangeSlider', () => ({
+  __esModule: true,
+  default: ({ label }: { label: string }) => <div>{label}</div>,
+}));
+
 jest.mock('@/components/ui/Dropdown', () => ({
   __esModule: true,
   default: ({

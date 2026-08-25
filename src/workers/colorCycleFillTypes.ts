@@ -76,7 +76,7 @@ export interface AutoConvertRegionsJob {
   width: number;
   height: number;
   targetShapes: number;
-  detail: number;
+  focus: number;
   maxColors: number;
   pixels: ArrayBuffer;
 }

@@ -1,3 +1,10 @@
+import {
+  AUTO_CONVERT_MAX_FOCUS,
+  AUTO_CONVERT_MAX_SHAPES,
+  AUTO_CONVERT_MIN_FOCUS,
+  AUTO_CONVERT_MIN_SHAPES,
+} from '@/constants/colorCycleAutoConvert';
+
 export type AutoConvertPoint = { x: number; y: number };
 
 export type AutoConvertGradientStop = {
@@ -121,15 +128,19 @@ const buildAnalysisPixels = ({
   pixels,
   width,
   height,
-  detail,
+  focus,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
   height: number;
-  detail: number;
+  focus: number;
 }): { pixels: AnalysisPixel[]; width: number; height: number } => {
-  const normalizedDetail = clamp(detail, 0, 100) / 100;
-  const maxAnalysisDimension = Math.round(48 + 336 * normalizedDetail ** 1.5);
+  const normalizedFocus = clamp(
+    focus,
+    AUTO_CONVERT_MIN_FOCUS,
+    AUTO_CONVERT_MAX_FOCUS,
+  ) / AUTO_CONVERT_MAX_FOCUS;
+  const maxAnalysisDimension = Math.round(64 + 448 * normalizedFocus ** 1.5);
   const scale = Math.min(1, maxAnalysisDimension / Math.max(width, height));
   const analysisWidth = Math.max(1, Math.round(width * scale));
   const analysisHeight = Math.max(1, Math.round(height * scale));
@@ -274,7 +285,7 @@ const selectInitialClusters = (
   height: number,
   requestedCount: number,
   detailMap: Float32Array,
-  detail: number,
+  focus: number,
 ): Cluster[] => {
   const visibleIndices = pixels
     .map((pixel, index) => (pixel.a > 8 ? index : -1))
@@ -306,7 +317,10 @@ const selectInitialClusters = (
   const seedIndices = [firstIndex];
   const minimumDistances = new Float64Array(width * height);
   minimumDistances.fill(Infinity);
-  const detailBias = 6 * (clamp(detail, 0, 100) / 100) ** 1.5;
+  const focusBias = 24 * (
+    clamp(focus, AUTO_CONVERT_MIN_FOCUS, AUTO_CONVERT_MAX_FOCUS)
+      / AUTO_CONVERT_MAX_FOCUS
+  ) ** 1.5;
   while (seedIndices.length < count) {
     const latest = seedIndices[seedIndices.length - 1];
     const latestX = latest % width;
@@ -319,7 +333,7 @@ const selectInitialClusters = (
       const distance = (x - latestX) ** 2 + (y - latestY) ** 2;
       minimumDistances[index] = Math.min(minimumDistances[index], distance);
       const weightedDistance = minimumDistances[index]
-        * (1 + detailBias * detailMap[index] ** 1.5);
+        * (1 + focusBias * detailMap[index] ** 1.5);
       if (weightedDistance > nextDistance) {
         nextDistance = weightedDistance;
         nextIndex = index;
@@ -552,7 +566,7 @@ const buildRegion = ({
   analysisHeight,
   sourceWidth,
   sourceHeight,
-  detail,
+  focus,
   maxColors,
 }: {
   component: number[];
@@ -563,7 +577,7 @@ const buildRegion = ({
   analysisHeight: number;
   sourceWidth: number;
   sourceHeight: number;
-  detail: number;
+  focus: number;
   maxColors: number;
 }): AutoConvertRegion | null => {
   if (boundary.length < 3 || component.length === 0) {
@@ -571,7 +585,7 @@ const buildRegion = ({
   }
   const simplified = simplifyClosedPolygon(
     boundary,
-    2.4 - clamp(detail, 0, 100) * 0.021,
+    2.4 - clamp(focus, AUTO_CONVERT_MIN_FOCUS, AUTO_CONVERT_MAX_FOCUS) * 0.021,
   );
   if (simplified.length < 3) {
     return null;
@@ -695,28 +709,32 @@ export const extractAutoConvertRegions = ({
   width,
   height,
   targetShapes,
-  detail,
+  focus,
   maxColors = 5,
 }: {
   pixels: Uint8ClampedArray;
   width: number;
   height: number;
   targetShapes: number;
-  detail: number;
+  focus: number;
   maxColors?: number;
 }): AutoConvertRegionsResult => {
   if (width <= 0 || height <= 0 || pixels.length !== width * height * 4) {
     throw new Error('Invalid source image for Color Cycle auto conversion');
   }
-  const analysis = buildAnalysisPixels({ pixels, width, height, detail });
+  const analysis = buildAnalysisPixels({ pixels, width, height, focus });
   const detailMap = buildDetailMap(analysis.pixels, analysis.width, analysis.height);
   const clusters = selectInitialClusters(
     analysis.pixels,
     analysis.width,
     analysis.height,
-    clamp(Math.round(targetShapes), 2, 100),
+    clamp(
+      Math.round(targetShapes),
+      AUTO_CONVERT_MIN_SHAPES,
+      AUTO_CONVERT_MAX_SHAPES,
+    ),
     detailMap,
-    detail,
+    focus,
   );
   if (clusters.length === 0) {
     return {
@@ -744,7 +762,7 @@ export const extractAutoConvertRegions = ({
       analysisHeight: analysis.height,
       sourceWidth: width,
       sourceHeight: height,
-      detail,
+      focus,
       maxColors,
     });
     if (region) {

@@ -103,7 +103,7 @@ const handleAutoConvertRegions = (
   width: job.width,
   height: job.height,
   targetShapes: job.targetShapes,
-  detail: job.detail,
+  focus: job.focus,
   maxColors: job.maxColors,
 });
 

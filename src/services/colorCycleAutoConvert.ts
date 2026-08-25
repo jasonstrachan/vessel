@@ -1,4 +1,12 @@
 import {
+  AUTO_CONVERT_MAX_FOCUS,
+  AUTO_CONVERT_MAX_RESOLUTION,
+  AUTO_CONVERT_MAX_SHAPES,
+  AUTO_CONVERT_MIN_FOCUS,
+  AUTO_CONVERT_MIN_RESOLUTION,
+  AUTO_CONVERT_MIN_SHAPES,
+} from '@/constants/colorCycleAutoConvert';
+import {
   applyRuntimeToBrush,
   flushGradientApply,
   requestGradientApply,
@@ -33,7 +41,8 @@ import { runAutoConvertRegionsJob } from '@/workers/colorCycleFillClient';
 
 export type ColorCycleAutoConvertOptions = {
   targetShapes: number;
-  detail: number;
+  focus: number;
+  resolutionRange: [number, number];
 };
 
 export type ColorCycleAutoConvertResult = {
@@ -183,10 +192,27 @@ const hasSameLayerStack = (layers: Layer[], expectedLayers: Layer[]): boolean =>
   layers.length === expectedLayers.length
   && layers.every((layer, index) => layer.id === expectedLayers[index]?.id);
 
-const resolveRegionDitherPixelSizes = (regions: AutoConvertRegion[]): number[] => {
+const clampResolution = (value: number): number => (
+  Number.isFinite(value)
+    ? Math.max(
+      AUTO_CONVERT_MIN_RESOLUTION,
+      Math.min(AUTO_CONVERT_MAX_RESOLUTION, Math.round(value)),
+    )
+    : AUTO_CONVERT_MIN_RESOLUTION
+);
+
+const resolveRegionDitherPixelSizes = (
+  regions: AutoConvertRegion[],
+  resolutionRange: [number, number],
+): number[] => {
   if (regions.length === 0) {
     return [];
   }
+  const firstResolution = clampResolution(resolutionRange[0]);
+  const secondResolution = clampResolution(resolutionRange[1]);
+  const minimumResolution = Math.min(firstResolution, secondResolution);
+  const maximumResolution = Math.max(firstResolution, secondResolution);
+  const resolutionSpan = maximumResolution - minimumResolution;
   const detailScores = regions.map((region) => (
     Number.isFinite(region.detailScore)
       ? Math.max(0, Math.min(1, region.detailScore))
@@ -199,13 +225,14 @@ const resolveRegionDitherPixelSizes = (regions: AutoConvertRegion[]): number[] =
     const normalizedScore = range > Number.EPSILON
       ? (score - minimum) / range
       : score;
-    return 4 - Math.round(normalizedScore * 3);
+    return maximumResolution - Math.round(normalizedScore * resolutionSpan);
   });
 };
 
 export const autoConvertActiveImageToColorCycle = async ({
   targetShapes,
-  detail,
+  focus,
+  resolutionRange,
 }: ColorCycleAutoConvertOptions): Promise<ColorCycleAutoConvertResult> => {
   const stateBefore = getAppStoreState();
   const project = stateBefore.project;
@@ -228,8 +255,14 @@ export const autoConvertActiveImageToColorCycle = async ({
     type: 'auto-convert-regions',
     width: sourceImage.width,
     height: sourceImage.height,
-    targetShapes: Math.max(2, Math.min(100, Math.round(targetShapes))),
-    detail: Math.max(0, Math.min(100, Math.round(detail))),
+    targetShapes: Math.max(
+      AUTO_CONVERT_MIN_SHAPES,
+      Math.min(AUTO_CONVERT_MAX_SHAPES, Math.round(targetShapes)),
+    ),
+    focus: Math.max(
+      AUTO_CONVERT_MIN_FOCUS,
+      Math.min(AUTO_CONVERT_MAX_FOCUS, Math.round(focus)),
+    ),
     maxColors: Math.max(
       2,
       Math.min(16, Math.round(stateBefore.tools.brushSettings.gradientBands ?? 5)),
@@ -322,7 +355,10 @@ export const autoConvertActiveImageToColorCycle = async ({
       isRuntimePalette: false,
     };
     const ditherMode = resolveCcDitherBandMode(settings.gradientBands ?? 16);
-    const regionDitherPixelSizes = resolveRegionDitherPixelSizes(segmentation.regions);
+    const regionDitherPixelSizes = resolveRegionDitherPixelSizes(
+      segmentation.regions,
+      resolutionRange,
+    );
     const sharedFillArgs = {
       initializeColorCycleBrush: () => fillBrush,
       activeLayerId: targetLayerId,

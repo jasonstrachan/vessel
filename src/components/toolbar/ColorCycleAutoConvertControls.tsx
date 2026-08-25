@@ -2,13 +2,23 @@
 
 import React from 'react';
 
+import {
+  AUTO_CONVERT_MAX_FOCUS,
+  AUTO_CONVERT_MAX_RESOLUTION,
+  AUTO_CONVERT_MAX_SHAPES,
+  AUTO_CONVERT_MIN_FOCUS,
+  AUTO_CONVERT_MIN_RESOLUTION,
+  AUTO_CONVERT_MIN_SHAPES,
+} from '@/constants/colorCycleAutoConvert';
 import { autoConvertActiveImageToColorCycle } from '@/services/colorCycleAutoConvert';
 import { useAppStore } from '@/stores/useAppStore';
 
 import LabeledSlider from '../ui/LabeledSlider';
+import LabeledRangeSlider from '../ui/LabeledRangeSlider';
 
 const DEFAULT_SHAPES = 24;
-const DEFAULT_DETAIL = 50;
+const DEFAULT_FOCUS = 50;
+const DEFAULT_RESOLUTION_RANGE: [number, number] = [1, 8];
 
 export const ColorCycleAutoConvertControls = () => {
   const activeLayerId = useAppStore((state) => state.activeLayerId);
@@ -17,7 +27,10 @@ export const ColorCycleAutoConvertControls = () => {
   );
   const addNotification = useAppStore((state) => state.addNotification);
   const [shapes, setShapes] = React.useState(DEFAULT_SHAPES);
-  const [detail, setDetail] = React.useState(DEFAULT_DETAIL);
+  const [focus, setFocus] = React.useState(DEFAULT_FOCUS);
+  const [resolutionRange, setResolutionRange] = React.useState<[number, number]>(
+    DEFAULT_RESOLUTION_RANGE,
+  );
   const [isConverting, setIsConverting] = React.useState(false);
   const canConvert = activeLayerType === 'normal';
 
@@ -29,7 +42,8 @@ export const ColorCycleAutoConvertControls = () => {
     try {
       const result = await autoConvertActiveImageToColorCycle({
         targetShapes: shapes,
-        detail,
+        focus,
+        resolutionRange,
       });
       addNotification?.({
         type: 'success',
@@ -47,28 +61,45 @@ export const ColorCycleAutoConvertControls = () => {
     } finally {
       setIsConverting(false);
     }
-  }, [addNotification, detail, isConverting, shapes]);
+  }, [addNotification, focus, isConverting, resolutionRange, shapes]);
 
   return (
     <div className="mb-3 border-t border-[#3A3A3A] pt-2">
       <LabeledSlider
         label="Shapes"
         value={shapes}
-        min={2}
-        max={100}
+        min={AUTO_CONVERT_MIN_SHAPES}
+        max={AUTO_CONVERT_MAX_SHAPES}
         step={1}
-        onChange={(value) => setShapes(Math.max(2, Math.min(100, Math.round(value))))}
+        onChange={(value) => setShapes(Math.max(
+          AUTO_CONVERT_MIN_SHAPES,
+          Math.min(AUTO_CONVERT_MAX_SHAPES, Math.round(value)),
+        ))}
         ariaLabel="Auto Convert Shapes"
         className="mb-2"
       />
       <LabeledSlider
-        label="Detail"
-        value={detail}
-        min={0}
-        max={100}
+        label="Focus"
+        value={focus}
+        min={AUTO_CONVERT_MIN_FOCUS}
+        max={AUTO_CONVERT_MAX_FOCUS}
         step={1}
-        onChange={(value) => setDetail(Math.max(0, Math.min(100, Math.round(value))))}
-        ariaLabel="Auto Convert Detail"
+        onChange={(value) => setFocus(Math.max(
+          AUTO_CONVERT_MIN_FOCUS,
+          Math.min(AUTO_CONVERT_MAX_FOCUS, Math.round(value)),
+        ))}
+        ariaLabel="Auto Convert Focus"
+        className="mb-2"
+      />
+      <LabeledRangeSlider
+        label="Res"
+        value={resolutionRange}
+        min={AUTO_CONVERT_MIN_RESOLUTION}
+        max={AUTO_CONVERT_MAX_RESOLUTION}
+        step={1}
+        onChange={setResolutionRange}
+        minAriaLabel="Auto Convert Resolution Minimum"
+        maxAriaLabel="Auto Convert Resolution Maximum"
         className="mb-2"
       />
       <button

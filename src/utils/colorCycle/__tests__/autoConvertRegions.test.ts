@@ -41,7 +41,7 @@ describe('extractAutoConvertRegions', () => {
       width,
       height,
       targetShapes: 2,
-      detail: 50,
+      focus: 50,
       maxColors: 4,
     });
 
@@ -72,15 +72,15 @@ describe('extractAutoConvertRegions', () => {
       width: 12,
       height: 8,
       targetShapes: 24,
-      detail: 50,
+      focus: 50,
     });
 
     expect(result.regions).toEqual([]);
   });
 
-  it('enforces the 100-shape maximum in the owning algorithm', () => {
-    const width = 512;
-    const height = 512;
+  it('enforces the 200-shape maximum in the owning algorithm', () => {
+    const width = 32;
+    const height = 32;
     const pixels = new Uint8ClampedArray(width * height * 4);
     for (let index = 0; index < width * height; index += 1) {
       pixels[index * 4] = (index * 29) % 255;
@@ -93,11 +93,11 @@ describe('extractAutoConvertRegions', () => {
       pixels,
       width,
       height,
-      targetShapes: 500,
-      detail: 100,
+      targetShapes: 999,
+      focus: 100,
     });
 
-    expect(result.regions).toHaveLength(100);
+    expect(result.regions).toHaveLength(200);
   });
 
   it('keeps every repeated-color island assigned to a connected painted region', () => {
@@ -120,7 +120,7 @@ describe('extractAutoConvertRegions', () => {
       width,
       height,
       targetShapes: 12,
-      detail: 75,
+      focus: 75,
       maxColors: 6,
     });
 
@@ -138,29 +138,29 @@ describe('extractAutoConvertRegions', () => {
     const width = 64;
     const height = 32;
     const pixels = createFlatAndDetailedImage(width, height);
-    const lowDetail = extractAutoConvertRegions({
+    const lowFocus = extractAutoConvertRegions({
       pixels,
       width,
       height,
       targetShapes: 20,
-      detail: 0,
+      focus: 0,
       maxColors: 4,
     });
-    const highDetail = extractAutoConvertRegions({
+    const highFocus = extractAutoConvertRegions({
       pixels,
       width,
       height,
       targetShapes: 20,
-      detail: 100,
+      focus: 100,
       maxColors: 4,
     });
-    const countDetailedRegions = (result: typeof highDetail) => result.regions.filter((region) => {
+    const countDetailedRegions = (result: typeof highFocus) => result.regions.filter((region) => {
       const meanX = region.points.reduce((total, point) => total + point.x, 0)
         / region.points.length;
       return meanX >= width / 2;
     }).length;
     const meanRegionDetail = (isDetailed: boolean) => {
-      const matchingRegions = highDetail.regions.filter((region) => {
+      const matchingRegions = highFocus.regions.filter((region) => {
         const meanX = region.points.reduce((total, point) => total + point.x, 0)
           / region.points.length;
         return (meanX >= width / 2) === isDetailed;
@@ -169,13 +169,13 @@ describe('extractAutoConvertRegions', () => {
         / matchingRegions.length;
     };
 
-    expect(countDetailedRegions(highDetail)).toBeGreaterThan(countDetailedRegions(lowDetail));
-    expect(countDetailedRegions(highDetail)).toBeGreaterThanOrEqual(13);
+    expect(countDetailedRegions(highFocus)).toBeGreaterThan(countDetailedRegions(lowFocus));
+    expect(countDetailedRegions(highFocus)).toBeGreaterThanOrEqual(16);
     expect(meanRegionDetail(true)).toBeGreaterThan(meanRegionDetail(false));
-    expect(highDetail.regions).toHaveLength(20);
+    expect(highFocus.regions).toHaveLength(20);
   });
 
-  it('raises the analysis ceiling to preserve fine features at Detail 100', () => {
+  it('raises the analysis ceiling to preserve fine features at Focus 100', () => {
     const width = 512;
     const height = 16;
     const pixels = createSplitImage(width, height);
@@ -185,9 +185,9 @@ describe('extractAutoConvertRegions', () => {
       width,
       height,
       targetShapes: 2,
-      detail: 100,
+      focus: 100,
     });
 
-    expect(result.analysisWidth).toBe(384);
+    expect(result.analysisWidth).toBe(512);
   });
 });
