@@ -94,6 +94,28 @@ describe('TxtShapeDelta', () => {
     expect(createTxtShapeDelta({ before, after })).not.toBeNull();
   });
 
+  it('retains rendering and sampled-reference changes as semantic history', () => {
+    const before = [createShape('SAMPLED')];
+    const variants: TxtShape[] = [
+      { ...createShape('SAMPLED'), letterSpacing: 2 },
+      { ...createShape('SAMPLED'), referenceMapped: true },
+      { ...createShape('SAMPLED'), renderMode: 'glyph-map' },
+      { ...createShape('SAMPLED'), sampledBackgroundColor: '#123456' },
+      {
+        ...createShape('SAMPLED'),
+        sampledColorRanges: [{ start: 0, end: 3, color: '#123456' }],
+      },
+      {
+        ...createShape('SAMPLED'),
+        sampleTone: { darks: 10, lights: 90, contrast: 20 },
+      },
+    ];
+
+    variants.forEach((shape) => {
+      expect(createTxtShapeDelta({ before, after: [shape] })).not.toBeNull();
+    });
+  });
+
   it('retains and restores treatment-only changes as semantic history', () => {
     const before = [createShape('TREATMENT')];
     const after = [{

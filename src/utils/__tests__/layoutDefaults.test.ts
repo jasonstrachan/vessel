@@ -103,4 +103,40 @@ describe('normalizeProject', () => {
       ],
     }]);
   });
+
+  it('preserves and sanitizes interlace group settings', () => {
+    const layer = { ...makeLayer('interlace-layer', 0), groupId: 'interlace-group' };
+    const project = makeProject([layer]);
+    project.layerGroups = [{
+      id: 'interlace-group',
+      name: ' Interlace ',
+      kind: 'interlace',
+      interlace: {
+        cellSize: 500,
+        dominance: 0.1,
+        patternPreset: 'ripple',
+        motionMode: 'travel',
+        direction: 'left',
+        travelCycles: 20,
+        loopDurationSeconds: 0.1,
+        seed: -1,
+      },
+    }];
+
+    expect(normalizeProject(project).layerGroups).toEqual([{
+      id: 'interlace-group',
+      name: 'Interlace',
+      kind: 'interlace',
+      interlace: {
+        cellSize: 128,
+        dominance: 0.5,
+        patternPreset: 'ripple',
+        motionMode: 'travel',
+        direction: 'left',
+        travelCycles: 16,
+        loopDurationSeconds: 0.25,
+        seed: 0xffffffff,
+      },
+    }]);
+  });
 });

@@ -11,6 +11,7 @@ import type {
   PaletteState,
   Project
 } from '@/types';
+import { sanitizeInterlaceSettings } from '@/lib/interlace/interlaceSettings';
 import { normalizeAlignment } from '@/utils/alignment/alignFitResolver';
 import { normalizeCanvasShape } from '@/utils/canvasShape';
 import { normalizeCcCustomTilePatternPack } from '@/utils/colorCycle/ccCustomTilePattern';
@@ -339,6 +340,14 @@ export const normalizeProject = (project: Project): Project => {
     normalizedLayerGroups.push({
       id: group.id,
       name: name && name.length > 0 ? name : `Group ${index + 1}`,
+      ...(group.kind === 'interlace'
+        ? {
+            kind: 'interlace' as const,
+            interlace: sanitizeInterlaceSettings(group.interlace),
+          }
+        : group.kind === 'visual'
+          ? { kind: 'visual' as const }
+          : {}),
     });
   });
   const validGroupIds = new Set(normalizedLayerGroups.map((group) => group.id));

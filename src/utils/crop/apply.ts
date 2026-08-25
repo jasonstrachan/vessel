@@ -6,6 +6,40 @@ import type {
   RecolorRebuildRequest
 } from './types';
 
+interface CroppableProjectObject {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  updatedAt: number;
+}
+
+const cropProjectObjects = <T extends CroppableProjectObject>(
+  objects: readonly T[] | undefined,
+  rect: NormalizedCropRect,
+): T[] | undefined => {
+  if (!objects) return undefined;
+  const right = rect.x + rect.width;
+  const bottom = rect.y + rect.height;
+  const didMoveOrigin = rect.x !== 0 || rect.y !== 0;
+  const updatedAt = Date.now();
+
+  return objects.flatMap((object) => {
+    const intersectsCrop = object.x < right
+      && object.y < bottom
+      && object.x + object.width > rect.x
+      && object.y + object.height > rect.y;
+    if (!intersectsCrop) return [];
+    if (!didMoveOrigin) return [object];
+    return [{
+      ...object,
+      x: object.x - rect.x,
+      y: object.y - rect.y,
+      updatedAt,
+    }];
+  });
+};
+
 interface ApplyCroppedLayersArgs {
   project: Project;
   layers: Layer[];
@@ -44,6 +78,12 @@ export function applyCroppedLayers({
     ...project,
     width: rect.width,
     height: rect.height,
+    ...(project.txtShapes
+      ? { txtShapes: cropProjectObjects(project.txtShapes, rect) }
+      : {}),
+    ...(project.uiShapes
+      ? { uiShapes: cropProjectObjects(project.uiShapes, rect) }
+      : {}),
     updatedAt: new Date()
   };
 

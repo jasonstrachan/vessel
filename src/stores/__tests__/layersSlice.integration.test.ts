@@ -1,5 +1,5 @@
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import type { Layer, UiShape } from '@/types';
+import type { Layer, TxtShape, UiShape } from '@/types';
 import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
 import type { ColorCycleBrushLayerSnapshot } from '@/lib/colorCycle/document/brushPersistenceAdapter';
 import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
@@ -63,6 +63,27 @@ const createTestUiShape = (layerId: string, id = 'ui-owned'): UiShape => ({
       phaseOffset: 0,
     },
   }],
+  createdAt: 1,
+  updatedAt: 1,
+});
+
+const createTestTxtShape = (layerId: string, id = 'txt-owned'): TxtShape => ({
+  id,
+  layerId,
+  x: 1,
+  y: 2,
+  width: 20,
+  height: 10,
+  content: 'OWNED',
+  fontFamily: 'mek-mono',
+  fontSize: 8,
+  lineHeight: 1.2,
+  textAlign: 'left',
+  colorSource: 'palette',
+  color: '#000000',
+  selectionColor: '#ffffff',
+  selectionBackgroundColor: '#000000',
+  selections: [{ start: 0, end: 5 }],
   createdAt: 1,
   updatedAt: 1,
 });
@@ -402,6 +423,33 @@ describe('layers slice integration', () => {
     expect(nextState.selectedLayerIds).toEqual([newLayerId]);
     expect(nextState.layers).toHaveLength(1);
     expect(nextState.layers[0].id).toBe(newLayerId);
+  });
+
+  it('normalizes project edits against the authoritative runtime layers', () => {
+    const staleLayerId = useAppStore.getState().addLayer(createNormalLayerInput('Existing layer'));
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? {
+            ...state.project,
+            layers: state.layers.filter((layer) => layer.id === staleLayerId),
+          }
+        : state.project,
+    }));
+    const newLayerId = useAppStore.getState().addLayer(createNormalLayerInput('TXT owner'));
+    const shape = createTestTxtShape(newLayerId);
+
+    useAppStore.getState().updateProject({
+      txtShapes: [shape],
+      updatedAt: new Date(),
+    });
+
+    const nextState = useAppStore.getState();
+    expect(nextState.project?.txtShapes).toEqual([
+      expect.objectContaining({ id: shape.id, layerId: newLayerId }),
+    ]);
+    expect(nextState.project?.layers.map((layer) => layer.id)).toEqual(
+      nextState.layers.map((layer) => layer.id),
+    );
   });
 
   it('keeps the Selection tool and selection geometry when switching away from a CC layer', () => {
@@ -2213,9 +2261,14 @@ describe('layers slice integration', () => {
       project: state.project
         ? {
             ...state.project,
+            layers: [...state.layers],
             uiShapes: [
               createTestUiShape(bottomId, 'ui-bottom'),
               createTestUiShape(topId, 'ui-top'),
+            ],
+            txtShapes: [
+              createTestTxtShape(bottomId, 'txt-bottom'),
+              createTestTxtShape(topId, 'txt-top'),
             ],
           }
         : state.project,
@@ -2236,6 +2289,19 @@ describe('layers slice integration', () => {
     expect(nextState.project?.referenceSamplingSource).toEqual({ kind: 'canvas' });
     expect(nextState.project?.uiShapes).toHaveLength(2);
     expect(nextState.project?.uiShapes?.every((shape) => shape.layerId === mergedId)).toBe(true);
+
+    useAppStore.getState().updateProject({
+      txtShapes: nextState.project?.txtShapes?.map((shape) => ({
+        ...shape,
+        content: `${shape.content}!`,
+      })),
+      updatedAt: new Date(),
+    });
+
+    const editedState = useAppStore.getState();
+    expect(editedState.project?.txtShapes).toHaveLength(2);
+    expect(editedState.project?.txtShapes?.every((shape) => shape.layerId === mergedId)).toBe(true);
+    expect(editedState.project?.layers.map((layer) => layer.id)).toEqual([mergedId]);
   });
 
   it('merges color-cycle layers without flattening their canonical payloads', () => {

@@ -85,6 +85,8 @@ export const createCropSlice = ({
         projectSize: beforeProject,
         layerSnapshots: beforeLayerSnapshots,
         selectionSnapshot: selectionBefore,
+        txtShapes: beforeTxtShapes,
+        uiShapes: beforeUiShapes,
       } = captureCropHistoryBaseline({
         project,
         layers: state.layers,
@@ -166,6 +168,10 @@ export const createCropSlice = ({
           : null,
         beforeLayers: beforeLayerSnapshots,
         afterLayers: postState.layers,
+        beforeTxtShapes,
+        afterTxtShapes: postState.project?.txtShapes ?? [],
+        beforeUiShapes,
+        afterUiShapes: postState.project?.uiShapes ?? [],
         description: 'Crop to selection',
       });
 

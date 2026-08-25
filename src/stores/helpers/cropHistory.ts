@@ -4,6 +4,8 @@ import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
 import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
+import { cloneTxtShapes, createTxtShapeDelta } from '@/history/deltas/txtShapeDelta';
+import { createUiShapeDelta } from '@/history/deltas/uiShapeDelta';
 import {
   captureColorCycleBrushState,
   type ColorCycleSerializedState,
@@ -14,7 +16,8 @@ import {
   type SelectionSnapshot,
 } from '@/history/selectionState';
 import { commitSelectionHistory } from '@/history/helpers/selectionHistory';
-import type { Layer, Project } from '@/types';
+import type { Layer, Project, TxtShape, UiShape } from '@/types';
+import { cloneUiShapes } from '@/utils/uiShape';
 
 export type ProjectSizeSnapshot = { width: number; height: number };
 
@@ -29,6 +32,8 @@ export interface CropHistoryBaseline {
   projectSize: ProjectSizeSnapshot | null;
   layerSnapshots: CropLayerSnapshotMap;
   selectionSnapshot: SelectionSnapshot;
+  txtShapes: TxtShape[];
+  uiShapes: UiShape[];
 }
 
 interface CaptureCropHistoryBaselineArgs {
@@ -68,6 +73,8 @@ export const captureCropHistoryBaseline = ({
     projectSize,
     layerSnapshots,
     selectionSnapshot,
+    txtShapes: cloneTxtShapes(project?.txtShapes ?? []),
+    uiShapes: cloneUiShapes(project?.uiShapes ?? []),
   };
 };
 
@@ -76,6 +83,10 @@ export interface RecordCropHistoryArgs {
   afterProject: ProjectSizeSnapshot | null;
   beforeLayers: CropLayerSnapshotMap;
   afterLayers: Layer[];
+  beforeTxtShapes: readonly TxtShape[];
+  afterTxtShapes: readonly TxtShape[];
+  beforeUiShapes: readonly UiShape[];
+  afterUiShapes: readonly UiShape[];
   description: string;
 }
 
@@ -84,6 +95,10 @@ export const recordCropHistory = async ({
   afterProject,
   beforeLayers,
   afterLayers,
+  beforeTxtShapes,
+  afterTxtShapes,
+  beforeUiShapes,
+  afterUiShapes,
   description,
 }: RecordCropHistoryArgs): Promise<void> => {
   let deltaCount = 0;
@@ -149,6 +164,24 @@ export const recordCropHistory = async ({
           after: afterProject,
         }),
       );
+      deltaCount += 1;
+    }
+
+    const txtShapeDelta = createTxtShapeDelta({
+      before: beforeTxtShapes,
+      after: afterTxtShapes,
+    });
+    if (txtShapeDelta) {
+      txn.push(txtShapeDelta);
+      deltaCount += 1;
+    }
+
+    const uiShapeDelta = createUiShapeDelta({
+      before: beforeUiShapes,
+      after: afterUiShapes,
+    });
+    if (uiShapeDelta) {
+      txn.push(uiShapeDelta);
       deltaCount += 1;
     }
 

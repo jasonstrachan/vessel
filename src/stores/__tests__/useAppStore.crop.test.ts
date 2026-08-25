@@ -10,8 +10,9 @@ import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { applyColorCycleBrushLayerSnapshotToRuntime } from '@/lib/colorCycle/document';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { createDefaultCanvasShape } from '@/utils/canvasShape';
-import type { Layer, Project, Rectangle } from '@/types';
+import type { Layer, Project, Rectangle, TxtShape, UiShape } from '@/types';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
+import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
 
 
 const createImageData = (width: number, height: number): ImageData => {
@@ -369,6 +370,97 @@ describe('useAppStore commitCrop', () => {
 
     expect(state.canvas.offsetX).toBe(-2);
     expect(state.canvas.offsetY).toBe(-1);
+  });
+
+  it('crops layer-owned objects and restores them through undo and redo', async () => {
+    const layer = createLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4);
+    const txtInside: TxtShape = {
+      id: 'txt-inside',
+      layerId: layer.id,
+      x: 2,
+      y: 1,
+      width: 2,
+      height: 2,
+      content: 'inside',
+      fontFamily: 'mek-mono',
+      fontSize: 12,
+      lineHeight: 1.2,
+      textAlign: 'left',
+      colorSource: 'manual',
+      color: '#000000',
+      selectionColor: '#ffffff',
+      selectionBackgroundColor: '#000000',
+      selections: [],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const txtOutside: TxtShape = {
+      ...txtInside,
+      id: 'txt-outside',
+      x: 5,
+      y: 3,
+    };
+    const uiInside: UiShape = {
+      id: 'ui-inside',
+      layerId: layer.id,
+      x: 0,
+      y: 0,
+      width: 2,
+      height: 2,
+      gridSize: 1,
+      theme: 'windows-3.1',
+      drawMode: 'fill',
+      regionKind: 'rectangle',
+      componentKinds: [],
+      colorSource: 'default',
+      palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
+      components: [],
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const uiOutside: UiShape = {
+      ...uiInside,
+      id: 'ui-outside',
+      x: 4,
+      y: 3,
+    };
+    useAppStore.setState((state) => ({
+      project: state.project
+        ? {
+            ...state.project,
+            txtShapes: [txtInside, txtOutside],
+            uiShapes: [uiInside, uiOutside],
+          }
+        : null,
+    }));
+
+    await useAppStore.getState().commitCrop();
+
+    let project = useAppStore.getState().project;
+    expect(project?.txtShapes).toEqual([
+      expect.objectContaining({ id: txtInside.id, x: 1, y: 0 }),
+    ]);
+    expect(project?.uiShapes).toEqual([
+      expect.objectContaining({ id: uiInside.id, x: -1, y: -1 }),
+    ]);
+    expect(historyManager.peekUndo()?.deltas.map((delta) => delta._tag)).toEqual(
+      expect.arrayContaining(['txt-shapes', 'ui-shapes']),
+    );
+
+    await useAppStore.getState().undo();
+    project = useAppStore.getState().project;
+    expect(project?.txtShapes).toEqual([txtInside, txtOutside]);
+    expect(project?.uiShapes).toEqual([uiInside, uiOutside]);
+
+    await useAppStore.getState().redo();
+    project = useAppStore.getState().project;
+    expect(project?.txtShapes).toEqual([
+      expect.objectContaining({ id: txtInside.id, x: 1, y: 0 }),
+    ]);
+    expect(project?.uiShapes).toEqual([
+      expect.objectContaining({ id: uiInside.id, x: -1, y: -1 }),
+    ]);
   });
 
   it('crops color-cycle layers and preserves their canvas bindings', async () => {

@@ -145,6 +145,8 @@ describe('cropSlice.commitCrop', () => {
       projectSize: { width: 8, height: 6 },
       layerSnapshots: layerMap,
       selectionSnapshot: { start: { x: 0, y: 0 }, end: { x: 2, y: 2 } },
+      txtShapes: [],
+      uiShapes: [],
     };
     const captureSpy = jest
       .spyOn(cropHistory, 'captureCropHistoryBaseline')

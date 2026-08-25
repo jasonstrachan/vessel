@@ -182,6 +182,11 @@ export const createProjectLifecycle = ({
     const baseProject: Project = {
       ...stateBefore.project,
       ...updates,
+      // The layers slice is the runtime authority. Structural layer actions update
+      // it independently from the serializable project mirror, so ordinary project
+      // edits must never validate semantic object ownership against stale layers.
+      layers: stateBefore.layers,
+      layerGroups: stateBefore.layerGroups,
       exportLayout: 'exportLayout' in updates
         ? cloneExportLayout(updates.exportLayout)
         : cloneExportLayout(stateBefore.project.exportLayout),

@@ -8,10 +8,12 @@ import {
 import { useAppStore } from '@/stores/useAppStore';
 import type { TxtShape } from '@/types';
 
-const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((shape) => ({
+export const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((shape) => ({
   ...shape,
   colorRanges: shape.colorRanges?.map((range) => ({ ...range })),
   regionPath: shape.regionPath?.map((point) => ({ ...point })),
+  sampledColorRanges: shape.sampledColorRanges?.map((range) => ({ ...range })),
+  sampleTone: shape.sampleTone ? { ...shape.sampleTone } : undefined,
   selections: shape.selections.map((selection) => ({ ...selection })),
   selectionTreatments: shape.selectionTreatments?.map((range) => ({ ...range })),
 }));
@@ -64,7 +66,15 @@ const shapesEqual = (left: TxtShape, right: TxtShape): boolean => (
   && left.content === right.content
   && left.fontFamily === right.fontFamily
   && left.fontSize === right.fontSize
+  && left.letterSpacing === right.letterSpacing
   && left.lineHeight === right.lineHeight
+  && left.referenceMapped === right.referenceMapped
+  && left.renderMode === right.renderMode
+  && left.sampledBackgroundColor === right.sampledBackgroundColor
+  && colorRangesEqual(left.sampledColorRanges, right.sampledColorRanges)
+  && left.sampleTone?.darks === right.sampleTone?.darks
+  && left.sampleTone?.lights === right.sampleTone?.lights
+  && left.sampleTone?.contrast === right.sampleTone?.contrast
   && left.textAlign === right.textAlign
   && left.colorSource === right.colorSource
   && left.color === right.color
