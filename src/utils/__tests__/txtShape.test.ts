@@ -20,11 +20,13 @@ import {
   getTxtShapeRegionPathArea,
   getTxtShapeTextLayout,
   getTxtShapeTransientSelectionRevision,
+  getTxtShapeUnmappedTextCoverage,
   normalizeTxtShapeSelectionTreatments,
   normalizeTxtShapeSelections,
   normalizeTxtShapeSampleTone,
   normalizeTxtShapePlaybackSettings,
   normalizeTxtShapes,
+  resolveTxtShapeHiddenUnmappedRanges,
   setTxtShapeTransientSelectionOverrides,
   splitTxtShapeSegments,
   thresholdTxtShapePixelAlpha,
@@ -339,6 +341,80 @@ describe('TXT Shape document helpers', () => {
       lights: 80,
       contrast: -100,
     });
+  });
+
+  it('normalizes optional unmapped-text controls while legacy shapes remain fully visible', () => {
+    const [partial, legacy, malformed] = normalizeTxtShapes([
+      createShape({
+        id: 'partial',
+        content: 'ONE TWO THREE',
+        unmappedTextCoverage: 42.6,
+        unmappedWordOrder: [8, 0, 4, 8, 99],
+      }),
+      createShape({ id: 'legacy' }),
+      createShape({
+        id: 'malformed',
+        unmappedTextCoverage: null as unknown as number,
+        unmappedWordOrder: ['0'] as unknown as number[],
+      }),
+    ], 200, 100);
+
+    expect(partial).toEqual(expect.objectContaining({
+      unmappedTextCoverage: 43,
+      unmappedWordOrder: [8, 0, 4],
+    }));
+    expect(getTxtShapeUnmappedTextCoverage(legacy)).toBe(100);
+    expect(legacy.unmappedTextCoverage).toBeUndefined();
+    expect(getTxtShapeUnmappedTextCoverage(malformed)).toBe(100);
+    expect(malformed.unmappedWordOrder).toBeUndefined();
+  });
+
+  it('thins only unmapped word footprint in a stable persisted order', () => {
+    const shape = createShape({
+      content: 'MAP AA BBBB CCCC DD',
+      selections: [{ start: 0, end: 3 }],
+      unmappedWordOrder: [7, 12, 4, 17],
+    });
+
+    expect(resolveTxtShapeHiddenUnmappedRanges({
+      ...shape,
+      unmappedTextCoverage: 100,
+    })).toEqual([]);
+    expect(resolveTxtShapeHiddenUnmappedRanges({
+      ...shape,
+      unmappedTextCoverage: 50,
+    })).toEqual([
+      { start: 4, end: 6 },
+      { start: 12, end: 16 },
+      { start: 17, end: 19 },
+    ]);
+    expect(resolveTxtShapeHiddenUnmappedRanges({
+      ...shape,
+      unmappedTextCoverage: 0,
+    })).toEqual([
+      { start: 4, end: 6 },
+      { start: 7, end: 11 },
+      { start: 12, end: 16 },
+      { start: 17, end: 19 },
+    ]);
+  });
+
+  it('keeps canonical words paintable in the unselected Goblet base while hiding the rest', () => {
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic', fillStyle: '',
+    } as unknown as CanvasRenderingContext2D;
+    const shape = createShape({
+      content: 'MAP HIDDEN',
+      selections: [{ start: 0, end: 3 }],
+      unmappedTextCoverage: 0,
+    });
+
+    drawUnselectedTxtShapesToCanvas(ctx, [shape]);
+
+    expect(ctx.fillText).toHaveBeenCalledTimes(1);
   });
 
   it('preserves partially off-canvas authored geometry', () => {

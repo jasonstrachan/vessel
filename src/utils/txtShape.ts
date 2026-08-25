@@ -41,6 +41,7 @@ export const DEFAULT_TXT_SHAPE_PLAYBACK_SETTINGS: Readonly<TxtShapePlaybackSetti
   cursorCount: 2,
   dragSpeed: 140,
 };
+export const DEFAULT_TXT_SHAPE_UNMAPPED_TEXT_COVERAGE = 100;
 
 export interface TxtShapePaintRect {
   x: number;
@@ -93,6 +94,20 @@ const asRecord = (value: unknown): Record<string, unknown> => (
     ? value as Record<string, unknown>
     : {}
 );
+
+const normalizeTxtShapeUnmappedWordOrder = (
+  value: unknown,
+  content: string,
+): number[] => {
+  if (!Array.isArray(value)) return [];
+  const wordStarts = new Set(
+    [...content.matchAll(/\S+/gu)].map((match) => match.index ?? -1),
+  );
+  return [...new Set(value.flatMap((entry) => {
+    const start = Math.round(finite(entry, -1));
+    return wordStarts.has(start) ? [start] : [];
+  }))];
+};
 
 export const normalizeTxtShapePlaybackSettings = (
   value: unknown,
@@ -445,6 +460,18 @@ export const normalizeTxtShape = (
     || candidate.renderMode === 'glyph-map';
   const letterSpacing = clamp(finite(candidate.letterSpacing, 0), 0, 64);
   const sampleTone = normalizeTxtShapeSampleTone(candidate.sampleTone);
+  const unmappedTextCoverage = clamp(
+    Math.round(finite(
+      candidate.unmappedTextCoverage,
+      DEFAULT_TXT_SHAPE_UNMAPPED_TEXT_COVERAGE,
+    )),
+    0,
+    100,
+  );
+  const unmappedWordOrder = normalizeTxtShapeUnmappedWordOrder(
+    candidate.unmappedWordOrder,
+    content,
+  );
 
   return {
     id: typeof candidate.id === 'string' && candidate.id.trim()
@@ -476,6 +503,10 @@ export const normalizeTxtShape = (
     lineHeight: clamp(finite(candidate.lineHeight, 1.2), 0.75, 4),
     ...(referenceMapped ? { referenceMapped: true } : {}),
     ...(candidate.renderMode === 'glyph-map' ? { renderMode: 'glyph-map' as const } : {}),
+    ...(unmappedTextCoverage < DEFAULT_TXT_SHAPE_UNMAPPED_TEXT_COVERAGE
+      ? { unmappedTextCoverage }
+      : {}),
+    ...(unmappedWordOrder.length > 0 ? { unmappedWordOrder } : {}),
     ...(isCssColor(candidate.sampledBackgroundColor)
       ? { sampledBackgroundColor: candidate.sampledBackgroundColor }
       : {}),
@@ -700,6 +731,95 @@ export const isTxtShapeIndexSelected = (
   selections: readonly TxtShapeSelectionRange[],
   index: number,
 ): boolean => selections.some((range) => index >= range.start && index < range.end);
+
+export const getTxtShapeUnmappedTextCoverage = (
+  shape: Pick<TxtShape, 'unmappedTextCoverage'>,
+): number => clamp(
+  Math.round(finite(
+    shape.unmappedTextCoverage,
+    DEFAULT_TXT_SHAPE_UNMAPPED_TEXT_COVERAGE,
+  )),
+  0,
+  100,
+);
+
+interface TxtShapeWordRange extends TxtShapeSelectionRange {
+  weight: number;
+}
+
+const collectTxtShapeWordRanges = (content: string): TxtShapeWordRange[] => (
+  [...content.matchAll(/\S+/gu)].map((match) => {
+    const start = match.index ?? 0;
+    return {
+      start,
+      end: start + match[0].length,
+      weight: Math.max(1, Array.from(match[0]).length),
+    };
+  })
+);
+
+const doesTxtShapeRangeIntersectSelections = (
+  range: TxtShapeSelectionRange,
+  selections: readonly TxtShapeSelectionRange[],
+): boolean => selections.some((selection) => (
+  range.start < selection.end && range.end > selection.start
+));
+
+export const resolveTxtShapeHiddenUnmappedRanges = (
+  shape: Pick<
+    TxtShape,
+    'content' | 'selections' | 'unmappedTextCoverage' | 'unmappedWordOrder'
+  >,
+): TxtShapeSelectionRange[] => {
+  const coverage = getTxtShapeUnmappedTextCoverage(shape);
+  if (coverage >= 100 || !shape.content) return [];
+  const canonicalSelections = normalizeTxtShapeSelections(
+    shape.selections,
+    shape.content.length,
+  );
+  const unmappedWords = collectTxtShapeWordRanges(shape.content).filter((word) => (
+    !doesTxtShapeRangeIntersectSelections(word, canonicalSelections)
+  ));
+  if (coverage <= 0) {
+    return unmappedWords.map(({ start, end }) => ({ start, end }));
+  }
+
+  const persistedOrder = normalizeTxtShapeUnmappedWordOrder(
+    shape.unmappedWordOrder,
+    shape.content,
+  );
+  const orderByStart = new Map(persistedOrder.map((start, index) => [start, index]));
+  const orderedWords = [...unmappedWords].sort((left, right) => {
+    const leftRank = orderByStart.get(left.start);
+    const rightRank = orderByStart.get(right.start);
+    if (leftRank !== undefined || rightRank !== undefined) {
+      if (leftRank === undefined) return 1;
+      if (rightRank === undefined) return -1;
+      return leftRank - rightRank;
+    }
+    return left.start - right.start;
+  });
+  const totalWeight = orderedWords.reduce((total, word) => total + word.weight, 0);
+  const targetWeight = totalWeight * coverage / 100;
+  let visibleCount = 0;
+  let visibleWeight = 0;
+  let closestError = targetWeight;
+  orderedWords.forEach((word, index) => {
+    const nextWeight = visibleWeight + word.weight;
+    const nextError = Math.abs(nextWeight - targetWeight);
+    if (nextError < closestError) {
+      visibleCount = index + 1;
+      closestError = nextError;
+    }
+    visibleWeight = nextWeight;
+  });
+  const visibleStarts = new Set(
+    orderedWords.slice(0, visibleCount).map((word) => word.start),
+  );
+  return unmappedWords.flatMap(({ start, end }) => (
+    visibleStarts.has(start) ? [] : [{ start, end }]
+  ));
+};
 
 export interface TxtShapeSegment {
   color?: string;
@@ -1175,6 +1295,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           shape.selectionTreatments,
           shape.content.length,
         );
+    const hiddenUnmappedRanges = resolveTxtShapeHiddenUnmappedRanges(shape);
     ctx.save();
     clipTxtShapeRegion(ctx, shape);
     if (shape.backgroundColor) {
@@ -1245,9 +1366,18 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           boundaries.add(end);
         }
       });
+      hiddenUnmappedRanges.forEach((range) => {
+        const start = clamp(range.start - line.sourceStart, 0, line.text.length);
+        const end = clamp(range.end - line.sourceStart, 0, line.text.length);
+        if (start < end) {
+          boundaries.add(start);
+          boundaries.add(end);
+        }
+      });
       const orderedBoundaries = [...boundaries].sort((a, b) => a - b);
       const fragments = [] as Array<{
         color?: string;
+        hidden: boolean;
         selected: boolean;
         sourceStart: number;
         treatment?: TxtShapeSelectionTreatment;
@@ -1262,6 +1392,10 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         const measuredWidth = (endWidth - startWidth) * pixelScale;
         const width = Math.max(0, measuredWidth);
         const selected = isTxtShapeIndexSelected(selections, line.sourceStart + start);
+        const hidden = isTxtShapeIndexSelected(
+          hiddenUnmappedRanges,
+          line.sourceStart + start,
+        );
         const color = selected
           ? colorRanges.find((range) => (
               line.sourceStart + start >= range.start && line.sourceStart + start < range.end
@@ -1273,7 +1407,7 @@ const drawTxtShapesToCanvasWithSelectionMode = (
               sourceStart >= range.start && sourceStart < range.end
             ))?.treatment
           : undefined;
-        fragments.push({ color, selected, sourceStart, treatment, width });
+        fragments.push({ color, hidden, selected, sourceStart, treatment, width });
       }
 
       const paintedWidth = fragments.reduce((total, fragment) => total + fragment.width, 0);
@@ -1292,7 +1426,11 @@ const drawTxtShapesToCanvasWithSelectionMode = (
         letterSpacing: rasterLetterSpacing,
       });
       let fragmentX = lineX;
-      fragments.forEach(({ color, selected, sourceStart, treatment, width }) => {
+      fragments.forEach(({ color, hidden, selected, sourceStart, treatment, width }) => {
+        if (hidden) {
+          fragmentX = Math.round(fragmentX + width);
+          return;
+        }
         const treatmentColor = color ?? shape.selectionBackgroundColor;
         const keepsSelectionHighlight = treatment === 'selected-crossed-out';
         const isRedacted = treatment === 'redacted' || treatment === 'redacted-crossed-out';

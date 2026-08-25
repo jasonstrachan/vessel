@@ -216,6 +216,7 @@
           '#vessel-txt-shapes [data-selection-treatment="erased"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="erased"][data-vessel-txt-cell-selected="true"] { color: var(--txt-base-color); background: transparent; box-shadow: none; opacity: 0.38; -webkit-mask-image: repeating-linear-gradient(to bottom, #000 0 0.12em, transparent 0.12em 0.34em); mask-image: repeating-linear-gradient(to bottom, #000 0 0.12em, transparent 0.12em 0.34em); }',
           '#vessel-txt-shapes [data-selection-treatment="redacted"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted"][data-vessel-txt-cell-selected="true"] { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
           '#vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="redacted-crossed-out"][data-vessel-txt-cell-selected="true"] { color: transparent; background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
+          '#vessel-txt-shapes [data-unmapped-hidden="true"] { color: transparent !important; background: transparent !important; box-shadow: none !important; text-decoration: none !important; }',
         ].join(' ');
         overlay.appendChild(style);
         const getRegionSpan = (shape, y) => {
@@ -300,6 +301,71 @@
           ]);
           return bands.length ? `polygon(${[...left, ...right].join(', ')})` : '';
         };
+        const getHiddenUnmappedRanges = (shape) => {
+          const content = String(shape.content || '');
+          const coverage = typeof shape.unmappedTextCoverage === 'number'
+            && Number.isFinite(shape.unmappedTextCoverage)
+            ? Math.max(0, Math.min(100, Math.round(shape.unmappedTextCoverage)))
+            : 100;
+          if (coverage >= 100 || !content) return [];
+          const selections = (Array.isArray(shape.selections) ? shape.selections : [])
+            .map((range) => ({
+              start: Math.max(0, Math.min(content.length, Math.round(Number(range.start) || 0))),
+              end: Math.max(0, Math.min(content.length, Math.round(Number(range.end) || 0))),
+            }))
+            .filter((range) => range.start < range.end);
+          const words = [...content.matchAll(/\S+/gu)].map((match) => {
+            const start = match.index || 0;
+            return {
+              start,
+              end: start + match[0].length,
+              weight: Math.max(1, Array.from(match[0]).length),
+            };
+          }).filter((word) => !selections.some((selection) => (
+            word.start < selection.end && word.end > selection.start
+          )));
+          if (coverage <= 0) return words.map(({ start, end }) => ({ start, end }));
+          const wordStarts = new Set(words.map((word) => word.start));
+          const persistedOrder = [];
+          (Array.isArray(shape.unmappedWordOrder) ? shape.unmappedWordOrder : [])
+            .forEach((entry) => {
+              const start = typeof entry === 'number' && Number.isFinite(entry)
+                ? Math.round(entry)
+                : -1;
+              if (wordStarts.has(start) && !persistedOrder.includes(start)) {
+                persistedOrder.push(start);
+              }
+            });
+          const orderByStart = new Map(persistedOrder.map((start, index) => [start, index]));
+          const orderedWords = [...words].sort((left, right) => {
+            const leftRank = orderByStart.get(left.start);
+            const rightRank = orderByStart.get(right.start);
+            if (leftRank !== undefined || rightRank !== undefined) {
+              if (leftRank === undefined) return 1;
+              if (rightRank === undefined) return -1;
+              return leftRank - rightRank;
+            }
+            return left.start - right.start;
+          });
+          const totalWeight = orderedWords.reduce((total, word) => total + word.weight, 0);
+          const targetWeight = totalWeight * coverage / 100;
+          let visibleCount = 0;
+          let visibleWeight = 0;
+          let closestError = targetWeight;
+          orderedWords.forEach((word, index) => {
+            const nextWeight = visibleWeight + word.weight;
+            const nextError = Math.abs(nextWeight - targetWeight);
+            if (nextError < closestError) {
+              visibleCount = index + 1;
+              closestError = nextError;
+            }
+            visibleWeight = nextWeight;
+          });
+          const visibleStarts = new Set(
+            orderedWords.slice(0, visibleCount).map((word) => word.start),
+          );
+          return words.filter((word) => !visibleStarts.has(word.start));
+        };
         shapes.forEach((shape) => {
           const owner = layerById.get(String(shape.layerId || ''));
           const hasOwnerTexture = Boolean(
@@ -344,6 +410,7 @@
           const content = String(shape.content || '');
           const ranges = Array.isArray(shape.selections) ? shape.selections : [];
           const colorRanges = Array.isArray(shape.colorRanges) ? shape.colorRanges : [];
+          const hiddenUnmappedRanges = getHiddenUnmappedRanges(shape);
           const boundaries = new Set([0, content.length]);
           ranges.forEach((range) => {
             boundaries.add(Math.max(0, Math.min(content.length, Number(range.start) || 0)));
@@ -352,6 +419,10 @@
           colorRanges.forEach((range) => {
             boundaries.add(Math.max(0, Math.min(content.length, Number(range.start) || 0)));
             boundaries.add(Math.max(0, Math.min(content.length, Number(range.end) || 0)));
+          });
+          hiddenUnmappedRanges.forEach((range) => {
+            boundaries.add(range.start);
+            boundaries.add(range.end);
           });
           const ordered = [...boundaries].sort((a, b) => a - b);
           if (columns === 1 && (shape.regionKind === 'oval' || shape.regionKind === 'freehand')) {
@@ -402,6 +473,11 @@
             }
             const span = document.createElement('span');
             span.textContent = content.slice(start, end);
+            if (hiddenUnmappedRanges.some((range) => (
+              start >= range.start && start < range.end
+            ))) {
+              span.dataset.unmappedHidden = 'true';
+            }
             box.appendChild(span);
           }
           stage.appendChild(box);

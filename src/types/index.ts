@@ -485,6 +485,8 @@ export interface TxtShape extends LayerOwnedProjectObject {
   lineHeight: number;
   referenceMapped?: boolean;
   renderMode?: TxtShapeRenderMode;
+  unmappedTextCoverage?: number;
+  unmappedWordOrder?: number[];
   sampledBackgroundColor?: string;
   sampledColorRanges?: TxtShapeColorRange[];
   sampleTone?: TxtShapeSampleTone;

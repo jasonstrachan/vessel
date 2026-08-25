@@ -51,6 +51,8 @@ const metadata = {
     selectionColor: '#ffffff',
     selectionBackgroundColor: '#000000',
     content: 'STATE A: semantic overlay',
+    unmappedTextCoverage: 0,
+    unmappedWordOrder: [18, 6, 9, 0],
     selections: [
       { start: 0, end: 5 },
       { start: 9, end: 17 },
@@ -171,6 +173,18 @@ const readSelectionTreatments = async (page: Page) => page.evaluate(() => {
   };
 });
 
+const readUnmappedText = async (page: Page) => page.evaluate(() => {
+  const shape = document.querySelector<HTMLElement>('[data-txt-shape-id="text-shape"]');
+  const hidden = Array.from(shape?.querySelectorAll<HTMLElement>(
+    '[data-unmapped-hidden="true"]',
+  ) ?? []);
+  return {
+    completeText: shape?.textContent ?? null,
+    hiddenText: hidden.map((span) => span.textContent).join(''),
+    hiddenColors: hidden.map((span) => getComputedStyle(span).color),
+  };
+});
+
 const readBottomLeftClip = async (page: Page) => page.evaluate(() => {
   const canvas = document.getElementById('preview-canvas');
   const overlay = document.getElementById('vessel-txt-shapes');
@@ -223,6 +237,11 @@ test.describe('Goblet TXT Shape overlay positioning and layout', () => {
         redactedText: 'semantic',
         redactedColor: 'rgba(0, 0, 0, 0)',
         allCanonical: true,
+      });
+      await expect.poll(() => readUnmappedText(page)).toEqual({
+        completeText: 'STATE A: semantic overlay',
+        hiddenText: 'A:overlay',
+        hiddenColors: ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)'],
       });
       await expect.poll(() => readCanvasOverlayDelta(page)).toEqual({
         x: 0,
