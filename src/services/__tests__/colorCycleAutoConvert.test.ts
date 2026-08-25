@@ -12,6 +12,9 @@ import {
 import { resolveLayerImageData } from '@/stores/helpers/selectionCapture';
 import { initializeColorCycleBrushForActiveLayer } from '@/hooks/brushEngine/colorCycleInitController';
 import { fillColorCycleLinear } from '@/hooks/brushEngine/colorCycleFillController';
+import { applyRuntimeToBrush } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 import { runAutoConvertRegionsJob } from '@/workers/colorCycleFillClient';
 
 jest.mock('@/stores/appStoreAccess', () => ({ getAppStoreState: jest.fn() }));
@@ -32,8 +35,15 @@ jest.mock('@/hooks/brushEngine/colorCycleFillController', () => ({
 }));
 jest.mock('@/hooks/brushEngine/colorCycleSurface', () => ({ renderBrushToLayerCanvas: jest.fn() }));
 jest.mock('@/hooks/brushEngine/ccGradientApplyScheduler', () => ({
+  applyRuntimeToBrush: jest.fn(),
   requestGradientApply: jest.fn(),
   flushGradientApply: jest.fn(),
+}));
+jest.mock('@/hooks/canvas/utils/colorCycleMarkSession', () => ({
+  resolveMarkSessionRuntimeStops: jest.fn(),
+}));
+jest.mock('@/utils/colorCycleGradientDefs', () => ({
+  ensureGradientDefForStops: jest.fn(),
 }));
 jest.mock('@/workers/colorCycleFillClient', () => ({ runAutoConvertRegionsJob: jest.fn() }));
 jest.mock('@/utils/layerOwnedProjectObjects', () => ({
@@ -61,6 +71,13 @@ const mockedCaptureSnapshot = captureLayerStructureSnapshot as jest.MockedFuncti
   typeof captureLayerStructureSnapshot
 >;
 const mockedClearRegion = clearColorCycleRegion as jest.MockedFunction<typeof clearColorCycleRegion>;
+const mockedApplyRuntime = applyRuntimeToBrush as jest.MockedFunction<typeof applyRuntimeToBrush>;
+const mockedResolveRuntimeStops = resolveMarkSessionRuntimeStops as jest.MockedFunction<
+  typeof resolveMarkSessionRuntimeStops
+>;
+const mockedEnsureGradientDef = ensureGradientDefForStops as jest.MockedFunction<
+  typeof ensureGradientDefForStops
+>;
 
 const createSourceLayer = (imageData: ImageData): Layer => {
   const canvas = document.createElement('canvas');
@@ -90,6 +107,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
     deleteBrush: jest.Mock;
     getInitBrush: jest.Mock;
     getFillBrush: jest.Mock;
+    getGradientApplyBrush: jest.Mock;
   };
   let getContextSpy: jest.SpyInstance;
 
@@ -124,6 +142,12 @@ describe('autoConvertActiveImageToColorCycle', () => {
           gradientBands: 4,
           fillResolution: 2,
           ccGradientSource: 'manual',
+          ditherEnabled: true,
+          ditherPaletteSpread: 24,
+          ccGradientRangeContrast: 68,
+          ditherAlgorithm: 'sierra-lite',
+          ccFlatCycleDither: false,
+          ditherGradBgFill: true,
         },
       },
       colorCyclePlayback: { playbackSpeedScale: 1 },
@@ -160,10 +184,31 @@ describe('autoConvertActiveImageToColorCycle', () => {
       deleteBrush: jest.fn(),
       getInitBrush: jest.fn(() => ({})),
       getFillBrush: jest.fn(() => ({})),
+      getGradientApplyBrush: jest.fn(() => ({})),
     };
     mockedGetManager.mockReturnValue(manager as never);
     mockedInitialize.mockReturnValue({} as never);
     mockedFillLinear.mockResolvedValue(undefined);
+    mockedResolveRuntimeStops.mockImplementation((_session, stops, overrides) =>
+      stops.map((stop) => ({
+        ...stop,
+        color: overrides?.enabled === false ? `source:${stop.color}` : `runtime:${stop.color}`,
+      })),
+    );
+    mockedEnsureGradientDef.mockImplementation(({ stops, sourceStops }) => ({
+      def: {
+        id: 7,
+        kind: 'linear',
+        stops: stops.map((stop) => ({ ...stop })),
+        sourceStops: sourceStops?.map((stop) => ({ ...stop })),
+        hash: 'linear:test',
+        source: 'sampled',
+        createdAtMs: 1,
+        slot: 11,
+      },
+      slot: 11,
+      hash: 'linear:test',
+    }));
     mockedCaptureSnapshot
       .mockReturnValueOnce({ snapshot: { layers: [] } } as never)
       .mockReturnValueOnce({ snapshot: { layers: [] } } as never);
@@ -196,6 +241,171 @@ describe('autoConvertActiveImageToColorCycle', () => {
     expect(mockedCommitHistory).toHaveBeenCalledTimes(1);
     expect(mockedCommitHistory).toHaveBeenCalledWith(expect.objectContaining({
       label: 'Auto Convert to Color Cycle',
+    }));
+    expect(mockedFillLinear).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherSampledStops: [
+          { position: 0, color: 'source:#dc0000' },
+          { position: 1, color: 'source:#dc0000' },
+        ],
+        paintSlotOverride: 11,
+        paintDefIdOverride: 7,
+      }),
+    }));
+  });
+
+  it('binds a distinct image-derived gradient definition to every converted shape', async () => {
+    mockedRunRegions.mockResolvedValueOnce({
+      analysisWidth: 4,
+      analysisHeight: 4,
+      regions: [
+        {
+          points: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 4 }, { x: 0, y: 4 }],
+          direction: { x: 1, y: 0 },
+          linearGradientSpan: 2,
+          sampledStops: [
+            { position: 0, color: '#ff0000' },
+            { position: 1, color: '#aa0000' },
+          ],
+          pixelCount: 8,
+        },
+        {
+          points: [{ x: 2, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 2, y: 4 }],
+          direction: { x: 1, y: 0 },
+          linearGradientSpan: 2,
+          sampledStops: [
+            { position: 0, color: '#0000ff' },
+            { position: 1, color: '#000088' },
+          ],
+          pixelCount: 8,
+        },
+      ],
+    });
+    mockedEnsureGradientDef
+      .mockImplementationOnce(({ stops, sourceStops }) => ({
+        def: {
+          id: 21,
+          kind: 'linear',
+          stops,
+          sourceStops,
+          hash: 'linear:red',
+          source: 'sampled',
+          createdAtMs: 1,
+          slot: 31,
+        },
+        slot: 31,
+        hash: 'linear:red',
+      }))
+      .mockImplementationOnce(({ stops, sourceStops }) => ({
+        def: {
+          id: 22,
+          kind: 'linear',
+          stops,
+          sourceStops,
+          hash: 'linear:blue',
+          source: 'sampled',
+          createdAtMs: 2,
+          slot: 32,
+        },
+        slot: 32,
+        hash: 'linear:blue',
+      }));
+
+    await autoConvertActiveImageToColorCycle({ targetShapes: 2, detail: 50 });
+
+    expect(mockedEnsureGradientDef).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      source: 'sampled',
+      stops: [
+        { position: 0, color: 'runtime:#ff0000' },
+        { position: 1, color: 'runtime:#aa0000' },
+      ],
+      sourceStops: [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#aa0000' },
+      ],
+    }));
+    expect(mockedEnsureGradientDef).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      source: 'sampled',
+      stops: [
+        { position: 0, color: 'runtime:#0000ff' },
+        { position: 1, color: 'runtime:#000088' },
+      ],
+      sourceStops: [
+        { position: 0, color: '#0000ff' },
+        { position: 1, color: '#000088' },
+      ],
+    }));
+    expect(mockedResolveRuntimeStops).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ source: 'sampled', isRuntimePalette: false }),
+      [
+        { position: 0, color: '#ff0000' },
+        { position: 1, color: '#aa0000' },
+      ],
+      expect.objectContaining({
+        enabled: true,
+        pairBandCount: 3,
+        spread: 24,
+        rangeContrast: 68,
+        algorithm: 'sierra-lite',
+        useDitherRenderPalette: true,
+        fillBackground: true,
+      }),
+    );
+    expect(mockedApplyRuntime).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ paintSlot: 31 }),
+    );
+    expect(mockedApplyRuntime).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ paintSlot: 32 }),
+    );
+    expect(mockedFillLinear).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      options: expect.objectContaining({ paintSlotOverride: 31, paintDefIdOverride: 21 }),
+    }));
+    expect(mockedFillLinear).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      options: expect.objectContaining({ paintSlotOverride: 32, paintDefIdOverride: 22 }),
+    }));
+  });
+
+  it('uses the reused runtime palette as the dither source when sampled capacity is exhausted', async () => {
+    mockedEnsureGradientDef.mockReturnValueOnce({
+      def: {
+        id: 41,
+        kind: 'linear',
+        stops: [
+          { position: 0, color: '#118811' },
+          { position: 1, color: '#004400' },
+        ],
+        sourceStops: [
+          { position: 0, color: '#118811' },
+          { position: 1, color: '#004400' },
+        ],
+        hash: 'linear:reused',
+        source: 'sampled',
+        createdAtMs: 1,
+        slot: 51,
+      },
+      slot: 51,
+      hash: 'linear:reused',
+      reusedForCapacity: true,
+    });
+
+    await autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 });
+
+    expect(mockedFillLinear).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherSampledStops: [
+          { position: 0, color: '#118811' },
+          { position: 1, color: '#004400' },
+        ],
+        paintSlotOverride: 51,
+        paintDefIdOverride: 41,
+      }),
     }));
   });
 
@@ -268,6 +478,19 @@ describe('autoConvertActiveImageToColorCycle', () => {
     ).rejects.toThrow('Unable to initialize the new Color Cycle fill brush');
 
     expect(state.layers).toEqual([sourceLayer]);
+    expect(mockedFillLinear).not.toHaveBeenCalled();
+    expect(mockedCommitHistory).not.toHaveBeenCalled();
+  });
+
+  it('rolls back instead of painting when the gradient brush is unavailable', async () => {
+    manager.getGradientApplyBrush.mockReturnValue(null);
+
+    await expect(
+      autoConvertActiveImageToColorCycle({ targetShapes: 24, detail: 50 }),
+    ).rejects.toThrow('Unable to initialize the new Color Cycle gradient brush');
+
+    expect(state.layers).toEqual([sourceLayer]);
+    expect(mockedEnsureGradientDef).not.toHaveBeenCalled();
     expect(mockedFillLinear).not.toHaveBeenCalled();
     expect(mockedCommitHistory).not.toHaveBeenCalled();
   });

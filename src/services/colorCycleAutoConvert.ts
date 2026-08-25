@@ -1,4 +1,8 @@
-import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import {
+  applyRuntimeToBrush,
+  flushGradientApply,
+  requestGradientApply,
+} from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { fillColorCycleConcentric, fillColorCycleLinear } from '@/hooks/brushEngine/colorCycleFillController';
 import { initializeColorCycleBrushForActiveLayer } from '@/hooks/brushEngine/colorCycleInitController';
 import { renderBrushToLayerCanvas } from '@/hooks/brushEngine/colorCycleSurface';
@@ -6,6 +10,7 @@ import {
   DEFAULT_CC_BAND_SPACING,
   clampColorCycleBandSpacing,
 } from '@/hooks/brushEngine/engineShared';
+import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { captureLayerStructureSnapshot, commitLayerStructureHistory } from '@/stores/helpers/layerStructureHistory';
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import {
@@ -17,6 +22,8 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { BrushSettings, Layer } from '@/types';
+import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { ensureGradientDefForStops } from '@/utils/colorCycleGradientDefs';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { composeLayerOwnedProjectObjectsIntoLayerSource } from '@/utils/layerOwnedProjectObjects';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -277,10 +284,23 @@ export const autoConvertActiveImageToColorCycle = async ({
     if (!fillBrush) {
       throw new Error('Unable to initialize the new Color Cycle fill brush');
     }
+    const gradientApplyBrush = manager.getGradientApplyBrush(targetLayerId);
+    if (!gradientApplyBrush) {
+      throw new Error('Unable to initialize the new Color Cycle gradient brush');
+    }
     requestGradientApply(targetLayerId, 'auto-convert');
     flushGradientApply(targetLayerId);
 
-    const useSampledStops = settings.ccGradientSource === 'sampled';
+    const gradientKind = fillMode === 'concentric' || fillMode === 'circular'
+      ? 'concentric'
+      : 'linear';
+    const regionGradientSession = {
+      ditherRenderConfig: undefined,
+      source: 'sampled' as const,
+      sampledRepresentativeColor: undefined,
+      isRuntimePalette: false,
+    };
+    const ditherMode = resolveCcDitherBandMode(settings.gradientBands ?? 16);
     const sharedFillArgs = {
       initializeColorCycleBrush: () => fillBrush,
       activeLayerId: targetLayerId,
@@ -294,9 +314,65 @@ export const autoConvertActiveImageToColorCycle = async ({
     };
     for (let index = 0; index < segmentation.regions.length; index += 1) {
       const region = segmentation.regions[index];
+      const sampledSourceStops = resolveMarkSessionRuntimeStops(
+        regionGradientSession,
+        region.sampledStops,
+        {
+          enabled: false,
+          rangeContrast: settings.ccGradientRangeContrast,
+        },
+      );
+      const runtimeStops = resolveMarkSessionRuntimeStops(
+        regionGradientSession,
+        region.sampledStops,
+        {
+          enabled: Boolean(settings.ditherEnabled),
+          pairBandCount: ditherMode.pairBandCount,
+          spread: settings.ditherPaletteSpread,
+          rangeContrast: settings.ccGradientRangeContrast,
+          algorithm: settings.ditherAlgorithm,
+          useDitherRenderPalette: settings.ccFlatCycleDither !== true,
+          fillBackground:
+            (settings.ditherGradBgFill ?? settings.ditherBackgroundFill) !== false,
+        },
+      );
+      const regionGradient = ensureGradientDefForStops({
+        layerId: targetLayerId,
+        kind: gradientKind,
+        stops: runtimeStops,
+        sourceStops: region.sampledStops,
+        source: 'sampled',
+        seamProfile: settings.colorCycleGradientSeamProfile,
+        sampledCapacityFallback: 'reuse-nearest-compatible',
+        updateOptions: { skipColorCycleSync: true },
+      });
+      if (!regionGradient) {
+        throw new Error('Unable to preserve the sampled colors for a converted shape');
+      }
+      const resolvedRegionStops = regionGradient.def.stops.map((stop) => ({ ...stop }));
+      const resolvedSampledSourceStops = regionGradient.reusedForCapacity
+        ? resolvedRegionStops
+        : sampledSourceStops;
+      const currentTargetLayer = getAppStoreState().layers.find(
+        (layer) => layer.id === targetLayerId,
+      );
+      applyRuntimeToBrush(gradientApplyBrush, targetLayerId, {
+        layerId: targetLayerId,
+        paintSlot: regionGradient.slot,
+        slotPalettes: [{
+          slot: regionGradient.slot,
+          stops: resolvedRegionStops,
+          seamProfile: regionGradient.def.seamProfile,
+        }],
+        flowMode: currentTargetLayer?.colorCycleData?.flowMode,
+      });
       const options = {
         ditherPixelSize: settings.fillResolution,
-        ditherSampledStops: useSampledStops ? region.sampledStops : undefined,
+        ditherSampledStops: resolvedSampledSourceStops,
+        ditherBaseOffsetOverride: 0,
+        paintSlotOverride: regionGradient.slot,
+        paintDefIdOverride: regionGradient.def.id,
+        shapePhaseSeedMarkId: `${targetLayerId}:auto:${index}`,
         linearGradientSpan: region.linearGradientSpan,
         skipPostRender: index < segmentation.regions.length - 1,
       };
