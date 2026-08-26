@@ -169,7 +169,7 @@ All brush choices should first be understood as one of two mark types:
 | **What Size means** | Line weight; comparable strokes should use consistent brush sizes | Boundary-tool size, not the dimensions of the resulting object |
 | **Overall scale** | Determined by path length and line weight | Free: a shape can occupy any width or height in the composition |
 | **Detail control** | Brush size, spacing, and the stroke's dither Res | Dither Res is the main level-of-detail control, independent of shape size |
-| **Typical brushes** | [Color Cycle Stroke](color-cycle-stroke.md) | [Color Cycle Shape](color-cycle-shape.md) and [Color Cycle Flat Dither](color-cycle-flat-dither.md) |
+| **Typical brushes** | [Color Cycle Stroke](color-cycle-stroke.md) | [Color Cycle Shape](color-cycle-shape.md) and [CC Fixed Dither](color-cycle-flat-dither.md) |
 
 For a **stroke**, preserve brush size as part of the artwork's line-weight
 language. Changing Size changes the visual weight of the line.
@@ -215,7 +215,7 @@ but its edge reveals a hand, a decision, and a moment in time.
 - Use **Sierra Lite** as the default dither algorithm across the painting.
 - The three primary brushes are [Color Cycle Stroke](color-cycle-stroke.md),
   [Color Cycle Shape](color-cycle-shape.md), and
-  [Color Cycle Flat Dither](color-cycle-flat-dither.md).
+  [CC Fixed Dither](color-cycle-flat-dither.md).
 - Do not change brush, algorithm, spacing, or scale merely to add novelty. A
   repeated vocabulary makes separate human and AI turns belong to one image.
 
@@ -286,8 +286,8 @@ Checked against the Vessel source on 2026-08-07. Brush behaviour is owned by
 | An animated contour or line of energy | [Color Cycle Stroke](color-cycle-stroke.md) |
 | A faceted animated contour | [Color Cycle Triangle](color-cycle-triangle.md) |
 | A bounded animated colour field | [Color Cycle Shape](color-cycle-shape.md) |
-| Animated colour with a spatial direction | [Color Cycle Gradient](color-cycle-gradient.md) |
-| A stable dither texture with colour moving through it | [Color Cycle Flat Dither](color-cycle-flat-dither.md) |
+| Animated colour with a spatial direction | [CC Tonal Dither](color-cycle-gradient.md) |
+| A stable dither texture with colour moving through it | [CC Fixed Dither](color-cycle-flat-dither.md) |
 | A directional plane of sampled or chosen colour | [Rectangle Gradient](rectangle-gradient.md) |
 | A filled form with structural marks such as hatching or stipple | [Shape Pattern](shape-pattern.md) |
 | Language, noise, propaganda, or data as material | [Spam Text](spam-text.md) |

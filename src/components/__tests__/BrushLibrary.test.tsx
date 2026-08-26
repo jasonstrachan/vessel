@@ -2,6 +2,10 @@
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
 import BrushLibrary from '@/components/BrushLibrary';
+import {
+  colorCycleFlatDitherBrushPreset,
+  colorCycleGradientBrushPreset,
+} from '@/presets/brushPresets';
 import { BrushShape } from '@/types';
 
 const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
@@ -210,20 +214,8 @@ const shapeGradientPreset = {
     category: 'Color Cycle',
     components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
   };
-  const ccGradientPreset = {
-    id: 'color-cycle-gradient',
-    name: 'Color Cycle Gradient',
-    isDefault: false,
-    category: 'Color Cycle',
-    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
-  };
-  const ccFlatDitherPreset = {
-    id: 'color-cycle-flat-dither',
-    name: 'Color Cycle Flat Dither',
-    isDefault: false,
-    category: 'Color Cycle',
-    components: [{ type: 'shape', parameters: { shape: BrushShape.COLOR_CYCLE_SHAPE } }],
-  };
+  const ccGradientPreset = colorCycleGradientBrushPreset;
+  const ccFlatDitherPreset = colorCycleFlatDitherBrushPreset;
   const shapeFillPreset = {
     id: 'shape-fill',
     name: 'Shape Pattern',
@@ -366,7 +358,7 @@ describe('BrushLibrary', () => {
     expect(pixelRow?.nextElementSibling).toBe(softRow);
   });
 
-  it('orders Color Cycle Gradient directly below Color Cycle Stroke', () => {
+  it('orders CC Tonal Dither directly below Color Cycle Stroke', () => {
     useAppStore.setState({
       ...useAppStore.getState(),
       currentBrushPreset: ccStrokePreset as any,
@@ -381,12 +373,12 @@ describe('BrushLibrary', () => {
     render(<BrushLibrary />);
 
     const stroke = screen.getByText('Color Cycle Stroke');
-    const gradient = screen.getByText('Color Cycle Gradient');
+    const gradient = screen.getByText('CC Tonal Dither');
     const relation = stroke.compareDocumentPosition(gradient);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('orders Color Cycle Flat Dither above Recolor', () => {
+  it('orders CC Fixed Dither above Recolor', () => {
     useAppStore.setState({
       ...useAppStore.getState(),
       currentBrushPreset: ccFlatDitherPreset as any,
@@ -399,7 +391,7 @@ describe('BrushLibrary', () => {
 
     render(<BrushLibrary />);
 
-    const flatDither = screen.getByText('Color Cycle Flat Dither');
+    const flatDither = screen.getByText('CC Fixed Dither');
     const recolor = screen.getByText('Color cycle + recolor');
     const relation = flatDither.compareDocumentPosition(recolor);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -445,7 +437,7 @@ describe('BrushLibrary', () => {
     expect(shapeRow?.nextElementSibling).toBe(studioRow);
   });
 
-  it('orders Checkered directly after Color Cycle Gradient', () => {
+  it('orders Checkered directly after CC Tonal Dither', () => {
     useAppStore.setState({
       ...useAppStore.getState(),
       currentBrushPreset: {
@@ -470,7 +462,7 @@ describe('BrushLibrary', () => {
 
     render(<BrushLibrary />);
 
-    const gradient = screen.getByText('Color Cycle Gradient');
+    const gradient = screen.getByText('CC Tonal Dither');
     const checkered = screen.getByText('Checkered');
     const relation = gradient.compareDocumentPosition(checkered);
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

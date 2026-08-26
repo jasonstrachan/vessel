@@ -1,4 +1,4 @@
-# Color Cycle Gradient
+# CC Tonal Dither
 
 **Preset:** `color-cycle-gradient`
 
@@ -6,7 +6,7 @@
 
 **Layer requirement:** Color Cycle layer. This brush cannot draw on a normal layer.
 
-Color Cycle Gradient combines a drawn region with a second gesture that defines
+CC Tonal Dither combines a drawn region with a second gesture that defines
 how colour is laid through it. It is suited to directional light, flow,
 transformation, depth, and forms whose animation needs a spatial axis.
 

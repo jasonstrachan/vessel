@@ -1014,7 +1014,7 @@ describe('BrushControls – Custom brush captured data mode', () => {
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {
-  it('shows Auto Convert only for the Color Cycle Gradient brush', () => {
+  it('shows Auto Convert only for the CC Tonal Dither brush', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
@@ -1357,7 +1357,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     }));
 
     render(<BrushControls />);
-    const slider = screen.getByLabelText('CC Gradient Colors');
+    const slider = screen.getByLabelText('CC Tonal Dither Colors');
     expect(slider).toBeInTheDocument();
     expect(screen.queryByLabelText('Dither Pattern Diversity')).not.toBeInTheDocument();
 
@@ -1455,7 +1455,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     });
   });
 
-  it('hides Colors while showing gradient contrast in the CC Flat Dither brush settings', () => {
+  it('hides Colors while showing gradient contrast in the CC Fixed Dither brush settings', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
@@ -1478,7 +1478,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
 
     render(<BrushControls />);
 
-    expect(screen.queryByLabelText('CC Gradient Colors')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('CC Tonal Dither Colors')).not.toBeInTheDocument();
     expect(screen.queryByText('Always on')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
     expect(screen.getByLabelText('Ink Spread')).toBeInTheDocument();

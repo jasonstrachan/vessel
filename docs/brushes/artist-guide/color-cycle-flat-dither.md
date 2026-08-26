@@ -1,4 +1,4 @@
-# Color Cycle Flat Dither
+# CC Fixed Dither
 
 **Preset:** `color-cycle-flat-dither`
 
@@ -6,7 +6,7 @@
 
 **Layer requirement:** Color Cycle layer. This brush cannot draw on a normal layer.
 
-Color Cycle Flat Dither differs from an ordinary animated gradient: the dither
+CC Fixed Dither differs from an ordinary animated gradient: the dither
 texture stays at a constant 50/50 structure while a pair of neighbouring inks
 slides through the cycle. The surface remains materially stable even though
 its colour changes.

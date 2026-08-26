@@ -572,7 +572,7 @@ const BrushLibrary = () => {
               </div>
             )}
 
-            {/* Insert Recolor and animate entry after Color Cycle Flat Dither */}
+            {/* Insert Recolor and animate entry after CC Fixed Dither */}
             {preset.id === 'color-cycle-flat-dither' && (
               <div
                 onClick={(e) => {

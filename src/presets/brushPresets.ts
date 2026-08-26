@@ -749,7 +749,7 @@ export const colorCycleShapeBrushPreset: BrushPreset = {
   }
 };
 
-// Color Cycle Gradient Brush Components (shape mode ON, linear fill)
+// CC Tonal Dither Brush Components (shape mode ON, linear fill)
 export const colorCycleGradientBrushComponents: BrushComponent[] = [
   {
     id: 'color-cycle-gradient-size',
@@ -784,7 +784,7 @@ export const colorCycleGradientBrushComponents: BrushComponent[] = [
 
 export const colorCycleGradientBrushPreset: BrushPreset = {
   id: 'color-cycle-gradient',
-  name: 'Color Cycle Gradient',
+  name: 'CC Tonal Dither',
   category: 'Special',
   components: colorCycleGradientBrushComponents,
   thumbnail: '/assets/images/Brush.png',
@@ -816,7 +816,7 @@ export const colorCycleGradientBrushPreset: BrushPreset = {
   }
 };
 
-// Color Cycle Flat Dither Brush Components (shape mode ON, linear fill)
+// CC Fixed Dither Brush Components (shape mode ON, linear fill)
 export const colorCycleFlatDitherBrushComponents: BrushComponent[] = [
   {
     id: 'color-cycle-flat-dither-size',
@@ -940,7 +940,7 @@ export const colorCycleFlatDitherArtworkProfile: BrushArtworkProfile = {
 
 export const colorCycleFlatDitherBrushPreset: BrushPreset = {
   id: 'color-cycle-flat-dither',
-  name: 'Color Cycle Flat Dither',
+  name: 'CC Fixed Dither',
   category: 'Special',
   components: colorCycleFlatDitherBrushComponents,
   thumbnail: '/assets/images/Brush.png',

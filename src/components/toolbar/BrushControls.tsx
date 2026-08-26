@@ -1307,7 +1307,7 @@ const BrushControls = () => {
         onChange={(value) =>
           setActiveSettings({ gradientBands: Math.max(1, Math.round(value)) })
         }
-        aria-label="CC Gradient Colors"
+        aria-label="CC Tonal Dither Colors"
         className="flex-1"
       />
     </div>
@@ -1979,7 +1979,7 @@ const BrushControls = () => {
                 <CustomSwitch
                   checked={(activeSettings.ditherGradBgFill ?? activeSettings.ditherBackgroundFill) !== false}
                   onChange={(checked) => setActiveSettings({ ditherGradBgFill: checked })}
-                  aria-label="CC Gradient Background Fill"
+                  aria-label="CC Tonal Dither Background Fill"
                 />
               </div>
             </div>
