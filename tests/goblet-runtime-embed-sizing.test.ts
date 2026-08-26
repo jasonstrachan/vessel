@@ -58,6 +58,8 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("box.style.columnFill = 'auto';");
       expect(viewer).toContain('const colorRanges = Array.isArray(shape.colorRanges)');
       expect(viewer).toContain("const nonCanonicalState = typeof shape.nonCanonicalState === 'string'");
+      expect(viewer).toContain('#preview-canvas {');
+      expect(viewer).not.toMatch(/\n\s*canvas\s*\{/);
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-bg'");
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-color', String(shape.selectionColor");
       expect(viewer).toContain('shape.selectionTreatments.forEach((range) => {');
