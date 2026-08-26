@@ -441,9 +441,13 @@ export const buildProjectGobletArtifact = async (
     const semanticRasterCache = uiRasterCache ?? txtRasterCache;
     let textureInfo = layer.layerType === 'adjustment'
       ? undefined
-      : await captureLayerTextureInfo(semanticRasterCache
-          ? { ...layer, framebuffer: semanticRasterCache, imageData: null }
-          : layer);
+      : await captureLayerTextureInfo(
+          semanticRasterCache
+            ? { ...layer, framebuffer: semanticRasterCache, imageData: null }
+            : layer,
+          undefined,
+          txtRasterCache ? 'txt-shape' : 'default',
+        );
     throwIfExportAborted(options.signal);
     let texture = textureInfo?.dataUrl;
     const sequentialFrameCount = Math.max(

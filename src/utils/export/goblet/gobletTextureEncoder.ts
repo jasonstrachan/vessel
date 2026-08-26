@@ -10,6 +10,13 @@ const CANVAS_EXPORT_FORMATS: readonly CanvasExportFormatOption[] = [
   { type: 'image/png' }
 ];
 
+const TXT_SHAPE_CANVAS_EXPORT_FORMATS: readonly CanvasExportFormatOption[] = [
+  { type: 'image/webp', quality: 0.85 },
+  { type: 'image/png' }
+];
+
+export type CanvasExportEncodingProfile = 'default' | 'txt-shape';
+
 export const isCanvas2DContext = (
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | RenderingContext | null
 ): ctx is CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D => {
@@ -202,14 +209,18 @@ const encodeCanvasToBlob = async (
 };
 
 export const canvasToDataURL = async (
-  canvas: HTMLCanvasElement | OffscreenCanvas | CanvasSurfaceLike
+  canvas: HTMLCanvasElement | OffscreenCanvas | CanvasSurfaceLike,
+  encodingProfile: CanvasExportEncodingProfile = 'default',
 ): Promise<{ dataUrl: string; format: CanvasExportMimeType }> => {
   const normalizedCanvas = normalizeCanvasSurfaceForExport(canvas);
   if (!normalizedCanvas) {
     throw new Error('Unsupported canvas instance for export');
   }
 
-  for (const format of CANVAS_EXPORT_FORMATS) {
+  const exportFormats = encodingProfile === 'txt-shape'
+    ? TXT_SHAPE_CANVAS_EXPORT_FORMATS
+    : CANVAS_EXPORT_FORMATS;
+  for (const format of exportFormats) {
     try {
       const blob = await encodeCanvasToBlob(normalizedCanvas, format);
       if (!blob) {
@@ -531,7 +542,8 @@ export const captureLayerTexture = async (
 
 export const captureLayerTextureInfo = async (
   layer: Layer,
-  crop?: TextureCropOptions
+  crop?: TextureCropOptions,
+  encodingProfile: CanvasExportEncodingProfile = 'default',
 ): Promise<{ dataUrl: string; hasVisibleAlpha: boolean } | undefined> => {
   try {
     const surface = resolveLayerCanvasSurface(layer);
@@ -540,7 +552,7 @@ export const captureLayerTextureInfo = async (
       const sourceHeight = Math.max(1, Math.round(surface.height));
       const croppedSurface = cropDrawableSource(surface, sourceWidth, sourceHeight, crop);
       const exportSurface = croppedSurface ?? surface;
-      const { dataUrl } = await canvasToDataURL(exportSurface);
+      const { dataUrl } = await canvasToDataURL(exportSurface, encodingProfile);
       const normalized = normalizeImageDataUrl(dataUrl);
       if (!normalized) {
         logError('[webglExporter] Invalid data URL generated from canvas surface for layer', layer.id);

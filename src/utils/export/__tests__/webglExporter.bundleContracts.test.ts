@@ -361,11 +361,24 @@ describe('webglExporter bundle contracts', () => {
 
   it('exports canonical TXT Shape content and selection ranges', async () => {
     const originalFonts = document.fonts;
+    const textureRequests: Array<{ type: string | undefined; quality: number | undefined }> = [];
     Object.defineProperty(document, 'fonts', {
       configurable: true,
       value: {
         load: jest.fn().mockResolvedValue([]),
         check: jest.fn().mockReturnValue(true),
+      },
+    });
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toBlob', {
+      configurable: true,
+      writable: true,
+      value: function toBlob(
+        callback: BlobCallback,
+        type?: string,
+        quality?: number,
+      ): void {
+        textureRequests.push({ type, quality });
+        callback(new Blob([new Uint8Array([1])], { type: type ?? 'image/png' }));
       },
     });
     const project = createProject();
@@ -417,6 +430,8 @@ describe('webglExporter bundle contracts', () => {
 
       expect(metadata.textShapes).toEqual(project.txtShapes);
       expect(metadata.txtShapePlayback).toEqual(project.txtShapePlayback);
+      expect(textureRequests).toContainEqual({ type: 'image/webp', quality: 0.85 });
+      expect(textureRequests).not.toContainEqual({ type: 'image/avif', quality: 0.6 });
     } finally {
       Object.defineProperty(document, 'fonts', {
         configurable: true,

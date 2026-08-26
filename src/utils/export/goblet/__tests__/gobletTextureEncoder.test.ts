@@ -5,7 +5,7 @@ import { canvasToDataURL } from '@/utils/export/goblet/gobletTextureEncoder';
 // These tests pin the negotiation loop so that silent fallback advances to the
 // next format instead of ending negotiation with PNG on the first attempt.
 
-type ToBlobImpl = (type: string | undefined) => Blob | null;
+type ToBlobImpl = (type: string | undefined, quality: number | undefined) => Blob | null;
 
 const BLOB_BYTES = new Uint8Array([1, 2, 3, 4]);
 
@@ -13,8 +13,8 @@ const makeCanvas = (impl: ToBlobImpl): HTMLCanvasElement => {
   const canvas = document.createElement('canvas');
   canvas.width = 4;
   canvas.height = 4;
-  canvas.toBlob = ((callback: BlobCallback, type?: string) => {
-    callback(impl(type));
+  canvas.toBlob = ((callback: BlobCallback, type?: string, quality?: number) => {
+    callback(impl(type, quality));
   }) as typeof canvas.toBlob;
   return canvas;
 };
@@ -68,5 +68,19 @@ describe('canvasToDataURL format negotiation', () => {
     const result = await canvasToDataURL(canvas);
 
     expect(result.format).toBe('image/webp');
+  });
+
+  it('encodes TXT Shape layers directly as WebP at quality 0.85', async () => {
+    const requested: Array<{ type: string | undefined; quality: number | undefined }> = [];
+    const canvas = makeCanvas((type, quality) => {
+      requested.push({ type, quality });
+      return blobOf(type ?? 'image/png');
+    });
+
+    const result = await canvasToDataURL(canvas, 'txt-shape');
+
+    expect(result.format).toBe('image/webp');
+    expect(result.dataUrl.startsWith('data:image/webp;base64,')).toBe(true);
+    expect(requested).toEqual([{ type: 'image/webp', quality: 0.85 }]);
   });
 });
