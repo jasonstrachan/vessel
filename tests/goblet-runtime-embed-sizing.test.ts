@@ -60,7 +60,10 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("const nonCanonicalState = typeof shape.nonCanonicalState === 'string'");
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-bg'");
       expect(viewer).toContain("cell.style.setProperty('--txt-selection-color', String(shape.selectionColor");
-      expect(viewer).toContain('cell.dataset.txtShapeCellStart = String(sourceIndex);');
+      expect(viewer).toContain('shape.selectionTreatments.forEach((range) => {');
+      expect(viewer).toContain('cell.dataset.txtShapeCellStart = String(start);');
+      expect(viewer).toContain('cell.dataset.txtShapeCellEnd = String(end);');
+      expect(viewer).not.toContain('for (const character of content.slice(start, end))');
       expect(viewer).toContain("cell.dataset.canonicalSelected = 'true';");
       expect(viewer).toContain('const treatment = Array.isArray(shape.selectionTreatments)');
       expect(viewer).toContain('cell.dataset.selectionTreatment = String(treatment);');

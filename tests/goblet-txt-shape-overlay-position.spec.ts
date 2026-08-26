@@ -481,7 +481,7 @@ test.describe('Goblet TXT Shape overlay positioning and layout', () => {
       await expect.poll(() => readNonCanonicalInvisibleText(page)).toEqual({
         completeText: 'SHOW HIDE',
         invisibleText: ' HIDE',
-        visibility: ['hidden', 'hidden', 'hidden', 'hidden', 'hidden'],
+        visibility: ['hidden'],
       });
       await expect.poll(() => readStateMatrix(page)).toEqual({
         canonical: expectedStateMatrix,
