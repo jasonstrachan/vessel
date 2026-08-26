@@ -48,6 +48,15 @@ type GridPoint = { x: number; y: number };
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
 
+const resolveContourSimplificationTolerance = (focus: number): number => {
+  const normalizedFocus = clamp(
+    focus,
+    AUTO_CONVERT_MIN_FOCUS,
+    AUTO_CONVERT_MAX_FOCUS,
+  ) / AUTO_CONVERT_MAX_FOCUS;
+  return 2.4 - normalizedFocus * 0.9;
+};
+
 const pointKey = (x: number, y: number): string => `${x}:${y}`;
 
 const signedPolygonArea = (points: GridPoint[]): number => {
@@ -708,7 +717,7 @@ const buildRegion = ({
   }
   const simplified = simplifyClosedPolygon(
     boundary,
-    2.4 - clamp(focus, AUTO_CONVERT_MIN_FOCUS, AUTO_CONVERT_MAX_FOCUS) * 0.021,
+    resolveContourSimplificationTolerance(focus),
   );
   if (simplified.length < 3) {
     return null;

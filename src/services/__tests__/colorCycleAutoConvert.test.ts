@@ -109,6 +109,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
     getFillBrush: jest.Mock;
     getGradientApplyBrush: jest.Mock;
   };
+  let fillBrush: { setPxlEdgeEnabled: jest.Mock };
   let getContextSpy: jest.SpyInstance;
 
   beforeEach(() => {
@@ -181,10 +182,11 @@ describe('autoConvertActiveImageToColorCycle', () => {
         detailScore: 0.5,
       }],
     });
+    fillBrush = { setPxlEdgeEnabled: jest.fn() };
     manager = {
       deleteBrush: jest.fn(),
       getInitBrush: jest.fn(() => ({})),
-      getFillBrush: jest.fn(() => ({})),
+      getFillBrush: jest.fn(() => fillBrush),
       getGradientApplyBrush: jest.fn(() => ({})),
     };
     mockedGetManager.mockReturnValue(manager as never);
@@ -247,6 +249,7 @@ describe('autoConvertActiveImageToColorCycle', () => {
     expect(mockedCommitHistory).toHaveBeenCalledWith(expect.objectContaining({
       label: 'Auto Convert to Color Cycle',
     }));
+    expect(fillBrush.setPxlEdgeEnabled).toHaveBeenCalledWith(false);
     expect(mockedFillLinear).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
         ditherSampledStops: [

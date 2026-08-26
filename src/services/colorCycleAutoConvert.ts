@@ -14,6 +14,7 @@ import {
   flushGradientApply,
   requestGradientApply,
 } from '@/hooks/brushEngine/ccGradientApplyScheduler';
+import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsPatch';
 import { fillColorCycleConcentric, fillColorCycleLinear } from '@/hooks/brushEngine/colorCycleFillController';
 import { initializeColorCycleBrushForActiveLayer } from '@/hooks/brushEngine/colorCycleInitController';
 import { renderBrushToLayerCanvas } from '@/hooks/brushEngine/colorCycleSurface';
@@ -489,6 +490,7 @@ export const autoConvertActiveImageToColorCycle = async ({
     if (!fillBrush) {
       throw new Error('Unable to initialize the new Color Cycle fill brush');
     }
+    applyColorCycleBrushSettingsPatch(fillBrush, { pxlEdgeEnabled: false });
     const gradientApplyBrush = manager.getGradientApplyBrush(targetLayerId);
     if (!gradientApplyBrush) {
       throw new Error('Unable to initialize the new Color Cycle gradient brush');

@@ -32,6 +32,21 @@ const createFlatAndDetailedImage = (width: number, height: number): Uint8Clamped
   return pixels;
 };
 
+const createDiagonalSplitImage = (width: number, height: number): Uint8ClampedArray => {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const isLowerTriangle = x <= y;
+      pixels[offset] = isLowerTriangle ? 240 : 20;
+      pixels[offset + 1] = 20;
+      pixels[offset + 2] = isLowerTriangle ? 20 : 240;
+      pixels[offset + 3] = 255;
+    }
+  }
+  return pixels;
+};
+
 describe('extractAutoConvertRegions', () => {
   it('turns visible image areas into bounded painted-region contours', () => {
     const width = 16;
@@ -63,6 +78,24 @@ describe('extractAutoConvertRegions', () => {
         expect(point.y).toBeGreaterThanOrEqual(0);
         expect(point.y).toBeLessThanOrEqual(height);
       });
+    });
+  });
+
+  it('removes one-pixel stair steps from diagonal region contours', () => {
+    const width = 32;
+    const height = 32;
+    const result = extractAutoConvertRegions({
+      pixels: createDiagonalSplitImage(width, height),
+      width,
+      height,
+      targetShapes: 2,
+      focus: 100,
+      maxColors: 4,
+    });
+
+    expect(result.regions).toHaveLength(2);
+    result.regions.forEach((region) => {
+      expect(region.points.length).toBeLessThanOrEqual(6);
     });
   });
 
