@@ -2342,7 +2342,7 @@ const BrushControls = () => {
   const isStudioBrush = studioExtension.brushPresets.some(
     (preset) => preset.id === currentBrushPresetId,
   );
-  if (StudioBrushControls && isStudioBrush) {
+  if (StudioBrushControls && isStudioBrush && currentTool === 'brush') {
     return <StudioBrushControls />;
   }
 

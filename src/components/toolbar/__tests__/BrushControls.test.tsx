@@ -4,6 +4,14 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import BrushControls from '@/components/toolbar/BrushControls';
 import { BrushShape } from '@/types';
 
+jest.mock('@/extensions/studioExtension', () => ({
+  __esModule: true,
+  default: {
+    brushPresets: [{ id: 'txt-shape' }],
+    BrushControls: () => <div data-testid="studio-brush-controls">Studio controls</div>,
+  },
+}));
+
 const baseBrushSettings = {
   brushShape: BrushShape.SQUARE,
   customBrushSizePercent: 100,
@@ -17,7 +25,8 @@ const mockStore = {
   tools: {
     brushSettings: { ...baseBrushSettings },
     eraserSettings: {
-      brushShape: 'round',
+      ...baseBrushSettings,
+      brushShape: BrushShape.ROUND,
       size: 8,
       linkSizeToBrush: true,
       color: '#ffffff',
@@ -130,6 +139,35 @@ describe('BrushControls', () => {
     fireEvent.blur(sizeSlider);
 
     expect(mockStore.setGlobalBrushSize).toHaveBeenCalled();
+  });
+
+  it.each(['eraser', 'color-picker'] as const)(
+    'yields the settings panel to the %s tool while retaining a Studio brush preset',
+    (currentTool) => {
+      mockStore.currentBrushPreset = { id: 'txt-shape', name: 'TXT Shape' };
+      mockStore.tools.brushSettings = {
+        ...baseBrushSettings,
+        brushShape: BrushShape.EXTENSION,
+      };
+      mockStore.tools.currentTool = currentTool;
+
+      render(<BrushControls />);
+
+      expect(screen.queryByTestId('studio-brush-controls')).not.toBeInTheDocument();
+      expect(screen.getAllByLabelText(/Brush Size/i)).not.toHaveLength(0);
+    },
+  );
+
+  it('keeps Studio brush controls active for the brush tool', () => {
+    mockStore.currentBrushPreset = { id: 'txt-shape', name: 'TXT Shape' };
+    mockStore.tools.brushSettings = {
+      ...baseBrushSettings,
+      brushShape: BrushShape.EXTENSION,
+    };
+
+    render(<BrushControls />);
+
+    expect(screen.getByTestId('studio-brush-controls')).toBeInTheDocument();
   });
 
   it('shows brush snap toggle for custom brushes', () => {
