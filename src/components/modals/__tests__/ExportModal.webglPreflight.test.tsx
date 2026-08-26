@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { ExportModal } from '../ExportModal';
 
 jest.mock('@/hooks/useKeyboardScope', () => ({
@@ -154,7 +154,7 @@ describe('ExportModal webgl preflight', () => {
     jest.useRealTimers();
   });
 
-  it('applies the Goblet2 single-html preset', () => {
+  it('selects Single HTML without resetting independent advanced settings', () => {
     render(<ExportModal isOpen onClose={jest.fn()} />);
     act(() => {
       jest.runAllTimers();
@@ -162,12 +162,7 @@ describe('ExportModal webgl preflight', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^Single HTML$/i }));
     expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
-      gobletVersion: 'goblet2',
       bundleFormat: 'single-html',
-      minifyOutput: true,
-      enableGobletDiagnostics: false,
-      embedCanvasFallback: false,
-      htmlTitle: 'Goblet',
     });
   });
 
@@ -188,7 +183,7 @@ describe('ExportModal webgl preflight', () => {
     );
   });
 
-  it('toggles Goblet debug mode from the preset row', () => {
+  it('keeps diagnostics as an independent advanced setting', () => {
     store.webglExportSettings = {
       ...store.webglExportSettings,
       enableGobletDiagnostics: false,
@@ -200,10 +195,10 @@ describe('ExportModal webgl preflight', () => {
       jest.runAllTimers();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /^Debug mode$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(screen.getByLabelText('Diagnostics helpers'));
     expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
       enableGobletDiagnostics: true,
-      minifyOutput: false,
     });
   });
 
@@ -256,6 +251,79 @@ describe('ExportModal webgl preflight', () => {
       }),
       expect.any(Function),
       expect.any(AbortSignal)
+    );
+  });
+
+  it('keeps one dialog through export and omits excluded hidden layers from progress', async () => {
+    store.layers = [
+      {
+        ...store.layers[0],
+        id: 'visible-layer',
+        name: 'Visible layer',
+        visible: true,
+      },
+      {
+        ...store.layers[0],
+        id: 'hidden-layer',
+        name: 'Hidden layer',
+        visible: false,
+      },
+    ] as any;
+    store.webglExportSettings = {
+      ...store.webglExportSettings,
+      includeHiddenLayers: false,
+    };
+    runExportMock.mockImplementation(async (_request, onProgress) => {
+      onProgress({
+        phase: 'layers',
+        percent: 50,
+        message: 'Hidden layer excluded',
+        webgl: {
+          phase: 'layers',
+          percent: 50,
+          message: 'Hidden layer excluded',
+          layer: {
+            id: 'hidden-layer',
+            name: 'Hidden layer',
+            status: 'skipped-hidden',
+            message: 'Hidden layer excluded',
+          },
+        },
+      });
+      return makeWebglResult();
+    });
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.getByText('1 visible · 1 hidden excluded')).toBeInTheDocument();
+    const setupDialog = screen.getByRole('dialog', { name: 'Export' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    });
+
+    const readyDialog = await screen.findByRole('dialog', { name: 'Goblet ready' });
+    expect(readyDialog).toBe(setupDialog);
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByTestId('excluded-hidden-layer-summary')).toHaveTextContent(
+      '1 hidden layer excluded',
+    );
+    const layerList = within(screen.getByTestId('export-progress-layer-list'));
+    expect(layerList.getByText('Visible layer')).toBeInTheDocument();
+    expect(layerList.queryByText('Hidden layer')).not.toBeInTheDocument();
+    expect(runExportMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        options: expect.objectContaining({
+          request: expect.objectContaining({
+            layers: [expect.objectContaining({ id: 'visible-layer' })],
+          }),
+        }),
+      }),
+      expect.any(Function),
+      expect.any(AbortSignal),
     );
   });
 
@@ -316,7 +384,7 @@ describe('ExportModal webgl preflight', () => {
       fireEvent.click(screen.getByText('Continue anyway'));
     });
 
-    expect(await screen.findByText('Export failed')).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Export failed' })).toBeInTheDocument();
     expect(screen.getByText('Damaged CC')).toBeInTheDocument();
     expect(screen.getByText('Static preview')).toBeInTheDocument();
     expect(screen.getAllByText('Goblet exploded').length).toBeGreaterThan(0);
@@ -365,7 +433,7 @@ describe('ExportModal webgl preflight', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
     });
-    expect(await screen.findByText('Export progress')).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Goblet ready' })).toBeInTheDocument();
 
     rerender(<ExportModal isOpen={false} onClose={jest.fn()} />);
     act(() => {
@@ -376,7 +444,8 @@ describe('ExportModal webgl preflight', () => {
       jest.runAllTimers();
     });
 
-    expect(screen.queryByText('Export progress')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Goblet ready' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Export' })).toBeInTheDocument();
   });
 
   it('dismisses completed export progress and parent export modal from the progress backdrop', async () => {
@@ -391,11 +460,11 @@ describe('ExportModal webgl preflight', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
     });
-    expect(await screen.findByText('Export progress')).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Goblet ready' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('export-progress-backdrop'));
+    fireEvent.click(screen.getByTestId('export-modal-backdrop'));
 
     expect(onClose).toHaveBeenCalled();
-    expect(screen.queryByText('Export progress')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Goblet ready' })).not.toBeInTheDocument();
   });
 });

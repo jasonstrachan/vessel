@@ -7,1011 +7,299 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
 
-import { LayerColorSwatches, LAYER_TAG_CLASS } from '@/components/MinimalLayerList';
-import {
-  GobletReleaseActions,
-  GobletReleaseSummary,
-} from '@/components/modals/GobletReleasePanel';
 import { XIcon } from '@/components/icons/XIcon';
-import { LayerAlignmentControls } from '@/components/panels/AlignmentPanel';
-import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
+import {
+  canDismissExportProgress,
+  ExportProgressView,
+} from '@/components/modals/export/ExportProgressView';
+import {
+  BUNDLE_FORMAT_LABELS,
+  bitrateToCompressionPercent,
+  buildInitialExportLayerRows,
+  clampWebglDesignScalePercent,
+  computeBestLoopSuggestion,
+  countExcludedHiddenLayers,
+  getGobletExportIssueRows,
+  getParticipatingExportLayers,
+  normalizeWebglHtmlBackgroundColor,
+  upsertExportLayerRow,
+  WEBGL_PROGRESS_PHASE_LABELS,
+  type ExportKind,
+  type ExportProgressState,
+  type RasterExportScale,
+  type WebglViewportPreset,
+} from '@/components/modals/export/exportModalModel';
+import { ExportSetupView } from '@/components/modals/export/ExportSetupView';
+import { useExportFrameProvider } from '@/components/modals/export/useExportFrameProvider';
 import { useKeyboardScope } from '@/hooks/useKeyboardScope';
-import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
-import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 import { getAppStoreState } from '@/stores/appStoreAccess';
-import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
-import type { Layer, WebGLExportBundleFormat, WebGLExportGobletVersion } from '@/types';
+import type { WebGLExportSettings } from '@/types';
 import { runExport } from '@/utils/export/exportService';
 import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
 import type { GobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
 import { buildGobletExportSnapshotRequest } from '@/utils/export/goblet/gobletSnapshot';
-import type {
-  GobletSingleHtmlBreakdown,
-  GobletSizeReport,
-  WebGLExportLayerStatus,
-  WebGLExportProgressPhase,
-} from '@/utils/export/goblet/gobletTypes';
-import type { ExportProgress, FrameProvider } from '@/utils/export/types';
+import type { ExportProgress } from '@/utils/export/types';
 import type { DitherMethod } from '@/utils/gifDither';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
-
-type ExportKind = 'png' | 'gif' | 'mp4' | 'webgl';
-type RasterExportScale = 0.2 | 0.5 | 1 | 2 | 3 | 4;
-type WebglExportPreset = 'single-html' | 'bundle' | 'json';
-type ExportLayerProgressRow = {
-  id: string;
-  name: string;
-  status: WebGLExportLayerStatus;
-  message?: string;
-  colorCycle?: {
-    source?: string;
-    payloadPixels?: number;
-    nonZeroPaint?: number;
-    usedSlots?: number;
-    paletteSlots?: number;
-    diagnostics?: string[];
-  };
-};
-type ExportProgressModalState = {
-  isOpen: boolean;
-  kind: ExportKind;
-  phase: WebGLExportProgressPhase;
-  percent: number;
-  message: string;
-  layers: ExportLayerProgressRow[];
-  issue?: {
-    title: string;
-    detailLines: string[];
-    repairHint?: string;
-  };
-  error?: {
-    message: string;
-    stack?: string;
-  };
-  sizeReport?: GobletSizeReport;
-  artifact?: GobletArtifact;
-};
-
-const BUNDLE_FORMAT_LABELS: Record<WebGLExportBundleFormat, string> = {
-  zip: 'smaller Goblet zip',
-  'zip-compat': 'compatible Goblet zip',
-  'single-html': 'single-file Goblet',
-  json: 'Goblet JSON bundle'
-};
-
-const GOBLET_VERSION_LABELS: Record<WebGLExportGobletVersion, string> = {
-  goblet1: 'Goblet 1 (legacy)',
-  goblet2: 'Goblet 2 (GPU-first)'
-};
-const GIF_FPS_PRESETS = [12, 18, 24] as const;
-const VIDEO_BITRATE_MIN_KBPS = 1000;
-const VIDEO_BITRATE_MAX_KBPS = 20000;
-
-const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
-const MODAL_SURFACE_CLASS = 'border-t border-[#424242] pt-4';
-const MODAL_TEXT_PRIMARY = 'text-[#E5E5E5]';
-const MODAL_TEXT_SECONDARY = 'text-[#9C9C9C]';
-const TOGGLE_BASE_CLASS = 'px-3 py-2 text-sm font-medium border border-[#424242] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#D9D9D9] focus-visible:ring-offset-0 disabled:opacity-50 disabled:cursor-not-allowed';
-const TOGGLE_ACTIVE_CLASS = 'bg-[#D9D9D9] border-[#D9D9D9] text-[#1B1B1B]';
-const TOGGLE_INACTIVE_CLASS = 'bg-[#1F1F1F] text-[#D4D4D4] hover:bg-[#2A2A2A] hover:text-white';
-const INLINE_FIELD_CLASS = 'bg-[#4a4a4a] border border-[#343434] text-sm text-[#E5E5E5] px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#D9D9D9] disabled:text-[#5C5C5C] disabled:bg-[#151515]';
-const INPUT_OVERRIDE_CLASS = '!bg-[#4a4a4a] !border-[#343434] !text-[#E5E5E5] !px-3 !py-2 !h-9 focus:!border-[#D9D9D9] focus:!ring-0 focus:!outline-none disabled:!text-[#5C5C5C] disabled:!bg-[#151515]';
-
-const WEBGL_PROGRESS_PHASE_LABELS: Record<WebGLExportProgressPhase, string> = {
-  blocked: 'Needs attention',
-  preparing: 'Preparing',
-  layers: 'Exporting layers',
-  packaging: 'Packaging',
-  complete: 'Complete',
-  failed: 'Failed',
-};
-
-const LAYER_PROGRESS_LABELS: Record<WebGLExportLayerStatus, string> = {
-  waiting: 'Waiting',
-  exporting: 'Exporting',
-  'skipped-hidden': 'Skipped hidden',
-  'skipped-empty': 'Skipped empty',
-  'hydrating-cc-archive': 'Hydrating CC',
-  'building-cc-payload': 'Building CC',
-  'validating-cc-payload': 'Validating CC',
-  'packing-cc-payload': 'Packing CC',
-  exported: 'Exported',
-  'static-preview': 'Static preview',
-  done: 'Done',
-  failed: 'Failed',
-  skipped: 'Skipped',
-};
-
-const SINGLE_HTML_BREAKDOWN_ROWS: Array<{
-  key: keyof GobletSingleHtmlBreakdown;
-  label: string;
-}> = [
-  { key: 'runtimeBytes', label: 'Runtime' },
-  { key: 'ccBufferBytes', label: 'CC buffers' },
-  { key: 'maskBytes', label: 'Masks' },
-  { key: 'textureBytes', label: 'Textures' },
-  { key: 'sequentialFrameBytes', label: 'Sequential frames' },
-  { key: 'previewBytes', label: 'Preview' },
-  { key: 'fallbackBytes', label: 'Fallback' },
-  { key: 'otherBytes', label: 'Other' },
-];
-
-const formatExactBytes = (bytes: number): string => `${bytes.toLocaleString('en-US')} B`;
-
-const WEBGL_VIEWPORT_PRESETS = [
-  { value: 'default', label: 'Default export' },
-  { value: 'embed-fill', label: 'Embed fill' },
-  { value: 'embed-fit', label: 'Embed fit' },
-  { value: 'fixed', label: 'Fixed canvas' }
-] as const;
-
-type WebglViewportPreset = typeof WEBGL_VIEWPORT_PRESETS[number]['value'];
-
-const WEBGL_EXPORT_PRESETS: Array<{ value: WebglExportPreset; label: string; format: WebGLExportBundleFormat }> = [
-  { value: 'single-html', label: 'Single HTML', format: 'single-html' },
-  { value: 'bundle', label: 'Compatible ZIP', format: 'zip-compat' },
-  { value: 'json', label: 'JSON', format: 'json' },
-];
-
-const WEBGL_DESIGN_SCALE_PRESETS = [50, 100, 200, 300, 400] as const;
-
-const clampWebglDesignScalePercent = (value: number): number => {
-  if (!Number.isFinite(value)) {
-    return 100;
-  }
-  return Math.max(25, Math.min(800, Math.round(value)));
-};
-
-const normalizeWebglHtmlBackgroundColor = (value: string): string => {
-  const trimmed = value.trim();
-  if (/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(trimmed)) {
-    return trimmed.toLowerCase();
-  }
-  return '#000000';
-};
-
-const clampVideoBitrate = (value: number): number => (
-  Math.max(VIDEO_BITRATE_MIN_KBPS, Math.min(VIDEO_BITRATE_MAX_KBPS, Math.round(value)))
-);
-
-const bitrateToCompressionPercent = (bitrateKbps: number): number => {
-  const normalized = (clampVideoBitrate(bitrateKbps) - VIDEO_BITRATE_MIN_KBPS)
-    / (VIDEO_BITRATE_MAX_KBPS - VIDEO_BITRATE_MIN_KBPS);
-  return Math.round((1 - normalized) * 100);
-};
-
-const compressionPercentToBitrate = (compressionPercent: number): number => {
-  const clamped = Math.max(0, Math.min(100, compressionPercent));
-  const normalized = 1 - (clamped / 100);
-  return clampVideoBitrate(
-    VIDEO_BITRATE_MIN_KBPS + normalized * (VIDEO_BITRATE_MAX_KBPS - VIDEO_BITRATE_MIN_KBPS)
-  );
-};
-
-const hasSequentialExportLayers = (layers: Layer[] | undefined): boolean =>
-  Array.isArray(layers) && layers.some((layer) => layer.layerType === 'sequential' && !!layer.sequentialData);
-
-interface LoopFrameSuggestion {
-  frames: number;
-  success: boolean;
-  duration: number;
-}
-
-const computeBestLoopSuggestion = ({
-  fps,
-  durationSeconds,
-  layers,
-  brushCycleSpeed,
-}: {
-  fps: number;
-  durationSeconds: number;
-  layers: Layer[];
-  brushCycleSpeed: number;
-}): LoopFrameSuggestion => {
-  const safeFps = Math.max(1, Math.floor(fps));
-  const targetFrames = Math.max(1, Math.round(durationSeconds * safeFps));
-  const recolorSpeeds: number[] = layers
-    .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor' && layer.colorCycleData?.recolorSettings)
-    .map((layer) => layer.colorCycleData!.recolorSettings!.animation.speed || 0.1)
-    .filter((speed) => Number.isFinite(speed) && speed > 0);
-  const brushSpeeds: number[] = layers
-    .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor')
-    .map(() => brushCycleSpeed)
-    .filter((speed) => Number.isFinite(speed) && speed > 0);
-  const speeds = [...recolorSpeeds, ...brushSpeeds];
-
-  if (speeds.length === 0) {
-    return { frames: targetFrames, success: false, duration: targetFrames / safeFps };
-  }
-
-  const minFrames = 8;
-  const maxFrames = Math.max(minFrames, Math.round(safeFps * 20));
-  const epsilon = 1e-3;
-
-  for (let frameCount = minFrames; frameCount <= maxFrames; frameCount++) {
-    let exact = true;
-    for (const speed of speeds) {
-      const cycles = (speed * frameCount) / safeFps;
-      const residual = Math.abs(cycles - Math.round(cycles));
-      if (residual >= epsilon) {
-        exact = false;
-        break;
-      }
-    }
-    if (exact) {
-      return { frames: frameCount, success: true, duration: frameCount / safeFps };
-    }
-  }
-
-  const searchRadius = Math.max(50, Math.round(targetFrames * 0.5));
-  const start = Math.max(minFrames, targetFrames - searchRadius);
-  const end = Math.min(maxFrames, targetFrames + searchRadius);
-  let bestFrames = targetFrames;
-  let bestScore = Number.POSITIVE_INFINITY;
-
-  for (let frameCount = start; frameCount <= end; frameCount++) {
-    let maxResidual = 0;
-    for (const speed of speeds) {
-      const cycles = (speed * frameCount) / safeFps;
-      const residual = Math.abs(cycles - Math.round(cycles));
-      if (residual > maxResidual) {
-        maxResidual = residual;
-      }
-      if (maxResidual > bestScore) {
-        break;
-      }
-    }
-    const distance = Math.abs(frameCount - targetFrames) / Math.max(1, targetFrames);
-    const score = maxResidual + distance * 1e-3;
-    if (score < bestScore) {
-      bestScore = score;
-      bestFrames = frameCount;
-    }
-  }
-
-  return { frames: bestFrames, success: false, duration: bestFrames / safeFps };
-};
-
-interface CollapsibleSectionProps {
-  id: string;
-  title: string;
-  isOpen: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-  contentClassName?: string;
-}
-
-const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
-  id,
-  title,
-  isOpen,
-  onToggle,
-  children,
-  contentClassName = ''
-}) => {
-  const contentClasses = ['px-6 pb-4', contentClassName].filter(Boolean).join(' ');
-
-  return (
-    <div className={`${MODAL_SURFACE_CLASS}`}>
-      <button
-        type="button"
-        className="w-full flex items-center justify-between gap-3 px-6 py-3 text-left"
-        aria-expanded={isOpen}
-        aria-controls={`${id}-content`}
-        onClick={onToggle}
-      >
-        <div className="flex-1">
-          <span className={`${MODAL_TEXT_PRIMARY} text-base font-semibold block`}>{title}</span>
-        </div>
-        <svg
-          className={`w-4 h-4 text-[#9C9C9C] transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          aria-hidden="true"
-        >
-          <path
-            d="M6 9l6 6 6-6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-      <div id={`${id}-content`} className={isOpen ? contentClasses : 'hidden'}>
-        {children}
-      </div>
-    </div>
-  );
-};
-
-const buildInitialExportLayerRows = (
-  layers: Layer[],
-  includeHiddenLayers: boolean
-): ExportLayerProgressRow[] => (
-  layers.map((layer) => ({
-    id: layer.id,
-    name: layer.name || layer.id,
-    status: includeHiddenLayers || layer.visible !== false ? 'waiting' : 'skipped',
-    message: includeHiddenLayers || layer.visible !== false ? undefined : 'Hidden layer excluded',
-  }))
-);
-
-const upsertExportLayerRow = (
-  rows: ExportLayerProgressRow[],
-  next: ExportLayerProgressRow
-): ExportLayerProgressRow[] => {
-  const index = rows.findIndex((row) => row.id === next.id);
-  if (index < 0) {
-    return [...rows, next];
-  }
-  return rows.map((row, rowIndex) => (
-    rowIndex === index
-      ? { ...row, ...next }
-      : row
-  ));
-};
-
-const getGobletExportIssueRows = (
-  layers: Layer[],
-  includeHiddenLayers: boolean
-): ExportLayerProgressRow[] => (
-  layers
-    .filter((layer) => includeHiddenLayers || layer.visible !== false)
-    .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.repairStatus?.ok === false)
-    .map((layer) => ({
-      id: layer.id,
-      name: layer.name || layer.id,
-      status: 'static-preview',
-      message: layer.colorCycleData?.repairStatus?.reason ?? 'Missing canonical color-cycle paint',
-    }))
-);
-
-interface ExportProgressModalProps {
-  state: ExportProgressModalState | null;
-  onCancel: () => void;
-  onClose: () => void;
-  onDismissComplete: () => void;
-  onContinueAnyway: () => void;
-  onRepair: () => void;
-  onDownload: (artifact: GobletArtifact) => void;
-  onPublish: (publisher: GobletPublisher, artifact: GobletArtifact) => void;
-  publishingPublisherId: string | null;
-}
-
-const ExportProgressModal: React.FC<ExportProgressModalProps> = ({
-  state,
-  onCancel,
-  onClose,
-  onDismissComplete,
-  onContinueAnyway,
-  onRepair,
-  onDownload,
-  onPublish,
-  publishingPublisherId,
-}) => {
-  const artifact = state?.artifact;
-
-  if (!state?.isOpen) {
-    return null;
-  }
-
-  const canClose = (state.phase === 'complete' || state.phase === 'failed')
-    && publishingPublisherId === null;
-  const isBlocked = state.phase === 'blocked';
-  const progressWidth = `${Math.max(0, Math.min(100, state.percent))}%`;
-  const diagnosticsText = state.layers
-    .flatMap((layer) => layer.colorCycle?.diagnostics?.map((diagnostic) => `${layer.name}: ${diagnostic}`) ?? [])
-    .join('\n');
-  const copyDiagnostics = () => {
-    if (!diagnosticsText || typeof navigator === 'undefined') {
-      return;
-    }
-    void navigator.clipboard?.writeText(diagnosticsText);
-  };
-  const singleHtmlBreakdown = state.phase === 'complete'
-    && state.sizeReport?.format === 'single-html'
-    ? state.sizeReport.singleHtmlBreakdown
-    : undefined;
-
-  return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55"
-      data-testid="export-progress-backdrop"
-      onClick={canClose ? onDismissComplete : undefined}
-    >
-      <div
-        className={`${MODAL_PANEL_CLASS} flex max-h-[calc(100vh-48px)] w-[520px] max-w-[calc(100vw-32px)] flex-col overflow-hidden shadow-2xl`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-[#424242] px-5 py-3">
-          <div>
-            <h2 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>
-              Export progress
-            </h2>
-            <p className={`${MODAL_TEXT_SECONDARY} text-sm`}>
-              {state.kind === 'webgl' ? 'Goblet' : state.kind.toUpperCase()} - {WEBGL_PROGRESS_PHASE_LABELS[state.phase]}
-            </p>
-          </div>
-          {canClose && (
-            <button
-              type="button"
-              className="text-[#9C9C9C] hover:text-white"
-              onClick={onDismissComplete}
-              aria-label="Close export progress"
-            >
-              <XIcon size={18} />
-            </button>
-          )}
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-3">
-          {state.issue && (
-            <div className="border border-[#735B2D] bg-[#261F12] px-3 py-2">
-              <div className="text-sm font-semibold text-[#F0D9A0]">{state.issue.title}</div>
-              <div className="mt-2 space-y-1">
-                {state.issue.detailLines.map((line) => (
-                  <div key={line} className="text-sm text-[#E7D6B4]">{line}</div>
-                ))}
-              </div>
-              {state.issue.repairHint && (
-                <div className="mt-2 text-xs text-[#C8B88E]">{state.issue.repairHint}</div>
-              )}
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className={MODAL_TEXT_PRIMARY}>{state.message}</span>
-              <span className={MODAL_TEXT_SECONDARY}>{Math.round(state.percent)}%</span>
-            </div>
-            <div className="h-2 overflow-hidden bg-[#353535]">
-              <div className="h-full bg-[#D9D9D9] transition-all" style={{ width: progressWidth }} />
-            </div>
-          </div>
-
-          {state.layers.length > 0 && (
-            <div className="space-y-2">
-              {state.layers.map((layer) => (
-                <div
-                  key={layer.id}
-                  className="grid grid-cols-[1fr_auto] gap-3 border border-[#343434] bg-[#1F1F1F] px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className={`${MODAL_TEXT_PRIMARY} truncate text-sm`}>
-                      {layer.name}
-                    </div>
-                    {layer.message && (
-                      <div className={`${MODAL_TEXT_SECONDARY} truncate text-xs`}>
-                        {layer.message}
-                      </div>
-                    )}
-                    {layer.colorCycle?.source && (
-                      <div className={`${MODAL_TEXT_SECONDARY} truncate text-xs`}>
-                        {layer.colorCycle.source}
-                        {typeof layer.colorCycle.nonZeroPaint === 'number' && layer.colorCycle.nonZeroPaint >= 0
-                          ? ` - ${layer.colorCycle.nonZeroPaint}/${layer.colorCycle.payloadPixels ?? '?'} px`
-                          : ''}
-                      </div>
-                    )}
-                    {layer.colorCycle?.diagnostics && layer.colorCycle.diagnostics.length > 0 && (
-                      <div className="mt-1 space-y-1">
-                        {layer.colorCycle.diagnostics.slice(0, 2).map((diagnostic) => (
-                          <div key={diagnostic} className="truncate text-xs text-[#F0D9A0]">
-                            {diagnostic}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className={`${MODAL_TEXT_SECONDARY} whitespace-nowrap text-xs`}>
-                    {LAYER_PROGRESS_LABELS[layer.status]}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {singleHtmlBreakdown && state.sizeReport && (
-            <div
-              className="border border-[#424242] bg-[#1F1F1F] px-3 py-3"
-              data-testid="single-html-size-breakdown"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <span className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold`}>Single HTML size</span>
-                <span className={`${MODAL_TEXT_PRIMARY} text-sm tabular-nums`}>
-                  {formatExactBytes(state.sizeReport.totalBytes)}
-                </span>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-x-5 gap-y-1">
-                {SINGLE_HTML_BREAKDOWN_ROWS.map(({ key, label }) => {
-                  const bytes = singleHtmlBreakdown[key];
-                  if (bytes <= 0) {
-                    return null;
-                  }
-                  const percentage = state.sizeReport!.totalBytes > 0
-                    ? (bytes / state.sizeReport!.totalBytes) * 100
-                    : 0;
-                  return (
-                    <div
-                      key={key}
-                      className="grid grid-cols-[1fr_auto_auto] gap-2 text-xs"
-                      data-bytes={bytes}
-                      data-percentage={percentage}
-                      data-testid={`single-html-size-${key}`}
-                    >
-                      <span className={MODAL_TEXT_SECONDARY}>{label}</span>
-                      <span className={`${MODAL_TEXT_PRIMARY} tabular-nums`}>{formatExactBytes(bytes)}</span>
-                      <span className={`${MODAL_TEXT_SECONDARY} w-12 text-right tabular-nums`}>
-                        {percentage.toFixed(1)}%
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {state.phase === 'complete' && artifact && (
-            <GobletReleaseSummary artifact={artifact} />
-          )}
-
-          {diagnosticsText && (
-            <div className="flex justify-end">
-              <Button type="button" variant="secondary" size="sm" onClick={copyDiagnostics}>
-                Copy diagnostics
-              </Button>
-            </div>
-          )}
-
-          {state.error && (
-            <div className="border border-[#7A3A3A] bg-[#2A1717] px-3 py-2">
-              <div className="text-sm font-semibold text-[#F1B3B3]">Export failed</div>
-              <div className="mt-1 text-sm text-[#F1D0D0]">{state.error.message}</div>
-              {state.error.stack && (
-                <details className="mt-2 text-xs text-[#D7B8B8]">
-                  <summary className="cursor-pointer">Details</summary>
-                  <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap">{state.error.stack}</pre>
-                </details>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="flex shrink-0 justify-end gap-2 border-t border-[#424242] px-5 py-3">
-          {isBlocked ? (
-            <>
-              <Button variant="secondary" onClick={onClose}>Close</Button>
-              <Button variant="secondary" onClick={onRepair}>Repair...</Button>
-              <Button variant="primary" onClick={onContinueAnyway}>Continue anyway</Button>
-            </>
-          ) : state.phase === 'complete' && state.kind === 'webgl' && artifact ? (
-            <GobletReleaseActions
-              artifact={artifact}
-              publishingPublisherId={publishingPublisherId}
-              onClose={onDismissComplete}
-              onDownload={onDownload}
-              onPublish={onPublish}
-            />
-          ) : canClose ? (
-            <Button variant="primary" onClick={onDismissComplete}>Close</Button>
-          ) : (
-            <Button variant="secondary" onClick={onCancel}>Cancel</Button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
+
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
-  // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
 
-  const project = useAppStore((s) => s.project);
-  const layerGroups = useAppStore((s) => s.layerGroups);
-  const compositeLayersToCanvas = useAppStore((s) => s.compositeLayersToCanvas);
-  const compositeLayersToCanvasSync = useAppStore((s) => s.compositeLayersToCanvasSync);
-  const layers = useAppStore((s) => s.layers);
-  const activeLayerId = useAppStore((s) => s.activeLayerId);
-  const setActiveLayer = useAppStore((s) => s.setActiveLayer);
-  const addNotification = useAppStore((s) => s.addNotification);
-  const toggleModal = useAppStore((s) => s.toggleModal);
-  const webglExportSettings = useAppStore((s) => s.webglExportSettings);
-  const updateWebglExportSettings = useAppStore((s) => s.updateWebglExportSettings);
+  const project = useAppStore((state) => state.project);
+  const layerGroups = useAppStore((state) => state.layerGroups);
+  const compositeLayersToCanvas = useAppStore((state) => state.compositeLayersToCanvas);
+  const compositeLayersToCanvasSync = useAppStore((state) => state.compositeLayersToCanvasSync);
+  const layers = useAppStore((state) => state.layers);
+  const addNotification = useAppStore((state) => state.addNotification);
+  const toggleModal = useAppStore((state) => state.toggleModal);
+  const webglExportSettings = useAppStore((state) => state.webglExportSettings);
+  const updateWebglExportSettings = useAppStore((state) => state.updateWebglExportSettings);
+
   const [isVisible, setIsVisible] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
-  // Draggable position (px)
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [position, setPosition] = useState({ x: 0, y: 24 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
 
   const [exportKind, setExportKind] = useState<ExportKind>('webgl');
   const [scale, setScale] = useState<RasterExportScale>(1);
-
-  const [layerAlignmentOpen, setLayerAlignmentOpen] = useState(false);
-
-  // PNG options
-  const [pngIncludeBg, setPngIncludeBg] = useState(true);
+  const [pngIncludeBackground, setPngIncludeBackground] = useState(true);
   const [pngQuality, setPngQuality] = useState(1);
-
-  // GIF options
   const [gifFps, setGifFps] = useState(12);
   const [gifDuration, setGifDuration] = useState(3);
-  const [gifRepeat, setGifRepeat] = useState(0); // 0 = forever
+  const [gifRepeat, setGifRepeat] = useState(0);
   const [gifAutoFrames, setGifAutoFrames] = useState(true);
   const [gifDitherMethod, setGifDitherMethod] = useState<DitherMethod>('none');
   const [gifDitherStrength, setGifDitherStrength] = useState(1);
-  const [gifFrameStep, setGifFrameStep] = useState<1 | 2 | 3 | 4>(1); // Capture every Nth frame
+  const [gifFrameStep, setGifFrameStep] = useState<1 | 2 | 3 | 4>(1);
   const [gifMaxColors, setGifMaxColors] = useState<4 | 8 | 16 | 32 | 64 | 128 | 256>(128);
   const [gifAutoColors, setGifAutoColors] = useState(true);
-
-  // Video options
   const [videoFps, setVideoFps] = useState(30);
   const [videoDuration, setVideoDuration] = useState(3);
   const [videoAutoFrames, setVideoAutoFrames] = useState(true);
   const [videoMime, setVideoMime] = useState<'video/mp4' | 'video/webm'>('video/webm');
-  const [videoBitrate, setVideoBitrate] = useState(6000); // kbps
-
-  // WebGL options
+  const [videoBitrate, setVideoBitrate] = useState(6000);
   const [webglFps, setWebglFps] = useState(60);
   const [webglDuration, setWebglDuration] = useState(3);
   const [webglAutoFrames, setWebglAutoFrames] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [progressState, setProgressState] = useState<ExportProgressState | null>(null);
+  const [publishingPublisherId, setPublishingPublisherId] = useState<string | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
+  const continueAnywayRef = useRef(false);
+
+  const closeExportModal = useCallback(() => {
+    setProgressState(null);
+    onClose();
+  }, [onClose]);
+
   const webglIncludeHidden = webglExportSettings.includeHiddenLayers;
-  const webglEmbedFallback = webglExportSettings.embedCanvasFallback;
-  const webglMinify = webglExportSettings.minifyOutput;
   const webglBundleFormat = webglExportSettings.bundleFormat;
-  const webglGobletVersion = webglExportSettings.gobletVersion;
-  const webglEnableDiagnostics = webglExportSettings.enableGobletDiagnostics;
-  const webglHtmlTitle = webglExportSettings.htmlTitle ?? 'Goblet';
-  const webglHtmlBackgroundColor = normalizeWebglHtmlBackgroundColor(webglExportSettings.htmlBackgroundColor ?? '#000000');
+  const webglHtmlTitle = webglExportSettings.htmlTitle?.trim() || 'Goblet';
+  const webglHtmlBackgroundColor = normalizeWebglHtmlBackgroundColor(
+    webglExportSettings.htmlBackgroundColor ?? '#000000',
+  );
   const webglViewportPreset: WebglViewportPreset = webglExportSettings.viewportPreset === 'embed-fill'
     ? 'embed-fill'
     : webglExportSettings.viewportPreset === 'embed-fit'
       ? 'embed-fit'
-    : webglExportSettings.viewportPreset === 'fixed'
-      ? 'fixed'
-      : 'default';
-  const webglDesignScalePercent = clampWebglDesignScalePercent(webglExportSettings.designScalePercent ?? 100);
+      : webglExportSettings.viewportPreset === 'fixed'
+        ? 'fixed'
+        : 'default';
+  const webglDesignScalePercent = clampWebglDesignScalePercent(
+    webglExportSettings.designScalePercent ?? 100,
+  );
+  const resolvedWebglSettings: WebGLExportSettings = {
+    ...webglExportSettings,
+    htmlTitle: webglHtmlTitle,
+    htmlBackgroundColor: webglHtmlBackgroundColor,
+    viewportPreset: webglViewportPreset,
+    designScalePercent: webglDesignScalePercent,
+  };
 
-  const webglExportPreset: WebglExportPreset = webglBundleFormat === 'single-html'
-    ? 'single-html'
-    : webglBundleFormat === 'json'
-      ? 'json'
-      : 'bundle';
+  const visibleLayerCount = useMemo(
+    () => layers.filter((layer) => layer.visible !== false).length,
+    [layers],
+  );
+  const hiddenLayerCount = layers.length - visibleLayerCount;
+  const participatingLayers = useMemo(
+    () => getParticipatingExportLayers(layers, webglIncludeHidden),
+    [layers, webglIncludeHidden],
+  );
+  const participatingLayerCount = participatingLayers.length;
+  const excludedHiddenLayerCount = countExcludedHiddenLayers(layers, webglIncludeHidden);
 
-  const applyWebglExportPreset = useCallback((preset: WebglExportPreset) => {
-    const nextFormat = WEBGL_EXPORT_PRESETS.find((item) => item.value === preset)?.format ?? 'single-html';
-    updateWebglExportSettings({
-      gobletVersion: 'goblet2',
-      bundleFormat: nextFormat,
-      minifyOutput: true,
-      enableGobletDiagnostics: false,
-      embedCanvasFallback: false,
-      htmlTitle: (webglHtmlTitle || 'Goblet').trim() || 'Goblet',
-    });
-  }, [updateWebglExportSettings, webglHtmlTitle]);
-
-  const toggleWebglDebugMode = useCallback(() => {
-    const enabled = !webglEnableDiagnostics;
-    updateWebglExportSettings({
-      enableGobletDiagnostics: enabled,
-      minifyOutput: !enabled,
-    });
-  }, [updateWebglExportSettings, webglEnableDiagnostics]);
-
-  const webglPreflightError = useMemo<string | null>(() => {
-    const visibleLayers = layers.filter((layer) => layer.visible !== false);
-
-    if (layers.length === 0) {
-      return 'No layers available to export.';
-    }
-
-    if (!webglIncludeHidden && visibleLayers.length === 0) {
-      return 'No visible layers. Enable hidden layers or unhide at least one layer.';
-    }
-    return null;
-  }, [layers, webglIncludeHidden]);
-
-  const [isExporting, setIsExporting] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressModal, setProgressModal] = useState<ExportProgressModalState | null>(null);
-  const [publishingPublisherId, setPublishingPublisherId] = useState<string | null>(null);
-  const exportAbortRef = useRef<AbortController | null>(null);
-  const continueAnywayRef = useRef(false);
-  const scaleOptions = exportKind === 'gif' || exportKind === 'mp4'
-    ? [
-      { value: 0.2 as const, label: '20%' },
-      { value: 0.5 as const, label: '50%' },
-      { value: 1 as const, label: '1x' },
-      { value: 2 as const, label: '2x' },
-      { value: 3 as const, label: '3x' },
-      { value: 4 as const, label: '4x' },
-    ]
-    : [
-      { value: 1 as const, label: '1x' },
-      { value: 2 as const, label: '2x' },
-      { value: 3 as const, label: '3x' },
-      { value: 4 as const, label: '4x' },
-    ];
+  const scaleOptions = useMemo(() => (
+    exportKind === 'gif' || exportKind === 'mp4'
+      ? [
+        { value: 0.2 as const, label: '20%' },
+        { value: 0.5 as const, label: '50%' },
+        { value: 1 as const, label: '1x' },
+        { value: 2 as const, label: '2x' },
+        { value: 3 as const, label: '3x' },
+        { value: 4 as const, label: '4x' },
+      ]
+      : [
+        { value: 1 as const, label: '1x' },
+        { value: 2 as const, label: '2x' },
+        { value: 3 as const, label: '3x' },
+        { value: 4 as const, label: '4x' },
+      ]
+  ), [exportKind]);
 
   useEffect(() => {
     let visibilityTimer: ReturnType<typeof setTimeout> | null = null;
     if (isOpen) {
       setShouldRender(true);
-      // Initial position: center horizontally with a fixed top margin so the modal stays within the viewport
-      const modalWidth = 580; // matches class w-[580px]
-      const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
-      setPos({ x, y: 24 });
+      const modalWidth = 580;
+      setPosition({
+        x: Math.max(16, Math.round((window.innerWidth - modalWidth) / 2)),
+        y: 24,
+      });
       visibilityTimer = setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
       exportAbortRef.current?.abort();
       exportAbortRef.current = null;
-      setProgressModal(null);
+      setProgressState(null);
       visibilityTimer = setTimeout(() => setShouldRender(false), 300);
     }
     return () => {
-      if (visibilityTimer !== null) clearTimeout(visibilityTimer);
+      if (visibilityTimer !== null) {
+        clearTimeout(visibilityTimer);
+      }
     };
   }, [isOpen]);
 
-  useEffect(() => {
-    if (isOpen) {
-      setLayerAlignmentOpen(false);
-    }
-  }, [isOpen]);
+  const isProgressDismissible = progressState
+    ? canDismissExportProgress(progressState, publishingPublisherId)
+    : false;
+  const canCloseModal = !isExporting
+    && publishingPublisherId === null
+    && (!progressState || isProgressDismissible || progressState.phase === 'blocked');
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen && !isExporting) {
-        onClose();
+      if (event.key === 'Escape' && isOpen && canCloseModal) {
+        closeExportModal();
       }
     };
-    if (isOpen) document.addEventListener('keydown', handleEscape);
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+    }
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isOpen, isExporting, onClose]);
+  }, [canCloseModal, closeExportModal, isOpen]);
 
-  // Drag handlers (title bar)
-  const onDragStart = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setDragging(true);
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+  const handleDragStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('button')) {
+      return;
+    }
+    event.preventDefault();
+    setIsDragging(true);
+    dragOffsetRef.current = {
+      x: event.clientX - position.x,
+      y: event.clientY - position.y,
+    };
   };
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
-      const nx = Math.min(window.innerWidth - 60, Math.max(8, e.clientX - dragOffset.current.x));
-      const ny = Math.min(window.innerHeight - 60, Math.max(8, e.clientY - dragOffset.current.y));
-      setPos({ x: nx, y: ny });
-    };
-    const onUp = () => setDragging(false);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [dragging, pos.x, pos.y]);
 
-  // Initialize GIF options when modal opens
   useEffect(() => {
-    if (!isOpen) return;
-    try {
-      // Default auto-detect ON by default when opening
+    if (!isDragging) {
+      return;
+    }
+    const handleMove = (event: MouseEvent) => {
+      setPosition({
+        x: Math.min(window.innerWidth - 60, Math.max(8, event.clientX - dragOffsetRef.current.x)),
+        y: Math.min(window.innerHeight - 60, Math.max(8, event.clientY - dragOffsetRef.current.y)),
+      });
+    };
+    const handleUp = () => setIsDragging(false);
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [isDragging]);
+
+  useEffect(() => {
+    if (isOpen) {
       setGifAutoFrames(true);
-    } catch {}
+    }
   }, [isOpen]);
 
   useEffect(() => {
     if (exportKind === 'webgl' && scale !== 1) {
       setScale(1);
-      return;
-    }
-
-    if (exportKind === 'png' && scale < 1) {
+    } else if (exportKind === 'png' && scale < 1) {
       setScale(1);
     }
   }, [exportKind, scale]);
 
-  // Compute suggested frames/duration for a perfect loop based on animation speeds
-  // Strategy:
-  // 1) Try to find the SHORTEST perfect loop (minimal frames) within a sane bound (<= 20s)
-  // 2) If none found, pick the closest to user target with best residuals
-  const autoFrameSuggestion = useMemo(() => {
+  const getBrushCycleSpeed = () => {
     try {
-      const fps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
-      const targetFrames = Math.max(1, Math.round(gifDuration * fps));
-      const store = getAppStoreState();
-      const recolorSpeeds: number[] = layers
-        .filter(l => l.layerType === 'color-cycle' && l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings)
-        .map(l => l.colorCycleData!.recolorSettings!.animation.speed || 0.1)
-        .filter(s => Number.isFinite(s) && s > 0);
-      // Gather per-layer speeds for brush-mode CC layers (fallback to current UI speed if undefined)
-      const brushSpeeds: number[] = layers
-        .filter(l => l.layerType === 'color-cycle' && (l.colorCycleData?.mode !== 'recolor'))
-        .map(() => (store.tools?.brushSettings?.colorCycleSpeed ?? 0.1))
-        .filter(s => Number.isFinite(s) && s > 0);
-      const speeds = [...recolorSpeeds, ...brushSpeeds];
-
-      // No animated speeds detected – fall back to user's target
-      if (speeds.length === 0) {
-        return { frames: targetFrames, success: false, duration: targetFrames / fps };
-      }
-
-      const minFrames = 8;
-      const maxFrames = Math.max(minFrames, Math.round(fps * 20)); // cap search at 20s
-      const EPS = 1e-3;
-
-      // Phase 1: shortest perfect loop search
-      for (let f = minFrames; f <= maxFrames; f++) {
-        let ok = true;
-        for (const s of speeds) {
-          const cycles = (s * f) / fps; // cycles completed by this speed in f frames
-          const residual = Math.abs(cycles - Math.round(cycles));
-          if (residual >= EPS) { ok = false; break; }
-        }
-        if (ok) {
-          return { frames: f, success: true, duration: f / fps };
-        }
-      }
-
-      // Phase 2: best fit near user's target (closest + smallest residual)
-      const searchRadius = Math.max(50, Math.round(targetFrames * 0.5));
-      const start = Math.max(minFrames, targetFrames - searchRadius);
-      const end = Math.min(maxFrames, targetFrames + searchRadius);
-      let best = targetFrames;
-      let bestScore = Number.POSITIVE_INFINITY;
-      for (let f = start; f <= end; f++) {
-        let maxResidual = 0;
-        for (const s of speeds) {
-          const cycles = (s * f) / fps;
-          const residual = Math.abs(cycles - Math.round(cycles));
-          if (residual > maxResidual) maxResidual = residual;
-          if (maxResidual > bestScore) break;
-        }
-        // Combine residual quality with distance from target (very small weight on distance)
-        const dist = Math.abs(f - targetFrames) / Math.max(1, targetFrames);
-        const score = maxResidual + dist * 1e-3;
-        if (score < bestScore) {
-          bestScore = score;
-          best = f;
-        }
-      }
-      return { frames: best, success: false, duration: best / fps };
+      return getAppStoreState().tools?.brushSettings?.colorCycleSpeed ?? 0.1;
     } catch {
-      const fps = Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep)));
-      const fallbackFrames = Math.max(1, Math.round(gifDuration * fps));
-      return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
+      return 0.1;
     }
-  }, [gifDuration, gifFps, gifFrameStep, layers]);
+  };
+
+  const gifFrameSuggestion = useMemo(() => computeBestLoopSuggestion({
+    fps: Math.max(1, Math.floor(gifFps / Math.max(1, gifFrameStep))),
+    durationSeconds: gifDuration,
+    layers,
+    brushCycleSpeed: getBrushCycleSpeed(),
+  }), [gifDuration, gifFps, gifFrameStep, layers]);
+
+  const webglFrameSuggestion = useMemo(() => computeBestLoopSuggestion({
+    fps: webglFps,
+    durationSeconds: webglDuration,
+    layers,
+    brushCycleSpeed: getBrushCycleSpeed(),
+  }), [layers, webglDuration, webglFps]);
+
+  const videoFrameSuggestion = useMemo(() => computeBestLoopSuggestion({
+    fps: videoFps,
+    durationSeconds: videoDuration,
+    layers,
+    brushCycleSpeed: getBrushCycleSpeed(),
+  }), [layers, videoDuration, videoFps]);
 
   const resolvedWebglViewport = useMemo(() => {
     const fallbackWidth = Math.max(1, Math.round(project?.width ?? 1024));
     const fallbackHeight = Math.max(1, Math.round(project?.height ?? 1024));
-    const scalePercent = clampWebglDesignScalePercent(webglDesignScalePercent);
-
     if (webglViewportPreset !== 'fixed') {
-      return {
-        designWidth: fallbackWidth,
-        designHeight: fallbackHeight,
-        scalePercent: 100
-      };
+      return { designWidth: fallbackWidth, designHeight: fallbackHeight };
     }
-
-    const factor = scalePercent / 100;
+    const factor = webglDesignScalePercent / 100;
     return {
       designWidth: Math.max(1, Math.round(fallbackWidth * factor)),
       designHeight: Math.max(1, Math.round(fallbackHeight * factor)),
-      scalePercent
     };
   }, [project?.height, project?.width, webglDesignScalePercent, webglViewportPreset]);
 
-  const webglFrameSuggestion = useMemo(() => {
-    try {
-      const store = getAppStoreState();
-      return computeBestLoopSuggestion({
-        fps: webglFps,
-        durationSeconds: webglDuration,
-        layers,
-        brushCycleSpeed: store.tools?.brushSettings?.colorCycleSpeed ?? 0.1,
-      });
-    } catch {
-      const fps = Math.max(1, Math.floor(webglFps));
-      const fallbackFrames = Math.max(1, Math.round(webglDuration * fps));
-      return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
-    }
-  }, [layers, webglDuration, webglFps]);
-
-  const videoFrameSuggestion = useMemo(() => {
-    try {
-      const store = getAppStoreState();
-      return computeBestLoopSuggestion({
-        fps: videoFps,
-        durationSeconds: videoDuration,
-        layers,
-        brushCycleSpeed: store.tools?.brushSettings?.colorCycleSpeed ?? 0.1,
-      });
-    } catch {
-      const fps = Math.max(1, Math.floor(videoFps));
-      const fallbackFrames = Math.max(1, Math.round(videoDuration * fps));
-      return { frames: fallbackFrames, success: false, duration: fallbackFrames / fps };
-    }
-  }, [layers, videoDuration, videoFps]);
-
-  const videoEffectiveDuration = useMemo(() => (
-    videoAutoFrames ? videoFrameSuggestion.duration : Math.max(1, videoDuration)
-  ), [videoAutoFrames, videoDuration, videoFrameSuggestion.duration]);
-
-  const videoCompressionPercent = useMemo(
-    () => bitrateToCompressionPercent(videoBitrate),
-    [videoBitrate]
-  );
-
-  const webglTotalFrames = useMemo(() => {
-    const fps = Math.max(1, Math.floor(webglFps));
-    if (webglAutoFrames) {
-      return webglFrameSuggestion.frames;
-    }
-    return Math.max(1, Math.round(webglDuration * fps));
-  }, [webglAutoFrames, webglDuration, webglFps, webglFrameSuggestion.frames]);
-
-  const webglEffectiveDuration = useMemo(() => (
-    webglAutoFrames ? webglFrameSuggestion.duration : Math.max(0.5, webglDuration)
-  ), [webglAutoFrames, webglDuration, webglFrameSuggestion.duration]);
-
-  const orderedLayers = useMemo(() => layers.slice().reverse(), [layers]);
-
-  const getColorCycleGradient = useCallback((layer: Layer) => {
-    const gradient = layer.colorCycleData?.gradient ?? layer.colorCycleData?.recolorSettings?.gradient;
-    if (gradient && gradient.length > 0) {
-      const stops = gradient
-        .map((stop) => `${stop.color} ${stop.position * 100}%`)
-        .join(', ');
-      return `linear-gradient(90deg, ${stops})`;
-    }
-    return '#555';
-  }, []);
-
-  const renderLayerPreview = useCallback((layer: Layer) => {
-    if (layer.layerType === 'color-cycle') {
-      return (
-        <div
-          className="flex-1 h-4 rounded mr-1"
-          style={{
-            background: getColorCycleGradient(layer),
-            minWidth: '30px',
-            opacity: layer.visible ? 1 : 0.5
-          }}
-          title={`${layer.name}${layer.colorCycleData?.gradient ? ` – ${layer.colorCycleData.gradient.length} stops` : ''}`}
-        />
-      );
-    }
-
-    if (layer.layerType === 'normal') {
-          return <LayerColorSwatches layer={layer} visible={layer.visible} />;
-    }
-
-    return (
-      <span className="text-[#D9D9D9] text-xs flex-1 truncate" title={layer.name}>
-        {layer.name}
-      </span>
-    );
-  }, [getColorCycleGradient]);
+  const videoEffectiveDuration = videoAutoFrames
+    ? videoFrameSuggestion.duration
+    : Math.max(1, videoDuration);
+  const webglTotalFrames = webglAutoFrames
+    ? webglFrameSuggestion.frames
+    : Math.max(1, Math.round(webglDuration * Math.max(1, Math.floor(webglFps))));
+  const webglEffectiveDuration = webglAutoFrames
+    ? webglFrameSuggestion.duration
+    : Math.max(0.5, webglDuration);
 
   const filenameBase = useMemo(() => {
     const sourceName = exportKind === 'webgl'
-      ? (webglHtmlTitle?.trim() || 'Goblet')
-      : (project?.name?.trim() || 'Vessel');
+      ? webglHtmlTitle
+      : project?.name?.trim() || 'Vessel';
     const sanitized = sourceName
       .replace(/\s+/g, '_')
       .replace(/[^A-Za-z0-9._-]/g, '_')
@@ -1020,203 +308,38 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     return sanitized || 'Vessel';
   }, [exportKind, project?.name, webglHtmlTitle]);
 
-  const frameProvider = useMemo<FrameProvider>(() => ({
-    getDimensions: () => ({
-      width: project?.width || 1,
-      height: project?.height || 1
-    }),
-    compositeToCanvas: (canvas) => {
-      if (compositeLayersToCanvas) {
-        compositeLayersToCanvas(canvas);
-      }
-    },
-    beginAnimationSession: ({ fps, kind }) => {
-      const setSequentialExportFrame = (frame: number) => {
-        try {
-          const currentState = getAppStoreState() as {
-            sequentialRecord?: { frameCount?: number };
-          };
-          setSequentialFrameCursor({
-            nextFrame: frame,
-            nextFrameCount: currentState.sequentialRecord?.frameCount ?? 1,
-          });
-          const rawStore = useAppStore as unknown as {
-            setState?: (updater: (state: unknown) => unknown) => void;
-            getState: () => unknown;
-          };
-          if (typeof rawStore.setState === 'function') {
-            rawStore.setState((state: unknown) => {
-              const typedState = state as {
-                sequentialRecord?: { currentFrame?: number };
-              };
-              if (!typedState?.sequentialRecord) {
-                return state;
-              }
-              return {
-                ...typedState,
-                sequentialRecord: {
-                  ...typedState.sequentialRecord,
-                  currentFrame: frame,
-                },
-              };
-            });
-            return;
-          }
-        } catch {
-          // fallback below
-        }
+  const frameProvider = useExportFrameProvider({
+    width: project?.width || 1,
+    height: project?.height || 1,
+    compositeLayersToCanvas,
+  });
 
-        try {
-          const fallbackStore = getAppStoreState() as {
-            setSequentialFrame?: (nextFrame: number) => void;
-          };
-          fallbackStore.setSequentialFrame?.(frame);
-        } catch {
-          // no-op
-        }
-      };
-
-      const recolorManager = RecolorManager.getInstance();
-      const colorCycleBrushManager = getColorCycleBrushManager();
-      const originalStates: Array<{ layerId: string; wasPlaying: boolean; wasAnimating: boolean }> = [];
-      const initialStore = getAppStoreState() as {
-        layers?: Layer[];
-        sequentialRecord?: { currentFrame?: number };
-        setSequentialFrame?: (frame: number) => void;
-      };
-      const initialSequentialFrame = (
-        hasSequentialExportLayers(initialStore.layers) &&
-        typeof initialStore.setSequentialFrame === 'function'
-      )
-        ? initialStore.sequentialRecord?.currentFrame ?? 0
-        : null;
-
-      if (kind !== 'estimate') {
-        try {
-          const store = getAppStoreState();
-          for (const layer of store.layers) {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData) {
-              const brush = colorCycleBrushManager.getExportPlaybackBrush(layer.id);
-              const wasPlaying = !!(brush && brush.isPlaying && brush.isPlaying());
-              const wasAnimating = !!layer.colorCycleData.isAnimating;
-              originalStates.push({ layerId: layer.id, wasPlaying, wasAnimating });
-              if (!wasAnimating) {
-                store.updateLayer(layer.id, {
-                  colorCycleData: {
-                    ...layer.colorCycleData,
-                    isAnimating: true
-                  }
-                });
-              }
-              if (brush) {
-                try {
-                  brush.applySettings?.({ fps });
-                } catch {}
-                if (brush.setPlaying) brush.setPlaying(false);
-              }
-            }
-          }
-          if (kind === 'gif') {
-            try { recolorManager.setFPS(fps); } catch {}
-          }
-        } catch {}
-      }
-
-      const stepFrame = ({ frameIndex, totalFrames, useAbsolutePhase }: { frameIndex: number; totalFrames: number; useAbsolutePhase: boolean }) => {
-        if (initialSequentialFrame !== null) {
-          setSequentialExportFrame(frameIndex);
-        }
-
-        try {
-          const store = getAppStoreState();
-          const phase = useAbsolutePhase ? (frameIndex / totalFrames) : null;
-          for (const layer of store.layers) {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
-              if (useAbsolutePhase && phase !== null) {
-                recolorManager.setPhase(layer, phase);
-              } else {
-                recolorManager.updateAnimation(layer);
-              }
-            }
-          }
-          for (const layer of store.layers) {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData && layer.colorCycleData.mode !== 'recolor') {
-              const brush = colorCycleBrushManager.getExportPlaybackBrush(layer.id);
-              if (!brush) continue;
-              if (useAbsolutePhase && phase !== null) {
-                brush.setPhase?.(phase);
-              } else {
-                brush.updateAnimation?.();
-              }
-            }
-          }
-        } catch {}
-      };
-
-      const advanceFrame = () => {
-        try {
-          const store = getAppStoreState();
-          for (const layer of store.layers) {
-            if (layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor') {
-              recolorManager.updateAnimation(layer);
-            }
-          }
-        } catch {}
-      };
-
-      const finish = () => {
-        if (initialSequentialFrame !== null) {
-          setSequentialExportFrame(initialSequentialFrame);
-        }
-
-        if (kind === 'estimate') return;
-        try {
-          const store = getAppStoreState();
-          for (const st of originalStates) {
-            const layer = store.layers.find((l) => l.id === st.layerId);
-            if (!layer) continue;
-            if (!st.wasAnimating && layer.colorCycleData) {
-              store.updateLayer(layer.id, {
-                colorCycleData: {
-                  ...layer.colorCycleData,
-                  isAnimating: false
-                }
-              });
-            }
-            const brush = colorCycleBrushManager.getExportPlaybackBrush(layer.id);
-            try {
-              const fps0 = store.tools?.brushSettings?.colorCycleFPS || 30;
-              if (brush) {
-                brush.applySettings?.({ fps: fps0 });
-              }
-            } catch {}
-            if (brush && brush.setPlaying) brush.setPlaying(st.wasPlaying);
-          }
-        } catch {}
-      };
-
-      return { stepFrame, advanceFrame, finish };
+  const webglPreflightError = useMemo(() => {
+    if (layers.length === 0) {
+      return 'No layers available to export.';
     }
-  }), [compositeLayersToCanvas, project?.height, project?.width]);
+    if (!webglIncludeHidden && visibleLayerCount === 0) {
+      return 'No visible layers. Enable hidden layers or unhide at least one layer.';
+    }
+    return null;
+  }, [layers.length, visibleLayerCount, webglIncludeHidden]);
 
-  const downloadBlob = (blob: Blob, filename: string) => {
+  const downloadBlob = useCallback((blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
-  };
+  }, []);
 
   const updateExportProgress = useCallback((nextProgress: ExportProgress) => {
-    setProgress(nextProgress.percent);
-    setProgressModal((current) => {
+    setProgressState((current) => {
       if (!current) {
         return current;
       }
-
       if (!nextProgress.webgl) {
         return {
           ...current,
@@ -1227,45 +350,50 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }
 
       const { webgl } = nextProgress;
+      const isParticipatingLayer = webgl.layer
+        ? current.layers.some((layer) => layer.id === webgl.layer!.id)
+        : false;
       return {
         ...current,
         phase: webgl.phase,
         percent: webgl.percent,
         message: webgl.message ?? current.message,
         error: webgl.error ?? current.error,
-        layers: webgl.layer
+        layers: webgl.layer && isParticipatingLayer
           ? upsertExportLayerRow(current.layers, {
-              id: webgl.layer.id,
-              name: webgl.layer.name,
-              status: webgl.layer.status,
-              message: webgl.layer.message,
-              colorCycle: webgl.layer.colorCycle,
-            })
+            id: webgl.layer.id,
+            name: webgl.layer.name,
+            status: webgl.layer.status,
+            message: webgl.layer.message,
+            colorCycle: webgl.layer.colorCycle,
+          })
           : current.layers,
       };
     });
   }, []);
 
   const handleExport = async () => {
-    if (!project) return;
+    if (!project) {
+      return;
+    }
     if (exportKind === 'webgl' && webglPreflightError) {
       addNotification({
         type: 'error',
         title: 'Export blocked by preflight',
         message: webglPreflightError,
         timestamp: new Date(),
-        duration: 5000
+        duration: 5000,
       });
       return;
     }
+
     const shouldContinueAnyway = continueAnywayRef.current;
     continueAnywayRef.current = false;
     if (exportKind === 'webgl' && !shouldContinueAnyway) {
       const issueRows = getGobletExportIssueRows(layers, webglIncludeHidden);
       if (issueRows.length > 0) {
         const initialRows = buildInitialExportLayerRows(layers, webglIncludeHidden);
-        setProgress(0);
-        setProgressModal({
+        setProgressState({
           isOpen: true,
           kind: exportKind,
           phase: 'blocked',
@@ -1273,8 +401,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           message: 'Goblet export stopped before starting.',
           layers: issueRows.reduce(
             (rows, issueRow) => upsertExportLayerRow(rows, issueRow),
-            initialRows
+            initialRows,
           ),
+          excludedHiddenLayerCount,
           issue: {
             title: `Goblet export found ${issueRows.length} layer issue${issueRows.length === 1 ? '' : 's'}.`,
             detailLines: issueRows.map((row) => `${row.name}: ${row.message ?? 'Static preview only'}`),
@@ -1284,9 +413,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         return;
       }
     }
+
     setIsExporting(true);
-    setProgress(0);
-    setProgressModal({
+    setProgressState({
       isOpen: true,
       kind: exportKind,
       phase: 'preparing',
@@ -1295,13 +424,12 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       layers: exportKind === 'webgl'
         ? buildInitialExportLayerRows(layers, webglIncludeHidden)
         : [],
+      excludedHiddenLayerCount: exportKind === 'webgl' ? excludedHiddenLayerCount : 0,
     });
     const controller = new AbortController();
     exportAbortRef.current = controller;
+
     try {
-      // Export from the authoritative store at click time. Playback controls can
-      // change independently of the modal's render lifecycle, and Goblet must
-      // never package a stale global or per-layer speed snapshot.
       const exportSnapshotState = getAppStoreState();
       const request = exportKind === 'png'
         ? {
@@ -1311,9 +439,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           frameProvider,
           options: {
             quality: pngQuality,
-            includeBackground: pngIncludeBg,
+            includeBackground: pngIncludeBackground,
             backgroundColor: project.backgroundColor,
-          }
+          },
         }
         : exportKind === 'gif'
           ? {
@@ -1326,13 +454,13 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               durationSeconds: gifDuration,
               repeat: gifRepeat,
               autoFrames: gifAutoFrames,
-              suggestedTotalFrames: autoFrameSuggestion.frames,
+              suggestedTotalFrames: gifFrameSuggestion.frames,
               frameStep: gifFrameStep,
               ditherMethod: gifDitherMethod,
               ditherStrength: gifDitherStrength,
               maxColors: gifMaxColors,
               autoColors: gifAutoColors,
-            }
+            },
           }
           : exportKind === 'webgl'
             ? {
@@ -1341,43 +469,34 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               options: {
                 request: buildGobletExportSnapshotRequest({
                   project: { ...project, layerGroups },
-                  layers,
+                  layers: participatingLayers,
                   layout: project.exportLayout ?? createDefaultExportLayout(),
                   viewport: {
                     designWidth: resolvedWebglViewport.designWidth,
                     designHeight: resolvedWebglViewport.designHeight,
-                    mode: (
-                      webglViewportPreset === 'fixed'
-                        ? 'fixed'
-                        : webglViewportPreset === 'embed-fill' || webglViewportPreset === 'embed-fit'
-                          ? 'fixed'
-                          : 'fit'
-                    ) as 'fit' | 'fixed'
+                    mode: webglViewportPreset === 'default' ? 'fit' : 'fixed',
                   },
                   fps: Math.max(1, Math.floor(webglFps)),
                   totalFrames: webglTotalFrames,
                   durationSeconds: webglEffectiveDuration,
                   perfectLoop: webglAutoFrames,
                   includeHiddenLayers: webglIncludeHidden,
-                  embedCanvasFallback: webglEmbedFallback,
-                  minify: webglMinify,
+                  embedCanvasFallback: webglExportSettings.embedCanvasFallback,
+                  minify: webglExportSettings.minifyOutput,
                   pixelPerfectStack: webglViewportPreset === 'fixed',
                   filenameBase,
                   bundleFormat: webglBundleFormat,
-                  gobletVersion: webglGobletVersion,
-                  enableGobletDiagnostics: webglEnableDiagnostics,
+                  gobletVersion: webglExportSettings.gobletVersion,
+                  enableGobletDiagnostics: webglExportSettings.enableGobletDiagnostics,
                   compositeLayersToCanvas,
                   compositeLayersToCanvasSync,
                   viewportPreset: webglViewportPreset,
                   htmlTitle: webglHtmlTitle,
                   htmlBackgroundColor: webglHtmlBackgroundColor,
                   onSizeReport: (sizeReport) => {
-                    if (webglBundleFormat !== 'single-html' || sizeReport.format !== 'single-html') {
-                      return;
+                    if (webglBundleFormat === 'single-html' && sizeReport.format === 'single-html') {
+                      setProgressState((current) => current ? { ...current, sizeReport } : current);
                     }
-                    setProgressModal((current) => current
-                      ? { ...current, sizeReport }
-                      : current);
                   },
                 }, {
                   transparencyBackgroundMode: exportSnapshotState.canvas.transparencyBackgroundMode,
@@ -1387,10 +506,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                   colorCycleToolSpeed: exportSnapshotState.tools?.brushSettings?.colorCycleSpeed,
                 }),
                 bundleFormat: webglBundleFormat,
-                gobletVersion: webglGobletVersion,
+                gobletVersion: webglExportSettings.gobletVersion,
                 htmlTitle: webglHtmlTitle,
-                htmlBackgroundColor: webglHtmlBackgroundColor
-              }
+                htmlBackgroundColor: webglHtmlBackgroundColor,
+              },
             }
             : {
               kind: 'video' as const,
@@ -1401,102 +520,97 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
                 fps: videoFps,
                 durationSeconds: videoEffectiveDuration,
                 mimeType: videoMime,
-                bitrateKbps: videoBitrate
-              }
+                bitrateKbps: videoBitrate,
+              },
             };
 
       const result = await runExport(request, updateExportProgress, controller.signal);
-
       if (result.kind === 'webgl') {
-        setProgressModal((current) => current
-          ? {
-              ...current,
-              phase: 'complete',
-              percent: 100,
-              message: 'Goblet ready to preview, download, or publish',
-              sizeReport: result.artifact.sizeReport,
-              artifact: result.artifact,
-            }
-          : current);
+        setProgressState((current) => current ? {
+          ...current,
+          phase: 'complete',
+          percent: 100,
+          message: 'Goblet ready to preview, download, or publish',
+          sizeReport: result.artifact.sizeReport,
+          artifact: result.artifact,
+        } : current);
         addNotification({
           type: 'success',
           title: 'Goblet ready',
           message: `Built ${result.metadata.layers.length} layer${result.metadata.layers.length === 1 ? '' : 's'} as ${BUNDLE_FORMAT_LABELS[webglBundleFormat]}`,
           timestamp: new Date(),
-          duration: 5000
+          duration: 5000,
         });
       } else {
-        setProgressModal((current) => current
-          ? {
-              ...current,
-              phase: 'complete',
-              percent: 100,
-              message: 'Export complete',
-            }
-          : current);
+        setProgressState((current) => current ? {
+          ...current,
+          phase: 'complete',
+          percent: 100,
+          message: 'Export complete',
+        } : current);
         if (result.kind === 'video' && videoMime === 'video/mp4' && !result.mimeType.includes('mp4')) {
           addNotification({
             type: 'warning',
             title: 'Exported as WebM',
             message: 'This browser does not support MP4 recording with MediaRecorder. Saved as WebM instead.',
             timestamp: new Date(),
-            duration: 5000
+            duration: 5000,
           });
         }
         downloadBlob(result.blob, result.filename);
       }
-    } catch (e) {
-      const error = e instanceof Error
-        ? { message: e.message, stack: e.stack }
+    } catch (caughtError) {
+      const error = caughtError instanceof Error
+        ? { message: caughtError.message, stack: caughtError.stack }
         : { message: 'Unknown error' };
-      setProgressModal((current) => current
-        ? {
-            ...current,
-            phase: 'failed',
-            percent: 100,
-            message: error.message,
-            error,
-            sizeReport: undefined,
-          }
-        : {
-            isOpen: true,
-            kind: exportKind,
-            phase: 'failed',
-            percent: 100,
-            message: error.message,
-            layers: exportKind === 'webgl'
-              ? buildInitialExportLayerRows(layers, webglIncludeHidden)
-              : [],
-            error,
-          });
+      setProgressState((current) => current ? {
+        ...current,
+        phase: 'failed',
+        percent: 100,
+        message: error.message,
+        error,
+        sizeReport: undefined,
+      } : {
+        isOpen: true,
+        kind: exportKind,
+        phase: 'failed',
+        percent: 100,
+        message: error.message,
+        layers: exportKind === 'webgl'
+          ? buildInitialExportLayerRows(layers, webglIncludeHidden)
+          : [],
+        excludedHiddenLayerCount: exportKind === 'webgl' ? excludedHiddenLayerCount : 0,
+        error,
+      });
       addNotification({
         type: 'error',
         title: 'Export failed',
-        message: e instanceof Error ? e.message : 'Unknown error',
+        message: error.message,
         timestamp: new Date(),
-        duration: 5000
+        duration: 5000,
       });
     } finally {
       setIsExporting(false);
-      setProgress(0);
       exportAbortRef.current = null;
     }
   };
 
   const continueBlockedExport = () => {
     continueAnywayRef.current = true;
-    setProgressModal(null);
+    setProgressState(null);
     void handleExport();
   };
 
   const openRepairFlow = () => {
-    setProgressModal(null);
+    setProgressState(null);
     onClose();
     toggleModal('loadProject');
   };
 
   const publishGoblet = async (publisher: GobletPublisher, artifact: GobletArtifact) => {
-    if (!project || publishingPublisherId) return;
+    if (!project || publishingPublisherId) {
+      return;
+    }
     setPublishingPublisherId(publisher.id);
     try {
       const result = await publisher.publish(artifact, {
@@ -1523,641 +637,161 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
   };
 
-  if (!shouldRender) return null;
+  if (!shouldRender) {
+    return null;
+  }
+
+  const title = progressState
+    ? progressState.phase === 'complete'
+      ? progressState.kind === 'webgl' ? 'Goblet ready' : 'Export complete'
+      : progressState.phase === 'failed'
+        ? 'Export failed'
+        : progressState.phase === 'blocked'
+          ? 'Export needs attention'
+          : 'Exporting'
+    : 'Export';
+  const subtitle = progressState
+    ? `${progressState.kind === 'webgl' ? 'Goblet' : progressState.kind.toUpperCase()} · ${WEBGL_PROGRESS_PHASE_LABELS[progressState.phase]}`
+    : null;
 
   return (
-    <>
     <div
-      className={`fixed inset-0 z-50 ${isVisible ? 'opacity-100' : 'opacity-0'} transition-opacity duration-300`}
-      aria-hidden={progressModal?.isOpen ? true : undefined}
-      inert={progressModal?.isOpen ? true : undefined}
-      onClick={() => { if (!isExporting) onClose(); }}
+      className={`fixed inset-0 z-50 transition-opacity duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
+      data-testid="export-modal-backdrop"
+      onClick={() => {
+        if (canCloseModal) {
+          closeExportModal();
+        }
+      }}
     >
       <div
-        className={`${MODAL_PANEL_CLASS} w-[580px] max-w-full mx-4 shadow-xl flex flex-col overflow-hidden`}
-        style={{ position: 'fixed', left: pos.x, top: pos.y, maxHeight: 'calc(100vh - 48px)' }}
-        onClick={(e) => e.stopPropagation()}
+        className={`${MODAL_PANEL_CLASS} fixed flex w-[580px] max-w-[calc(100vw-32px)] flex-col overflow-hidden shadow-xl`}
+        style={{
+          left: position.x,
+          top: position.y,
+          maxHeight: 'calc(100vh - 48px)',
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-modal-title"
+        aria-describedby={subtitle ? 'export-modal-subtitle' : undefined}
+        onClick={(event) => event.stopPropagation()}
       >
         <div
-          className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#2A2A2A] cursor-move shrink-0"
-          onMouseDown={onDragStart}
+          className="flex shrink-0 cursor-move items-center justify-between border-b border-[#424242] px-6 py-3"
+          onMouseDown={handleDragStart}
         >
-          <h2 className="text-[#F0F0F0] text-lg font-semibold tracking-tight">Export</h2>
-          <button
-            onClick={() => { if (!isExporting) onClose(); }}
-            className="text-[#9C9C9C] hover:text-white transition-colors p-1"
-            disabled={isExporting}
-          >
-            <XIcon className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="space-y-6 p-6 pt-4 flex-1 overflow-y-auto text-sm text-[#E0E0E0]">
-          {/* Type & Scale */}
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-3">
-              <label className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold uppercase tracking-[0.08em]`}>Type</label>
-              <div className="flex flex-wrap gap-2">
-                {(['webgl','gif','mp4','png'] as ExportKind[]).map((kind) => (
-                  <button
-                    key={kind}
-                    onClick={() => setExportKind(kind)}
-                    className={`${TOGGLE_BASE_CLASS} ${exportKind === kind ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
-                    disabled={isExporting}
-                  >
-                    {kind === 'png' ? 'PNG' : kind === 'gif' ? 'GIF' : kind === 'mp4' ? 'Video' : 'Goblet'}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {exportKind !== 'webgl' && (
-              <div className="flex items-center gap-3">
-                <label className={`${MODAL_TEXT_PRIMARY} text-sm font-semibold uppercase tracking-[0.08em]`}>Scale</label>
-                <div className="flex flex-wrap gap-2">
-                  {scaleOptions.map(({ value, label }) => (
-                    <button
-                      key={value}
-                      onClick={() => setScale(value)}
-                      className={`${TOGGLE_BASE_CLASS} ${scale === value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
-                      disabled={isExporting}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+          <div>
+            <h2 id="export-modal-title" className="text-lg font-semibold tracking-tight text-[#F0F0F0]">
+              {title}
+            </h2>
+            {subtitle && (
+              <p id="export-modal-subtitle" className="text-xs text-[#9C9C9C]">{subtitle}</p>
             )}
           </div>
-
-          {/* PNG Options */}
-          {exportKind === 'png' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Include Background</label>
-                <input type="checkbox" checked={pngIncludeBg} onChange={(e) => setPngIncludeBg(e.target.checked)} />
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Quality</label>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={1}
-                  step={0.05}
-                  value={pngQuality}
-                  onChange={(e) => setPngQuality(parseFloat(e.target.value))}
-                  className="slider w-48"
-                  style={{
-                    '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
-                    '--ascii-thumb-size': '14px',
-                    '--slider-progress': `${((pngQuality - 0.1) / 0.9) * 100}%`
-                  } as React.CSSProperties & { '--slider-progress': string }}
-                />
-              </div>
-            </div>
+          {canCloseModal && (
+            <button
+              type="button"
+              onClick={closeExportModal}
+              className="p-1 text-[#9C9C9C] transition-colors hover:text-white"
+              aria-label="Close export"
+            >
+              <XIcon className="h-5 w-5" />
+            </button>
           )}
-
-          {/* GIF Options */}
-          {exportKind === 'gif' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">FPS</label>
-                <div className="flex items-center gap-2">
-                  <div className="flex flex-wrap gap-2">
-                    {GIF_FPS_PRESETS.map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setGifFps(value)}
-                        className={`${TOGGLE_BASE_CLASS} px-2 py-1 text-xs ${gifFps === value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
-                        disabled={isExporting}
-                      >
-                        {value}
-                      </button>
-                    ))}
-                  </div>
-                  <Input type="number" min={1} max={60} value={gifFps} onChange={(e) => setGifFps(Math.max(1, Math.min(60, parseInt(e.target.value)||1)))} className="w-24 text-right" />
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Duration (s)</label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={gifDuration}
-                  onChange={(e) => setGifDuration(Math.max(1, Math.min(20, parseInt(e.target.value)||1)))}
-                  className="w-24 text-right"
-                  disabled={gifAutoFrames}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Repeat</label>
-                <select
-                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
-                  value={gifRepeat}
-                  onChange={(e) => setGifRepeat(parseInt(e.target.value))}
-                >
-                  <option value={0}>Forever</option>
-                  <option value={-1}>Once</option>
-                  <option value={1}>1 time</option>
-                  <option value={2}>2 times</option>
-                </select>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Perfect Loop</label>
-                <input
-                  type="checkbox"
-                  checked={gifAutoFrames}
-                  onChange={(e) => {
-                    const v = e.target.checked;
-                    setGifAutoFrames(v);
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Dithering</label>
-                <select
-                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
-                  value={gifDitherMethod}
-                  onChange={(e) => setGifDitherMethod(e.target.value as DitherMethod)}
-                >
-                  <option value="none">None</option>
-                  <option value="floyd-steinberg">Floyd–Steinberg</option>
-                  <option value="ordered-4x4">Ordered (Bayer 4×4)</option>
-                </select>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Dither Strength</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={gifDitherStrength}
-                  onChange={(e) => setGifDitherStrength(parseFloat(e.target.value))}
-                  className="slider w-48"
-                  style={{
-                    '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
-                    '--ascii-thumb-size': '14px',
-                    '--slider-progress': `${gifDitherStrength * 100}%`
-                  } as React.CSSProperties & { '--slider-progress': string }}
-                  disabled={gifDitherMethod === 'none'}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Palette Size</label>
-                <select
-                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
-                  value={gifAutoColors ? 'auto' : String(gifMaxColors)}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (v === 'auto') {
-                      setGifAutoColors(true);
-                    } else {
-                      setGifAutoColors(false);
-                      setGifMaxColors(parseInt(v, 10) as 4 | 8 | 16 | 32 | 64 | 128 | 256);
-                    }
-                  }}
-                >
-                  <option value="auto">Auto</option>
-                  <option value={4}>4</option>
-                  <option value={8}>8</option>
-                  <option value={16}>16</option>
-                  <option value={32}>32</option>
-                  <option value={64}>64</option>
-                  <option value={128}>128</option>
-                  <option value={256}>256</option>
-                </select>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Frame Step</label>
-                <select
-                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
-                  value={gifFrameStep}
-                  onChange={(e) => setGifFrameStep(Math.max(1, Math.min(4, parseInt(e.target.value))) as 1|2|3|4)}
-                >
-                  <option value={1}>1 (every frame)</option>
-                  <option value={2}>2 (every other)</option>
-                  <option value={3}>3</option>
-                  <option value={4}>4</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {exportKind === 'webgl' && (
-            <div className="space-y-5">
-              <CollapsibleSection
-                id="export-layer-alignment"
-                title="Layer alignment"
-                isOpen={layerAlignmentOpen}
-                onToggle={() => setLayerAlignmentOpen((prev) => !prev)}
-                contentClassName="space-y-4"
-              >
-                <LayerAlignmentControls
-                  density="comfortable"
-                  appearance="plain"
-                  defaultExpanded
-                  className="p-0 bg-transparent space-y-4"
-                />
-                <div className="border border-[#424242] overflow-hidden divide-y divide-[#424242]">
-                  {orderedLayers.length === 0 && (
-                    <div className="px-4 py-3 text-sm text-[#9C9C9C]">No layers available</div>
-                  )}
-                  {orderedLayers.map((layer) => {
-                    const isActiveLayer = layer.id === activeLayerId;
-                    return (
-                      <button
-                        key={layer.id}
-                        type="button"
-                        onClick={() => setActiveLayer(layer.id)}
-                        className={`w-full text-left transition-colors ${isActiveLayer ? 'bg-[#4A4A4A] text-white' : 'hover:bg-[#353535] text-[#E0E0E0]'}`}
-                        disabled={isExporting}
-                      >
-                        <div className="flex items-center h-7 px-2">
-                          <div className={`w-4 h-4 mr-2 flex items-center justify-center ${layer.visible ? 'text-[#D9D9D9]' : 'text-[#666]'}`}>
-                            {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-                          </div>
-                          {renderLayerPreview(layer)}
-                          {layer.layerType === 'color-cycle' ? (
-                            <div className="ml-1 flex items-center gap-1">
-                              <span className={LAYER_TAG_CLASS}>CC</span>
-                              <span className={LAYER_TAG_CLASS}>
-                                {layer.colorCycleData?.mode === 'recolor' ? 'Recolor' : 'Brush'}
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="ml-1 flex items-center gap-1">
-                              <span className={LAYER_TAG_CLASS}>Layer</span>
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </CollapsibleSection>
-
-              <div className={`${MODAL_SURFACE_CLASS} p-4 space-y-4`}>
-                <div>
-                  <h3 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold mb-3`}>Viewport preset</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {WEBGL_VIEWPORT_PRESETS.map((preset) => (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        onClick={() => updateWebglExportSettings({ viewportPreset: preset.value })}
-                        className={`${TOGGLE_BASE_CLASS} ${webglViewportPreset === preset.value ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
-                        disabled={isExporting}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className={`${MODAL_TEXT_SECONDARY} text-xs mt-3`}>
-                    {webglViewportPreset === 'embed-fill'
-                      ? 'Fills the host container using the larger viewport ratio. Cropping is allowed to avoid gutters.'
-                      : webglViewportPreset === 'embed-fit'
-                        ? 'Fits to the shorter viewport edge using the smaller ratio. Full composition stays visible.'
-                      : webglViewportPreset === 'fixed'
-                        ? 'Keeps a fixed non-responsive design canvas for pixel-perfect standalone exports.'
-                        : 'Preserves the full composition with fit-style scaling for standalone-safe playback.'}
-                  </p>
-                </div>
-                {webglViewportPreset === 'fixed' && (
-                  <div className="space-y-2">
-                    <label className="flex items-center justify-between gap-3">
-                      <span className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Design scale (%)</span>
-                      <Input
-                        type="number"
-                        min={25}
-                        max={800}
-                        step={1}
-                        value={webglDesignScalePercent}
-                        onChange={(event) => {
-                          const parsed = parseInt(event.target.value, 10);
-                          updateWebglExportSettings({
-                            designScalePercent: clampWebglDesignScalePercent(parsed)
-                          });
-                        }}
-                        className={`${INPUT_OVERRIDE_CLASS} w-24 text-right`}
-                        disabled={isExporting}
-                      />
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      {WEBGL_DESIGN_SCALE_PRESETS.map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => updateWebglExportSettings({ designScalePercent: preset })}
-                          className={`${TOGGLE_BASE_CLASS} ${webglDesignScalePercent === preset ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
-                          disabled={isExporting}
-                        >
-                          {preset}%
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-2">
-                    <span className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>FPS</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={120}
-                      value={webglFps}
-                      onChange={(event) => setWebglFps(Math.max(1, Math.min(120, parseInt(event.target.value) || 1)))}
-                      className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
-                      disabled={isExporting}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-2">
-                    <span className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Duration (s)</span>
-                    <Input
-                      type="number"
-                      min={0.5}
-                      step={0.5}
-                      value={webglDuration}
-                      onChange={(event) => setWebglDuration(Math.max(0.5, parseFloat(event.target.value) || 0.5))}
-                      className={`${INPUT_OVERRIDE_CLASS} w-full text-right`}
-                      disabled={isExporting || webglAutoFrames}
-                    />
-                  </label>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
-                    <span className="font-medium">Perfect loop</span>
-                    <input
-                      type="checkbox"
-                      className="accent-[#D9D9D9]"
-                      checked={webglAutoFrames}
-                      onChange={(event) => setWebglAutoFrames(event.target.checked)}
-                      disabled={isExporting}
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className={`${MODAL_SURFACE_CLASS} p-4 space-y-4`}>
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <h3 className={`${MODAL_TEXT_PRIMARY} text-base font-semibold`}>Preset</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {WEBGL_EXPORT_PRESETS.map((preset) => (
-                      <button
-                        key={preset.value}
-                        type="button"
-                        onClick={() => applyWebglExportPreset(preset.value)}
-                        className={`${TOGGLE_BASE_CLASS} ${webglExportPreset === preset.value && webglGobletVersion === 'goblet2' && !webglEnableDiagnostics ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
-                        disabled={isExporting}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={toggleWebglDebugMode}
-                      className={`${TOGGLE_BASE_CLASS} ${webglEnableDiagnostics ? TOGGLE_ACTIVE_CLASS : TOGGLE_INACTIVE_CLASS}`}
-                      disabled={isExporting}
-                    >
-                      Debug mode
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
-                    <span>Include hidden layers</span>
-                    <input
-                      type="checkbox"
-                      className="accent-[#D9D9D9]"
-                      checked={webglIncludeHidden}
-                      onChange={(event) => updateWebglExportSettings({ includeHiddenLayers: event.target.checked })}
-                      disabled={isExporting}
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
-                    <span>Embed Canvas2D fallback</span>
-                    <input
-                      type="checkbox"
-                      className="accent-[#D9D9D9]"
-                      checked={webglEmbedFallback}
-                      onChange={(event) => updateWebglExportSettings({ embedCanvasFallback: event.target.checked })}
-                      disabled={isExporting}
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
-                    <span>Minify bundle output</span>
-                    <input
-                      type="checkbox"
-                      className="accent-[#D9D9D9]"
-                      checked={webglMinify}
-                      onChange={(event) => updateWebglExportSettings({ minifyOutput: event.target.checked })}
-                      disabled={isExporting}
-                    />
-                  </label>
-                  <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
-                    <span>Diagnostics helpers</span>
-                    <input
-                      type="checkbox"
-                      className="accent-[#D9D9D9]"
-                      checked={webglEnableDiagnostics}
-                      onChange={(event) => updateWebglExportSettings({ enableGobletDiagnostics: event.target.checked })}
-                      disabled={isExporting}
-                    />
-                  </label>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Packaging</label>
-                  <select
-                    className={INLINE_FIELD_CLASS}
-                    value={webglBundleFormat}
-                    onChange={(event) => updateWebglExportSettings({ bundleFormat: event.target.value as WebGLExportBundleFormat })}
-                    disabled={isExporting}
-                  >
-                    <option value="zip">Goblet ZIP smaller (sidecar JSON + binary buffers)</option>
-                    <option value="zip-compat">Goblet ZIP compatible (embedded metadata fallback)</option>
-                    <option value="single-html">Single Goblet HTML (self-contained)</option>
-                    <option value="json">Goblet JSON only</option>
-                  </select>
-                  <div className="flex flex-col gap-2 pt-1">
-                    <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Goblet runtime</label>
-                    <select
-                      className={INLINE_FIELD_CLASS}
-                      value={webglGobletVersion}
-                      onChange={(event) => updateWebglExportSettings({ gobletVersion: event.target.value as WebGLExportGobletVersion })}
-                      disabled={isExporting}
-                    >
-                      <option value="goblet1">{GOBLET_VERSION_LABELS.goblet1}</option>
-                      <option value="goblet2">{GOBLET_VERSION_LABELS.goblet2}</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`} htmlFor="goblet-html-title">
-                      HTML title
-                    </label>
-                    <Input
-                      id="goblet-html-title"
-                      type="text"
-                      maxLength={120}
-                      value={webglHtmlTitle}
-                      onChange={(event) => updateWebglExportSettings({ htmlTitle: event.target.value })}
-                      placeholder="Goblet"
-                      className={INPUT_OVERRIDE_CLASS}
-                      disabled={isExporting}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2 pt-1">
-                    <label className={`${MODAL_TEXT_PRIMARY} text-sm font-medium`}>Background colors</label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                      <div className="flex items-center justify-between gap-3 rounded border border-[#343434] bg-[#1F1F1F] px-3 py-2">
-                        <span className={MODAL_TEXT_SECONDARY}>Artwork</span>
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="h-5 w-5 border border-[#555]"
-                            style={{
-                              background: project?.backgroundColor === 'transparent'
-                                ? 'repeating-conic-gradient(#666 0% 25%, #333 0% 50%) 50% / 8px 8px'
-                                : (project?.backgroundColor || 'transparent')
-                            }}
-                            aria-hidden="true"
-                          />
-                        </div>
-                      </div>
-                      <label className="flex items-center justify-between gap-3 rounded border border-[#343434] bg-[#1F1F1F] px-3 py-2">
-                        <span className={MODAL_TEXT_SECONDARY}>Index shell</span>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="color"
-                            value={webglHtmlBackgroundColor}
-                            onChange={(event) => updateWebglExportSettings({ htmlBackgroundColor: event.target.value })}
-                            className="h-6 w-8 cursor-pointer border border-[#555] bg-transparent p-0"
-                            disabled={isExporting}
-                            aria-label="Goblet HTML shell background color"
-                          />
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Video Options */}
-{exportKind === 'mp4' && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">FPS</label>
-                <Input type="number" min={1} max={60} value={videoFps} onChange={(e) => setVideoFps(Math.max(1, Math.min(60, parseInt(e.target.value)||1)))} className="w-24 text-right" />
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Duration (s)</label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={60}
-                  step={0.5}
-                  value={videoDuration}
-                  onChange={(e) => setVideoDuration(Math.max(1, Math.min(60, parseFloat(e.target.value) || 1)))}
-                  className="w-24 text-right"
-                  disabled={videoAutoFrames}
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center justify-between gap-3 text-sm text-[#E0E0E0]">
-                  <span className="font-medium">Perfect loop (best guess)</span>
-                  <input
-                    type="checkbox"
-                    className="accent-[#D9D9D9]"
-                    checked={videoAutoFrames}
-                    onChange={(event) => setVideoAutoFrames(event.target.checked)}
-                    disabled={isExporting}
-                  />
-                </label>
-              </div>
-              <div className="flex items-center justify-between">
-                <label className="text-base text-[#888]">Format</label>
-                <select
-                  className="bg-[#4a4a4a] text-[#E5E5E5] px-3 py-1 border border-[#343434] text-base"
-                  value={videoMime}
-                  onChange={(e) => setVideoMime(e.target.value as 'video/mp4' | 'video/webm')}
-                >
-                  <option value="video/webm">WebM</option>
-                  <option value="video/mp4">MP4 (best-effort)</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  <label className="text-base text-[#888]">Compression</label>
-                  <div className="text-right leading-tight">
-                    <div className="text-sm text-[#E5E5E5]">{videoCompressionPercent}%</div>
-                    <div className="text-xs text-[#888]">{videoBitrate.toLocaleString()} kbps</div>
-                  </div>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={videoCompressionPercent}
-                  onChange={(e) => setVideoBitrate(compressionPercentToBitrate(parseInt(e.target.value, 10) || 0))}
-                  className="slider w-full"
-                  style={{
-                    '--slider-track-gradient': 'linear-gradient(to right, rgba(217,217,217,0.2), rgba(217,217,217,0.6))',
-                    '--ascii-thumb-size': '14px',
-                    '--slider-progress': `${videoCompressionPercent}%`
-                  } as React.CSSProperties & { '--slider-progress': string }}
-                  disabled={isExporting}
-                  aria-label="Video compression"
-                />
-                <div className="flex items-center justify-between text-xs text-[#777]">
-                  <span>Lower compression / higher quality</span>
-                  <span>Higher compression / smaller file</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Progress */}
-          {isExporting && (
-            <div className="w-full bg-[#353535] h-2 overflow-hidden">
-              <div className="bg-[#D9D9D9] h-full transition-all" style={{ width: `${progress}%` }} />
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex justify-end gap-2">
-            {isExporting ? (
-              <Button variant="secondary" onClick={() => { exportAbortRef.current?.abort(); }}>
-                Cancel
-              </Button>
-            ) : (
-              <>
-                <Button variant="secondary" onClick={onClose}>Close</Button>
-                <Button variant="primary" onClick={handleExport}>Export</Button>
-              </>
-            )}
-          </div>
         </div>
+
+        {progressState ? (
+          <ExportProgressView
+            state={progressState}
+            publishingPublisherId={publishingPublisherId}
+            onBack={() => setProgressState(null)}
+            onCancel={() => exportAbortRef.current?.abort()}
+            onClose={closeExportModal}
+            onContinueAnyway={continueBlockedExport}
+            onRepair={openRepairFlow}
+            onDownload={(artifact) => downloadBlob(artifact.blob, artifact.filename)}
+            onPublish={(publisher, artifact) => { void publishGoblet(publisher, artifact); }}
+          />
+        ) : (
+          <ExportSetupView
+            isExporting={isExporting}
+            exportKind={exportKind}
+            scale={scale}
+            scaleOptions={scaleOptions}
+            filenameBase={filenameBase}
+            png={{ includeBackground: pngIncludeBackground, quality: pngQuality }}
+            gif={{
+              fps: gifFps,
+              duration: gifDuration,
+              repeat: gifRepeat,
+              autoFrames: gifAutoFrames,
+              ditherMethod: gifDitherMethod,
+              ditherStrength: gifDitherStrength,
+              frameStep: gifFrameStep,
+              maxColors: gifMaxColors,
+              autoColors: gifAutoColors,
+            }}
+            video={{
+              fps: videoFps,
+              duration: videoDuration,
+              autoFrames: videoAutoFrames,
+              mime: videoMime,
+              bitrate: videoBitrate,
+              compressionPercent: bitrateToCompressionPercent(videoBitrate),
+            }}
+            goblet={{
+              settings: resolvedWebglSettings,
+              viewportPreset: webglViewportPreset,
+              designScalePercent: webglDesignScalePercent,
+              fps: webglFps,
+              duration: webglDuration,
+              autoFrames: webglAutoFrames,
+              visibleLayerCount,
+              hiddenLayerCount,
+              participatingLayerCount,
+              projectBackgroundColor: project?.backgroundColor,
+            }}
+            onExportKindChange={setExportKind}
+            onScaleChange={setScale}
+            onPngChange={(patch) => {
+              if (typeof patch.includeBackground === 'boolean') {
+                setPngIncludeBackground(patch.includeBackground);
+              }
+              if (typeof patch.quality === 'number') {
+                setPngQuality(patch.quality);
+              }
+            }}
+            onGifChange={(patch) => {
+              if (typeof patch.fps === 'number') setGifFps(patch.fps);
+              if (typeof patch.duration === 'number') setGifDuration(patch.duration);
+              if (typeof patch.repeat === 'number') setGifRepeat(patch.repeat);
+              if (typeof patch.autoFrames === 'boolean') setGifAutoFrames(patch.autoFrames);
+              if (patch.ditherMethod) setGifDitherMethod(patch.ditherMethod);
+              if (typeof patch.ditherStrength === 'number') setGifDitherStrength(patch.ditherStrength);
+              if (patch.frameStep) setGifFrameStep(patch.frameStep);
+              if (patch.maxColors) setGifMaxColors(patch.maxColors);
+              if (typeof patch.autoColors === 'boolean') setGifAutoColors(patch.autoColors);
+            }}
+            onVideoChange={(patch) => {
+              if (typeof patch.fps === 'number') setVideoFps(patch.fps);
+              if (typeof patch.duration === 'number') setVideoDuration(patch.duration);
+              if (typeof patch.autoFrames === 'boolean') setVideoAutoFrames(patch.autoFrames);
+              if (patch.mime) setVideoMime(patch.mime);
+              if (typeof patch.bitrate === 'number') setVideoBitrate(patch.bitrate);
+            }}
+            onGobletAnimationChange={(patch) => {
+              if (typeof patch.fps === 'number') setWebglFps(patch.fps);
+              if (typeof patch.duration === 'number') setWebglDuration(patch.duration);
+              if (typeof patch.autoFrames === 'boolean') setWebglAutoFrames(patch.autoFrames);
+            }}
+            onGobletSettingsChange={updateWebglExportSettings}
+            onClose={closeExportModal}
+            onExport={() => { void handleExport(); }}
+          />
+        )}
       </div>
     </div>
-    <ExportProgressModal
-      state={progressModal}
-      onCancel={() => { exportAbortRef.current?.abort(); }}
-      onClose={() => setProgressModal(null)}
-      onDismissComplete={() => {
-        setProgressModal(null);
-        onClose();
-      }}
-      onContinueAnyway={continueBlockedExport}
-      onRepair={openRepairFlow}
-      onDownload={(artifact) => downloadBlob(artifact.blob, artifact.filename)}
-      onPublish={(publisher, artifact) => { void publishGoblet(publisher, artifact); }}
-      publishingPublisherId={publishingPublisherId}
-    />
-    </>
   );
 };
 

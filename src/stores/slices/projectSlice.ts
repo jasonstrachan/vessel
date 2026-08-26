@@ -1336,7 +1336,7 @@ export const createProjectSlice =
       projectFilename: null,
       projectFileHandle: null,
       webglExportSettings: {
-        includeHiddenLayers: true,
+        includeHiddenLayers: false,
         embedCanvasFallback: false,
         minifyOutput: true,
         bundleFormat: 'zip-compat',

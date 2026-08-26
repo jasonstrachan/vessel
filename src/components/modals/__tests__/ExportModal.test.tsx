@@ -186,7 +186,7 @@ describe('ExportModal', () => {
       jest.runAllTimers();
     });
 
-    expect(screen.getByText('Packaging')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'File' })).toBeInTheDocument();
   });
 
   it('switches export type to GIF and shows scale controls', () => {
@@ -337,7 +337,7 @@ describe('ExportModal', () => {
     expect(store.setSequentialFrame).toHaveBeenLastCalledWith(2);
   });
 
-  it('keeps packaging controls available for sequential exports', () => {
+  it('keeps file controls available for sequential exports without duplicating alignment editing', () => {
     (store as any).layers = [{
       ...store.layers[0],
       id: 'seq-heavy',
@@ -355,11 +355,13 @@ describe('ExportModal', () => {
       jest.runAllTimers();
     });
 
-    expect(screen.getByText('Packaging')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'File' })).toBeInTheDocument();
+    expect(screen.queryByTestId('alignment-controls')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
     expect(screen.getByText('Goblet runtime')).toBeInTheDocument();
   });
 
-  it('updates bundle format from packaging select', () => {
+  it('updates bundle format from the consolidated file selector', () => {
     (store as any).project = {
       ...store.project,
       width: 1024,
@@ -387,8 +389,7 @@ describe('ExportModal', () => {
       jest.runAllTimers();
     });
 
-    const packagingSelect = screen.getAllByRole('combobox')[0];
-    fireEvent.change(packagingSelect, { target: { value: 'zip' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Smaller ZIP' }));
 
     expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
       bundleFormat: 'zip',
@@ -508,7 +509,8 @@ describe('ExportModal', () => {
       jest.runAllTimers();
     });
 
-    fireEvent.click(screen.getByLabelText(/Minify bundle output/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    fireEvent.click(screen.getByLabelText(/Minify output/i));
     expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
       minifyOutput: true,
     });
@@ -717,7 +719,7 @@ describe('ExportModal', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'Publish to Test archive' }));
 
-      const progressModal = within(screen.getByTestId('export-progress-backdrop'));
+      const progressModal = within(screen.getByRole('dialog', { name: 'Goblet ready' }));
       expect(await progressModal.findByRole('button', { name: 'Publishing...' })).toBeDisabled();
       expect(progressModal.getByRole('button', { name: 'Download' })).toBeDisabled();
       expect(progressModal.getByRole('button', { name: 'Close' })).toBeDisabled();

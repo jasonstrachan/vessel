@@ -211,6 +211,10 @@ describe('project slice lifecycle flows', () => {
     }));
   }, 10000);
 
+  it('defaults Goblet export to visible layers only', () => {
+    expect(useAppStore.getState().webglExportSettings.includeHiddenLayers).toBe(false);
+  });
+
   it('flushes pending tool work before saving and records saved file metadata', async () => {
     const captureSpy = useAppStore.getState()
       .captureCanvasToActiveLayer as jest.MockedFunction<AppState['captureCanvasToActiveLayer']>;
