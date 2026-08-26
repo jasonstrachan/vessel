@@ -142,6 +142,40 @@ describe('ColorCycleAutoConvertControls', () => {
     });
   });
 
+  it('defers persisted expansion state until after the server-compatible render', () => {
+    const { renderToString } = jest.requireActual('react-dom/server.node') as typeof import('react-dom/server');
+    window.localStorage.setItem('vessel-color-cycle-auto-convert-expanded', '0');
+    const getItemSpy = jest.spyOn(Storage.prototype, 'getItem');
+
+    const html = renderToString(<ColorCycleAutoConvertControls />);
+
+    expect(getItemSpy).not.toHaveBeenCalled();
+    expect(html).toContain('Auto Convert Shapes');
+    getItemSpy.mockRestore();
+  });
+
+  it('collapses, expands, and restores the section state after remounting', () => {
+    const firstRender = render(<ColorCycleAutoConvertControls />);
+    const sectionToggle = screen.getByRole('button', { name: 'Auto Convert settings' });
+
+    expect(sectionToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Auto Convert Shapes')).toBeInTheDocument();
+
+    fireEvent.click(sectionToggle);
+    expect(sectionToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByLabelText('Auto Convert Shapes')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Auto Convert' })).not.toBeInTheDocument();
+
+    firstRender.unmount();
+    render(<ColorCycleAutoConvertControls />);
+    const restoredToggle = screen.getByRole('button', { name: 'Auto Convert settings' });
+    expect(restoredToggle).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(restoredToggle);
+    expect(restoredToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByLabelText('Auto Convert Shapes')).toBeInTheDocument();
+  });
+
   it('uses the requested shape, focus, and resolution range values', async () => {
     mockedAutoConvert.mockResolvedValue({ layerId: 'cc-layer', shapeCount: 37 });
     render(<ColorCycleAutoConvertControls />);
