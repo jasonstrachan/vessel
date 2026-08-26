@@ -377,6 +377,7 @@
           );
           const box = document.createElement('div');
           box.dataset.txtShapeId = String(shape.id || '');
+          box.dataset.txtShapeLayerId = String(shape.layerId || '');
           box.style.position = 'absolute';
           box.style.left = `${Number(shape.x) || 0}px`;
           box.style.top = `${Number(shape.y) || 0}px`;

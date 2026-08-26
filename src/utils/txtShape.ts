@@ -1571,12 +1571,10 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           hiddenUnmappedRanges,
           line.sourceStart + start,
         );
-        const color = selected
-          ? colorRanges.find((range) => (
-              line.sourceStart + start >= range.start && line.sourceStart + start < range.end
-            ))?.color
-          : undefined;
         const sourceStart = line.sourceStart + start;
+        const color = colorRanges.find((range) => (
+          sourceStart >= range.start && sourceStart < range.end
+        ))?.color;
         const state = selected
           ? selectionTreatments.find((range) => (
               sourceStart >= range.start && sourceStart < range.end

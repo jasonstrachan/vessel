@@ -687,6 +687,36 @@ describe('TXT Shape document helpers', () => {
     expect(shape.selections).toEqual([{ start: 1, end: 2 }]);
   });
 
+  it('preserves mapped tones when authored selections use the non-canonical Selected state', () => {
+    const fillStyles: string[] = [];
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(ctx, 'fillStyle', {
+      configurable: true,
+      get: () => fillStyles.at(-1) ?? '',
+      set: (value: string) => fillStyles.push(value),
+    });
+    const shape = createShape({
+      content: 'AB',
+      nonCanonicalState: 'selected',
+      selections: [{ start: 1, end: 2 }],
+      colorRanges: [{ start: 1, end: 2, color: '#336699' }],
+    });
+
+    setTxtShapeTransientSelectionOverrides(new Map([[shape.id, []]]));
+    try {
+      drawTxtShapesToCanvas(ctx, [shape]);
+    } finally {
+      clearTxtShapeTransientSelectionOverrides();
+    }
+
+    expect(fillStyles).toContain('#336699');
+  });
+
   it('renders glyph maps as sampled text colours without selection blocks', () => {
     const fillStyles: string[] = [];
     const ctx = {

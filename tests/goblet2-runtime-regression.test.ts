@@ -21,6 +21,27 @@ const loadRuntimeSeamProfileHelper = (runtime: string): ApplyGradientSeamProfile
 };
 
 describe('Goblet 2 runtime export regression guard', () => {
+  it('composites TXT playback canvases inside their owning layer in both runtimes', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const legacyRuntime = read('public/goblet/goblet.js');
+    const viewer = read('public/goblet2/index.html');
+    const legacyViewer = read('public/goblet/index.html');
+
+    [runtime, legacyRuntime].forEach((source) => {
+      expect(source).toContain("const TXT_LAYER_OVERLAYS_EVENT = 'vessel-goblet-txt-layer-overlays';");
+      expect(source).toContain('composeRuntimeLayerOverlay(layerId, source)');
+      expect(source).toContain(
+        'const source = this.composeRuntimeLayerOverlay(entry.layer.id, layerSource);',
+      );
+      expect(source).toContain('composite.context.drawImage(source, 0, 0, width, height);');
+      expect(source).toContain('composite.context.drawImage(overlay, 0, 0, width, height);');
+      expect(source).toContain('const staticComposite = this.runtimeLayerOverlays.size > 0');
+      expect(source).toContain("canvas.dataset.vesselLayerOverlays = 'true';");
+    });
+    expect(viewer).toContain("box.dataset.txtShapeLayerId = String(shape.layerId || '');");
+    expect(legacyViewer).toContain("box.dataset.txtShapeLayerId = String(shape.layerId || '');");
+  });
+
   it('keeps Goblet 2 WebGL brush playback on the same timebase as the CPU path', () => {
     const runtime = read('public/goblet2/goblet2.js');
 

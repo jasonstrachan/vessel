@@ -5089,6 +5089,8 @@ const ACTIVE_CANVASES = new Map();
 let resizeListenerAttached = false;
 let resizeTrailingTimer = null;
 const POINTER_GUARD_EVENTS = ['mouseenter', 'mousemove', 'pointerdown', 'pointerup', 'focus'];
+const TXT_LAYER_OVERLAYS_EVENT = 'vessel-goblet-txt-layer-overlays';
+const TXT_LAYER_OVERLAYS_DIRTY_EVENT = 'vessel-goblet-txt-layer-overlays-dirty';
 const MAX_MOBILE_FIXED_DPR = 2;
 const MAX_MOBILE_FIXED_BACKING_PIXELS = 4_194_304;
 const RESIZE_TRAILING_MS = 150;
@@ -5408,6 +5410,10 @@ class VesselGoblet {
     this.staticCompositeCtx = null;
     this.staticCompositeKey = '';
     this.displayFilterState = createDisplayFilterPipelineState();
+    this.runtimeLayerOverlayOwner = null;
+    this.runtimeLayerOverlays = new Map();
+    this.runtimeLayerOverlayComposites = new Map();
+    this.runtimeLayerOverlayRafId = null;
     this.rafId = null;
     this.isAnimationLoopActive = false;
     this.lastTimestamp = 0;
@@ -5447,6 +5453,11 @@ class VesselGoblet {
     this.handleAnimationFrame = this.handleAnimationFrame.bind(this);
     this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
     this.handleIntersectionChange = this.handleIntersectionChange.bind(this);
+    this.handleRuntimeLayerOverlays = this.handleRuntimeLayerOverlays.bind(this);
+    this.handleRuntimeLayerOverlaysDirty = this.handleRuntimeLayerOverlaysDirty.bind(this);
+    canvas.dataset.vesselLayerOverlays = 'true';
+    canvas.addEventListener(TXT_LAYER_OVERLAYS_EVENT, this.handleRuntimeLayerOverlays);
+    canvas.addEventListener(TXT_LAYER_OVERLAYS_DIRTY_EVENT, this.handleRuntimeLayerOverlaysDirty);
   }
 
   getLayerAnimationReasonRow(entry) {
@@ -5575,6 +5586,66 @@ class VesselGoblet {
 
   getSourceMetadata() {
     return this.sourceMetadata;
+  }
+
+  handleRuntimeLayerOverlays(event) {
+    const owner = event?.detail?.owner;
+    const entries = event?.detail?.entries;
+    if (!(owner instanceof HTMLElement) || !Array.isArray(entries)) return;
+    if (entries.length === 0 && owner !== this.runtimeLayerOverlayOwner) return;
+    this.runtimeLayerOverlayOwner = entries.length > 0 ? owner : null;
+    this.runtimeLayerOverlays = new Map(entries.filter((entry) => (
+      Array.isArray(entry)
+      && typeof entry[0] === 'string'
+      && entry[0].length > 0
+      && entry[1] instanceof HTMLCanvasElement
+    )));
+    this.runtimeLayerOverlayComposites.clear();
+    this.staticCompositeCanvas = null;
+    this.staticCompositeKey = '';
+    this.requestRuntimeLayerOverlayRender();
+  }
+
+  handleRuntimeLayerOverlaysDirty(event) {
+    if (event?.detail?.owner !== this.runtimeLayerOverlayOwner) return;
+    this.requestRuntimeLayerOverlayRender();
+  }
+
+  requestRuntimeLayerOverlayRender() {
+    if (this.destroyed || this.runtimeLayerOverlayRafId !== null) return;
+    this.runtimeLayerOverlayRafId = requestAnimationFrame(() => {
+      this.runtimeLayerOverlayRafId = null;
+      if (!this.destroyed) this.renderOnce();
+    });
+  }
+
+  composeRuntimeLayerOverlay(layerId, source) {
+    const overlay = this.runtimeLayerOverlays.get(layerId);
+    if (!overlay) return source;
+    const width = source instanceof HTMLImageElement
+      ? source.naturalWidth || source.width
+      : source.width;
+    const height = source instanceof HTMLImageElement
+      ? source.naturalHeight || source.height
+      : source.height;
+    let composite = this.runtimeLayerOverlayComposites.get(layerId);
+    if (!composite || composite.canvas.width !== width || composite.canvas.height !== height) {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) return source;
+      composite = { canvas, context };
+      this.runtimeLayerOverlayComposites.set(layerId, composite);
+    }
+    composite.context.setTransform(1, 0, 0, 1, 0, 0);
+    composite.context.globalAlpha = 1;
+    composite.context.globalCompositeOperation = 'source-over';
+    composite.context.imageSmoothingEnabled = false;
+    composite.context.clearRect(0, 0, width, height);
+    composite.context.drawImage(source, 0, 0, width, height);
+    composite.context.drawImage(overlay, 0, 0, width, height);
+    return composite.canvas;
   }
 
   async initialize() {
@@ -5837,15 +5908,16 @@ class VesselGoblet {
       }
       return false;
     }
-    const source = entry.player
+    const layerSource = entry.player
       ? entry.player.getCanvas()
       : (entry.sequentialPlayer ? entry.sequentialPlayer.getSource() : entry.source);
-    if (!source) {
+    if (!layerSource) {
       if (diagnosticsEnabled) {
         diagnostics.log(`[goblet] No source for layer ${entry.layer.id}`);
       }
       return false;
     }
+    const source = this.composeRuntimeLayerOverlay(entry.layer.id, layerSource);
     if (diagnosticsEnabled) {
       diagnostics.log(`[goblet] Have source for ${entry.layer.id}, computing placement`);
     }
@@ -6505,7 +6577,9 @@ class VesselGoblet {
       renderWidth: clearWidth,
       renderHeight: clearHeight,
     };
-    const staticComposite = this.getStaticComposite(renderOptions, profile);
+    const staticComposite = this.runtimeLayerOverlays.size > 0
+      ? null
+      : this.getStaticComposite(renderOptions, profile);
     if (staticComposite) {
       renderCtx.drawImage(staticComposite, 0, 0);
       painted += staticComposite.__vesselStaticPainted ?? 0;
@@ -6716,6 +6790,10 @@ class VesselGoblet {
     this.destroyed = true;
     this.stop();
     this.isAnimationLoopActive = false;
+    if (this.runtimeLayerOverlayRafId !== null) {
+      cancelAnimationFrame(this.runtimeLayerOverlayRafId);
+      this.runtimeLayerOverlayRafId = null;
+    }
     if (typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     }
@@ -6729,8 +6807,16 @@ class VesselGoblet {
     this.adjustmentScratch.clear();
     this.adjustmentGroupSurfaces.clear();
     this.adjustmentArtworkSurface = null;
+    this.runtimeLayerOverlays.clear();
+    this.runtimeLayerOverlayComposites.clear();
 
     if (this.canvas) {
+      this.canvas.removeEventListener(TXT_LAYER_OVERLAYS_EVENT, this.handleRuntimeLayerOverlays);
+      this.canvas.removeEventListener(
+        TXT_LAYER_OVERLAYS_DIRTY_EVENT,
+        this.handleRuntimeLayerOverlaysDirty,
+      );
+      delete this.canvas.dataset.vesselLayerOverlays;
       const guard = this.canvas[POINTER_GUARD_KEY];
       if (guard && Array.isArray(guard.events) && typeof guard.handler === 'function') {
         guard.events.forEach((eventName) => {
