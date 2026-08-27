@@ -307,6 +307,59 @@ export interface WebGLSerializedAdjustmentGroup {
   layerIds: string[];
 }
 
+type GobletAutomationObjectBase = {
+  id: string;
+  x: number;
+  y: number;
+  clipId?: string;
+  opacity?: number;
+  visible?: boolean;
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
+};
+
+export type GobletAutomationObject = GobletAutomationObjectBase & (
+  | { kind: 'cursor'; pressed?: boolean }
+  | { kind: 'rect'; width: number; height: number; fill: string }
+  | { kind: 'sprite'; width: number; height: number; dataUrl: string }
+);
+
+export type GobletAutomationClip = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type GobletAutomationKeyframe<T extends number | boolean> = {
+  time: number;
+  value: T;
+  easing?: 'linear' | 'minimum-jerk' | 'step';
+};
+
+export type GobletAutomationTrack = {
+  targetId: string;
+} & (
+  | {
+      property: 'x' | 'y' | 'opacity' | 'rotation' | 'scaleX' | 'scaleY';
+      keyframes: Array<GobletAutomationKeyframe<number>>;
+    }
+  | {
+      property: 'visible' | 'pressed';
+      keyframes: Array<GobletAutomationKeyframe<boolean>>;
+    }
+);
+
+export interface GobletAutomation {
+  schemaVersion: 1;
+  durationSeconds: number;
+  clips?: GobletAutomationClip[];
+  objects: GobletAutomationObject[];
+  tracks: GobletAutomationTrack[];
+}
+
 export interface WebGLExportMetadata {
   format: 'vessel-goblet' | 'vessel-goblet2';
   version: 1;
@@ -340,6 +393,7 @@ export interface WebGLExportMetadata {
   textShapes?: TxtShape[];
   txtShapePlayback?: TxtShapePlaybackSettings;
   uiShapes?: UiShape[];
+  automation?: GobletAutomation;
   layers: WebGLLayerMetadata[];
   interlaceGroups?: WebGLSerializedInterlaceGroup[];
   adjustmentGroups?: WebGLSerializedAdjustmentGroup[];

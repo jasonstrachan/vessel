@@ -34,6 +34,42 @@ describe('Goblet embed sizing runtime', () => {
     expect(runtime).toContain('createCanvasStrategy(metadata, canvas, this.options.scale ?? null)');
   });
 
+  it('renders data-only Renderer v1 automation in the Goblet 2 viewer', () => {
+    const viewer = read('public/goblet2/index.html');
+    const runtime = read('public/goblet2/goblet2.js');
+
+    expect(viewer).toContain('const mountAutomation = (metadata) => {');
+    expect(viewer).toContain("source.kind === 'sprite'");
+    expect(viewer).toContain('const clips = new Map');
+    expect(viewer).toContain('context.clip();');
+    expect(viewer).toContain("state.kind === 'rect'");
+    expect(viewer).toContain("state.kind === 'cursor'");
+    expect(viewer).toContain("right.easing === 'minimum-jerk'");
+    expect(viewer).toContain('const setAutomationTime = (seconds) => {');
+    expect(viewer).toContain('window.vesselGobletSetAutomationTime = setAutomationTime;');
+    expect(viewer).toContain('mountAutomation(current);');
+    expect(viewer).toContain('expandVesselMetadata(JSON.parse(text))');
+    expect(runtime).toContain("au: 'automation'");
+    expect(runtime).toContain("clp: 'clips'");
+    expect(runtime).toContain("cid: 'clipId'");
+    expect(runtime).toContain("trk: 'tracks'");
+    expect(runtime).toContain("kf: 'keyframes'");
+  });
+
+  it('keeps shared automation metadata keys decodable in both Goblet runtimes', () => {
+    const goblet1 = read('public/goblet/goblet.js');
+    const goblet2 = read('public/goblet2/goblet2.js');
+
+    for (const runtime of [goblet1, goblet2]) {
+      expect(runtime).toContain("au: 'automation'");
+      expect(runtime).toContain("clp: 'clips'");
+      expect(runtime).toContain("cid: 'clipId'");
+      expect(runtime).toContain("obj: 'objects'");
+      expect(runtime).toContain("trk: 'tracks'");
+      expect(runtime).toContain("val: 'value'");
+    }
+  });
+
   it('uses the preview canvas host box when computing standalone viewer scale', () => {
     const viewerHtml = read('public/goblet/index.html');
 

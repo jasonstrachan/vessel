@@ -960,7 +960,7 @@ export const buildProjectGobletArtifact = async (
     options.displayFilters ?? options.project.viewState?.displayFilters ?? []
   );
 
-  const metadata: WebGLExportMetadata = {
+  let metadata: WebGLExportMetadata = {
     format: gobletFormat,
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -1047,6 +1047,8 @@ export const buildProjectGobletArtifact = async (
   if (fallback) {
     metadata.fallback = fallback;
   }
+
+  metadata = studioExtension.transformGobletMetadata?.(metadata) ?? metadata;
 
   if (gobletDiagnosticsActive && placementByLayerId) {
     placementByLayerId.forEach((placement, layerId) => {

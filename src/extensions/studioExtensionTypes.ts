@@ -41,6 +41,9 @@ export interface VesselStudioExtension {
   handleClipboardAction?: (
     context: StudioClipboardActionContext,
   ) => boolean | Promise<boolean>;
+  transformGobletMetadata?: (
+    metadata: WebGLExportMetadata,
+  ) => WebGLExportMetadata;
   transformGobletTemplate?: (
     template: string,
     context: { metadata: WebGLExportMetadata },
