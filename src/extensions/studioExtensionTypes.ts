@@ -33,6 +33,7 @@ export interface StudioClipboardActionContext {
 export interface VesselStudioExtension {
   brushPresets: readonly BrushPreset[];
   BrushControls?: React.ComponentType;
+  BrushSettingsControls?: React.ComponentType;
   CanvasOverlay?: React.ComponentType<StudioCanvasOverlayProps>;
   resolveBracketShortcut?: (
     context: StudioBracketShortcutContext,

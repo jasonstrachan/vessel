@@ -1,5 +1,3 @@
-import type { AutoConvertRegion } from '@/utils/colorCycle/autoConvertRegions';
-
 export interface PaletteMapEntry {
   rgb: [number, number, number];
   index: number;
@@ -71,32 +69,14 @@ export interface ShapeGradientSampleResult {
   };
 }
 
-export interface AutoConvertRegionsJob {
-  type: 'auto-convert-regions';
-  width: number;
-  height: number;
-  targetShapes: number;
-  focus: number;
-  maxColors: number;
-  pixels: ArrayBuffer;
-}
-
-export interface AutoConvertRegionsResult {
-  regions: AutoConvertRegion[];
-  analysisWidth: number;
-  analysisHeight: number;
-}
-
 export type ColorCycleFillJob =
   | PerceptualDitherJob
   | ConcentricFillJob
-  | ShapeGradientSampleJob
-  | AutoConvertRegionsJob;
+  | ShapeGradientSampleJob;
 export type ColorCycleFillResult =
   | PerceptualDitherResult
   | ConcentricFillResult
-  | ShapeGradientSampleResult
-  | AutoConvertRegionsResult;
+  | ShapeGradientSampleResult;
 
 export type ColorCycleFillWorkerMessage = {
   id: number;

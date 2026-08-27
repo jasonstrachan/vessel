@@ -4,7 +4,6 @@ jest.mock('../colorCycleFillWorkerFactory', () => ({
 }));
 
 import {
-  runAutoConvertRegionsJob,
   runPerceptualDitherJob,
   runConcentricFillJob,
   sampleShapeGradientFromCanvases,
@@ -65,16 +64,6 @@ class FakeWorker implements Worker {
           stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#0000ff' }],
           dominantColor: '#ff0000',
           stats: { sampledPixels: 2, uniqueColorBins: 2, outputColors: 2, alphaWeight: 2 },
-        },
-      };
-      this.emit('message', { data: response } as any);
-    } else if (job.type === 'auto-convert-regions') {
-      const response = {
-        ...base,
-        result: {
-          regions: [],
-          analysisWidth: job.width,
-          analysisHeight: job.height,
         },
       };
       this.emit('message', { data: response } as any);
@@ -151,20 +140,6 @@ describe('colorCycleFillClient', () => {
     ]);
     expect(result.stats.outputColors).toBe(2);
     expect(result.dominantColor).toBe('#ff0000');
-  });
-
-  it('resolves an auto-convert regions job', async () => {
-    const result = await runAutoConvertRegionsJob({
-      type: 'auto-convert-regions',
-      width: 2,
-      height: 2,
-      targetShapes: 24,
-      focus: 50,
-      maxColors: 5,
-      pixels: new ArrayBuffer(16),
-    });
-
-    expect(result).toEqual({ regions: [], analysisWidth: 2, analysisHeight: 2 });
   });
 
   it('captures a shape sample from a canvas without a readable 2D context', async () => {

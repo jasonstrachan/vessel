@@ -53,6 +53,16 @@ jest.mock('../../../types', () => ({
   },
 }));
 
+jest.mock('@/extensions/studioExtension', () => ({
+  __esModule: true,
+  default: {
+    brushPresets: [],
+    BrushSettingsControls: () => (
+      <div data-testid="studio-brush-settings-controls">Studio brush settings</div>
+    ),
+  },
+}));
+
 import BrushControls from '../BrushControls';
 import { useAppStore } from '@/stores/useAppStore';
 import type { AppState } from '@/stores/useAppStore';
@@ -457,7 +467,6 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     render(<BrushControls />);
 
     expect(screen.queryByTestId('gradient-editor')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Auto Convert' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Brush Size (px)')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
@@ -1014,7 +1023,7 @@ describe('BrushControls – Custom brush captured data mode', () => {
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {
-  it('shows Auto Convert only for the CC Tonal Dither brush', () => {
+  it('renders the generic Studio settings slot for Color Cycle brushes', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
@@ -1032,7 +1041,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     }));
 
     render(<BrushControls />);
-    expect(screen.getByRole('button', { name: 'Auto Convert' })).toBeInTheDocument();
+    expect(screen.getByTestId('studio-brush-settings-controls')).toBeInTheDocument();
 
     act(() => {
       useAppStore.setState((state) => ({
@@ -1041,7 +1050,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
         currentBrushPreset: { id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['currentBrushPreset'],
       }));
     });
-    expect(screen.queryByRole('button', { name: 'Auto Convert' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('studio-brush-settings-controls')).toBeInTheDocument();
   });
 
   it.each([

@@ -39,7 +39,6 @@ import {
 } from '@/components/toolbar/CcGradientSourceModeControl';
 import { CcForegroundGradientControls } from '@/components/toolbar/CcForegroundGradientControls';
 import { CcSampledGradientPreview } from '@/components/toolbar/CcSampledGradientPreview';
-import { ColorCycleAutoConvertControls } from '@/components/toolbar/ColorCycleAutoConvertControls';
 import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { drawTestSwatches } from "@/utils/drawTestSwatches";
@@ -404,7 +403,7 @@ const BrushControls = () => {
   const setCcGradientSource = useAppStore(state => state.setCcGradientSource);
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
   const isColorCycleGradientPreset = isCcGradientPreset(currentBrushPresetId);
-  const isColorCycleAutoConvertPreset = currentBrushPresetId === 'color-cycle-gradient';
+  const StudioBrushSettingsControls = studioExtension.BrushSettingsControls;
   const isColorCycleFlatDitherPreset = currentBrushPresetId === 'color-cycle-flat-dither';
   const isColorCycleStrokePreset = currentBrushPresetId === 'color-cycle-stroke';
   const brushSettings = useAppStore(selectBrushSettings);
@@ -1782,7 +1781,7 @@ const BrushControls = () => {
           </div>
         )}
 
-        {isColorCycleAutoConvertPreset && <ColorCycleAutoConvertControls />}
+        {StudioBrushSettingsControls && <StudioBrushSettingsControls />}
 
         {useForegroundDerivedGradient ? (
           <CcForegroundGradientControls
