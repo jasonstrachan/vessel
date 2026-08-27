@@ -469,7 +469,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               options: {
                 request: buildGobletExportSnapshotRequest({
                   project: { ...project, layerGroups },
-                  layers: participatingLayers,
+                  // Goblet filters visibility after semantic objects retain their layer owners.
+                  layers,
                   layout: project.exportLayout ?? createDefaultExportLayout(),
                   viewport: {
                     designWidth: resolvedWebglViewport.designWidth,

@@ -1,6 +1,7 @@
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
 import { createDefaultExportLayout, createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import type { Layer, Project } from '@/types';
+import type { Layer, Project, TxtShape, UiShape } from '@/types';
+import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
 
 const makeCanvas = (color: string): HTMLCanvasElement => {
   const canvas = document.createElement('canvas');
@@ -34,6 +35,46 @@ const makeRasterLayer = (id: string, visible: boolean, color: string, order: num
   };
 };
 
+const makeTxtShape = (layerId: string, id: string): TxtShape => ({
+  id,
+  layerId,
+  x: 0,
+  y: 0,
+  width: 8,
+  height: 8,
+  content: id,
+  fontFamily: 'mek-mono',
+  fontSize: 12,
+  lineHeight: 1,
+  textAlign: 'left',
+  colorSource: 'manual',
+  color: '#ffffff',
+  selectionColor: '#000000',
+  selectionBackgroundColor: '#ffffff',
+  selections: [],
+  createdAt: 1,
+  updatedAt: 1,
+});
+
+const makeUiShape = (layerId: string, id: string): UiShape => ({
+  id,
+  layerId,
+  x: 0,
+  y: 0,
+  width: 8,
+  height: 8,
+  gridSize: 1,
+  theme: 'windows-3.1',
+  drawMode: 'place',
+  regionKind: 'rectangle',
+  componentKinds: [],
+  colorSource: 'default',
+  palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
+  components: [],
+  createdAt: 1,
+  updatedAt: 1,
+});
+
 const makeProject = (layers: Layer[]): Project => ({
   id: 'hidden-layer-parity-project',
   name: 'Hidden Layer Parity Project',
@@ -44,6 +85,8 @@ const makeProject = (layers: Layer[]): Project => ({
   createdAt: new Date('2026-07-07T00:00:00.000Z'),
   updatedAt: new Date('2026-07-07T00:00:00.000Z'),
   customBrushes: [],
+  txtShapes: layers.map((layer) => makeTxtShape(layer.id, `${layer.id}-txt-shape`)),
+  uiShapes: layers.map((layer) => makeUiShape(layer.id, `${layer.id}-ui-shape`)),
   viewState: { zoom: 1 },
 });
 
@@ -65,7 +108,16 @@ const exportHiddenLayerFixture = (layers: Layer[], includeHiddenLayers: boolean)
 });
 
 describe('Goblet hidden-layer inclusion export contract', () => {
+  const originalFonts = document.fonts;
+
   beforeAll(() => {
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: {
+        load: jest.fn().mockResolvedValue([]),
+        check: jest.fn().mockReturnValue(true),
+      },
+    });
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
       writable: true,
@@ -91,6 +143,10 @@ describe('Goblet hidden-layer inclusion export contract', () => {
   });
 
   afterAll(() => {
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: originalFonts,
+    });
     delete (URL as Record<string, unknown>).createObjectURL;
     delete (URL as Record<string, unknown>).revokeObjectURL;
   });
@@ -106,9 +162,37 @@ describe('Goblet hidden-layer inclusion export contract', () => {
     expect(excluded.settings.includeHiddenLayers).toBe(false);
     expect(excluded.layers.map((layer) => layer.id)).toEqual(['visible-layer']);
     expect(excluded.layers.some((layer) => layer.id === 'hidden-layer')).toBe(false);
+    expect(excluded.textShapes?.map((shape) => shape.id)).toEqual([
+      'visible-layer-txt-shape',
+    ]);
+    expect(excluded.textShapes?.map((shape) => shape.layerId)).toEqual([
+      'visible-layer',
+    ]);
+    expect(excluded.uiShapes?.map((shape) => shape.id)).toEqual([
+      'visible-layer-ui-shape',
+    ]);
+    expect(excluded.uiShapes?.map((shape) => shape.layerId)).toEqual([
+      'visible-layer',
+    ]);
 
     expect(included.settings.includeHiddenLayers).toBe(true);
     expect(included.layers.map((layer) => layer.id)).toEqual(['visible-layer', 'hidden-layer']);
     expect(included.layers.find((layer) => layer.id === 'hidden-layer')?.visible).toBe(false);
+    expect(included.textShapes?.map((shape) => shape.id)).toEqual([
+      'visible-layer-txt-shape',
+      'hidden-layer-txt-shape',
+    ]);
+    expect(included.textShapes?.map((shape) => shape.layerId)).toEqual([
+      'visible-layer',
+      'hidden-layer',
+    ]);
+    expect(included.uiShapes?.map((shape) => shape.id)).toEqual([
+      'visible-layer-ui-shape',
+      'hidden-layer-ui-shape',
+    ]);
+    expect(included.uiShapes?.map((shape) => shape.layerId)).toEqual([
+      'visible-layer',
+      'hidden-layer',
+    ]);
   });
 });

@@ -254,7 +254,7 @@ describe('ExportModal webgl preflight', () => {
     );
   });
 
-  it('keeps one dialog through export and omits excluded hidden layers from progress', async () => {
+  it('keeps full layer ownership for export while omitting hidden layers from progress', async () => {
     store.layers = [
       {
         ...store.layers[0],
@@ -318,7 +318,10 @@ describe('ExportModal webgl preflight', () => {
       expect.objectContaining({
         options: expect.objectContaining({
           request: expect.objectContaining({
-            layers: [expect.objectContaining({ id: 'visible-layer' })],
+            layers: [
+              expect.objectContaining({ id: 'visible-layer' }),
+              expect.objectContaining({ id: 'hidden-layer' }),
+            ],
           }),
         }),
       }),

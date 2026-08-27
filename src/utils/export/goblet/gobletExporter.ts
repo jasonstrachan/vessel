@@ -1000,11 +1000,11 @@ export const buildProjectGobletArtifact = async (
       transparencyBackgroundMode,
     },
     textShapes: normalizedTextShapes.filter((shape) => (
-      metadataLayers.some((layer) => layer.id === shape.layerId && layer.visible !== false)
+      metadataLayers.some((layer) => layer.id === shape.layerId)
     )),
     txtShapePlayback: getProjectTxtShapePlaybackSettings(options.project),
     uiShapes: normalizedUiShapes.filter((shape) => (
-      metadataLayers.some((layer) => layer.id === shape.layerId && layer.visible !== false)
+      metadataLayers.some((layer) => layer.id === shape.layerId)
     )),
     layers: metadataLayers,
     interlaceGroups: (options.project.layerGroups ?? [])

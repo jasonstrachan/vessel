@@ -361,6 +361,36 @@ describe('ExportModal', () => {
     expect(screen.getByText('Goblet runtime')).toBeInTheDocument();
   });
 
+  it('keeps hidden-layer inclusion off by default inside Advanced', () => {
+    (store as any).layers = [
+      store.layers[0],
+      {
+        ...store.layers[0],
+        id: 'hidden-layer',
+        name: 'Hidden layer',
+        visible: false,
+        order: 1,
+      },
+    ];
+
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => {
+      jest.runAllTimers();
+    });
+
+    expect(screen.queryByLabelText('Include hidden layers')).not.toBeInTheDocument();
+    expect(screen.getByText('1 visible · 1 hidden excluded')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }));
+    const includeHidden = screen.getByLabelText('Include hidden layers');
+    expect(includeHidden).not.toBeChecked();
+
+    fireEvent.click(includeHidden);
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({
+      includeHiddenLayers: true,
+    });
+  });
+
   it('updates bundle format from the consolidated file selector', () => {
     (store as any).project = {
       ...store.project,

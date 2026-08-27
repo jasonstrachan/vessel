@@ -407,21 +407,8 @@ export const ExportSetupView = ({
             </section>
 
             <section className={`${SECTION_CLASS} space-y-3`}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-base font-semibold text-[#E5E5E5]">Layers</h3>
-                  <p className="mt-1 text-xs text-[#9C9C9C]">{layerSummary}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-[#D4D4D4]">Include hidden</span>
-                  <CustomSwitch
-                    checked={goblet.settings.includeHiddenLayers}
-                    onChange={(checked) => onGobletSettingsChange({ includeHiddenLayers: checked })}
-                    aria-label="Include hidden layers"
-                    disabled={isExporting || goblet.hiddenLayerCount === 0}
-                  />
-                </div>
-              </div>
+              <h3 className="text-base font-semibold text-[#E5E5E5]">Layers</h3>
+              <p className="text-xs text-[#9C9C9C]">{layerSummary}</p>
             </section>
 
             <section className={`${SECTION_CLASS} space-y-3`}>
@@ -525,6 +512,16 @@ export const ExportSetupView = ({
               </button>
               {isAdvancedOpen && (
                 <div className="mt-3 space-y-4">
+                  <Row label="Include hidden layers">
+                    <CustomSwitch
+                      checked={goblet.settings.includeHiddenLayers}
+                      onChange={(checked) => onGobletSettingsChange({
+                        includeHiddenLayers: checked,
+                      })}
+                      aria-label="Include hidden layers"
+                      disabled={isExporting || goblet.hiddenLayerCount === 0}
+                    />
+                  </Row>
                   <label className="flex flex-col gap-1">
                     <span className="text-xs text-[#9C9C9C]">Goblet runtime</span>
                     <select
