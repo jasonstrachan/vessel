@@ -38,4 +38,20 @@ describe('Dropdown', () => {
     expect(optionLabel.tagName).toBe('SPAN');
     expect(optionLabel).toHaveClass('truncate', 'whitespace-nowrap');
   });
+
+  it('accepts scoped menu overflow styles', () => {
+    render(
+      <Dropdown
+        value="a"
+        options={options}
+        onChange={jest.fn()}
+        menuClassName="max-h-64 overflow-y-auto"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button'));
+
+    const betaOption = screen.getByText('Beta').closest('[role="option"]');
+    expect(betaOption?.parentElement).toHaveClass('max-h-64', 'overflow-y-auto');
+  });
 });

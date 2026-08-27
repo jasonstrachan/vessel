@@ -21,6 +21,18 @@ const loadRuntimeSeamProfileHelper = (runtime: string): ApplyGradientSeamProfile
 };
 
 describe('Goblet 2 runtime export regression guard', () => {
+  it('keeps named adjustment targets in the Goblet 2 export and playback contract', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+    const metadataSchema = read('src/utils/export/goblet/gobletMetadataSchema.ts');
+
+    expect(metadataSchema).toContain("targetLayerIds: 'tli'");
+    expect(runtime).toContain("tli: 'targetLayerIds'");
+    expect(runtime).toContain('this.targetedAdjustmentsByLayerId = new Map();');
+    expect(runtime).toContain('paintTargetedLayerEntry(entry, index, renderCtx, renderOptions)');
+    expect(inlineRuntime).toContain('targetLayerIds');
+  });
+
   it('composites TXT playback canvases inside their owning layer in both runtimes', () => {
     const runtime = read('public/goblet2/goblet2.js');
     const legacyRuntime = read('public/goblet/goblet.js');

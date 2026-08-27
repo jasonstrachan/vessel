@@ -108,12 +108,21 @@ export const sanitizeAdjustmentEffect = (
 
 export const sanitizeAdjustmentLayerData = (
   data: Partial<AdjustmentLayerData> | null | undefined,
-): AdjustmentLayerData => ({
-  effect: sanitizeAdjustmentEffect(data?.effect),
-});
+): AdjustmentLayerData => {
+  const targetLayerIds = Array.isArray(data?.targetLayerIds)
+    ? Array.from(new Set(data.targetLayerIds.filter((layerId): layerId is string => (
+      typeof layerId === 'string' && layerId.length > 0
+    ))))
+    : undefined;
+
+  return {
+    effect: sanitizeAdjustmentEffect(data?.effect),
+    ...(targetLayerIds ? { targetLayerIds } : {}),
+  };
+};
 
 export const cloneAdjustmentLayerData = (
   data: AdjustmentLayerData | null | undefined,
 ): AdjustmentLayerData | undefined => data
-  ? { effect: sanitizeAdjustmentEffect(data.effect) }
+  ? sanitizeAdjustmentLayerData(data)
   : undefined;

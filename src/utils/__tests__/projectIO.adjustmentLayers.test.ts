@@ -34,6 +34,7 @@ const makeAdjustmentLayer = (): Layer => ({
   alignment: createDefaultLayerAlignment(),
   layerType: 'adjustment',
   adjustmentData: {
+    targetLayerIds: ['paint-1', 'paint-2'],
     effect: {
       id: 'hue-sat',
       settings: {

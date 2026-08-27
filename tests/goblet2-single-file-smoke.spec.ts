@@ -194,6 +194,36 @@ const createScopedAdjustmentBundle = () => {
   return bundle;
 };
 
+const createTargetedAdjustmentBundle = () => {
+  const bundle = createAdjustmentBundle();
+  const paint = bundle.layers[0];
+  const adjustment = bundle.layers[1];
+  if (paint) {
+    paint.stackIndex = 1;
+    paint.documentBoundsPx = { x: 0, y: 0, width: 8, height: 16 };
+    paint.documentBoundsPercent = { x: 0, y: 0, width: 50, height: 100 };
+  }
+  if (adjustment) {
+    adjustment.stackIndex = 2;
+    if (adjustment.adjustment) adjustment.adjustment.targetLayerIds = ['paint'];
+  }
+  bundle.layers.unshift({
+    id: 'base',
+    name: 'Base',
+    type: 'normal',
+    source: { width: 16, height: 16 },
+    documentBoundsPx: { x: 0, y: 0, width: 16, height: 16 },
+    documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+    alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+    assets: { texture: createSolidTexture('#0000ff', 16, 16) },
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    stackIndex: 0,
+  });
+  return bundle;
+};
+
 const buildSingleFileGoblet2Html = (bundle: Goblet2Bundle = createGoblet2Bundle()) => {
   const runtime = read('public/goblet2/goblet2-inline.js');
   const metadata = JSON.stringify(bundle);
@@ -534,6 +564,27 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     expect(pixels.grouped[0]).toBeGreaterThan(200);
     expect(pixels.grouped[1]).toBeGreaterThan(200);
     expect(pixels.ungrouped.slice(0, 4)).toEqual([0, 0, 255, 255]);
+  });
+
+  test('applies a named-layer adjustment without changing other lower layers', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createTargetedAdjustmentBundle()));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { ready?: boolean } }).__gobletSmoke?.ready
+    ))).toBe(true);
+
+    const pixels = await page.locator('#preview-canvas').evaluate((canvas) => {
+      const target = canvas as HTMLCanvasElement;
+      const context = target.getContext('2d', { willReadFrequently: true });
+      return {
+        targeted: Array.from(context?.getImageData(4, 8, 1, 1).data ?? []),
+        unaffected: Array.from(context?.getImageData(12, 8, 1, 1).data ?? []),
+      };
+    });
+
+    expect(pixels.targeted[1]).toBeGreaterThan(200);
+    expect(pixels.targeted[0]).toBeLessThan(30);
+    expect(pixels.targeted[2]).toBeLessThan(30);
+    expect(pixels.unaffected.slice(0, 4)).toEqual([0, 0, 255, 255]);
   });
 
   test('translates one unchanged Sierra plate rigidly across every band', async ({ browser }) => {

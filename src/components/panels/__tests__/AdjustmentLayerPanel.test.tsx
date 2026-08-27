@@ -67,7 +67,7 @@ const adjustmentLayer = {
   layerType: 'adjustment',
   visible: true,
   opacity: 1,
-  order: 0,
+  order: 1,
   adjustmentData: {
     effect: {
       id: 'hue-sat',
@@ -88,9 +88,18 @@ const adjustmentLayer = {
   },
 } as Layer;
 
+const paintLayer = {
+  id: 'paint-1',
+  name: 'Portrait',
+  layerType: 'normal',
+  visible: true,
+  opacity: 1,
+  order: 0,
+} as Layer;
+
 const store = {
   activeLayerId: adjustmentLayer.id,
-  layers: [adjustmentLayer],
+  layers: [paintLayer, adjustmentLayer],
   layerGroups: [],
   beginAdjustmentLayerEdit: jest.fn(),
   updateAdjustmentLayerEffect: jest.fn(),
@@ -138,5 +147,23 @@ describe('AdjustmentLayerPanel hue control', () => {
       value: [0],
       ariaLabel: 'Hue adjustment',
     }));
+  });
+
+  it('replaces the instructional copy with a layer-target dropdown', () => {
+    render(<AdjustmentLayerPanel />);
+
+    expect(screen.queryByText(/Layer opacity controls strength/)).not.toBeInTheDocument();
+    expect(screen.getByText('Affects')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'All lower layers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Portrait' }));
+
+    expect(store.beginAdjustmentLayerEdit).toHaveBeenCalledWith(adjustmentLayer.id);
+    expect(store.updateLayer).toHaveBeenCalledWith(adjustmentLayer.id, {
+      adjustmentData: expect.objectContaining({
+        targetLayerIds: [paintLayer.id],
+      }),
+    });
+    expect(store.commitAdjustmentLayerEdit).toHaveBeenCalledWith(adjustmentLayer.id);
   });
 });

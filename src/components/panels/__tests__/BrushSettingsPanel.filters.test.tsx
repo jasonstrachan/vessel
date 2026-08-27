@@ -42,7 +42,7 @@ describe('BrushSettingsPanel filters section', () => {
     expect(screen.getByLabelText('Pixelate enabled')).toBeInTheDocument();
   });
 
-  it('prioritizes the selected adjustment layer editor and explains its scope', () => {
+  it('prioritizes the selected adjustment layer editor and exposes its target selector', () => {
     const canvas = document.createElement('canvas');
     const layer: Layer = {
       id: 'adjustment-1',
@@ -86,7 +86,9 @@ describe('BrushSettingsPanel filters section', () => {
     render(<BrushSettingsPanel />);
 
     expect(screen.getByText('Hue/Sat 1')).toBeInTheDocument();
-    expect(screen.getByText('Affects all lower layers. Layer opacity controls strength.')).toBeInTheDocument();
+    expect(screen.queryByText(/Layer opacity controls strength/)).not.toBeInTheDocument();
+    expect(screen.getByText('Affects')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'All lower layers' })).toBeInTheDocument();
     expect(screen.getByLabelText('Strength adjustment')).toBeInTheDocument();
     expect(screen.getByText('Reset Effect')).toBeInTheDocument();
     expect(screen.queryByText('Pixelate')).not.toBeInTheDocument();

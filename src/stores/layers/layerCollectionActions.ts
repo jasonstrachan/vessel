@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
+import { sanitizeAdjustmentLayerData } from '@/lib/adjustmentLayers';
 import {
   clearSequentialLayerRendererAll,
   clearSequentialLayerRendererLayer,
@@ -351,7 +352,26 @@ export const createLayerCollectionActions = ({
       // Use enhanced manager method for cleanup
       colorCycleBrushManager.removeColorCycleBrush(id);
 
-      const updatedLayers = state.layers.filter(l => l.id !== id);
+      const updatedLayers = state.layers
+        .filter((layer) => layer.id !== id)
+        .map((layer) => {
+          if (
+            layer.layerType !== 'adjustment'
+            || !Array.isArray(layer.adjustmentData?.targetLayerIds)
+            || !layer.adjustmentData.targetLayerIds.includes(id)
+          ) {
+            return layer;
+          }
+          return {
+            ...layer,
+            adjustmentData: sanitizeAdjustmentLayerData({
+              ...layer.adjustmentData,
+              targetLayerIds: layer.adjustmentData.targetLayerIds.filter(
+                (targetLayerId) => targetLayerId !== id,
+              ),
+            }),
+          };
+        });
       const newActiveLayerId = state.activeLayerId === id ?
         updatedLayers.find(l => l.id !== id)?.id || null :
         state.activeLayerId;

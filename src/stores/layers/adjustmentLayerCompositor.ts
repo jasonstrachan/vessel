@@ -16,12 +16,14 @@ interface AdjustmentRenderSurface {
 export interface AdjustmentLayerCompositeCache {
   groupSurfaces: Map<string, AdjustmentRenderSurface>;
   inputSurfaces: Map<string, AdjustmentRenderSurface>;
+  targetSurfaces: Map<string, AdjustmentRenderSurface>;
   filterStates: Map<string, DisplayFilterPipelineState>;
 }
 
 export const createAdjustmentLayerCompositeCache = (): AdjustmentLayerCompositeCache => ({
   groupSurfaces: new Map(),
   inputSurfaces: new Map(),
+  targetSurfaces: new Map(),
   filterStates: new Map(),
 });
 
@@ -50,6 +52,7 @@ const ensureSurface = (
 
 const resetContext = (context: Canvas2DContext): void => {
   context.setTransform(1, 0, 0, 1, 0, 0);
+  context.imageSmoothingEnabled = false;
   context.globalAlpha = 1;
   context.globalCompositeOperation = 'source-over';
   context.filter = 'none';
@@ -95,6 +98,10 @@ export const hasVisibleAdjustmentLayers = (layers: Layer[]): boolean => (
     && layer.layerType === 'adjustment'
     && Boolean(layer.adjustmentData)
     && layer.opacity > 0
+    && (
+      !Array.isArray(layer.adjustmentData?.targetLayerIds)
+      || layer.adjustmentData.targetLayerIds.length > 0
+    )
   ))
 );
 
@@ -134,14 +141,71 @@ export const renderAdjustmentAwareLayerStack = ({
       .filter((group) => membersByGroupId.get(group.id)?.some((member) => member.layerType === 'adjustment'))
       .map((group) => group.id),
   );
+  const visibleLayerById = new Map(visibleLayers.map((layer) => [layer.id, layer]));
+  const targetedAdjustmentsByLayerId = new Map<string, Layer[]>();
+  visibleLayers.forEach((adjustmentLayer) => {
+    const targetLayerIds = adjustmentLayer.adjustmentData?.targetLayerIds;
+    if (adjustmentLayer.layerType !== 'adjustment' || !Array.isArray(targetLayerIds)) return;
+    const adjustmentGroup = adjustmentLayer.groupId
+      ? groupById.get(adjustmentLayer.groupId)
+      : undefined;
+    targetLayerIds.forEach((targetLayerId) => {
+      const targetLayer = visibleLayerById.get(targetLayerId);
+      if (!targetLayer || targetLayer.layerType === 'adjustment') return;
+      if (targetLayer.order >= adjustmentLayer.order) return;
+      const targetGroup = targetLayer.groupId ? groupById.get(targetLayer.groupId) : undefined;
+      if (isInterlaceGroup(targetGroup)) return;
+      if (adjustmentGroup && targetLayer.groupId !== adjustmentGroup.id) return;
+      targetedAdjustmentsByLayerId.set(targetLayerId, [
+        ...(targetedAdjustmentsByLayerId.get(targetLayerId) ?? []),
+        adjustmentLayer,
+      ]);
+    });
+  });
   const emittedGroupIds = new Set<string>();
+
+  const drawTargetedLayer = (target: Canvas2DContext, layer: Layer): void => {
+    const adjustments = targetedAdjustmentsByLayerId.get(layer.id);
+    if (!adjustments?.length) {
+      drawLayer(target, layer);
+      return;
+    }
+    const surface = ensureSurface(cache.targetSurfaces, layer.id, width, height);
+    if (!surface) {
+      drawLayer(target, layer);
+      return;
+    }
+    resetContext(surface.context);
+    surface.context.clearRect(0, 0, width, height);
+    drawLayer(surface.context, {
+      ...layer,
+      opacity: 1,
+      blendMode: 'source-over',
+    });
+    adjustments.forEach((adjustmentLayer) => {
+      applyLayerAdjustment({
+        context: surface.context,
+        layer: adjustmentLayer,
+        width,
+        height,
+        cache,
+      });
+    });
+    target.save();
+    target.globalAlpha = layer.opacity;
+    target.globalCompositeOperation = layer.blendMode;
+    target.drawImage(surface.canvas, 0, 0);
+    target.restore();
+  };
 
   const renderFlatStack = (target: Canvas2DContext, layers: Layer[]): void => {
     for (const layer of layers) {
       if (layer.layerType === 'adjustment') {
-        applyLayerAdjustment({ context: target, layer, width, height, cache });
+        if (!Array.isArray(layer.adjustmentData?.targetLayerIds)) {
+          applyLayerAdjustment({ context: target, layer, width, height, cache });
+        }
       } else {
-        drawLayer(target, layer);
+        drawTargetedLayer(target, layer);
       }
     }
   };
@@ -174,9 +238,11 @@ export const renderAdjustmentAwareLayerStack = ({
       continue;
     }
     if (layer.layerType === 'adjustment') {
-      applyLayerAdjustment({ context, layer, width, height, cache });
+      if (!Array.isArray(layer.adjustmentData?.targetLayerIds)) {
+        applyLayerAdjustment({ context, layer, width, height, cache });
+      }
     } else {
-      drawLayer(context, layer);
+      drawTargetedLayer(context, layer);
     }
   }
 
@@ -188,6 +254,9 @@ export const renderAdjustmentAwareLayerStack = ({
   });
   cache.filterStates.forEach((_, key) => {
     if (!activeAdjustmentIds.has(key)) cache.filterStates.delete(key);
+  });
+  cache.targetSurfaces.forEach((_, key) => {
+    if (!targetedAdjustmentsByLayerId.has(key)) cache.targetSurfaces.delete(key);
   });
   cache.groupSurfaces.forEach((_, key) => {
     if (!adjustmentGroupIds.has(key)) cache.groupSurfaces.delete(key);

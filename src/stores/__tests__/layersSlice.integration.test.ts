@@ -1457,7 +1457,16 @@ describe('layers slice integration', () => {
   });
 
   it('edits adjustment effects and mix as one undoable transaction', async () => {
+    const paint = useAppStore.getState().addLayer(createNormalLayerInput('Paint'));
     const adjustment = useAppStore.getState().addLayer(createAdjustmentLayerInput('Adjust'));
+    const initialAdjustment = useAppStore.getState().layers.find((layer) => layer.id === adjustment);
+    useAppStore.getState().updateLayer(adjustment, {
+      adjustmentData: {
+        ...initialAdjustment?.adjustmentData,
+        effect: initialAdjustment!.adjustmentData!.effect,
+        targetLayerIds: [paint],
+      },
+    });
     historyManager.clear();
 
     useAppStore.getState().beginAdjustmentLayerEdit(adjustment);
@@ -1471,15 +1480,45 @@ describe('layers slice integration', () => {
     expect(historyManager.entries()).toHaveLength(1);
     expect(useAppStore.getState().layers.find((layer) => layer.id === adjustment)).toMatchObject({
       opacity: 0.4,
-      adjustmentData: { effect: { id: 'pixelate', settings: { cellSize: 12 } } },
+      adjustmentData: {
+        effect: { id: 'pixelate', settings: { cellSize: 12 } },
+        targetLayerIds: [paint],
+      },
     });
 
     await useAppStore.getState().undo();
 
     expect(useAppStore.getState().layers.find((layer) => layer.id === adjustment)).toMatchObject({
       opacity: 1,
-      adjustmentData: { effect: { id: 'pixelate', settings: { cellSize: 4 } } },
+      adjustmentData: {
+        effect: { id: 'pixelate', settings: { cellSize: 4 } },
+        targetLayerIds: [paint],
+      },
     });
+  });
+
+  it('removes deleted target IDs from adjustment layers and restores them on undo', async () => {
+    const paint = useAppStore.getState().addLayer(createNormalLayerInput('Paint'));
+    const adjustment = useAppStore.getState().addLayer(createAdjustmentLayerInput('Adjust'));
+    const initialAdjustment = useAppStore.getState().layers.find((layer) => layer.id === adjustment);
+    useAppStore.getState().updateLayer(adjustment, {
+      adjustmentData: {
+        effect: initialAdjustment!.adjustmentData!.effect,
+        targetLayerIds: [paint],
+      },
+    });
+    historyManager.clear();
+
+    useAppStore.getState().removeLayer(paint);
+
+    expect(useAppStore.getState().layers.find((layer) => layer.id === adjustment)?.adjustmentData)
+      .toMatchObject({ targetLayerIds: [] });
+
+    await useAppStore.getState().undo();
+
+    expect(useAppStore.getState().layers.map((layer) => layer.id)).toContain(paint);
+    expect(useAppStore.getState().layers.find((layer) => layer.id === adjustment)?.adjustmentData)
+      .toMatchObject({ targetLayerIds: [paint] });
   });
 
   it('refuses to merge adjustment layers into raster content', () => {

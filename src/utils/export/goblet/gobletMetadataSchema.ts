@@ -13,6 +13,7 @@ export const GOBLET_PROPERTY_MINIFY_MAP = {
   adjustmentGroups: 'ag',
   adjustment: 'adj',
   effect: 'ef',
+  targetLayerIds: 'tli',
   gradients: 'grl',
   fallback: 'fb',
   schemaVersion: 'csv',

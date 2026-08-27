@@ -279,6 +279,11 @@ export type AdjustmentEffect =
 
 export interface AdjustmentLayerData {
   effect: AdjustmentEffect;
+  /**
+   * Omitted means the adjustment affects the complete lower stack. An explicit
+   * list applies the effect directly to only those lower, non-Interlace layers.
+   */
+  targetLayerIds?: string[];
 }
 
 export type BrushPanelSectionId = 'tool' | 'filters' | 'interlace';

@@ -1,7 +1,10 @@
 import type { StateCreator } from 'zustand';
 
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
-import { sanitizeAdjustmentEffect } from '@/lib/adjustmentLayers';
+import {
+  sanitizeAdjustmentEffect,
+  sanitizeAdjustmentLayerData,
+} from '@/lib/adjustmentLayers';
 import type {
   CommitLayerStructureHistoryOptions,
   LayerHistorySnapshotOptions,
@@ -52,7 +55,10 @@ export const createLayerAdjustmentActions = ({
       const layer = get().layers.find((candidate) => candidate.id === layerId);
       if (layer?.layerType !== 'adjustment') return;
       get().updateLayer(layerId, {
-        adjustmentData: { effect: sanitizeAdjustmentEffect(effect) },
+        adjustmentData: {
+          ...sanitizeAdjustmentLayerData(layer.adjustmentData),
+          effect: sanitizeAdjustmentEffect(effect),
+        },
       });
     },
 

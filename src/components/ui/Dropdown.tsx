@@ -34,6 +34,7 @@ interface DropdownProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  menuClassName?: string;
   renderOption?: (option: DropdownOption, isSelected: boolean, onClose: () => void) => React.ReactNode;
   renderGroup?: (group: string) => React.ReactNode;
   onAction?: (action: string) => void;
@@ -49,6 +50,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   onChange,
   placeholder = "Select...",
   className = "",
+  menuClassName = "",
   renderOption,
   renderGroup,
   onAction,
@@ -337,7 +339,7 @@ const dropIndicator = useMemo(() => {
       {isOpen && (
         <div
           ref={menuRef}
-          className="absolute z-50 w-full mt-1 bg-[#1A1A1A] border border-[#d9d9d9] shadow-lg"
+          className={`absolute z-50 w-full mt-1 bg-[#1A1A1A] border border-[#d9d9d9] shadow-lg ${menuClassName}`}
         >
           {options.map((option, index) => {
             const isSelected = option.value === value;

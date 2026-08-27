@@ -24,6 +24,7 @@ const criticalKeys = [
   'adjustmentGroups',
   'adjustment',
   'effect',
+  'targetLayerIds',
 ];
 
 const readRuntime = (runtime: 'goblet' | 'goblet2'): string => (
@@ -64,7 +65,10 @@ describe('goblet metadata schema', () => {
     for (const runtime of ['goblet', 'goblet2'] as const) {
       const source = readRuntime(runtime);
       for (const key of criticalKeys) {
-        if (runtime === 'goblet' && ['adjustmentGroups', 'adjustment', 'effect'].includes(key)) {
+        if (
+          runtime === 'goblet'
+          && ['adjustmentGroups', 'adjustment', 'effect', 'targetLayerIds'].includes(key)
+        ) {
           continue;
         }
         const minified = GOBLET_PROPERTY_MINIFY_MAP[key as keyof typeof GOBLET_PROPERTY_MINIFY_MAP];

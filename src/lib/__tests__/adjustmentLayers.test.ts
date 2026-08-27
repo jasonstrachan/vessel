@@ -1,6 +1,7 @@
 import {
   createDefaultAdjustmentEffect,
   sanitizeAdjustmentEffect,
+  sanitizeAdjustmentLayerData,
 } from '@/lib/adjustmentLayers';
 
 describe('adjustment layers', () => {
@@ -38,5 +39,17 @@ describe('adjustment layers', () => {
       id: 'pixelate',
       settings: { cellSize: 5 },
     });
+  });
+
+  it('preserves an explicit unique layer target list while legacy data targets all lower layers', () => {
+    expect(sanitizeAdjustmentLayerData({
+      effect: createDefaultAdjustmentEffect(),
+      targetLayerIds: ['paint-1', '', 'paint-1', 'paint-2'],
+    })).toMatchObject({
+      targetLayerIds: ['paint-1', 'paint-2'],
+    });
+    expect(sanitizeAdjustmentLayerData({
+      effect: createDefaultAdjustmentEffect(),
+    })).not.toHaveProperty('targetLayerIds');
   });
 });

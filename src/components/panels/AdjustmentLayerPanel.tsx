@@ -23,6 +23,8 @@ const EFFECT_OPTIONS = (Object.entries(ADJUSTMENT_EFFECT_LABELS) as Array<[
   string,
 ]>).map(([value, label]) => ({ value, label }));
 
+const ALL_LOWER_LAYERS_VALUE = '__all-lower-layers__';
+
 const HUE_SAT_SLIDERS: Array<{
   key: Exclude<
     keyof ColorAdjustParams,
@@ -79,11 +81,10 @@ const SliderRow = ({
 
 export const AdjustmentLayerPanel = () => {
   const activeLayerId = useAppStore((state) => state.activeLayerId);
+  const layers = useAppStore((state) => state.layers);
+  const layerGroups = useAppStore((state) => state.layerGroups);
   const activeLayer = useAppStore((state) => (
     state.layers.find((layer) => layer.id === state.activeLayerId) ?? null
-  ));
-  const activeGroup = useAppStore((state) => (
-    state.layerGroups.find((group) => group.id === activeLayer?.groupId) ?? null
   ));
   const beginEdit = useAppStore((state) => state.beginAdjustmentLayerEdit);
   const updateEffect = useAppStore((state) => state.updateAdjustmentLayerEffect);
@@ -98,9 +99,33 @@ export const AdjustmentLayerPanel = () => {
 
   const data = sanitizeAdjustmentLayerData(activeLayer.adjustmentData);
   const effect = data.effect;
-  const scope = activeGroup && !isInterlaceGroup(activeGroup)
-    ? `lower layers in ${activeGroup.name}`
-    : 'all lower layers';
+  const groupById = new Map(layerGroups.map((group) => [group.id, group]));
+  const adjustmentGroup = activeLayer.groupId
+    ? groupById.get(activeLayer.groupId)
+    : undefined;
+  const eligibleTargets = layers
+    .filter((layer) => {
+      if (layer.id === activeLayer.id || layer.layerType === 'adjustment') return false;
+      if (layer.order >= activeLayer.order) return false;
+      if (isInterlaceGroup(layer.groupId ? groupById.get(layer.groupId) : undefined)) return false;
+      return !adjustmentGroup || layer.groupId === adjustmentGroup.id;
+    })
+    .sort((left, right) => right.order - left.order);
+  const eligibleTargetIds = new Set(eligibleTargets.map((layer) => layer.id));
+  const selectedTargetIds = data.targetLayerIds?.filter((layerId) => (
+    eligibleTargetIds.has(layerId)
+  ));
+  const targetOptions = [
+    { value: ALL_LOWER_LAYERS_VALUE, label: 'All lower layers' },
+    ...eligibleTargets.map((layer) => ({ value: layer.id, label: layer.name })),
+  ];
+  const targetSummary = selectedTargetIds === undefined
+    ? 'All lower layers'
+    : selectedTargetIds.length === 0
+      ? 'No layers'
+      : selectedTargetIds.length === 1
+        ? eligibleTargets.find((layer) => layer.id === selectedTargetIds[0])?.name ?? '1 layer'
+        : `${selectedTargetIds.length} layers`;
 
   const preview = (nextEffect: AdjustmentEffect) => {
     beginEdit(activeLayer.id);
@@ -114,13 +139,83 @@ export const AdjustmentLayerPanel = () => {
     preview(nextEffect);
     commit();
   };
+  const updateTargets = (targetLayerIds: string[] | undefined) => {
+    const currentIds = data.targetLayerIds;
+    if (JSON.stringify(currentIds) === JSON.stringify(targetLayerIds)) return;
+    beginEdit(activeLayer.id);
+    updateLayer(activeLayer.id, {
+      adjustmentData: sanitizeAdjustmentLayerData({
+        ...data,
+        targetLayerIds,
+      }),
+    });
+    commit();
+  };
+  const toggleTarget = (layerId: string) => {
+    const currentIds = selectedTargetIds ?? [];
+    updateTargets(currentIds.includes(layerId)
+      ? currentIds.filter((candidate) => candidate !== layerId)
+      : [...currentIds, layerId]);
+  };
 
   return (
     <div className="bg-[#1A1A1A] border-t border-[#404040] px-4 py-4 flex flex-col gap-4">
       <div>
         <div className="text-xs uppercase tracking-wider text-[#9C9C9C] mb-1">Adjustment</div>
         <div className="text-sm text-white">{activeLayer.name}</div>
-        <div className="mt-1 text-xs text-[#9C9C9C]">Affects {scope}. Layer opacity controls strength.</div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs uppercase tracking-wider text-[#9C9C9C]">Affects</span>
+        <Dropdown
+          value={data.targetLayerIds === undefined
+            ? ALL_LOWER_LAYERS_VALUE
+            : '__specific-layers__'}
+          options={targetOptions}
+          onChange={(value) => {
+            if (value === ALL_LOWER_LAYERS_VALUE) {
+              updateTargets(undefined);
+            } else {
+              toggleTarget(value);
+            }
+          }}
+          renderValue={() => targetSummary}
+          renderOption={(option) => {
+            const isAllLowerLayers = option.value === ALL_LOWER_LAYERS_VALUE;
+            const isChecked = isAllLowerLayers
+              ? data.targetLayerIds === undefined
+              : selectedTargetIds?.includes(option.value) === true;
+            return (
+              <button
+                type="button"
+                data-dropdown-interactive="true"
+                aria-pressed={isChecked}
+                className="flex w-full items-center gap-2 text-left"
+                onClick={() => {
+                  if (isAllLowerLayers) {
+                    updateTargets(undefined);
+                  } else {
+                    toggleTarget(option.value);
+                  }
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`flex h-3 w-3 shrink-0 items-center justify-center border text-[9px] ${
+                    isChecked
+                      ? 'border-[#D9D9D9] bg-[#D9D9D9] text-[#1A1A1A]'
+                      : 'border-[#777]'
+                  }`}
+                >
+                  {isChecked ? '✓' : ''}
+                </span>
+                <span className="min-w-0 truncate">{option.label}</span>
+              </button>
+            );
+          }}
+          className="w-full"
+          menuClassName="max-h-64 overflow-y-auto"
+        />
       </div>
 
       <div className="flex flex-col gap-2">
