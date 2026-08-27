@@ -5,6 +5,7 @@ import {
   drawCanonicalTxtShapesToCanvas,
   drawCachedTxtShapesForLayer,
   drawGobletBaseTxtShapesToCanvas,
+  drawTxtShapeGlyphMaskToCanvas,
   drawTxtShapesForLayer,
   drawTxtShapesToCanvas,
   drawUnselectedTxtShapesToCanvas,
@@ -1246,6 +1247,37 @@ describe('TXT Shape document helpers', () => {
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
     expect(ctx.fillRect).toHaveBeenCalledWith(5, 6, 100, 50);
     expect(shape.selections).toEqual([{ start: 0, end: 2 }]);
+  });
+
+  it('renders a state-free white glyph mask for Goblet playback', () => {
+    const paintedColors: string[] = [];
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(),
+      fillText: jest.fn(() => paintedColors.push(String(ctx.fillStyle))),
+      font: '', textBaseline: 'alphabetic', fillStyle: '', globalAlpha: 1,
+    } as unknown as CanvasRenderingContext2D;
+    const shape = createShape({
+      backgroundColor: '#336699',
+      color: '#111111',
+      content: 'AB',
+      nonCanonicalState: 'selected',
+      selections: [{ start: 0, end: 2 }],
+    });
+
+    drawTxtShapeGlyphMaskToCanvas(ctx, [shape]);
+
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+    expect(ctx.fillText).toHaveBeenCalledWith('AB', 5, 6);
+    expect(paintedColors).toEqual(['#ffffff']);
+    expect(shape).toMatchObject({
+      backgroundColor: '#336699',
+      color: '#111111',
+      nonCanonicalState: 'selected',
+      selections: [{ start: 0, end: 2 }],
+    });
   });
 
   it('omits canonical Invisible glyphs from the Goblet base raster', () => {

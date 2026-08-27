@@ -1741,6 +1741,24 @@ export const drawUnselectedTxtShapesToCanvas = (
   shapes: readonly TxtShape[] | undefined,
 ): void => drawTxtShapesToCanvasWithSelectionMode(ctx, shapes, 'none');
 
+export const drawTxtShapeGlyphMaskToCanvas = (
+  ctx: TxtShapeCanvasContext,
+  shapes: readonly TxtShape[] | undefined,
+): void => drawTxtShapesToCanvasWithSelectionMode(
+  ctx,
+  shapes?.map((shape) => ({
+    ...shape,
+    backgroundColor: undefined,
+    color: '#ffffff',
+    colorRanges: [],
+    nonCanonicalState: 'none',
+    selectionTreatments: [],
+    selections: [],
+    unmappedTextCoverage: 100,
+  })),
+  'none',
+);
+
 export const drawGobletBaseTxtShapesToCanvas = (
   ctx: TxtShapeCanvasContext,
   shapes: readonly TxtShape[] | undefined,
