@@ -18,6 +18,8 @@ import {
   applyCcSampledRangeContrast as applyCcGradientContrast,
 } from '@/utils/colorCycle/ccSampledRangeContrast';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
+import { normalizeColorCycleSampledMotion } from '@/utils/colorCycleSampledMotion';
+import type { ColorCycleSampledMotion } from '@/types';
 import {
   type GradientSeamProfile,
   normalizeGradientSeamProfile,
@@ -31,6 +33,7 @@ export type MarkGradientSession = {
   source: GradientDefSource;
   seamProfile?: GradientSeamProfile;
   isRuntimePalette?: boolean;
+  sampledMotion?: ColorCycleSampledMotion;
   rawStopsStored?: StoredStop[];
   frozenStopsStored: StoredStop[];
   frozenHash: string;
@@ -231,6 +234,9 @@ export const beginMarkGradientSession = (params: {
   const isRuntimePalette =
     params.source === 'manual' &&
     state.tools.brushSettings.colorCycleGradientIsRuntimePalette === true;
+  const sampledMotion = isRuntimePalette
+    ? normalizeColorCycleSampledMotion(state.tools.brushSettings.colorCycleSampledMotion) ?? undefined
+    : undefined;
   const frozenStops = cloneStops(params.stops);
   const ditherRenderConfig = captureFrozenCcDitherRenderConfig();
   if (params.source === 'sampled') {
@@ -242,6 +248,7 @@ export const beginMarkGradientSession = (params: {
       source: params.source,
       seamProfile,
       isRuntimePalette,
+      sampledMotion,
       rawStopsStored: cloneStops(frozenStops),
       frozenStopsStored: frozenStops,
       frozenHash: '',
@@ -283,6 +290,7 @@ export const beginMarkGradientSession = (params: {
     source: params.source,
     seamProfile,
     isRuntimePalette,
+    sampledMotion,
     rawStopsStored: frozenStops,
     frozenStopsStored: runtimeStops,
     frozenHash: defResult.hash,

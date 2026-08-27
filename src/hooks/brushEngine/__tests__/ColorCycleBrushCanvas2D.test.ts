@@ -2413,7 +2413,7 @@ describe('ColorCycleBrushCanvas2D', () => {
     })).toBe(17);
   });
 
-  it('writes a stable per-shape phase offset for non-dither concentric cc gradient fills', async () => {
+  it('writes sampled motion bytes for non-dither concentric cc gradient fills', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 32;
     canvas.height = 32;
@@ -2463,15 +2463,54 @@ describe('ColorCycleBrushCanvas2D', () => {
         ccGradient: true,
         spacing: 1,
         ditherPairBandCount: 2,
+        sampledMotionOverride: { phaseByte: 91, speedByte: 17, flowByte: 2 },
       },
     });
 
     const animator = (brush as any).getAnimator('layer-1');
     const speedData = Array.from((animator?.speedData as Uint8Array) ?? []).filter((value) => value > 0);
+    const flowData = Array.from((animator?.flowData as Uint8Array) ?? []).filter((value) => value > 0);
     const phaseData = Array.from((animator?.phaseData as Uint8Array) ?? []).filter((value) => value > 0);
 
-    expect(new Set(speedData).size).toBe(1);
-    expect(new Set(phaseData).size).toBe(1);
+    expect(new Set(speedData)).toEqual(new Set([17]));
+    expect(new Set(flowData)).toEqual(new Set([2]));
+    expect(new Set(phaseData)).toEqual(new Set([91]));
+  });
+
+  it('writes sampled motion bytes for non-dither linear cc gradient fills', async () => {
+    const canvas = makeCanvas();
+    const brush = new ColorCycleBrushCanvas2D(canvas);
+
+    brush.setGradientBands(4);
+    brush.setDitherEnabled(false);
+
+    await brush.fillShapeDispatch({
+      mode: 'linear',
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 7, y: 0 },
+        { x: 7, y: 5 },
+        { x: 0, y: 5 },
+      ],
+      direction: { x: 1, y: 0 },
+      layerId: 'layer-1',
+      options: {
+        ccGradient: true,
+        spacing: 1,
+        sampledMotionOverride: { phaseByte: 0, speedByte: 29, flowByte: 3 },
+      },
+    });
+
+    const animator = (brush as any).getAnimator('layer-1');
+    const indexData = (animator?.indexBuffer as Uint8Array) ?? new Uint8Array();
+    const speedData = Array.from((animator?.speedData as Uint8Array) ?? []).filter((value) => value > 0);
+    const flowData = Array.from((animator?.flowData as Uint8Array) ?? []).filter((value) => value > 0);
+    const rawPhaseData = (animator?.phaseData as Uint8Array) ?? new Uint8Array();
+    const paintedPhaseData = Array.from(rawPhaseData).filter((_value, index) => indexData[index] > 0);
+
+    expect(new Set(speedData)).toEqual(new Set([29]));
+    expect(new Set(flowData)).toEqual(new Set([3]));
+    expect(new Set(paintedPhaseData)).toEqual(new Set([0]));
   });
 
   it('falls back to CPU concentric fill when the worker rejects', async () => {

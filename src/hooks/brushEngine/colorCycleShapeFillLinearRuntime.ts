@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { normalizeColorCycleSampledMotion } from '@/utils/colorCycleSampledMotion';
 import { debugLog, debugWarn, isDebugEnabled } from '@/utils/debug';
 import { ccWarn } from '@/utils/colorCycle/ccDebug';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
@@ -184,14 +185,22 @@ export async function runColorCycleLinearShapeFill(
     : context.getStampCounter() % 255;
   const fillAlgorithm = context.getStampDitherAlgorithm();
   const pairBandCount = Math.max(0, Math.floor(options?.ditherPairBandCount ?? 0));
-  const { speedByte, flowByte } = context.resolveShapeAnimationBytes(strokeData, {
-    ccGradient,
-    pairBandCount,
-    ditherAlgorithm: fillAlgorithm,
-  });
+  const sampledMotionOverride = normalizeColorCycleSampledMotion(options?.sampledMotionOverride);
+  const sampledPhaseOverride = sampledMotionOverride?.phaseByte;
+  const { speedByte, flowByte } = sampledMotionOverride ?? context.resolveShapeAnimationBytes(
+    strokeData,
+    {
+      ccGradient,
+      pairBandCount,
+      ditherAlgorithm: fillAlgorithm,
+    },
+  );
   const resolveLinearPhaseByte = (x: number, y: number, colorIndex: number) => {
     if (colorIndex <= 0) {
       return 0;
+    }
+    if (sampledPhaseOverride !== undefined) {
+      return sampledPhaseOverride;
     }
     const proj = (x + 0.5 - centerX) * dirX + (y + 0.5 - centerY) * dirY;
     const normalized = clamp01((proj - paddedMinProjection) / safeProjectionRange);
@@ -232,7 +241,7 @@ export async function runColorCycleLinearShapeFill(
     width: Math.max(1, Math.ceil(fillMaxX) - Math.floor(fillMinX) + 1),
     height: Math.max(1, Math.ceil(fillMaxY) - Math.floor(fillMinY) + 1)
   };
-  const shapePhaseBaseByte = context.resolveShapePhaseBaseByte({
+  const shapePhaseBaseByte = sampledPhaseOverride ?? context.resolveShapePhaseBaseByte({
     ccGradient,
     pairBandCount,
     effectiveColorCount: numBands,
@@ -378,7 +387,7 @@ export async function runColorCycleLinearShapeFill(
     x: number,
     y: number,
     colorIndex: number,
-    phaseByte: number = 0
+    phaseByte: number = sampledPhaseOverride ?? 0
   ) => {
     if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
       return;
@@ -502,7 +511,7 @@ export async function runColorCycleLinearShapeFill(
         resolvePhaseByte: (x, y, index, normalized) => {
           return index <= 0
             ? 0
-            : context.resolveShapePhaseByte(normalized, {
+            : sampledPhaseOverride ?? context.resolveShapePhaseByte(normalized, {
                 ccGradient,
                 pairBandCount,
                 effectiveColorCount: quantLevels,
@@ -688,6 +697,8 @@ export async function runColorCycleLinearShapeFill(
       lostEdge,
       ccGradient,
       pairBandCount,
+      shapePhaseBaseByte,
+      sampledPhaseOverride,
       continuous,
       indexFromNormalized,
       clamp01,

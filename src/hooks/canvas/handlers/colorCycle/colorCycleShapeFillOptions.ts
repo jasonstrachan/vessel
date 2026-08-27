@@ -1,8 +1,13 @@
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { resolveColorCycleGradientSourceBehavior } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
+import type { ColorCycleSampledMotion } from '@/types';
+import { normalizeColorCycleSampledMotion } from '@/utils/colorCycleSampledMotion';
 
-type ShapeFillRenderSession = Pick<MarkGradientSession, 'source' | 'frozenStopsStored' | 'binding'> & {
+type ShapeFillRenderSession = Pick<
+  MarkGradientSession,
+  'source' | 'frozenStopsStored' | 'binding'
+> & {
   sourceStopsStored?: MarkGradientSession['frozenStopsStored'];
 } | null | undefined;
 
@@ -12,6 +17,7 @@ export type ColorCycleShapeFillSourceOptions = {
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
   shapePhaseSeedMarkId: string | null;
+  sampledMotionOverride?: ColorCycleSampledMotion;
 };
 
 const cloneStoredStops = (stops: StoredStop[] | null | undefined): StoredStop[] | undefined => {
@@ -25,12 +31,18 @@ export const resolveColorCycleShapeFillSourceOptions = ({
   session,
   renderSession,
 }: {
-  session: Pick<MarkGradientSession, 'markId'> | null | undefined;
+  session: Pick<
+    MarkGradientSession,
+    'markId' | 'isRuntimePalette' | 'sampledMotion'
+  > | null | undefined;
   renderSession: ShapeFillRenderSession;
 }): ColorCycleShapeFillSourceOptions => {
   const behavior = renderSession
     ? resolveColorCycleGradientSourceBehavior(renderSession.source)
     : null;
+  const sampledMotionOverride = renderSession?.source === 'manual' && session?.isRuntimePalette
+    ? normalizeColorCycleSampledMotion(session.sampledMotion) ?? undefined
+    : undefined;
 
   return {
     ditherSampledStops: behavior?.usesSampledStops
@@ -40,5 +52,6 @@ export const resolveColorCycleShapeFillSourceOptions = ({
     paintSlotOverride: renderSession?.binding?.slot,
     paintDefIdOverride: renderSession?.binding?.defId,
     shapePhaseSeedMarkId: session?.markId ?? null,
+    ...(sampledMotionOverride ? { sampledMotionOverride } : {}),
   };
 };

@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type {
   ColorCycleGradientSwatch,
+  ColorCycleSampledMotion,
   GradientSeamProfile,
   PaletteState,
 } from '@/types';
@@ -24,6 +25,7 @@ export interface PaletteSlice {
     stops: ColorCycleGradientSwatch['stops'];
     runtimeStops?: ColorCycleGradientSwatch['stops'];
     seamProfile: GradientSeamProfile;
+    motion?: ColorCycleSampledMotion;
     name?: string;
   }) => string | null;
   updateActiveColorCycleGradient: (stops: ColorCycleGradientSwatch['stops']) => void;
@@ -140,7 +142,7 @@ export const createPaletteSlice: StateCreator<AppState, [], [], PaletteSlice> = 
       syncColorCycleGradient: true,
     });
   },
-  rememberColorCycleGradient: ({ stops, runtimeStops, seamProfile, name }) => {
+  rememberColorCycleGradient: ({ stops, runtimeStops, seamProfile, motion, name }) => {
     if (!Array.isArray(stops) || stops.length < 2) return null;
     if (runtimeStops !== undefined && runtimeStops.length < 2) return null;
     const palette = get().palette;
@@ -168,6 +170,7 @@ export const createPaletteSlice: StateCreator<AppState, [], [], PaletteSlice> = 
       paletteDirty: true,
       syncColorCycleGradient: true,
       colorCycleGradientSeamProfile: seamProfile,
+      colorCycleSampledMotion: motion,
     });
     return gradient.id;
   },

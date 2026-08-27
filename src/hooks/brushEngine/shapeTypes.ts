@@ -1,4 +1,4 @@
-import type { BrushSettings } from '@/types';
+import type { BrushSettings, ColorCycleSampledMotion } from '@/types';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
 export type Point2D = { x: number; y: number };
@@ -26,6 +26,7 @@ export type GradientDitherOptions = {
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
   shapePhaseSeedMarkId?: string | null;
+  sampledMotionOverride?: ColorCycleSampledMotion;
   roi?: RoiRect;
   linearGradientSpan?: number;
 };

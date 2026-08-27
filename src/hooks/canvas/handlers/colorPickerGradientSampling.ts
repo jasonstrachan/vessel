@@ -1,12 +1,19 @@
-import type { BrushSettings, GradientSeamProfile, Layer } from '@/types';
+import type {
+  BrushSettings,
+  ColorCycleSampledMotion,
+  GradientSeamProfile,
+  Layer,
+} from '@/types';
 import type { ColorCycleLayerDocumentSnapshot } from '@/lib/colorCycle/document';
 import { normalizeGradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { normalizeColorCycleSampledMotion } from '@/utils/colorCycleSampledMotion';
 
 export type PickedColorCycleGradient = {
   stops: NonNullable<BrushSettings['colorCycleGradient']>;
   runtimeStops: NonNullable<BrushSettings['colorCycleGradient']>;
   seamProfile: GradientSeamProfile;
+  motion?: ColorCycleSampledMotion;
 };
 
 type ColorPickerGradientSourceState = {
@@ -30,6 +37,27 @@ type ColorPickerGradientSampleControllerDependencies = {
 const clonePickedStops = (
   stops: NonNullable<BrushSettings['colorCycleGradient']>,
 ): NonNullable<BrushSettings['colorCycleGradient']> => stops.map((stop) => ({ ...stop }));
+
+const resolvePickedMotion = (
+  snapshot: ColorCycleLayerDocumentSnapshot,
+  pixelCount: number,
+  pixelIndex: number,
+): ColorCycleSampledMotion | undefined => {
+  if (
+    snapshot.phaseBuffer?.byteLength !== pixelCount ||
+    snapshot.speedBuffer?.byteLength !== pixelCount ||
+    snapshot.flowBuffer?.byteLength !== pixelCount
+  ) {
+    return undefined;
+  }
+
+  const flowByte = new Uint8Array(snapshot.flowBuffer)[pixelIndex];
+  return normalizeColorCycleSampledMotion({
+    phaseByte: new Uint8Array(snapshot.phaseBuffer)[pixelIndex],
+    speedByte: new Uint8Array(snapshot.speedBuffer)[pixelIndex],
+    flowByte: flowByte === 2 || flowByte === 3 ? flowByte : 1,
+  }) ?? undefined;
+};
 
 export const resolvePickedColorCycleGradientFromSnapshot = ({
   snapshot,
@@ -64,6 +92,7 @@ export const resolvePickedColorCycleGradientFromSnapshot = ({
 
   const pixelCount = snapshot.width * snapshot.height;
   const pixelIndex = pixelY * snapshot.width + pixelX;
+  const motion = resolvePickedMotion(snapshot, pixelCount, pixelIndex);
   const paint = snapshot.paintBuffer?.byteLength === pixelCount
     ? new Uint8Array(snapshot.paintBuffer)
     : null;
@@ -85,6 +114,7 @@ export const resolvePickedColorCycleGradientFromSnapshot = ({
         stops: clonePickedStops(sourceStops),
         runtimeStops: clonePickedStops(definition.stops),
         seamProfile: normalizeGradientSeamProfile(definition.seamProfile),
+        ...(motion ? { motion } : {}),
       };
     }
   }
@@ -110,6 +140,7 @@ export const resolvePickedColorCycleGradientFromSnapshot = ({
     stops: clonePickedStops(palette.stops),
     runtimeStops: clonePickedStops(palette.stops),
     seamProfile: normalizeGradientSeamProfile(palette.seamProfile),
+    ...(motion ? { motion } : {}),
   };
 };
 

@@ -6,6 +6,7 @@ import type {
 } from '@/stores/slices/layersSlice';
 import type {
   BrushSettings,
+  ColorCycleSampledMotion,
   GradientSeamProfile,
   PaletteState,
   PolygonGradientState,
@@ -214,6 +215,7 @@ export interface EventHandlerDependencies {
     stops: NonNullable<BrushSettings['colorCycleGradient']>;
     runtimeStops?: NonNullable<BrushSettings['colorCycleGradient']>;
     seamProfile: GradientSeamProfile;
+    motion?: ColorCycleSampledMotion;
   }) => string | null;
   updateRecolorSampling: (partial: Partial<RecolorSamplingState>) => void;
   stopRecolorSampling: () => void;

@@ -13,6 +13,7 @@ import type {
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import type { ColorCycleSampledMotion } from '@/types';
 
 import type { StampShape } from './colorCycleBrushContracts';
 import type {
@@ -40,6 +41,7 @@ export type FillOptions = {
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
   shapePhaseSeedMarkId?: string | null;
+  sampledMotionOverride?: ColorCycleSampledMotion;
   roi?: { x: number; y: number; width: number; height: number };
   linearGradientSpan?: number;
   spacing?: number;

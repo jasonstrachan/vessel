@@ -1,4 +1,8 @@
-import { BrushShape, type BrushSettings } from '@/types';
+import {
+  BrushShape,
+  type BrushSettings,
+  type ColorCycleSampledMotion,
+} from '@/types';
 import { applyColorCycleBrushSettingsPatch } from './colorCycleBrushSettingsController';
 import type { ColorCycleSettingsPatchBrush } from './colorCycleBrushSettingsPatch';
 import type { GradientDitherOptions, Point2D } from './shapeTypes';
@@ -34,6 +38,7 @@ export type ColorCycleFillBrush = ColorCycleSettingsPatchBrush & {
       paintSlotOverride?: GradientDitherOptions['paintSlotOverride'];
       paintDefIdOverride?: GradientDitherOptions['paintDefIdOverride'];
       shapePhaseSeedMarkId?: string | null;
+      sampledMotionOverride?: ColorCycleSampledMotion;
       roi?: GradientDitherOptions['roi'];
       linearGradientSpan?: number;
       lostEdge?: number;
@@ -212,6 +217,7 @@ export const fillColorCycleLinear = async <TBrush extends ColorCycleFillBrush>({
           paintSlotOverride: options?.paintSlotOverride,
           paintDefIdOverride: options?.paintDefIdOverride,
           shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
+          sampledMotionOverride: options?.sampledMotionOverride,
           linearGradientSpan: options?.linearGradientSpan,
           ditherBackgroundFill,
           ditherFlatCycle,
@@ -297,6 +303,7 @@ export const fillColorCycleConcentric = async <TBrush extends ColorCycleFillBrus
           paintSlotOverride: options?.paintSlotOverride,
           paintDefIdOverride: options?.paintDefIdOverride,
           shapePhaseSeedMarkId: options?.shapePhaseSeedMarkId,
+          sampledMotionOverride: options?.sampledMotionOverride,
           ditherPaletteSpread: options?.ditherPaletteSpread ?? brushSettings.ditherPaletteSpread,
           ditherPatternDiversity:
             options?.ditherPatternDiversity ?? brushSettings.ditherPatternDiversity,

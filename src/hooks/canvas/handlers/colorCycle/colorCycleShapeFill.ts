@@ -23,6 +23,7 @@ import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSes
 import { stampCcHangProbe, type CcHangProbePhase } from '@/hooks/canvas/utils/ccHangProbe';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import type { ColorCycleSampledMotion } from '@/types';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
 import { resolveColorCycleShapeFillSourceOptions } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFillOptions';
@@ -54,6 +55,7 @@ type ColorCycleShapeFillRuntimeOptions = {
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
   shapePhaseSeedMarkId?: string | null;
+  sampledMotionOverride?: ColorCycleSampledMotion;
   roi?: { x: number; y: number; width: number; height: number };
   linearGradientSpan?: number;
   skipPostRender?: boolean;

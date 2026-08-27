@@ -5,7 +5,10 @@ import { bakePaletteTable, renderBrushFrame, type Goblet2GradientStop } from '@/
 import { applyGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { GradientPalette } from '@/lib/GradientPalette';
-import { MAX_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
+import {
+  MAX_BRUSH_COLOR_CYCLE_SPEED,
+  MIN_BRUSH_COLOR_CYCLE_SPEED,
+} from '@/constants/colorCycle';
 import {
   applyColorCycleTransparencyMaskToPaintSnapshot,
   ColorCycleLayerDocument,
@@ -436,6 +439,8 @@ const renderVesselEditorFrame = (params: {
   indexBuffer: Uint8Array;
   gradientIdBuffer: Uint8Array;
   speedBuffer: Uint8Array;
+  flowBuffer?: Uint8Array;
+  phaseBuffer?: Uint8Array;
   fallbackGradient: Goblet2GradientStop[];
   slotPalettes: Map<number, { stops: Goblet2GradientStop[]; seamProfile?: GradientSeamProfile }> | null;
   timeSeconds: number;
@@ -454,6 +459,8 @@ const renderVesselEditorFrame = (params: {
     params.indexBuffer,
     params.gradientIdBuffer,
     params.speedBuffer,
+    params.flowBuffer,
+    params.phaseBuffer,
   );
   (animator as unknown as {
     renderFrame(offset?: number, baseTimeOverride?: number): void;
@@ -597,6 +604,58 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
 
   it('loads at least one CC fixture', () => {
     expect(fixtures.length).toBeGreaterThan(0);
+  });
+
+  it('keeps sampled phase, speed, and flow bytes aligned with Goblet playback', () => {
+    const indexBuffer = Uint8Array.from([1, 96, 224]);
+    const gradientIdBuffer = new Uint8Array(indexBuffer.length);
+    const gradientStops: Goblet2GradientStop[] = [
+      { position: 0, color: '#ff0000' },
+      { position: 0.5, color: '#00ff00' },
+      { position: 1, color: '#0000ff' },
+    ];
+    const paletteTable = bakePaletteTable(null, gradientStops, 256, 1);
+    const sampledMotions = [
+      { phaseByte: 0, speedByte: 29, flowByte: 3 },
+      { phaseByte: 91, speedByte: 17, flowByte: 2 },
+    ];
+
+    sampledMotions.forEach(({ phaseByte, speedByte, flowByte }) => {
+      const speedBuffer = new Uint8Array(indexBuffer.length).fill(speedByte);
+      const flowBuffer = new Uint8Array(indexBuffer.length).fill(flowByte);
+      const phaseBuffer = new Uint8Array(indexBuffer.length).fill(phaseByte);
+      const timeSeconds = 0.75;
+      const vesselFrame = renderVesselEditorFrame({
+        width: indexBuffer.length,
+        height: 1,
+        indexBuffer,
+        gradientIdBuffer,
+        speedBuffer,
+        flowBuffer,
+        phaseBuffer,
+        fallbackGradient: gradientStops,
+        slotPalettes: null,
+        timeSeconds,
+        legacyOffset01: 0,
+      });
+      const gobletFrame = renderBrushFrame({
+        indexBuffer,
+        gradientIdBuffer,
+        speedBuffer,
+        flowBuffer,
+        phaseBuffer,
+        paletteTable,
+        speedMin: MIN_BRUSH_COLOR_CYCLE_SPEED,
+        speedMax: MAX_BRUSH_COLOR_CYCLE_SPEED,
+        timeSeconds,
+      });
+
+      expect(diffFrames(vesselFrame, gobletFrame)).toEqual({
+        maxChannelDelta: 0,
+        maxAlphaDelta: 0,
+        mismatchedPixels: 0,
+      });
+    });
   });
 
   it('keeps canonical and raster custom-brush indexed-tip sampling aligned', () => {

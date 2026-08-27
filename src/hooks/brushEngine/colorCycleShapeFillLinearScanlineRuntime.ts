@@ -57,6 +57,8 @@ export type LinearScanlineFillParams = {
   lostEdge: number;
   ccGradient: boolean;
   pairBandCount: number;
+  shapePhaseBaseByte: number;
+  sampledPhaseOverride?: number;
   continuous: boolean;
   indexFromNormalized(pos: number): number;
   clamp01(value: number): number;
@@ -87,6 +89,8 @@ export async function runLinearScanlineFillFallback({
   lostEdge,
   ccGradient,
   pairBandCount,
+  shapePhaseBaseByte,
+  sampledPhaseOverride,
   continuous,
   indexFromNormalized,
   clamp01,
@@ -231,10 +235,11 @@ export async function runLinearScanlineFillFallback({
         for (let x = startX; x <= endX; x++) {
           const r = evaluateNormalized(x + 0.5, y + 0.5, false);
           const outIdx = indexFromNormalized(r);
-          const phaseByte = context.resolveShapePhaseByte(r, {
+          const phaseByte = sampledPhaseOverride ?? context.resolveShapePhaseByte(r, {
             ccGradient,
             pairBandCount,
             effectiveColorCount: numBands,
+            shapePhaseBaseByte,
           });
           context.logSetIndexSample(layerId, x, y);
           writeLinearIndex(x, y, outIdx, phaseByte);
@@ -248,10 +253,11 @@ export async function runLinearScanlineFillFallback({
           const k = Math.min(quantLevels - 1, Math.floor(scaled));
           const pos = k / denom;
           const outIdx = indexFromNormalized(pos);
-          const phaseByte = context.resolveShapePhaseByte(r, {
+          const phaseByte = sampledPhaseOverride ?? context.resolveShapePhaseByte(r, {
             ccGradient,
             pairBandCount,
             effectiveColorCount: numBands,
+            shapePhaseBaseByte,
           });
           context.logSetIndexSample(layerId, x, y);
           writeLinearIndex(x, y, outIdx, phaseByte);

@@ -798,6 +798,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     ) {
       newSettings.colorCycleGradientIsRuntimePalette = false;
     }
+    if (
+      settings.colorCycleGradient !== undefined &&
+      settings.colorCycleSampledMotion === undefined
+    ) {
+      newSettings.colorCycleSampledMotion = undefined;
+    }
     const explicitGradientVersion = settings.colorCycleGradientVersion;
     if (settings.colorCycleGradient !== undefined && explicitGradientVersion === undefined) {
       const gradientChanged = !gradientsEqual(
@@ -2011,6 +2017,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
     if (currentSettings.colorCycleFPS !== undefined && !hasUserColorCycleFPS) {
       newBrushSettings.colorCycleFPS = currentSettings.colorCycleFPS;
+    }
+    if (currentSettings.colorCycleSampledMotion !== undefined) {
+      newBrushSettings.colorCycleSampledMotion = currentSettings.colorCycleSampledMotion;
     }
     if (newBrushSettings.colorCycleFlowMode && newBrushSettings.colorCycleFlowMode !== 'forward') {
       newBrushSettings.colorCycleFlowMode = 'forward';

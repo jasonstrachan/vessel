@@ -1768,6 +1768,7 @@ export const useBrushEngineSimplified = () => {
       paintSlotOverride?: number;
       paintDefIdOverride?: number;
       shapePhaseSeedMarkId?: string | null;
+      sampledMotionOverride?: import('@/types').ColorCycleSampledMotion;
       roi?: { x: number; y: number; width: number; height: number };
       linearGradientSpan?: number;
       skipPostRender?: boolean;
@@ -1813,6 +1814,7 @@ export const useBrushEngineSimplified = () => {
       paintSlotOverride?: number;
       paintDefIdOverride?: number;
       shapePhaseSeedMarkId?: string | null;
+      sampledMotionOverride?: import('@/types').ColorCycleSampledMotion;
       roi?: { x: number; y: number; width: number; height: number };
       skipPostRender?: boolean;
     }

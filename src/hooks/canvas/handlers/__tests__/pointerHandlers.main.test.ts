@@ -898,6 +898,7 @@ describe('pointerHandlers main flows', () => {
       stops,
       runtimeStops,
       seamProfile: 'soft',
+      motion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
     }));
     dynamicDepsRef.current.tools.currentTool = 'color-picker';
     deps.tools = dynamicDepsRef.current.tools;
@@ -914,6 +915,7 @@ describe('pointerHandlers main flows', () => {
       stops,
       runtimeStops,
       seamProfile: 'soft',
+      motion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
     });
     expect(deps.setBrushSettings).not.toHaveBeenCalled();
     expect(deps.setActiveColor).not.toHaveBeenCalled();

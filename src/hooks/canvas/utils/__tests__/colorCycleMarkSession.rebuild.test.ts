@@ -313,6 +313,7 @@ describe('colorCycleMarkSession rebuild', () => {
           gradientBands: 16,
           colorCycleGradientSeamProfile: 'soft',
           colorCycleGradientIsRuntimePalette: true,
+          colorCycleSampledMotion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
         },
       },
       project: state.project
@@ -330,6 +331,18 @@ describe('colorCycleMarkSession rebuild', () => {
 
     expect(session?.seamProfile).toBe('soft');
     expect(session?.frozenStopsStored).toEqual(stops);
+    expect(session?.sampledMotion).toEqual({ phaseByte: 91, speedByte: 17, flowByte: 2 });
+
+    useAppStore.setState((state) => ({
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleSampledMotion: { phaseByte: 7, speedByte: 8, flowByte: 3 },
+        },
+      },
+    }));
+    expect(session?.sampledMotion).toEqual({ phaseByte: 91, speedByte: 17, flowByte: 2 });
     expect(
       useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore?.[0]?.seamProfile,
     ).toBe('soft');

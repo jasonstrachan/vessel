@@ -15,6 +15,9 @@ const makeSnapshot = (
   paintBuffer: Uint8Array.from([1, 1, 0, 0]).buffer,
   gradientIdBuffer: Uint8Array.from([4, 7, 0, 0]).buffer,
   gradientDefIdBuffer: Uint16Array.from([12, 0, 0, 0]).buffer,
+  speedBuffer: Uint8Array.from([17, 33, 0, 0]).buffer,
+  flowBuffer: Uint8Array.from([2, 0, 0, 0]).buffer,
+  phaseBuffer: Uint8Array.from([91, 42, 0, 0]).buffer,
   slotPalettes: [{
     slot: 7,
     stops: [
@@ -56,6 +59,7 @@ describe('color picker CC gradient sampling', () => {
       stops: snapshot.gradientDefStore?.[0]?.stops,
       runtimeStops: snapshot.gradientDefStore?.[0]?.stops,
       seamProfile: 'soft',
+      motion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
     });
     expect(picked?.stops).not.toBe(snapshot.gradientDefStore?.[0]?.stops);
     expect(picked?.stops[1]).not.toBe(snapshot.gradientDefStore?.[0]?.stops[1]);
@@ -67,6 +71,7 @@ describe('color picker CC gradient sampling', () => {
       stops: snapshot.slotPalettes?.[0]?.stops,
       runtimeStops: snapshot.slotPalettes?.[0]?.stops,
       seamProfile: 'hard',
+      motion: { phaseByte: 42, speedByte: 33, flowByte: 1 },
     });
   });
 
@@ -84,6 +89,17 @@ describe('color picker CC gradient sampling', () => {
 
     expect(resolvePickedColorCycleGradientFromSnapshot({ snapshot, x: 0, y: 0 })).toEqual({
       stops: sourceStops,
+      runtimeStops: snapshot.gradientDefStore?.[0]?.stops,
+      seamProfile: 'soft',
+      motion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
+    });
+  });
+
+  it('leaves motion unset when a legacy snapshot lacks the complete temporal buffers', () => {
+    const snapshot = makeSnapshot({ phaseBuffer: undefined });
+
+    expect(resolvePickedColorCycleGradientFromSnapshot({ snapshot, x: 0, y: 0 })).toEqual({
+      stops: snapshot.gradientDefStore?.[0]?.stops,
       runtimeStops: snapshot.gradientDefStore?.[0]?.stops,
       seamProfile: 'soft',
     });

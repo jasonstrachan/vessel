@@ -35,6 +35,26 @@ describe('resolveColorCycleShapeFillSourceOptions', () => {
     });
   });
 
+  it('forwards picked motion only for an unedited runtime-palette session', () => {
+    const renderSession = makeSession({
+      source: 'manual',
+      isRuntimePalette: true,
+      sampledMotion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
+    });
+    const sampledMotion = { phaseByte: 91, speedByte: 17, flowByte: 2 as const };
+
+    expect(resolveColorCycleShapeFillSourceOptions({
+      session: renderSession,
+      renderSession,
+    }).sampledMotionOverride).toEqual(sampledMotion);
+
+    renderSession.isRuntimePalette = false;
+    expect(resolveColorCycleShapeFillSourceOptions({
+      session: renderSession,
+      renderSession,
+    }).sampledMotionOverride).toBeUndefined();
+  });
+
   it('isolates sampled stops to sampled render sessions', () => {
     const renderSession = makeSession({
       source: 'sampled',

@@ -1,5 +1,10 @@
 import type { StoreApi } from 'zustand';
-import type { GradientSeamProfile, PaletteState } from '@/types';
+import type {
+  ColorCycleSampledMotion,
+  GradientSeamProfile,
+  PaletteState,
+} from '@/types';
+import { normalizeColorCycleSampledMotion } from '@/utils/colorCycleSampledMotion';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -12,6 +17,7 @@ export const updateToolsWithPalette = (
   options: {
     syncColorCycleGradient?: boolean;
     colorCycleGradientSeamProfile?: GradientSeamProfile;
+    colorCycleSampledMotion?: ColorCycleSampledMotion;
   } = {},
 ): AppState['tools'] => {
   const activeColorCycleGradient = options.syncColorCycleGradient
@@ -19,6 +25,7 @@ export const updateToolsWithPalette = (
         (gradient) => gradient.id === palette.activeColorCycleGradientId,
       )
     : undefined;
+  const sampledMotion = normalizeColorCycleSampledMotion(options.colorCycleSampledMotion);
   return {
     ...tools,
     ...(activeColorCycleGradient ? { ccGradientSource: 'manual' as const } : {}),
@@ -36,6 +43,7 @@ export const updateToolsWithPalette = (
               ? { colorCycleGradientSeamProfile: options.colorCycleGradientSeamProfile }
               : {}),
             colorCycleGradientIsRuntimePalette: Boolean(activeColorCycleGradient.runtimeStops?.length),
+            colorCycleSampledMotion: sampledMotion ?? undefined,
             ccGradientSource: 'manual' as const,
             colorCycleUseForegroundGradient: false,
             autoSampleGradient: false,
@@ -54,6 +62,7 @@ export interface ApplyPaletteOptions {
   paletteDirty?: boolean;
   syncColorCycleGradient?: boolean;
   colorCycleGradientSeamProfile?: GradientSeamProfile;
+  colorCycleSampledMotion?: ColorCycleSampledMotion;
 }
 
 export const applyPaletteSnapshot = (
@@ -68,6 +77,7 @@ export const applyPaletteSnapshot = (
     const nextTools = updateToolsWithPalette(palette, state.tools, {
       syncColorCycleGradient: options.syncColorCycleGradient,
       colorCycleGradientSeamProfile: options.colorCycleGradientSeamProfile,
+      colorCycleSampledMotion: options.colorCycleSampledMotion,
     });
 
     const result: Partial<AppState> = {

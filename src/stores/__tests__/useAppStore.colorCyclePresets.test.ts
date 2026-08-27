@@ -81,6 +81,45 @@ describe('useAppStore color cycle brush presets', () => {
     expect(useAppStore.getState().tools.brushSettings.colorCycleGradient).toEqual(customGradient);
   });
 
+  it('preserves picked motion while returning to a CC fill preset', () => {
+    const store = useAppStore.getState();
+    store.setBrushPreset(colorCycleStrokeBrushPreset);
+    store.rememberColorCycleGradient({
+      stops: customGradient,
+      runtimeStops: customGradient,
+      seamProfile: 'hard',
+      motion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
+    });
+
+    store.setBrushPreset(defaultBrushPreset);
+    store.setBrushPreset(colorCycleShapeBrushPreset);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSampledMotion).toEqual({
+      phaseByte: 91,
+      speedByte: 17,
+      flowByte: 2,
+    });
+  });
+
+  it('clears picked motion when the gradient is explicitly edited', () => {
+    const store = useAppStore.getState();
+    store.rememberColorCycleGradient({
+      stops: customGradient,
+      runtimeStops: customGradient,
+      seamProfile: 'hard',
+      motion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
+    });
+
+    store.setBrushSettings({
+      colorCycleGradient: [
+        { position: 0, color: '#000000' },
+        { position: 1, color: '#ffffff' },
+      ],
+    });
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleSampledMotion).toBeUndefined();
+  });
+
   it('updates brush settings with the selected flow mode', () => {
     const store = useAppStore.getState();
     store.setBrushSettings({ colorCycleFlowMode: 'pingpong' });

@@ -134,10 +134,16 @@ describe('palette slice', () => {
       stops,
       runtimeStops,
       seamProfile: 'soft',
+      motion: { phaseByte: 91, speedByte: 17, flowByte: 2 },
     });
     expect(store.getState().tools.brushSettings.colorCycleGradient).toEqual(runtimeStops);
     expect(store.getState().tools.brushSettings.colorCycleGradientSeamProfile).toBe('soft');
     expect(store.getState().tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(true);
+    expect(store.getState().tools.brushSettings.colorCycleSampledMotion).toEqual({
+      phaseByte: 91,
+      speedByte: 17,
+      flowByte: 2,
+    });
 
     store.updateActiveColorCycleGradient([
       { position: 0, color: '#112233' },
@@ -147,5 +153,6 @@ describe('palette slice', () => {
     expect(active.runtimeStops).toBeUndefined();
     expect(store.getState().tools.brushSettings.colorCycleGradientSeamProfile).toBe('soft');
     expect(store.getState().tools.brushSettings.colorCycleGradientIsRuntimePalette).toBe(false);
+    expect(store.getState().tools.brushSettings.colorCycleSampledMotion).toBeUndefined();
   });
 });

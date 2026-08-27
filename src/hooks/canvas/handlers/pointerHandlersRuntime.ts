@@ -2376,6 +2376,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         stops: pickedGradient.stops,
         runtimeStops: pickedGradient.runtimeStops,
         seamProfile: pickedGradient.seamProfile,
+        ...(pickedGradient.motion ? { motion: pickedGradient.motion } : {}),
       });
     },
     sampleRegularColor: applyRegularColorPickerSample,

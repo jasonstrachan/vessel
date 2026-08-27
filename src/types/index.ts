@@ -92,6 +92,12 @@ export interface ColorCycleGradientSwatch {
   runtimeStops?: Array<{ position: number; color: string; opacity?: number }>;
 }
 
+export type ColorCycleSampledMotion = {
+  phaseByte: number;
+  speedByte: number;
+  flowByte: 1 | 2 | 3;
+};
+
 export interface PaletteState {
   foregroundColor: string;
   backgroundColor: string;
@@ -1622,6 +1628,7 @@ export interface BrushSettings {
   colorCycleGradient?: Array<{ position: number; color: string; opacity?: number }>; // Gradient stops
   colorCycleGradientSeamProfile?: GradientSeamProfile; // Manual gradient loop seam, including gradients picked from CC pixels
   colorCycleGradientIsRuntimePalette?: boolean; // Picked CC definitions are already contrast/dither palette resolved
+  colorCycleSampledMotion?: ColorCycleSampledMotion; // Motion bytes picked from a CC pixel for synchronized shape fills
   colorCycleGradientVersion?: number;
   colorCycleFPS?: number; // 15-60 (frames per second for animation)
   colorCycleFillMode?: 'concentric' | 'linear' | 'circular' | 'stroke'; // Fill mode for Color Cycle Shape
