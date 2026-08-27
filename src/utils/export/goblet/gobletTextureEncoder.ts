@@ -10,8 +10,9 @@ const CANVAS_EXPORT_FORMATS: readonly CanvasExportFormatOption[] = [
   { type: 'image/png' }
 ];
 
+// Sparse pixel glyphs expose lossy color ringing even at high WebP quality.
+// PNG preserves their authored palette and remains small for transparent text layers.
 const TXT_SHAPE_CANVAS_EXPORT_FORMATS: readonly CanvasExportFormatOption[] = [
-  { type: 'image/webp', quality: 0.85 },
   { type: 'image/png' }
 ];
 

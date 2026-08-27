@@ -430,8 +430,9 @@ describe('webglExporter bundle contracts', () => {
 
       expect(metadata.textShapes).toEqual(project.txtShapes);
       expect(metadata.txtShapePlayback).toEqual(project.txtShapePlayback);
-      expect(textureRequests).toContainEqual({ type: 'image/webp', quality: 0.85 });
+      expect(textureRequests).toContainEqual({ type: 'image/png', quality: undefined });
       expect(textureRequests).not.toContainEqual({ type: 'image/avif', quality: 0.6 });
+      expect(textureRequests).not.toContainEqual({ type: 'image/webp', quality: 0.75 });
     } finally {
       Object.defineProperty(document, 'fonts', {
         configurable: true,

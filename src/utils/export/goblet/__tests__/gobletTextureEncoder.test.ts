@@ -70,7 +70,7 @@ describe('canvasToDataURL format negotiation', () => {
     expect(result.format).toBe('image/webp');
   });
 
-  it('encodes TXT Shape layers directly as WebP at quality 0.85', async () => {
+  it('encodes TXT Shape layers directly as lossless PNG', async () => {
     const requested: Array<{ type: string | undefined; quality: number | undefined }> = [];
     const canvas = makeCanvas((type, quality) => {
       requested.push({ type, quality });
@@ -79,8 +79,8 @@ describe('canvasToDataURL format negotiation', () => {
 
     const result = await canvasToDataURL(canvas, 'txt-shape');
 
-    expect(result.format).toBe('image/webp');
-    expect(result.dataUrl.startsWith('data:image/webp;base64,')).toBe(true);
-    expect(requested).toEqual([{ type: 'image/webp', quality: 0.85 }]);
+    expect(result.format).toBe('image/png');
+    expect(result.dataUrl.startsWith('data:image/png;base64,')).toBe(true);
+    expect(requested).toEqual([{ type: 'image/png', quality: undefined }]);
   });
 });
