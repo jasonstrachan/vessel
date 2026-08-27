@@ -58,10 +58,16 @@ const expandVisibleRect = (visibleRect: Rect, layers: Layer[], state: AppState):
   const overscan = resolveBloomOverscan(layers);
   const projectWidth = Math.max(1, state.project?.width ?? visibleRect.x + visibleRect.width);
   const projectHeight = Math.max(1, state.project?.height ?? visibleRect.y + visibleRect.height);
-  const x = Math.max(0, visibleRect.x - overscan);
-  const y = Math.max(0, visibleRect.y - overscan);
-  const maxX = Math.min(projectWidth, visibleRect.x + visibleRect.width + overscan);
-  const maxY = Math.min(projectHeight, visibleRect.y + visibleRect.height + overscan);
+  const x = Math.floor(Math.max(0, visibleRect.x - overscan));
+  const y = Math.floor(Math.max(0, visibleRect.y - overscan));
+  const maxX = Math.ceil(Math.min(
+    projectWidth,
+    visibleRect.x + visibleRect.width + overscan,
+  ));
+  const maxY = Math.ceil(Math.min(
+    projectHeight,
+    visibleRect.y + visibleRect.height + overscan,
+  ));
   return { x, y, width: maxX - x, height: maxY - y };
 };
 
@@ -91,6 +97,7 @@ export const drawAdjustmentCompositeStack = ({
   if (!surface || !surfaceContext) return false;
 
   surfaceContext.setTransform(1, 0, 0, 1, 0, 0);
+  surfaceContext.imageSmoothingEnabled = false;
   surfaceContext.clearRect(0, 0, surface.width, surface.height);
   const project = storeState.project;
   if (project?.backgroundColor && project.backgroundColor !== 'transparent') {
