@@ -15,6 +15,7 @@ import type {
 } from '@/types';
 import type {
   AlignmentExportPayload,
+  GobletAutomationTrack,
   WebGLExportMetadata,
   WebGLExportRequest,
   WebGLLayerMetadata,
@@ -230,6 +231,120 @@ const normalizeDynamicFeatureIds = (features: readonly string[]): string[] => (
   [...new Set(features.map((feature) => feature.trim()).filter(Boolean))].sort()
 );
 
+const GOBLET_AUTOMATION_TRACK_PROPERTIES = new Set<GobletAutomationTrack['property']>([
+  'x', 'y', 'opacity', 'visible', 'rotation', 'scaleX', 'scaleY', 'pressed', 'sourceX', 'sourceY',
+  'playbackTime',
+]);
+
+const isGobletAutomationTrackProperty = (
+  value: unknown,
+): value is GobletAutomationTrack['property'] => (
+  typeof value === 'string'
+  && GOBLET_AUTOMATION_TRACK_PROPERTIES.has(value as GobletAutomationTrack['property'])
+);
+
+const assertRendererV1AutomationReferencesComplete = (metadata: WebGLExportMetadata): void => {
+  const automation = metadata.automation;
+  if (!automation) return;
+  const targets = new Map<string, { kind: string }>();
+  const addTarget = (id: string, kind: string): void => {
+    if (!id || targets.has(id)) {
+      throw new Error(`Renderer v1 has an invalid or duplicate target ID: ${id}.`);
+    }
+    targets.set(id, { kind });
+  };
+  automation.objects.forEach((object) => addTarget(object.id, object.kind));
+  (automation.masks ?? []).forEach((mask) => addTarget(mask.id, 'mask'));
+
+  const referencedMasks = new Set<string>();
+  automation.objects.forEach((object) => {
+    if (!object.maskId) return;
+    if (targets.get(object.maskId)?.kind !== 'mask') {
+      throw new Error(`Renderer v1 object ${object.id} references missing mask ${object.maskId}.`);
+    }
+    referencedMasks.add(object.maskId);
+  });
+  (automation.symbols ?? []).forEach((symbol) => {
+    symbol.objects.forEach((object) => {
+      if (!object.maskId) return;
+      if (targets.get(object.maskId)?.kind !== 'mask') {
+        throw new Error(`Renderer v1 symbol ${symbol.id} references missing mask ${object.maskId}.`);
+      }
+      referencedMasks.add(object.maskId);
+    });
+  });
+  const unusedMasks = (automation.masks ?? [])
+    .map((mask) => mask.id)
+    .filter((id) => !referencedMasks.has(id));
+  if (unusedMasks.length > 0) {
+    throw new Error(`Renderer v1 has unused masks: ${unusedMasks.join(', ')}.`);
+  }
+
+  const dataChannelIds = new Set<string>();
+  for (const channel of automation.dataChannels ?? []) {
+    if (
+      !channel.id
+      || dataChannelIds.has(channel.id)
+      || channel.values.length === 0
+      || !channel.values.every(Number.isFinite)
+      || !Number.isFinite(channel.intervalSeconds)
+      || channel.intervalSeconds <= 0
+    ) {
+      throw new Error(`Renderer v1 has an invalid or duplicate data channel: ${channel.id}.`);
+    }
+    dataChannelIds.add(channel.id);
+  }
+
+  const usedDataChannelIds = new Set<string>();
+  const trackKeys = new Set<string>();
+  let playbackTimeTracks = 0;
+  for (const track of automation.tracks) {
+    const target = targets.get(track.targetId);
+    if (!target) {
+      throw new Error(`Renderer v1 track references missing target ${track.targetId}.`);
+    }
+    const property: string = track.property;
+    const trackKey = `${track.targetId}:${property}`;
+    if (trackKeys.has(trackKey)) {
+      throw new Error(`Renderer v1 has a duplicate track: ${trackKey}.`);
+    }
+    trackKeys.add(trackKey);
+    const hasKeyframes = Array.isArray(track.keyframes) && track.keyframes.length > 0;
+    const dataChannelId = track.dataChannelId;
+    const hasDataChannel = typeof dataChannelId === 'string' && dataChannelId.length > 0;
+    if (hasKeyframes === hasDataChannel || (hasDataChannel && !dataChannelIds.has(dataChannelId))) {
+      throw new Error(`Renderer v1 track ${trackKey} requires exactly one valid data source.`);
+    }
+    if (hasDataChannel) usedDataChannelIds.add(dataChannelId);
+    if (hasDataChannel && (property === 'visible' || property === 'pressed')) {
+      throw new Error(`Renderer v1 track ${trackKey} cannot use numeric data.`);
+    }
+    if (property === 'playbackTime') {
+      playbackTimeTracks += 1;
+      if (target.kind !== 'artwork') {
+        throw new Error(`Renderer v1 playbackTime track ${trackKey} must target artwork.`);
+      }
+    }
+    if (
+      (property === 'sourceX' || property === 'sourceY')
+      && target.kind !== 'sprite'
+      && target.kind !== 'mask'
+    ) {
+      throw new Error(`Renderer v1 source track ${trackKey} must target a sprite or mask.`);
+    }
+    if (target.kind === 'mask' && (property === 'visible' || property === 'pressed')) {
+      throw new Error(`Renderer v1 mask track ${trackKey} uses an unsupported property.`);
+    }
+  }
+  if (playbackTimeTracks > 1) {
+    throw new Error('Renderer v1 supports only one playbackTime track.');
+  }
+  const unusedDataChannels = [...dataChannelIds].filter((id) => !usedDataChannelIds.has(id));
+  if (unusedDataChannels.length > 0) {
+    throw new Error(`Renderer v1 has unused data channels: ${unusedDataChannels.join(', ')}.`);
+  }
+};
+
 const getNativeGobletDynamicFeatures = (metadata: WebGLExportMetadata): string[] => {
   const features: string[] = [];
   if (metadata.layers.some((layer) => Boolean(layer.colorCycle) && layer.colorCycle?.isAnimating !== false)) {
@@ -246,7 +361,7 @@ const getNativeGobletDynamicFeatures = (metadata: WebGLExportMetadata): string[]
   return features;
 };
 
-const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetadata): void => {
+export const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetadata): void => {
   const manifest = metadata.dynamicFeatures;
   if (!manifest || manifest.schemaVersion !== 1) {
     throw new Error('Goblet export requires a dynamic feature manifest.');
@@ -261,7 +376,80 @@ const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetadata): vo
       undeclared.length > 0 ? `Compiled features were not declared: ${undeclared.join(', ')}.` : '',
     ].filter(Boolean).join(' '));
   }
-  metadata.dynamicFeatures = { schemaVersion: 1, authored, compiled };
+  assertRendererV1AutomationReferencesComplete(metadata);
+  const requirements = manifest.requirements ?? [];
+  if (!Array.isArray(requirements)) {
+    throw new Error('Dynamic feature requirements must be an array.');
+  }
+  const requirementFeatures = new Set<string>();
+  const normalizedRequirements = requirements.map((requirement) => {
+    const featureId = typeof requirement?.featureId === 'string'
+      ? requirement.featureId.trim()
+      : '';
+    const requiredObjects = Array.isArray(requirement?.objects) ? requirement.objects : [];
+    const seenObjectIds = new Set<string>();
+    const objects = requiredObjects.map((object) => {
+      const objectId = typeof object?.objectId === 'string' ? object.objectId.trim() : '';
+      const trackProperties = Array.isArray(object?.trackProperties)
+        && object.trackProperties.every(isGobletAutomationTrackProperty)
+        ? [...new Set(object.trackProperties.filter(isGobletAutomationTrackProperty))].sort()
+        : null;
+      if (!objectId || seenObjectIds.has(objectId) || trackProperties === null) {
+        throw new Error(`Dynamic feature ${featureId} has invalid object requirements.`);
+      }
+      seenObjectIds.add(objectId);
+      return { objectId, trackProperties };
+    }).sort((left, right) => left.objectId.localeCompare(right.objectId));
+    if (!featureId || requirementFeatures.has(featureId) || objects.length === 0) {
+      throw new Error('Dynamic feature requirements need unique feature IDs and object IDs.');
+    }
+    if (!authored.includes(featureId) || !compiled.includes(featureId)) {
+      throw new Error(`Dynamic feature requirement is not declared and compiled: ${featureId}.`);
+    }
+    requirementFeatures.add(featureId);
+    return { featureId, objects };
+  }).sort((left, right) => left.featureId.localeCompare(right.featureId));
+  const missingRequirements = authored.filter((feature) => (
+    feature.startsWith('studio:') && !requirementFeatures.has(feature)
+  ));
+  if (missingRequirements.length > 0) {
+    throw new Error(`Dynamic features have no object requirements: ${missingRequirements.join(', ')}.`);
+  }
+  const actualObjectIds = new Set([
+    ...(metadata.automation?.objects.map((object) => object.id) ?? []),
+    ...(metadata.automation?.masks?.map((mask) => mask.id) ?? []),
+  ]);
+  const missingObjects = normalizedRequirements.flatMap(({ featureId, objects }) => (
+    objects.filter(({ objectId }) => !actualObjectIds.has(objectId)).map(({ objectId }) => (
+      `${featureId}:${objectId}`
+    ))
+  ));
+  if (missingObjects.length > 0) {
+    throw new Error(`Dynamic feature objects were not compiled: ${missingObjects.join(', ')}.`);
+  }
+  const trackPropertiesByTarget = new Map<string, Set<string>>();
+  (metadata.automation?.tracks ?? []).forEach((track) => {
+    const properties = trackPropertiesByTarget.get(track.targetId) ?? new Set<string>();
+    properties.add(track.property);
+    trackPropertiesByTarget.set(track.targetId, properties);
+  });
+  normalizedRequirements.forEach(({ featureId, objects }) => {
+    objects.forEach(({ objectId, trackProperties }) => {
+      const actualProperties = trackPropertiesByTarget.get(objectId) ?? new Set<string>();
+      const missingProperties = trackProperties.filter((property) => !actualProperties.has(property));
+      if (missingProperties.length > 0) {
+        throw new Error(
+          `Dynamic feature object ${featureId}:${objectId} is missing tracks: ${missingProperties.join(', ')}.`,
+        );
+      }
+    });
+  });
+  metadata.dynamicFeatures = {
+    schemaVersion: 1,
+    authored,
+    compiled,
+    ...(normalizedRequirements.length > 0 ? { requirements: normalizedRequirements } : {}),
+  };
 };
 
 

@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { assertDynamicFeatureManifestComplete } from '@/utils/export/goblet/gobletExporter';
+import type { WebGLExportMetadata } from '@/utils/export/goblet/gobletTypes';
+
 const read = (relativePath: string): string => (
   fs.readFileSync(path.resolve(process.cwd(), relativePath), 'utf8')
 );
@@ -18,7 +21,7 @@ describe('Goblet Renderer v1 scene runtime', () => {
     expect(runtime).toContain("state.kind === 'artwork'");
     expect(runtime).toContain('drawContext.drawImage(\n        sourceCanvas,');
     expect(runtime).toContain('sourceViewer?.setExternalClockActive?.(true);');
-    expect(runtime).toContain('sourceViewer?.renderAtTime?.(resolved);');
+    expect(runtime).toContain('sourceViewer?.renderAtTime?.(sourcePlaybackTime);');
   });
 
   it('supports hierarchy, local clips, shared resources, and symbol instances', () => {
@@ -40,6 +43,14 @@ describe('Goblet Renderer v1 scene runtime', () => {
     expect(schema).toContain("anchorX: 'ax'");
     expect(schema).toContain("sourceX: 'srx'");
     expect(schema).toContain("loopDurationSeconds: 'lds'");
+    expect(schema).toContain("requirements: 'req'");
+    expect(schema).toContain("objectId: 'oid'");
+    expect(schema).toContain("trackProperties: 'tpr'");
+    expect(schema).toContain("masks: 'msk'");
+    expect(schema).toContain("maskId: 'mid'");
+    expect(schema).toContain("dataChannels: 'dch'");
+    expect(schema).toContain("dataChannelId: 'dcid'");
+    expect(schema).toContain("valueScale: 'vsc'");
   });
 
   it('keeps the compact scene vocabulary decodable in both Goblet runtimes', () => {
@@ -55,6 +66,105 @@ describe('Goblet Renderer v1 scene runtime', () => {
       expect(runtime).toContain("ay: 'anchorY'");
       expect(runtime).toContain("srx: 'sourceX'");
       expect(runtime).toContain("lds: 'loopDurationSeconds'");
+      expect(runtime).toContain("req: 'requirements'");
+      expect(runtime).toContain("oid: 'objectId'");
+      expect(runtime).toContain("tpr: 'trackProperties'");
+      expect(runtime).toContain("msk: 'masks'");
+      expect(runtime).toContain("mid: 'maskId'");
+      expect(runtime).toContain("dch: 'dataChannels'");
+      expect(runtime).toContain("dcid: 'dataChannelId'");
+      expect(runtime).toContain("vsc: 'valueScale'");
     }
+  });
+
+  it('keeps masks, isolated groups, and embedded data in the frozen runtime', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    expect(runtime).toContain('const buildRendererV1Masks =');
+    expect(runtime).toContain("? 'destination-out'");
+    expect(runtime).toContain(": 'destination-in'");
+    expect(runtime).toContain("state.kind === 'group' && (opacity !== 1");
+    expect(runtime).toContain('const dataChannels = new Map(');
+    expect(runtime).toContain("track.property === 'playbackTime'");
+  });
+
+  it('fails export when an authored Studio requirement is absent or unresolved', () => {
+    const metadata = {
+      dynamicFeatures: {
+        schemaVersion: 1,
+        authored: ['studio:ui-shape-playback-v1'],
+        compiled: ['studio:ui-shape-playback-v1'],
+        requirements: [{
+          featureId: 'studio:ui-shape-playback-v1',
+          objects: [
+            { objectId: 'ui-playback:cursor:1', trackProperties: ['pressed', 'y', 'x'] },
+            { objectId: 'ui-playback:cursor:0', trackProperties: ['pressed', 'y', 'x'] },
+          ],
+        }],
+      },
+      automation: {
+        schemaVersion: 1,
+        durationSeconds: 1,
+        objects: [{ id: 'ui-playback:cursor:0', kind: 'cursor', x: 0, y: 0 }],
+        tracks: [],
+      },
+    } as WebGLExportMetadata;
+
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
+      'Dynamic feature objects were not compiled: studio:ui-shape-playback-v1:ui-playback:cursor:1.',
+    );
+    metadata.automation!.objects.push({ id: 'ui-playback:cursor:1', kind: 'cursor', x: 0, y: 0 });
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
+      'Dynamic feature object studio:ui-shape-playback-v1:ui-playback:cursor:0 is missing tracks: pressed, x, y.',
+    );
+    for (const targetId of ['ui-playback:cursor:0', 'ui-playback:cursor:1']) {
+      metadata.automation!.tracks.push(
+        { targetId, property: 'x', keyframes: [{ time: 0, value: 0 }] },
+        { targetId, property: 'y', keyframes: [{ time: 0, value: 0 }] },
+        { targetId, property: 'pressed', keyframes: [{ time: 0, value: false }] },
+      );
+    }
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).not.toThrow();
+    expect(metadata.dynamicFeatures?.requirements?.[0]?.objects).toEqual([
+      { objectId: 'ui-playback:cursor:0', trackProperties: ['pressed', 'x', 'y'] },
+      { objectId: 'ui-playback:cursor:1', trackProperties: ['pressed', 'x', 'y'] },
+    ]);
+
+    metadata.dynamicFeatures!.requirements = [];
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
+      'Dynamic features have no object requirements: studio:ui-shape-playback-v1.',
+    );
+  });
+
+  it('fails export when masks or embedded data would be silently omitted', () => {
+    const metadata = {
+      dynamicFeatures: {
+        schemaVersion: 1,
+        authored: ['renderer-v1:test-scene-v1'],
+        compiled: ['renderer-v1:test-scene-v1'],
+      },
+      automation: {
+        schemaVersion: 1,
+        durationSeconds: 1,
+        masks: [{
+          id: 'reveal', dataUrl: 'data:image/png;base64,AAAA',
+          x: 0, y: 0, width: 1, height: 1,
+        }],
+        dataChannels: [{ id: 'motion', values: [0, 1], intervalSeconds: 1 }],
+        objects: [{ id: 'shape', kind: 'rect', x: 0, y: 0, width: 1, height: 1, fill: '#000' }],
+        tracks: [],
+      },
+    } as WebGLExportMetadata;
+
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
+      'Renderer v1 has unused masks: reveal.',
+    );
+    metadata.automation!.objects[0]!.maskId = 'reveal';
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
+      'Renderer v1 has unused data channels: motion.',
+    );
+    metadata.automation!.tracks.push({
+      targetId: 'reveal', property: 'x', dataChannelId: 'motion',
+    });
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).not.toThrow();
   });
 });

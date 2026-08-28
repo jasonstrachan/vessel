@@ -103,6 +103,23 @@ const createMasterClockAutomationBundle = () => {
   return bundle;
 };
 
+const createDataDrivenPlaybackBundle = () => {
+  const bundle = createMasterClockAutomationBundle();
+  const automation = (bundle as typeof bundle & {
+    automation: {
+      dataChannels?: unknown[];
+      tracks: unknown[];
+    };
+  }).automation;
+  automation.dataChannels = [{
+    id: 'source-time', values: [0, 0, 1], intervalSeconds: 1, interpolation: 'linear',
+  }];
+  automation.tracks.push({
+    targetId: 'artwork', property: 'playbackTime', dataChannelId: 'source-time',
+  });
+  return bundle;
+};
+
 const createResourceFailureBundle = () => {
   const bundle = createGoblet2Bundle();
   (bundle as typeof bundle & { automation: unknown }).automation = {
@@ -179,6 +196,34 @@ const createInheritedGroupOpacityBundle = () => {
       { id: 'blue', parentId: 'group', kind: 'rect', x: 4, y: 4, width: 12, height: 12, fill: '#0000ff' },
     ],
     tracks: [],
+  };
+  return bundle;
+};
+
+const createDataDrivenMaskBundle = () => {
+  const bundle = createGoblet2Bundle({ layers: [] });
+  bundle.project.width = 8;
+  bundle.project.height = 4;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = 8;
+  bundle.viewport.designHeight = 4;
+  const alphaMask = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">'
+      + '<rect width="4" height="4" fill="#fff"/></svg>',
+  )}`;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 2,
+    resources: [{ id: 'alpha-mask', kind: 'image', dataUrl: alphaMask }],
+    masks: [{ id: 'reveal', resourceId: 'alpha-mask', x: 0, y: 0, width: 4, height: 4 }],
+    dataChannels: [{
+      id: 'mask-x', values: [0, 4, 0], intervalSeconds: 1, interpolation: 'linear',
+    }],
+    objects: [{
+      id: 'masked-shape', kind: 'rect', maskId: 'reveal',
+      x: 0, y: 0, width: 8, height: 4, fill: '#00ff00',
+    }],
+    tracks: [{ targetId: 'reveal', property: 'x', dataChannelId: 'mask-x' }],
   };
   return bundle;
 };
@@ -809,6 +854,33 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     expect(checkpoint.after.selectionEnd).toEqual([255, 255, 255, 255]);
   });
 
+  test('drives Color Cycle playback time from an embedded data channel', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createDataDrivenPlaybackBundle()));
+    await waitForSmokeReady(page);
+    const times = await page.evaluate(() => {
+      const canvas = document.querySelector('#preview-canvas') as HTMLCanvasElement;
+      const controller = (window as Window & {
+        vesselGobletRendererV1?: { setTime: (seconds: number) => void; getTime: () => number };
+      }).vesselGobletRendererV1!;
+      controller.setTime(1.25);
+      const viewer = Object.getOwnPropertySymbols(canvas)
+        .map((symbol) => (canvas as unknown as Record<symbol, unknown>)[symbol])
+        .find((value) => typeof value === 'object' && value !== null && 'dynamicPlayers' in value) as {
+          playbackTimeSeconds: number;
+          dynamicPlayers: Array<{ baseTimeSeconds?: number }>;
+        };
+      return {
+        colorCycle: viewer.dynamicPlayers
+          .find((player) => typeof player.baseTimeSeconds === 'number')?.baseTimeSeconds,
+        core: viewer.playbackTimeSeconds,
+        scene: controller.getTime(),
+      };
+    });
+    expect(times.scene).toBe(1.25);
+    expect(times.core).toBeCloseTo(0.25, 5);
+    expect(times.colorCycle).toBeCloseTo(0.25, 5);
+  });
+
   test('pauses and resumes the shared clock without adding hidden-tab time', async ({ browser }) => {
     const context = await browser.newContext();
     await installControlledBrowserState(context, { useManualAnimationFrames: true });
@@ -875,19 +947,40 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     expect(after.cursorAtEnd).toEqual([0, 0, 0, 255]);
   });
 
-  test('uses inherited per-descendant group opacity rather than isolated group compositing', async ({ page }) => {
+  test('isolates group opacity before compositing the group', async ({ page }) => {
     await page.setContent(buildSingleFileGoblet2Html(createInheritedGroupOpacityBundle()));
     await waitForSmokeReady(page);
     const pixel = await page.locator('#vessel-renderer-v1').evaluate((canvas) => (
       Array.from((canvas as HTMLCanvasElement).getContext('2d', { willReadFrequently: true })!
         .getImageData(6, 6, 1, 1).data)
     ));
-    expect(pixel[0]).toBeGreaterThanOrEqual(84);
-    expect(pixel[0]).toBeLessThanOrEqual(86);
-    expect(pixel[2]).toBeGreaterThanOrEqual(169);
-    expect(pixel[2]).toBeLessThanOrEqual(171);
-    expect(pixel[3]).toBeGreaterThanOrEqual(190);
-    expect(pixel[3]).toBeLessThanOrEqual(192);
+    expect(pixel[0]).toBe(0);
+    expect(pixel[2]).toBe(255);
+    expect(pixel[3]).toBeGreaterThanOrEqual(127);
+    expect(pixel[3]).toBeLessThanOrEqual(128);
+  });
+
+  test('moves an alpha mask from embedded data on the master timeline', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createDataDrivenMaskBundle()));
+    await waitForSmokeReady(page);
+    const checkpoint = async (time: number) => page.evaluate((seconds) => {
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(seconds);
+      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const context = canvas.getContext('2d', { willReadFrequently: true })!;
+      return {
+        left: Array.from(context.getImageData(1, 1, 1, 1).data),
+        right: Array.from(context.getImageData(6, 1, 1, 1).data),
+      };
+    }, time);
+    expect(await checkpoint(0)).toEqual({
+      left: [0, 255, 0, 255],
+      right: [0, 0, 0, 0],
+    });
+    expect(await checkpoint(1)).toEqual({
+      left: [0, 0, 0, 0],
+      right: [0, 255, 0, 255],
+    });
   });
 
   test('dismisses a popup while panning and zooming artwork inside a fixed clip', async ({ page }) => {

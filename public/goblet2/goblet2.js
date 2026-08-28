@@ -1489,8 +1489,23 @@ const PROPERTY_UNMINIFY_MAP = {
   df: 'dynamicFeatures',
   af: 'authored',
   cf: 'compiled',
+  req: 'requirements',
+  fid: 'featureId',
+  oid: 'objectId',
+  tpr: 'trackProperties',
   clp: 'clips',
   cid: 'clipId',
+  msk: 'masks',
+  mid: 'maskId',
+  inv: 'invert',
+  dch: 'dataChannels',
+  dcid: 'dataChannelId',
+  vals: 'values',
+  ins: 'intervalSeconds',
+  sts: 'startSeconds',
+  ip: 'interpolation',
+  vsc: 'valueScale',
+  vof: 'valueOffset',
   res: 'resources',
   rid: 'resourceId',
   sym: 'symbols',
@@ -7246,6 +7261,7 @@ const RENDERER_V1_OBJECT_KINDS = new Set([
 ]);
 const RENDERER_V1_PROPERTIES = new Set([
   'opacity',
+  'playbackTime',
   'pressed',
   'rotation',
   'scaleX',
@@ -7263,6 +7279,8 @@ const RENDERER_V1_BLEND_MODES = new Set([
   'darken',
   'lighten'
 ]);
+const RENDERER_V1_MAX_ISOLATION_BYTES = 256 * 1024 * 1024;
+const RENDERER_V1_MAX_ISOLATION_DEPTH = 16;
 
 const createRendererV1Image = (dataUrl, redraw, label = 'sprite') => {
   if (typeof dataUrl !== 'string' || dataUrl.length === 0 || typeof Image === 'undefined') {
@@ -7286,6 +7304,7 @@ const buildRendererV1Hierarchy = ({
   sources,
   clips,
   imageResources,
+  masks,
   loadInlineImage,
   redraw
 }) => {
@@ -7301,6 +7320,7 @@ const buildRendererV1Hierarchy = ({
       id,
       children: [],
       clip: clips.get(String(source.clipId || '')) || null,
+      mask: masks.get(String(source.maskId || '')) || null,
       opacity: Number.isFinite(Number(source.opacity)) ? Number(source.opacity) : 1,
       pressed: source.pressed === true,
       rotation: Number(source.rotation) || 0,
@@ -7328,6 +7348,29 @@ const buildRendererV1Hierarchy = ({
     }
   }
   return { ordered, roots, states };
+};
+
+const buildRendererV1Masks = ({ sources, imageResources, loadInlineImage }) => {
+  const masks = new Map();
+  for (const source of Array.isArray(sources) ? sources : []) {
+    const id = String(source?.id || '');
+    if (!id || masks.has(id)) continue;
+    const state = {
+      ...source,
+      id,
+      kind: 'mask',
+      invert: source.invert === true,
+      opacity: Number.isFinite(Number(source.opacity)) ? Number(source.opacity) : 1,
+      rotation: Number(source.rotation) || 0,
+      scaleX: Number.isFinite(Number(source.scaleX)) ? Number(source.scaleX) : 1,
+      scaleY: Number.isFinite(Number(source.scaleY)) ? Number(source.scaleY) : 1,
+      image: imageResources.get(String(source.resourceId || ''))?.image
+        || loadInlineImage(source.dataUrl, `mask:${id}`)?.image
+        || null
+    };
+    masks.set(id, state);
+  }
+  return masks;
 };
 
 export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
@@ -7407,10 +7450,17 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     if (record) imageResources.set(id, { ...resource, ...record });
   }
 
+  const masks = buildRendererV1Masks({
+    sources: automation.masks,
+    imageResources,
+    loadInlineImage
+  });
+
   const hierarchy = buildRendererV1Hierarchy({
     sources: automation.objects,
     clips,
     imageResources,
+    masks,
     loadInlineImage,
     redraw
   });
@@ -7421,6 +7471,7 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
   const markLayerBoundStates = (state) => {
     if (!state || layerBoundStates.has(state)) return;
     layerBoundStates.add(state);
+    if (state.mask) layerBoundStates.add(state.mask);
     for (const child of state.children) markLayerBoundStates(child);
   };
   for (const root of hierarchy.roots) {
@@ -7467,20 +7518,43 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       sources: symbol.objects,
       clips,
       imageResources,
+      masks,
       loadInlineImage,
       redraw
     }));
   }
 
+  const dataChannels = new Map((Array.isArray(automation.dataChannels) ? automation.dataChannels : [])
+    .filter((channel) => (
+      String(channel?.id || '').length > 0
+      && Array.isArray(channel.values)
+      && channel.values.length > 0
+      && channel.values.every((value) => Number.isFinite(Number(value)))
+      && Number(channel.intervalSeconds) > 0
+    ))
+    .map((channel) => [String(channel.id), {
+      ...channel,
+      intervalSeconds: Number(channel.intervalSeconds),
+      startSeconds: Number.isFinite(Number(channel.startSeconds)) ? Number(channel.startSeconds) : 0,
+      values: channel.values.map(Number)
+    }]));
+  const trackTargets = new Map([...hierarchy.states, ...masks]);
   const tracks = automation.tracks
-    .map((track) => ({ ...track, state: hierarchy.states.get(String(track.targetId)) }))
+    .map((track) => ({
+      ...track,
+      channel: dataChannels.get(String(track.dataChannelId || '')) || null,
+      state: trackTargets.get(String(track.targetId))
+    }))
     .filter((track) => (
       track.state
       && RENDERER_V1_PROPERTIES.has(track.property)
       && (track.property !== 'pressed' || track.state.kind === 'cursor')
-      && Array.isArray(track.keyframes)
-      && track.keyframes.length > 0
+      && (track.property !== 'playbackTime' || track.state.kind === 'artwork')
+      && ((track.property !== 'sourceX' && track.property !== 'sourceY')
+        || track.state.kind === 'sprite' || track.state.kind === 'mask')
+      && ((Array.isArray(track.keyframes) && track.keyframes.length > 0) || track.channel)
     ));
+  const playbackTimeTrack = tracks.find((track) => track.property === 'playbackTime') || null;
   const containsArtwork = hierarchy.ordered.some((state) => state.kind === 'artwork');
   const previousSourceOpacity = sourceCanvas.style.opacity;
   if (containsArtwork) {
@@ -7497,6 +7571,18 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       && time >= loopStart
       ? loopStart + (((time - loopStart) % loopDuration) + loopDuration) % loopDuration
       : time;
+    if (track.channel) {
+      const { channel } = track;
+      const sample = Math.max(0, (resolvedTime - channel.startSeconds) / channel.intervalSeconds);
+      const leftIndex = Math.min(channel.values.length - 1, Math.floor(sample));
+      const rightIndex = Math.min(channel.values.length - 1, leftIndex + 1);
+      const value = channel.interpolation === 'step' || leftIndex === rightIndex
+        ? channel.values[leftIndex]
+        : channel.values[leftIndex]
+          + (channel.values[rightIndex] - channel.values[leftIndex]) * (sample - leftIndex);
+      return value * (Number.isFinite(Number(track.valueScale)) ? Number(track.valueScale) : 1)
+        + (Number.isFinite(Number(track.valueOffset)) ? Number(track.valueOffset) : 0);
+    }
     const frames = track.keyframes;
     if (resolvedTime <= Number(frames[0].time)) return frames[0].value;
     const last = frames[frames.length - 1];
@@ -7540,16 +7626,127 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     });
   };
 
-  const drawNode = (drawContext, state, activePath) => {
-    if (!state || state.visible === false || activePath.has(state) || activePath.size >= 128) {
-      return;
-    }
-    activePath.add(state);
-    drawContext.save();
+  const applyNodeTransform = (drawContext, state) => {
     drawContext.translate(Number(state.x) || 0, Number(state.y) || 0);
     drawContext.rotate((Number(state.rotation) || 0) * Math.PI / 180);
     drawContext.scale(Number(state.scaleX) || 0, Number(state.scaleY) || 0);
     drawContext.translate(-(Number(state.anchorX) || 0), -(Number(state.anchorY) || 0));
+  };
+
+  const drawImageState = (drawContext, state) => {
+    if (!state.image?.complete || !(state.image.naturalWidth > 0)) return;
+    const hasSourceRectangle = [state.sourceX, state.sourceY, state.sourceWidth, state.sourceHeight]
+      .every((value) => Number.isFinite(Number(value)));
+    if (hasSourceRectangle) {
+      drawContext.drawImage(
+        state.image,
+        Number(state.sourceX),
+        Number(state.sourceY),
+        Number(state.sourceWidth),
+        Number(state.sourceHeight),
+        0,
+        0,
+        Number(state.width) || 0,
+        Number(state.height) || 0
+      );
+      return;
+    }
+    drawContext.drawImage(
+      state.image,
+      0,
+      0,
+      Number(state.width) || 0,
+      Number(state.height) || 0
+    );
+  };
+
+  const isolationSurfaces = [];
+  const getIsolationSurfaces = (depth) => {
+    if (
+      depth >= RENDERER_V1_MAX_ISOLATION_DEPTH
+      || (depth + 1) * width * height * 8 > RENDERER_V1_MAX_ISOLATION_BYTES
+    ) {
+      throw new Error('Renderer v1 isolated-compositing budget exceeded');
+    }
+    if (isolationSurfaces[depth]) return isolationSurfaces[depth];
+    const createSurface = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const surfaceContext = canvas.getContext('2d');
+      if (!surfaceContext) return null;
+      surfaceContext.imageSmoothingEnabled = false;
+      return { canvas, context: surfaceContext };
+    };
+    const content = createSurface();
+    const mask = createSurface();
+    if (!content || !mask) return null;
+    const surfaces = { content, mask };
+    isolationSurfaces[depth] = surfaces;
+    return surfaces;
+  };
+
+  const prepareIsolationContext = (surface, transform) => {
+    surface.context.save();
+    surface.context.setTransform(1, 0, 0, 1, 0, 0);
+    surface.context.globalAlpha = 1;
+    surface.context.globalCompositeOperation = 'source-over';
+    surface.context.clearRect(0, 0, width, height);
+    surface.context.restore();
+    surface.context.setTransform(transform);
+    surface.context.globalAlpha = 1;
+    surface.context.globalCompositeOperation = 'source-over';
+  };
+
+  const drawNode = (drawContext, state, activePath, isolationDepth = 0, suppressRootStyle = false) => {
+    if (!state || state.visible === false || activePath.has(state) || activePath.size >= 128) {
+      return;
+    }
+    const opacity = Math.max(0, Math.min(1, Number(state.opacity) || 0));
+    const blendMode = RENDERER_V1_BLEND_MODES.has(state.blendMode)
+      ? state.blendMode
+      : 'source-over';
+    const needsIsolation = !suppressRootStyle && (
+      state.mask
+      || (state.kind === 'group' && (opacity !== 1 || blendMode !== 'source-over'))
+    );
+    if (needsIsolation) {
+      const surfaces = getIsolationSurfaces(isolationDepth);
+      if (!surfaces) return;
+      const parentTransform = drawContext.getTransform();
+      prepareIsolationContext(surfaces.content, parentTransform);
+      drawNode(surfaces.content.context, state, activePath, isolationDepth + 1, true);
+      if (state.mask) {
+        prepareIsolationContext(surfaces.mask, parentTransform);
+        surfaces.mask.context.save();
+        applyNodeTransform(surfaces.mask.context, state);
+        applyNodeTransform(surfaces.mask.context, state.mask);
+        surfaces.mask.context.globalAlpha = Math.max(
+          0,
+          Math.min(1, Number(state.mask.opacity) || 0)
+        );
+        drawImageState(surfaces.mask.context, state.mask);
+        surfaces.mask.context.restore();
+        surfaces.content.context.save();
+        surfaces.content.context.setTransform(1, 0, 0, 1, 0, 0);
+        surfaces.content.context.globalAlpha = 1;
+        surfaces.content.context.globalCompositeOperation = state.mask.invert
+          ? 'destination-out'
+          : 'destination-in';
+        surfaces.content.context.drawImage(surfaces.mask.canvas, 0, 0);
+        surfaces.content.context.restore();
+      }
+      drawContext.save();
+      drawContext.setTransform(1, 0, 0, 1, 0, 0);
+      drawContext.globalAlpha *= opacity;
+      drawContext.globalCompositeOperation = blendMode;
+      drawContext.drawImage(surfaces.content.canvas, 0, 0);
+      drawContext.restore();
+      return;
+    }
+    activePath.add(state);
+    drawContext.save();
+    applyNodeTransform(drawContext, state);
     if (state.clip) {
       drawContext.beginPath();
       drawContext.rect(
@@ -7560,9 +7757,9 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       );
       drawContext.clip();
     }
-    drawContext.globalAlpha *= Math.max(0, Math.min(1, Number(state.opacity) || 0));
-    if (RENDERER_V1_BLEND_MODES.has(state.blendMode)) {
-      drawContext.globalCompositeOperation = state.blendMode;
+    if (!suppressRootStyle) {
+      drawContext.globalAlpha *= opacity;
+      drawContext.globalCompositeOperation = blendMode;
     }
 
     if (state.kind === 'artwork') {
@@ -7576,47 +7773,25 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     } else if (state.kind === 'rect') {
       drawContext.fillStyle = String(state.fill || '#000000');
       drawContext.fillRect(0, 0, Number(state.width) || 0, Number(state.height) || 0);
-    } else if (state.kind === 'sprite' && state.image?.complete && state.image.naturalWidth > 0) {
-      const hasSourceRectangle = [state.sourceX, state.sourceY, state.sourceWidth, state.sourceHeight]
-        .every((value) => Number.isFinite(Number(value)));
-      if (hasSourceRectangle) {
-        drawContext.drawImage(
-          state.image,
-          Number(state.sourceX),
-          Number(state.sourceY),
-          Number(state.sourceWidth),
-          Number(state.sourceHeight),
-          0,
-          0,
-          Number(state.width) || 0,
-          Number(state.height) || 0
-        );
-      } else {
-        drawContext.drawImage(
-          state.image,
-          0,
-          0,
-          Number(state.width) || 0,
-          Number(state.height) || 0
-        );
-      }
+    } else if (state.kind === 'sprite') {
+      drawImageState(drawContext, state);
     } else if (state.kind === 'cursor') {
       drawCursor(drawContext, state);
     } else if (state.kind === 'instance') {
       const symbol = symbols.get(String(state.symbolId || ''));
       for (const root of symbol?.roots || []) {
-        drawNode(drawContext, root, activePath);
+        drawNode(drawContext, root, activePath, isolationDepth);
       }
     }
 
     for (const child of state.children) {
-      drawNode(drawContext, child, activePath);
+      drawNode(drawContext, child, activePath, isolationDepth);
     }
     drawContext.restore();
     activePath.delete(state);
   };
 
-  const drawAt = (time) => {
+  const drawAt = (time, defaultPlaybackTime = time) => {
     for (const track of tracks) {
       const value = interpolateTrack(track, time);
       if (layerBoundStates.has(track.state) && track.state[track.property] !== value) {
@@ -7624,6 +7799,10 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       }
       track.state[track.property] = value;
     }
+    const sourcePlaybackTime = playbackTimeTrack
+      ? Math.max(0, Number(playbackTimeTrack.state.playbackTime) || 0)
+      : defaultPlaybackTime;
+    sourceViewer?.renderAtTime?.(sourcePlaybackTime);
     if (layerSceneDirty && layerSurfaces.size > 0) {
       for (const [layerId, surface] of layerSurfaces) {
         surface.context.clearRect(0, 0, width, height);
@@ -7644,8 +7823,7 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
 
   const renderAtTime = (time) => {
     const resolved = Math.max(0, Number.isFinite(time) ? time : 0);
-    sourceViewer?.renderAtTime?.(resolved);
-    drawAt(((resolved % duration) + duration) % duration);
+    drawAt(((resolved % duration) + duration) % duration, resolved);
   };
 
   const tick = (now) => {

@@ -314,6 +314,7 @@ type GobletAutomationObjectBase = {
   layerId?: string;
   parentId?: string;
   clipId?: string;
+  maskId?: string;
   anchorX?: number;
   anchorY?: number;
   blendMode?: 'source-over' | 'multiply' | 'screen' | 'darken' | 'lighten';
@@ -323,6 +324,11 @@ type GobletAutomationObjectBase = {
   scaleX?: number;
   scaleY?: number;
 };
+
+type GobletAutomationImageSource = (
+  | { resourceId: string; dataUrl?: never }
+  | { dataUrl: string; resourceId?: never }
+);
 
 export type GobletAutomationObject = GobletAutomationObjectBase & (
   | { kind: 'artwork'; width?: number; height?: number }
@@ -338,10 +344,7 @@ export type GobletAutomationObject = GobletAutomationObjectBase & (
       sourceY?: number;
       sourceWidth?: number;
       sourceHeight?: number;
-    } & (
-      | { resourceId: string; dataUrl?: never }
-      | { dataUrl: string; resourceId?: never }
-    ))
+    } & GobletAutomationImageSource)
 );
 
 export type GobletAutomationImageResource = {
@@ -368,6 +371,33 @@ export type GobletAutomationClip = {
   height: number;
 };
 
+export type GobletAutomationMask = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  anchorX?: number;
+  anchorY?: number;
+  invert?: boolean;
+  opacity?: number;
+  rotation?: number;
+  scaleX?: number;
+  scaleY?: number;
+  sourceX?: number;
+  sourceY?: number;
+  sourceWidth?: number;
+  sourceHeight?: number;
+} & GobletAutomationImageSource;
+
+export type GobletAutomationDataChannel = {
+  id: string;
+  values: number[];
+  intervalSeconds: number;
+  startSeconds?: number;
+  interpolation?: 'linear' | 'step';
+};
+
 type GobletAutomationKeyframe<T extends number | boolean> = {
   time: number;
   value: T;
@@ -380,12 +410,25 @@ export type GobletAutomationTrack = {
   loopDurationSeconds?: number;
 } & (
   | {
-      property: 'x' | 'y' | 'opacity' | 'rotation' | 'scaleX' | 'scaleY' | 'sourceX' | 'sourceY';
+      property: 'x' | 'y' | 'opacity' | 'rotation' | 'scaleX' | 'scaleY' | 'sourceX' | 'sourceY' | 'playbackTime';
       keyframes: Array<GobletAutomationKeyframe<number>>;
+      dataChannelId?: never;
+      valueScale?: never;
+      valueOffset?: never;
+    }
+  | {
+      property: 'x' | 'y' | 'opacity' | 'rotation' | 'scaleX' | 'scaleY' | 'sourceX' | 'sourceY' | 'playbackTime';
+      dataChannelId: string;
+      valueScale?: number;
+      valueOffset?: number;
+      keyframes?: never;
     }
   | {
       property: 'visible' | 'pressed';
       keyframes: Array<GobletAutomationKeyframe<boolean>>;
+      dataChannelId?: never;
+      valueScale?: never;
+      valueOffset?: never;
     }
 );
 
@@ -393,6 +436,8 @@ export interface GobletAutomation {
   schemaVersion: 1;
   durationSeconds: number;
   clips?: GobletAutomationClip[];
+  masks?: GobletAutomationMask[];
+  dataChannels?: GobletAutomationDataChannel[];
   resources?: GobletAutomationImageResource[];
   symbols?: GobletAutomationSymbol[];
   objects: GobletAutomationObject[];
@@ -403,6 +448,17 @@ export interface GobletDynamicFeatureManifest {
   schemaVersion: 1;
   authored: string[];
   compiled: string[];
+  requirements?: GobletDynamicFeatureRequirement[];
+}
+
+export interface GobletDynamicFeatureRequirement {
+  featureId: string;
+  objects: GobletDynamicFeatureObjectRequirement[];
+}
+
+export interface GobletDynamicFeatureObjectRequirement {
+  objectId: string;
+  trackProperties: GobletAutomationTrack['property'][];
 }
 
 export interface WebGLExportMetadata {
