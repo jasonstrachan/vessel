@@ -5,6 +5,7 @@ import {
   drawCanonicalTxtShapesToCanvas,
   drawCachedTxtShapesForLayer,
   drawGobletBaseTxtShapesToCanvas,
+  drawNonCanonicalTxtShapesToCanvas,
   drawTxtShapeGlyphMaskToCanvas,
   drawTxtShapesForLayer,
   drawTxtShapesToCanvas,
@@ -761,6 +762,40 @@ describe('TXT Shape document helpers', () => {
     expect(fillStyles).toContain('#336699');
   });
 
+  it.each([
+    'selected',
+    'selected-crossed-out',
+    'crossed-out',
+    'overwritten',
+    'invisible-crossed-out',
+    'redacted',
+    'redacted-crossed-out',
+  ] as const)('keeps mapped colours in the dedicated %s non-canonical raster', (state) => {
+    const fillStyles: string[] = [];
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(ctx, 'fillStyle', {
+      configurable: true,
+      get: () => fillStyles.at(-1) ?? '',
+      set: (value: string) => fillStyles.push(value),
+    });
+
+    drawNonCanonicalTxtShapesToCanvas(ctx, [createShape({
+      content: 'AB',
+      nonCanonicalState: state,
+      selections: [{ start: 0, end: 2 }],
+      colorRanges: [{ start: 0, end: 2, color: '#336699' }],
+      selectionBackgroundColor: '#ff00ff',
+    })]);
+
+    expect(fillStyles).toContain('#336699');
+    expect(fillStyles).not.toContain('#ff00ff');
+  });
+
   it('renders glyph maps as sampled text colours without selection blocks', () => {
     const fillStyles: string[] = [];
     const ctx = {
@@ -789,6 +824,64 @@ describe('TXT Shape document helpers', () => {
     expect(fillStyles).toContain('#336699');
     expect(fillStyles).toContain('#cc5500');
     expect(fillStyles).not.toContain('#ffffff');
+  });
+
+  it('renders selected text without a selection block when explicitly authored', () => {
+    const fillStyles: string[] = [];
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(), fillText: jest.fn(), font: '', textBaseline: 'alphabetic',
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(ctx, 'fillStyle', {
+      configurable: true,
+      get: () => fillStyles.at(-1) ?? '',
+      set: (value: string) => fillStyles.push(value),
+    });
+
+    drawTxtShapesToCanvas(ctx, [createShape({
+      content: 'AB',
+      selections: [{ start: 0, end: 2 }],
+      selectionTreatments: [{ start: 0, end: 2, treatment: 'selected-text' }],
+      selectionColor: '#ff00ff',
+      selectionBackgroundColor: '#00ff00',
+    })]);
+
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+    expect(fillStyles).toContain('#ff00ff');
+    expect(fillStyles).not.toContain('#00ff00');
+  });
+
+  it('keeps mapped selection colours in canonical rendering', () => {
+    const blockFillStyles: string[] = [];
+    let fillStyle = '';
+    const ctx = {
+      save: jest.fn(), restore: jest.fn(), beginPath: jest.fn(), rect: jest.fn(),
+      ellipse: jest.fn(), moveTo: jest.fn(), lineTo: jest.fn(), closePath: jest.fn(),
+      clip: jest.fn(), measureText: jest.fn((text: string) => ({ width: text.length * 5 })),
+      fillRect: jest.fn(() => blockFillStyles.push(fillStyle)), fillText: jest.fn(),
+      font: '', textBaseline: 'alphabetic',
+    } as unknown as CanvasRenderingContext2D;
+    Object.defineProperty(ctx, 'fillStyle', {
+      configurable: true,
+      get: () => fillStyle,
+      set: (value: string) => { fillStyle = value; },
+    });
+
+    drawCanonicalTxtShapesToCanvas(ctx, [createShape({
+      content: 'AB',
+      selections: [{ start: 0, end: 2 }],
+      colorRanges: [
+        { start: 0, end: 1, color: '#ff0000' },
+        { start: 1, end: 2, color: '#0000ff' },
+      ],
+      selectionBackgroundColor: '#00ff00',
+    })]);
+
+    expect(blockFillStyles).toEqual(['#ff0000', '#0000ff']);
+    expect(ctx.fillRect).toHaveBeenNthCalledWith(1, 5, 6, 5, 13);
+    expect(ctx.fillRect).toHaveBeenNthCalledWith(2, 10, 6, 5, 13);
   });
 
   it('uses authored letter spacing for layout and monochrome mask drawing', () => {

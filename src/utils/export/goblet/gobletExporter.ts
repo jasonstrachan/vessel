@@ -15,6 +15,7 @@ import type {
 } from '@/types';
 import type {
   AlignmentExportPayload,
+  GobletAutomationDataChannel,
   GobletAutomationTrack,
   WebGLExportMetadata,
   WebGLExportRequest,
@@ -227,6 +228,55 @@ const minifyProperties = (value: unknown): unknown => {
   return result;
 };
 
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+};
+
+const encodeAutomationDataChannel = (
+  channel: GobletAutomationDataChannel,
+): GobletAutomationDataChannel => {
+  if (!Array.isArray(channel.values) || channel.values.length < 8) return channel;
+  if (channel.values.some((value) => !Object.is(Math.fround(value), value))) return channel;
+  const bytes = new Uint8Array(channel.values.length * Float32Array.BYTES_PER_ELEMENT);
+  const view = new DataView(bytes.buffer);
+  channel.values.forEach((value, index) => {
+    view.setFloat32(index * Float32Array.BYTES_PER_ELEMENT, value, true);
+  });
+  const encodedValues = bytesToBase64(bytes);
+  const encodedCost = encodedValues.length + 48;
+  if (encodedCost >= JSON.stringify(channel.values).length) return channel;
+  return {
+    id: channel.id,
+    intervalSeconds: channel.intervalSeconds,
+    ...(channel.startSeconds === undefined ? {} : { startSeconds: channel.startSeconds }),
+    ...(channel.interpolation === undefined ? {} : { interpolation: channel.interpolation }),
+    encoding: 'f32le-base64',
+    encodedValues,
+    sampleCount: channel.values.length,
+  };
+};
+
+export const encodeRendererV1DataChannels = (metadata: WebGLExportMetadata): WebGLExportMetadata => {
+  const automation = metadata.automation;
+  if (!automation) return metadata;
+  const channels = automation.dataChannels;
+  if (!channels?.some((channel) => Array.isArray(channel.values) && channel.values.length >= 8)) {
+    return metadata;
+  }
+  return {
+    ...metadata,
+    automation: {
+      ...automation,
+      dataChannels: channels.map(encodeAutomationDataChannel),
+    },
+  };
+};
+
 const normalizeDynamicFeatureIds = (features: readonly string[]): string[] => (
   [...new Set(features.map((feature) => feature.trim()).filter(Boolean))].sort()
 );
@@ -282,11 +332,17 @@ const assertRendererV1AutomationReferencesComplete = (metadata: WebGLExportMetad
 
   const dataChannelIds = new Set<string>();
   for (const channel of automation.dataChannels ?? []) {
+    const values = channel.values;
+    const hasValues = Array.isArray(values);
+    const hasEncodedValues = channel.encoding === 'f32le-base64'
+      && typeof channel.encodedValues === 'string'
+      && Number.isSafeInteger(channel.sampleCount)
+      && Number(channel.sampleCount) > 0;
     if (
       !channel.id
       || dataChannelIds.has(channel.id)
-      || channel.values.length === 0
-      || !channel.values.every(Number.isFinite)
+      || hasValues === hasEncodedValues
+      || (Array.isArray(values) && (values.length === 0 || !values.every(Number.isFinite)))
       || !Number.isFinite(channel.intervalSeconds)
       || channel.intervalSeconds <= 0
     ) {
@@ -1330,7 +1386,8 @@ export const buildProjectGobletArtifact = async (
     });
   }
 
-  const metadataPayload = options.minify ? minifyProperties(metadata) : metadata;
+  const encodedMetadata = encodeRendererV1DataChannels(metadata);
+  const metadataPayload = options.minify ? minifyProperties(encodedMetadata) : encodedMetadata;
   const json = JSON.stringify(metadataPayload, null, options.minify ? undefined : 2);
   throwIfExportAborted(options.signal);
   if (gobletDiagnosticsActive) {
@@ -1549,7 +1606,8 @@ export const buildProjectGobletArtifact = async (
             duplicatedMetadataBytes: json.length,
           }),
         };
-    const zipMetadataPayload = options.minify ? minifyProperties(zipMetadataSource.metadata) : zipMetadataSource.metadata;
+    const encodedZipMetadata = encodeRendererV1DataChannels(zipMetadataSource.metadata);
+    const zipMetadataPayload = options.minify ? minifyProperties(encodedZipMetadata) : encodedZipMetadata;
     const zipJson = JSON.stringify(zipMetadataPayload, null, options.minify ? undefined : 2);
     zipMetadataSource.report = updateGobletSizeReportPayloadTotals(
       zipMetadataSource.report,

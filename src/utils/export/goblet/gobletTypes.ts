@@ -390,13 +390,27 @@ export type GobletAutomationMask = {
   sourceHeight?: number;
 } & GobletAutomationImageSource;
 
-export type GobletAutomationDataChannel = {
+type GobletAutomationDataChannelBase = {
   id: string;
-  values: number[];
   intervalSeconds: number;
   startSeconds?: number;
   interpolation?: 'linear' | 'step';
 };
+
+export type GobletAutomationDataChannel = GobletAutomationDataChannelBase & (
+  | {
+      values: number[];
+      encoding?: never;
+      encodedValues?: never;
+      sampleCount?: never;
+    }
+  | {
+      encoding: 'f32le-base64';
+      encodedValues: string;
+      sampleCount: number;
+      values?: never;
+    }
+);
 
 type GobletAutomationKeyframe<T extends number | boolean> = {
   time: number;

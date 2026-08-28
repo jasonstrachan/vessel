@@ -98,6 +98,9 @@ describe('Goblet bundle runtime assets', () => {
 
     const zip = await JSZip.loadAsync(zipBlob);
     await expect(zip.file('gobletPayloadContract.js')?.async('string')).resolves.toContain('GOBLET2_FORMAT');
+    await expect(zip.file('index.html')?.async('string')).resolves.toContain(
+      'mountGobletRendererV1(normalizedMetadata, canvas)',
+    );
     expect(zip.file('goblet2.js')).not.toBeNull();
   });
 
@@ -108,6 +111,7 @@ describe('Goblet bundle runtime assets', () => {
       'export async function renderVesselWebGL() {',
       '  return { format: GOBLET2_FORMAT, speed: decodeColorCycleSpeedByte(255) };',
       '}',
+      'export const mountGobletRendererV1 = () => ({ ready: Promise.resolve() });',
       'export const expandVesselMetadata = (metadata) => metadata;',
     ].join('\n');
 
@@ -130,6 +134,8 @@ describe('Goblet bundle runtime assets', () => {
     );
 
     expect(html).toContain("GOBLET2_FORMAT = 'vessel-goblet2'");
+    expect(html).toContain('mountGobletRendererV1(packagedMetadata, canvas)');
+    expect(html).toContain('await rendererV1?.ready');
     expect(html).not.toContain('./gobletPayloadContract.js');
     expect(html).not.toContain('./gobletPlaybackMath.js');
   });

@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { assertDynamicFeatureManifestComplete } from '@/utils/export/goblet/gobletExporter';
+import {
+  assertDynamicFeatureManifestComplete,
+  encodeRendererV1DataChannels,
+} from '@/utils/export/goblet/gobletExporter';
 import type { WebGLExportMetadata } from '@/utils/export/goblet/gobletTypes';
 
 const read = (relativePath: string): string => (
@@ -85,6 +88,40 @@ describe('Goblet Renderer v1 scene runtime', () => {
     expect(runtime).toContain("state.kind === 'group' && (opacity !== 1");
     expect(runtime).toContain('const dataChannels = new Map(');
     expect(runtime).toContain("track.property === 'playbackTime'");
+  });
+
+  it('compacts long numeric channels into deterministic float32 payloads', () => {
+    const values = Array.from({ length: 64 }, (_, index) => Math.fround(index / 7));
+    const metadata = {
+      automation: {
+        schemaVersion: 1,
+        durationSeconds: 1,
+        dataChannels: [{ id: 'motion', values, intervalSeconds: 1 / 60 }],
+        objects: [{ id: 'shape', kind: 'rect', x: 0, y: 0, width: 1, height: 1, fill: '#000' }],
+        tracks: [{ targetId: 'shape', property: 'x', dataChannelId: 'motion' }],
+      },
+    } as WebGLExportMetadata;
+
+    const compact = encodeRendererV1DataChannels(metadata);
+    const channel = compact.automation?.dataChannels?.[0];
+    expect(channel).toMatchObject({
+      id: 'motion',
+      encoding: 'f32le-base64',
+      sampleCount: values.length,
+    });
+    expect(channel?.values).toBeUndefined();
+    expect(encodeRendererV1DataChannels(compact)).toEqual(compact);
+
+    const precise = encodeRendererV1DataChannels({
+      ...metadata,
+      automation: {
+        ...metadata.automation!,
+        dataChannels: [{ id: 'motion', values: [
+          0, 1 / 7, 2 / 7, 3 / 7, 4 / 7, 5 / 7, 6 / 7, 1,
+        ], intervalSeconds: 1 / 60 }],
+      },
+    });
+    expect(precise.automation?.dataChannels?.[0]?.values).toBeDefined();
   });
 
   it('fails export when an authored Studio requirement is absent or unresolved', () => {

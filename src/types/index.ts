@@ -340,6 +340,7 @@ export type TxtShapeRegionKind = 'rectangle' | 'oval' | 'freehand';
 export type TxtShapeRenderMode = 'selection' | 'glyph-map';
 export type TxtShapeFillStyle = 'flat' | 'dither';
 export type TxtShapeSelectionTreatment =
+  | 'selected-text'
   | 'crossed-out'
   | 'selected-crossed-out'
   | 'overwritten'

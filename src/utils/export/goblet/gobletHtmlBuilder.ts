@@ -285,6 +285,10 @@ const appendZipAutoloadSnippet = (
         if (typeof mountTxtShapes === 'function') {
           mountTxtShapes(normalizedMetadata);
         }
+        if (typeof mountGobletRendererV1 === 'function') {
+          const rendererV1 = mountGobletRendererV1(normalizedMetadata, canvas);
+          await rendererV1?.ready;
+        }
         summarizeMetadata(normalizedMetadata, renderResult);
         lastMetadata = normalizedMetadata;
         const rendererHandle = canvas && canvas[Symbol.for('VesselRenderer')];
@@ -615,6 +619,10 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
           const renderResult = await renderVesselWebGL(packagedMetadata, canvas, opts);
           if (typeof mountTxtShapes === 'function') {
             mountTxtShapes(packagedMetadata);
+          }
+          if (typeof mountGobletRendererV1 === 'function') {
+            const rendererV1 = mountGobletRendererV1(packagedMetadata, canvas);
+            await rendererV1?.ready;
           }
           if (enableDiagnostics) {
             emitLog('[goblet] Render complete:', renderResult);

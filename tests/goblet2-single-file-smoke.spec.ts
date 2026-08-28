@@ -11,6 +11,16 @@ const read = (relativePath: string) => fs.readFileSync(path.join(rootDir, relati
 
 type Goblet2Bundle = ReturnType<typeof createGoblet2Bundle>;
 
+const WHITE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+const encodeFloat32Values = (values: readonly number[]): string => {
+  const bytes = Buffer.alloc(values.length * Float32Array.BYTES_PER_ELEMENT);
+  values.forEach((value, index) => {
+    bytes.writeFloatLE(value, index * Float32Array.BYTES_PER_ELEMENT);
+  });
+  return bytes.toString('base64');
+};
+
 const createWebGlFallbackBundle = () => {
   const bundle = createGoblet2Bundle();
   const colorCycle = bundle.layers[0]?.colorCycle;
@@ -207,17 +217,18 @@ const createDataDrivenMaskBundle = () => {
   bundle.project.backgroundColor = 'transparent';
   bundle.viewport.designWidth = 8;
   bundle.viewport.designHeight = 4;
-  const alphaMask = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">'
-      + '<rect width="4" height="4" fill="#fff"/></svg>',
-  )}`;
   (bundle as typeof bundle & { automation: unknown }).automation = {
     schemaVersion: 1,
     durationSeconds: 2,
-    resources: [{ id: 'alpha-mask', kind: 'image', dataUrl: alphaMask }],
+    resources: [{ id: 'alpha-mask', kind: 'image', dataUrl: WHITE_PIXEL_PNG }],
     masks: [{ id: 'reveal', resourceId: 'alpha-mask', x: 0, y: 0, width: 4, height: 4 }],
     dataChannels: [{
-      id: 'mask-x', values: [0, 4, 0], intervalSeconds: 1, interpolation: 'linear',
+      id: 'mask-x',
+      encoding: 'f32le-base64',
+      encodedValues: encodeFloat32Values([0, 4, 0]),
+      sampleCount: 3,
+      intervalSeconds: 1,
+      interpolation: 'linear',
     }],
     objects: [{
       id: 'masked-shape', kind: 'rect', maskId: 'reveal',
@@ -983,6 +994,42 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     });
   });
 
+  test('fails closed instead of silently dropping an invalid scene track', async ({ page }) => {
+    const bundle = createMasterClockAutomationBundle();
+    const automation = (bundle as typeof bundle & {
+      automation: { tracks: Array<Record<string, unknown>> };
+    }).automation;
+    automation.tracks.push({
+      targetId: 'missing-object',
+      property: 'x',
+      keyframes: [{ time: 0, value: 0 }],
+    });
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await page.setContent(buildSingleFileGoblet2Html(bundle));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { error?: string } }).__gobletSmoke?.error
+    ))).toContain('Renderer v1 rejected artwork: track missing-object:x is invalid or unsupported');
+    expect(errors.some((message) => message.includes('missing-object:x'))).toBe(true);
+    await expect(page.locator('#preview-canvas')).not.toHaveCSS('opacity', '0');
+
+    const oversizedDataBundle = createMasterClockAutomationBundle();
+    (oversizedDataBundle as typeof oversizedDataBundle & {
+      automation: { dataChannels: Array<Record<string, unknown>> };
+    }).automation.dataChannels = [{
+      id: 'oversized',
+      encoding: 'f32le-base64',
+      encodedValues: '',
+      sampleCount: 65_537,
+      intervalSeconds: 1,
+    }];
+    await page.setContent(buildSingleFileGoblet2Html(oversizedDataBundle));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { error?: string } }).__gobletSmoke?.error
+    ))).toContain('data channel oversized requires exactly one value encoding');
+  });
+
   test('dismisses a popup while panning and zooming artwork inside a fixed clip', async ({ page }) => {
     await page.setContent(buildSingleFileGoblet2Html(createPopupAndClippedArtworkBundle()));
     await waitForSmokeReady(page);
@@ -1006,7 +1053,10 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
   });
 
   test('matches local export pixels with the reconstructed frozen runtime', async ({ page }) => {
-    const bundle = createPopupAndClippedArtworkBundle();
+    const bundles = [
+      createPopupAndClippedArtworkBundle(),
+      createDataDrivenMaskBundle(),
+    ];
     const checkpoints = [0, 0.75, 1.5];
     const readCheckpoints = async () => page.evaluate((times) => times.map((seconds) => {
       (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
@@ -1016,13 +1066,17 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
         .getImageData(0, 0, canvas.width, canvas.height).data);
     }), checkpoints);
 
-    await page.setContent(buildSingleFileGoblet2Html(bundle));
-    await waitForSmokeReady(page);
-    const localPixels = await readCheckpoints();
+    const localPixels = [];
+    for (const bundle of bundles) {
+      await page.setContent(buildSingleFileGoblet2Html(bundle));
+      await waitForSmokeReady(page);
+      localPixels.push(await readCheckpoints());
+    }
 
+    let reconstructedBundle = bundles[0];
     await page.route('http://renderer-v1.test/**', async (route) => {
       const pathname = new URL(route.request().url()).pathname;
-      if (pathname === '/goblet2.js') {
+      if (pathname.endsWith('/goblet2.js')) {
         const runtime = read('public/goblet2/goblet2-inline.js');
         await route.fulfill({
           body: `${runtime}\nexport {
@@ -1034,16 +1088,25 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
         });
         return;
       }
-      if (pathname === '/artwork.json') {
-        await route.fulfill({ body: JSON.stringify(bundle), contentType: 'application/json' });
+      if (pathname.endsWith('/artwork.json')) {
+        await route.fulfill({
+          body: JSON.stringify(reconstructedBundle),
+          contentType: 'application/json',
+          headers: { 'Cache-Control': 'no-store' },
+        });
         return;
       }
       await route.fulfill({ body: buildReconstructedGoblet2Html(), contentType: 'text/html' });
     });
-    await page.goto('http://renderer-v1.test/');
-    await waitForSmokeReady(page);
+    const reconstructedPixels = [];
+    for (const [index, bundle] of bundles.entries()) {
+      reconstructedBundle = bundle;
+      await page.goto(`http://renderer-v1.test/case-${index}/`);
+      await waitForSmokeReady(page);
+      reconstructedPixels.push(await readCheckpoints());
+    }
 
-    expect(await readCheckpoints()).toEqual(localPixels);
+    expect(reconstructedPixels).toEqual(localPixels);
   });
 
   test('uses adjustment-layer opacity as the effect mix', async ({ page }) => {

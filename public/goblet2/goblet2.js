@@ -1501,6 +1501,9 @@ const PROPERTY_UNMINIFY_MAP = {
   dch: 'dataChannels',
   dcid: 'dataChannelId',
   vals: 'values',
+  enc: 'encoding',
+  ev: 'encodedValues',
+  sc: 'sampleCount',
   ins: 'intervalSeconds',
   sts: 'startSeconds',
   ip: 'interpolation',
@@ -5330,7 +5333,7 @@ const computeViewportSize = (canvas, fallbackWidth, fallbackHeight) => {
   };
 };
 
-const createCanvasStrategy = (metadata, canvas, initialOverride) => {
+const createCanvasStrategy = (metadata, canvas, initialOverride, actualSize = false) => {
   const viewport = metadata?.viewport ?? {};
   const viewportMode = viewport.mode === 'fill' || viewport.mode === 'fit' || viewport.mode === 'cover' ? viewport.mode : 'fixed';
   const viewportPreset = metadata?.settings?.viewportPreset;
@@ -5421,7 +5424,21 @@ const createCanvasStrategy = (metadata, canvas, initialOverride) => {
     };
   };
 
+  const resolveActualSizeState = (nextOverride) => {
+    if (nextOverride) {
+      scaleOverride = normalizeScaleOption(nextOverride);
+    }
+    const scale = getOverride();
+    return {
+      scale,
+      canvasSize: computeCanvasSizeForScale(scale)
+    };
+  };
+
   const resolveByMode = (scaleOption) => {
+    if (actualSize) {
+      return resolveActualSizeState(scaleOption ?? null);
+    }
     switch (viewportMode) {
       case 'fill':
         return resolveFillState(scaleOption ?? null);
@@ -5435,7 +5452,7 @@ const createCanvasStrategy = (metadata, canvas, initialOverride) => {
   };
 
   return {
-    mode: viewportMode,
+    mode: actualSize ? 'actual' : viewportMode,
     getInitialState() {
       return resolveByMode(null);
     },
@@ -5470,7 +5487,12 @@ class VesselGoblet {
     this.sourceMetadata = sourceMetadata ?? metadata;
     this.canvas = canvas;
     this.options = options ?? {};
-    this.canvasStrategy = createCanvasStrategy(metadata, canvas, this.options.scale ?? null);
+    this.canvasStrategy = createCanvasStrategy(
+      metadata,
+      canvas,
+      this.options.scale ?? null,
+      this.options.actualSize === true
+    );
     const initialState = this.canvasStrategy.getInitialState();
     this.scale = { ...initialState.scale };
 
@@ -7281,10 +7303,76 @@ const RENDERER_V1_BLEND_MODES = new Set([
 ]);
 const RENDERER_V1_MAX_ISOLATION_BYTES = 256 * 1024 * 1024;
 const RENDERER_V1_MAX_ISOLATION_DEPTH = 16;
+const RENDERER_V1_MAX_DIMENSION = 8192;
+const RENDERER_V1_MAX_PIXELS = 16777216;
+const RENDERER_V1_MAX_DATA_CHANNELS = 1024;
+const RENDERER_V1_MAX_DATA_SAMPLES = 262144;
+const RENDERER_V1_MAX_DATA_SAMPLES_PER_CHANNEL = 65536;
+
+const rendererV1Error = (message) => {
+  throw new Error(`Renderer v1 rejected artwork: ${message}`);
+};
+
+const isRendererV1Object = (value) => value && typeof value === 'object' && !Array.isArray(value);
+
+const requireRendererV1Array = (value, label) => {
+  if (!Array.isArray(value)) rendererV1Error(`${label} must be an array`);
+  return value;
+};
+
+const decodeRendererV1DataChannel = (channel) => {
+  if (!isRendererV1Object(channel)) rendererV1Error('data channels must be objects');
+  const rawValues = channel.values;
+  const hasRawValues = Array.isArray(rawValues);
+  const hasEncodedValues = channel.encoding === 'f32le-base64'
+    && typeof channel.encodedValues === 'string'
+    && Number.isSafeInteger(channel.sampleCount)
+    && channel.sampleCount > 0
+    && channel.sampleCount <= RENDERER_V1_MAX_DATA_SAMPLES_PER_CHANNEL;
+  if (hasRawValues === hasEncodedValues) {
+    rendererV1Error(`data channel ${String(channel.id || '')} requires exactly one value encoding`);
+  }
+  let values;
+  if (hasRawValues) {
+    if (rawValues.length === 0 || rawValues.length > RENDERER_V1_MAX_DATA_SAMPLES_PER_CHANNEL) {
+      rendererV1Error(`data channel ${String(channel.id || '')} has invalid values`);
+    }
+    values = rawValues.map(Number);
+  } else {
+    const expectedByteLength = channel.sampleCount * Float32Array.BYTES_PER_ELEMENT;
+    const expectedEncodedLength = Math.ceil(expectedByteLength / 3) * 4;
+    if (channel.encodedValues.length !== expectedEncodedLength) {
+      rendererV1Error(`data channel ${String(channel.id || '')} has an invalid encoded byte length`);
+    }
+    let binary;
+    try {
+      binary = atob(channel.encodedValues);
+    } catch {
+      rendererV1Error(`data channel ${String(channel.id || '')} has invalid base64 values`);
+    }
+    if (binary.length !== expectedByteLength) {
+      rendererV1Error(`data channel ${String(channel.id || '')} has an invalid encoded byte length`);
+    }
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    const view = new DataView(bytes.buffer);
+    values = Array.from({ length: channel.sampleCount }, (_, index) => (
+      view.getFloat32(index * Float32Array.BYTES_PER_ELEMENT, true)
+    ));
+  }
+  if (
+    values.length === 0
+    || values.length > RENDERER_V1_MAX_DATA_SAMPLES_PER_CHANNEL
+    || values.some((value) => !Number.isFinite(value))
+  ) {
+    rendererV1Error(`data channel ${String(channel.id || '')} has invalid values`);
+  }
+  return values;
+};
 
 const createRendererV1Image = (dataUrl, redraw, label = 'sprite') => {
   if (typeof dataUrl !== 'string' || dataUrl.length === 0 || typeof Image === 'undefined') {
-    return null;
+    rendererV1Error(`${label} requires an embedded image`);
   }
   const image = new Image();
   const ready = new Promise((resolve, reject) => {
@@ -7304,16 +7392,57 @@ const buildRendererV1Hierarchy = ({
   sources,
   clips,
   imageResources,
+  layerIds,
   masks,
   loadInlineImage,
   redraw
 }) => {
   const states = new Map();
   const ordered = [];
-  for (const source of Array.isArray(sources) ? sources : []) {
+  for (const source of requireRendererV1Array(sources, 'objects')) {
+    if (!isRendererV1Object(source)) rendererV1Error('objects must be objects');
     const id = String(source?.id || '');
     if (!id || states.has(id) || !RENDERER_V1_OBJECT_KINDS.has(source?.kind)) {
-      continue;
+      rendererV1Error(`object has an invalid or duplicate id/kind: ${id}`);
+    }
+    if (!Number.isFinite(source.x) || !Number.isFinite(source.y)) {
+      rendererV1Error(`object ${id} requires finite x/y`);
+    }
+    if (
+      (source.kind === 'rect' || source.kind === 'sprite')
+      && (!Number.isFinite(source.width) || !(source.width > 0)
+        || !Number.isFinite(source.height) || !(source.height > 0))
+    ) {
+      rendererV1Error(`object ${id} requires positive dimensions`);
+    }
+    if (source.kind === 'rect' && (typeof source.fill !== 'string' || source.fill.length === 0)) {
+      rendererV1Error(`rect ${id} requires a fill color`);
+    }
+    if (source.blendMode !== undefined && !RENDERER_V1_BLEND_MODES.has(source.blendMode)) {
+      rendererV1Error(`object ${id} has invalid blendMode`);
+    }
+    if (source.pressed !== undefined && (source.kind !== 'cursor' || typeof source.pressed !== 'boolean')) {
+      rendererV1Error(`object ${id} has invalid pressed state`);
+    }
+    for (const property of ['anchorX', 'anchorY', 'opacity', 'rotation', 'scaleX', 'scaleY']) {
+      if (source[property] !== undefined && !Number.isFinite(source[property])) {
+        rendererV1Error(`object ${id} has invalid ${property}`);
+      }
+    }
+    const clipId = String(source.clipId || '');
+    const maskId = String(source.maskId || '');
+    const layerId = String(source.layerId || '');
+    if (source.clipId !== undefined && !clips.has(clipId)) {
+      rendererV1Error(`object ${id} references missing clip ${clipId}`);
+    }
+    if (source.maskId !== undefined && !masks.has(maskId)) {
+      rendererV1Error(`object ${id} references missing mask ${maskId}`);
+    }
+    if (source.layerId !== undefined && !layerIds.has(layerId)) {
+      rendererV1Error(`object ${id} references missing layer ${layerId}`);
+    }
+    if (source.layerId !== undefined && source.parentId !== undefined) {
+      rendererV1Error(`object ${id} cannot declare both layerId and parentId`);
     }
     const state = {
       ...source,
@@ -7330,9 +7459,14 @@ const buildRendererV1Hierarchy = ({
       image: null
     };
     if (source.kind === 'sprite') {
-      state.image = imageResources.get(String(source.resourceId || ''))?.image
-        || loadInlineImage(source.dataUrl, source.id)?.image
-        || null;
+      const resource = imageResources.get(String(source.resourceId || ''));
+      if (source.resourceId !== undefined && !resource) {
+        rendererV1Error(`sprite ${id} references missing image resource ${String(source.resourceId || '')}`);
+      }
+      if (resource && source.dataUrl !== undefined) {
+        rendererV1Error(`sprite ${id} has ambiguous image sources`);
+      }
+      state.image = resource?.image || loadInlineImage(source.dataUrl, source.id).image;
     }
     states.set(id, state);
     ordered.push(state);
@@ -7340,11 +7474,24 @@ const buildRendererV1Hierarchy = ({
 
   const roots = [];
   for (const state of ordered) {
-    const parent = states.get(String(state.parentId || ''));
-    if (parent && parent !== state) {
+    const parentId = String(state.parentId || '');
+    const parent = states.get(parentId);
+    if (state.parentId !== undefined && (!parent || parent === state)) {
+      rendererV1Error(`object ${state.id} references invalid parent ${parentId}`);
+    }
+    if (parent) {
       parent.children.push(state);
     } else {
       roots.push(state);
+    }
+  }
+  for (const state of ordered) {
+    const path = new Set();
+    let current = state;
+    while (current) {
+      if (path.has(current.id)) rendererV1Error(`object hierarchy contains a cycle at ${current.id}`);
+      path.add(current.id);
+      current = states.get(String(current.parentId || ''));
     }
   }
   return { ordered, roots, states };
@@ -7352,9 +7499,22 @@ const buildRendererV1Hierarchy = ({
 
 const buildRendererV1Masks = ({ sources, imageResources, loadInlineImage }) => {
   const masks = new Map();
-  for (const source of Array.isArray(sources) ? sources : []) {
+  for (const source of requireRendererV1Array(sources, 'masks')) {
+    if (!isRendererV1Object(source)) rendererV1Error('masks must be objects');
     const id = String(source?.id || '');
-    if (!id || masks.has(id)) continue;
+    if (!id || masks.has(id)) rendererV1Error(`mask has an invalid or duplicate id: ${id}`);
+    if (
+      !Number.isFinite(source.x) || !Number.isFinite(source.y)
+      || !Number.isFinite(source.width) || !(source.width > 0)
+      || !Number.isFinite(source.height) || !(source.height > 0)
+    ) {
+      rendererV1Error(`mask ${id} requires finite bounds`);
+    }
+    const resource = imageResources.get(String(source.resourceId || ''));
+    if (source.resourceId !== undefined && !resource) {
+      rendererV1Error(`mask ${id} references missing image resource ${String(source.resourceId || '')}`);
+    }
+    if (resource && source.dataUrl !== undefined) rendererV1Error(`mask ${id} has ambiguous image sources`);
     const state = {
       ...source,
       id,
@@ -7364,9 +7524,7 @@ const buildRendererV1Masks = ({ sources, imageResources, loadInlineImage }) => {
       rotation: Number(source.rotation) || 0,
       scaleX: Number.isFinite(Number(source.scaleX)) ? Number(source.scaleX) : 1,
       scaleY: Number.isFinite(Number(source.scaleY)) ? Number(source.scaleY) : 1,
-      image: imageResources.get(String(source.resourceId || ''))?.image
-        || loadInlineImage(source.dataUrl, `mask:${id}`)?.image
-        || null
+      image: resource?.image || loadInlineImage(source.dataUrl, `mask:${id}`).image
     };
     masks.set(id, state);
   }
@@ -7381,26 +7539,35 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
   }
 
   const automation = metadata?.automation;
-  if (automation?.schemaVersion !== 1
-    || !Array.isArray(automation.objects)
-    || !Array.isArray(automation.tracks)
-    || !Number.isFinite(Number(automation.durationSeconds))
-    || !(Number(automation.durationSeconds) > 0)) {
-    return null;
+  if (automation === undefined) return null;
+  if (!isRendererV1Object(automation) || automation.schemaVersion !== 1) {
+    rendererV1Error('automation requires schemaVersion 1');
+  }
+  requireRendererV1Array(automation.objects, 'objects');
+  requireRendererV1Array(automation.tracks, 'tracks');
+  if (!Number.isFinite(automation.durationSeconds) || !(automation.durationSeconds > 0)) {
+    rendererV1Error('durationSeconds must be positive and finite');
   }
 
-  const width = Math.max(1, Number(metadata.project?.width) || 1);
-  const height = Math.max(1, Number(metadata.project?.height) || 1);
-  const duration = Number(automation.durationSeconds);
+  const width = Number(metadata.project?.width);
+  const height = Number(metadata.project?.height);
+  if (
+    !Number.isSafeInteger(width) || width <= 0 || width > RENDERER_V1_MAX_DIMENSION
+    || !Number.isSafeInteger(height) || height <= 0 || height > RENDERER_V1_MAX_DIMENSION
+    || width * height > RENDERER_V1_MAX_PIXELS
+  ) {
+    rendererV1Error('project dimensions exceed the allocation budget');
+  }
+  const duration = automation.durationSeconds;
   const overlay = document.createElement('canvas');
   overlay.id = 'vessel-renderer-v1';
   overlay.width = width;
   overlay.height = height;
   overlay.setAttribute('aria-hidden', 'true');
   overlay.style.position = 'absolute';
+  overlay.style.imageRendering = 'pixelated';
   overlay.style.pointerEvents = 'none';
   overlay.style.zIndex = '20';
-  document.body.appendChild(overlay);
   const context = overlay.getContext('2d');
   if (!context) {
     overlay.remove();
@@ -7416,16 +7583,20 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
   let controller = null;
   let layerSceneDirty = true;
   const sourceViewer = sourceCanvas[RENDERER_KEY] ?? null;
-  sourceViewer?.setExternalClockActive?.(true);
-  const clips = new Map((Array.isArray(automation.clips) ? automation.clips : [])
-    .filter((clip) => (
-      String(clip?.id || '').length > 0
-      && Number.isFinite(Number(clip.x))
-      && Number.isFinite(Number(clip.y))
-      && Number(clip.width) > 0
-      && Number(clip.height) > 0
-    ))
-    .map((clip) => [String(clip.id), clip]));
+  const clips = new Map();
+  for (const clip of requireRendererV1Array(automation.clips ?? [], 'clips')) {
+    if (!isRendererV1Object(clip)) rendererV1Error('clips must be objects');
+    const id = String(clip.id || '');
+    if (
+      !id || clips.has(id)
+      || !Number.isFinite(clip.x) || !Number.isFinite(clip.y)
+      || !Number.isFinite(clip.width) || !(clip.width > 0)
+      || !Number.isFinite(clip.height) || !(clip.height > 0)
+    ) {
+      rendererV1Error(`clip has invalid bounds or duplicate id: ${id}`);
+    }
+    clips.set(id, clip);
+  }
 
   const redraw = () => {
     layerSceneDirty = true;
@@ -7437,21 +7608,23 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
   const imageReadiness = [];
   const loadInlineImage = (dataUrl, label) => {
     const record = createRendererV1Image(dataUrl, redraw, label);
-    if (record) imageReadiness.push(record.ready);
+    void record.ready.catch(() => undefined);
+    imageReadiness.push(record.ready);
     return record;
   };
   const imageResources = new Map();
-  for (const resource of Array.isArray(automation.resources) ? automation.resources : []) {
+  for (const resource of requireRendererV1Array(automation.resources ?? [], 'resources')) {
+    if (!isRendererV1Object(resource)) rendererV1Error('resources must be objects');
     const id = String(resource?.id || '');
     if (!id || imageResources.has(id) || resource?.kind !== 'image') {
-      continue;
+      rendererV1Error(`resource has an invalid or duplicate id/kind: ${id}`);
     }
     const record = loadInlineImage(resource.dataUrl, `resource:${id}`);
-    if (record) imageResources.set(id, { ...resource, ...record });
+    imageResources.set(id, { ...resource, ...record });
   }
 
   const masks = buildRendererV1Masks({
-    sources: automation.masks,
+    sources: automation.masks ?? [],
     imageResources,
     loadInlineImage
   });
@@ -7460,10 +7633,15 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     sources: automation.objects,
     clips,
     imageResources,
+    layerIds: new Set((Array.isArray(metadata.layers) ? metadata.layers : [])
+      .map((layer) => String(layer?.id || '')).filter(Boolean)),
     masks,
     loadInlineImage,
     redraw
   });
+  for (const id of masks.keys()) {
+    if (hierarchy.states.has(id)) rendererV1Error(`mask and object share duplicate id ${id}`);
+  }
   const supportsLayerOverlays = sourceCanvas.dataset.vesselLayerOverlays === 'true';
   const layerRoots = new Map();
   const globalRoots = [];
@@ -7500,6 +7678,138 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     globalRoots.push(...roots);
     layerRoots.delete(layerId);
   }
+  const symbols = new Map();
+  for (const symbol of requireRendererV1Array(automation.symbols ?? [], 'symbols')) {
+    if (!isRendererV1Object(symbol)) rendererV1Error('symbols must be objects');
+    const id = String(symbol?.id || '');
+    if (!id || symbols.has(id)) {
+      rendererV1Error(`symbol has an invalid or duplicate id: ${id}`);
+    }
+    symbols.set(id, buildRendererV1Hierarchy({
+      sources: symbol.objects,
+      clips,
+      imageResources,
+      layerIds: new Set(),
+      masks,
+      loadInlineImage,
+      redraw
+    }));
+  }
+  for (const state of [
+    ...hierarchy.ordered,
+    ...[...symbols.values()].flatMap((symbol) => symbol.ordered),
+  ]) {
+    if (state.kind === 'instance' && !symbols.has(String(state.symbolId || ''))) {
+      rendererV1Error(`instance ${state.id} references missing symbol ${String(state.symbolId || '')}`);
+    }
+  }
+
+  const dataChannels = new Map();
+  let dataSampleCount = 0;
+  const dataChannelSources = requireRendererV1Array(automation.dataChannels ?? [], 'dataChannels');
+  if (dataChannelSources.length > RENDERER_V1_MAX_DATA_CHANNELS) {
+    rendererV1Error('too many data channels');
+  }
+  for (const channel of dataChannelSources) {
+    if (!isRendererV1Object(channel)) rendererV1Error('data channels must be objects');
+    const id = String(channel?.id || '');
+    if (!id || dataChannels.has(id)) rendererV1Error(`data channel has invalid or duplicate id: ${id}`);
+    if (
+      !Number.isFinite(channel.intervalSeconds) || !(channel.intervalSeconds > 0)
+      || (channel.startSeconds !== undefined
+        && (!Number.isFinite(channel.startSeconds) || channel.startSeconds < 0))
+      || (channel.interpolation !== undefined
+        && channel.interpolation !== 'linear' && channel.interpolation !== 'step')
+    ) {
+      rendererV1Error(`data channel ${id} has invalid timing or interpolation`);
+    }
+    const values = decodeRendererV1DataChannel(channel);
+    dataSampleCount += values.length;
+    if (dataSampleCount > RENDERER_V1_MAX_DATA_SAMPLES) rendererV1Error('too many data samples');
+    dataChannels.set(id, {
+      ...channel,
+      intervalSeconds: channel.intervalSeconds,
+      startSeconds: channel.startSeconds ?? 0,
+      values
+    });
+  }
+  const trackTargets = new Map([...hierarchy.states, ...masks]);
+  const tracks = [];
+  const trackKeys = new Set();
+  const usedDataChannelIds = new Set();
+  let playbackTimeTrackCount = 0;
+  for (const sourceTrack of automation.tracks) {
+    if (!isRendererV1Object(sourceTrack)) rendererV1Error('tracks must be objects');
+    const track = {
+      ...sourceTrack,
+      channel: dataChannels.get(String(sourceTrack.dataChannelId || '')) || null,
+      state: trackTargets.get(String(sourceTrack.targetId))
+    };
+    const key = `${String(track.targetId || '')}:${String(track.property || '')}`;
+    if (trackKeys.has(key)) rendererV1Error(`duplicate track ${key}`);
+    trackKeys.add(key);
+    const hasKeyframes = Array.isArray(track.keyframes) && track.keyframes.length > 0;
+    const hasDataChannel = sourceTrack.dataChannelId !== undefined;
+    if (
+      !track.state
+      || !RENDERER_V1_PROPERTIES.has(track.property)
+      || hasKeyframes === hasDataChannel
+      || (hasDataChannel && !track.channel)
+      || (track.property === 'pressed' && track.state.kind !== 'cursor')
+      || (track.property === 'playbackTime' && track.state.kind !== 'artwork')
+      || ((track.property === 'sourceX' || track.property === 'sourceY')
+        && track.state.kind !== 'sprite' && track.state.kind !== 'mask')
+      || (hasDataChannel && (track.property === 'visible' || track.property === 'pressed'))
+    ) {
+      rendererV1Error(`track ${key} is invalid or unsupported`);
+    }
+    if (
+      (sourceTrack.valueScale !== undefined && !Number.isFinite(sourceTrack.valueScale))
+      || (sourceTrack.valueOffset !== undefined && !Number.isFinite(sourceTrack.valueOffset))
+      || (!hasDataChannel
+        && (sourceTrack.valueScale !== undefined || sourceTrack.valueOffset !== undefined))
+    ) {
+      rendererV1Error(`track ${key} has invalid data mapping`);
+    }
+    if (hasDataChannel) usedDataChannelIds.add(String(sourceTrack.dataChannelId));
+    if (track.property === 'playbackTime') playbackTimeTrackCount += 1;
+    if (hasKeyframes) {
+      let previousTime = -Infinity;
+      for (const keyframe of track.keyframes) {
+        if (
+          !isRendererV1Object(keyframe)
+          || !Number.isFinite(keyframe.time) || keyframe.time < previousTime
+          || ((track.property === 'visible' || track.property === 'pressed')
+            ? typeof keyframe.value !== 'boolean'
+            : !Number.isFinite(keyframe.value))
+          || (keyframe.easing !== undefined
+            && keyframe.easing !== 'linear'
+            && keyframe.easing !== 'minimum-jerk'
+            && keyframe.easing !== 'step')
+        ) {
+          rendererV1Error(`track ${key} has invalid keyframes`);
+        }
+        previousTime = keyframe.time;
+      }
+    }
+    tracks.push(track);
+  }
+  if (playbackTimeTrackCount > 1) rendererV1Error('multiple playbackTime tracks are not supported');
+  for (const id of dataChannels.keys()) {
+    if (!usedDataChannelIds.has(id)) rendererV1Error(`unused data channel ${id}`);
+  }
+  const usedMaskIds = new Set([
+    ...hierarchy.ordered,
+    ...[...symbols.values()].flatMap((symbol) => symbol.ordered),
+  ].map((state) => String(state.maskId || '')).filter(Boolean));
+  for (const id of masks.keys()) {
+    if (!usedMaskIds.has(id)) rendererV1Error(`unused mask ${id}`);
+  }
+  const playbackTimeTrack = tracks.find((track) => track.property === 'playbackTime') || null;
+  const containsArtwork = hierarchy.ordered.some((state) => state.kind === 'artwork');
+  const previousSourceOpacity = sourceCanvas.style.opacity;
+  document.body.appendChild(overlay);
+  sourceViewer?.setExternalClockActive?.(true);
   if (layerSurfaces.size > 0) {
     sourceCanvas.dispatchEvent(new CustomEvent(TXT_LAYER_OVERLAYS_EVENT, {
       detail: {
@@ -7508,55 +7818,6 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       },
     }));
   }
-  const symbols = new Map();
-  for (const symbol of Array.isArray(automation.symbols) ? automation.symbols : []) {
-    const id = String(symbol?.id || '');
-    if (!id || symbols.has(id)) {
-      continue;
-    }
-    symbols.set(id, buildRendererV1Hierarchy({
-      sources: symbol.objects,
-      clips,
-      imageResources,
-      masks,
-      loadInlineImage,
-      redraw
-    }));
-  }
-
-  const dataChannels = new Map((Array.isArray(automation.dataChannels) ? automation.dataChannels : [])
-    .filter((channel) => (
-      String(channel?.id || '').length > 0
-      && Array.isArray(channel.values)
-      && channel.values.length > 0
-      && channel.values.every((value) => Number.isFinite(Number(value)))
-      && Number(channel.intervalSeconds) > 0
-    ))
-    .map((channel) => [String(channel.id), {
-      ...channel,
-      intervalSeconds: Number(channel.intervalSeconds),
-      startSeconds: Number.isFinite(Number(channel.startSeconds)) ? Number(channel.startSeconds) : 0,
-      values: channel.values.map(Number)
-    }]));
-  const trackTargets = new Map([...hierarchy.states, ...masks]);
-  const tracks = automation.tracks
-    .map((track) => ({
-      ...track,
-      channel: dataChannels.get(String(track.dataChannelId || '')) || null,
-      state: trackTargets.get(String(track.targetId))
-    }))
-    .filter((track) => (
-      track.state
-      && RENDERER_V1_PROPERTIES.has(track.property)
-      && (track.property !== 'pressed' || track.state.kind === 'cursor')
-      && (track.property !== 'playbackTime' || track.state.kind === 'artwork')
-      && ((track.property !== 'sourceX' && track.property !== 'sourceY')
-        || track.state.kind === 'sprite' || track.state.kind === 'mask')
-      && ((Array.isArray(track.keyframes) && track.keyframes.length > 0) || track.channel)
-    ));
-  const playbackTimeTrack = tracks.find((track) => track.property === 'playbackTime') || null;
-  const containsArtwork = hierarchy.ordered.some((state) => state.kind === 'artwork');
-  const previousSourceOpacity = sourceCanvas.style.opacity;
   if (containsArtwork) {
     sourceCanvas.style.opacity = '0';
   }
@@ -7912,10 +8173,9 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       return controller;
     })
     .catch((error) => {
-      cancelAnimationFrame(animationFrame);
-      animationFrame = 0;
       controller.error = error instanceof Error ? error : new Error(String(error));
       overlay.dataset.resourceError = controller.error.message;
+      dispose();
       throw controller.error;
     });
   sourceCanvas[RENDERER_V1_CONTROLLER_KEY] = controller;

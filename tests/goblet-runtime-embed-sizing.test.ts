@@ -31,7 +31,10 @@ describe('Goblet embed sizing runtime', () => {
     expect(runtime).toContain("width: resolveConstrainedAxisSize(canvas, 'width', fallbackWidth)");
     expect(runtime).toContain("height: resolveConstrainedAxisSize(canvas, 'height', fallbackHeight)");
     expect(runtime).toContain('const differsFromCanvas = Math.abs(size - canvasSize) > 1;');
-    expect(runtime).toContain('createCanvasStrategy(metadata, canvas, this.options.scale ?? null)');
+    expect(runtime).toContain('const createCanvasStrategy = (metadata, canvas, initialOverride, actualSize = false) => {');
+    expect(runtime).toContain("mode: actualSize ? 'actual' : viewportMode");
+    expect(runtime).toContain('this.options.actualSize === true');
+    expect(read('public/goblet2/index.html')).toContain("? { scale: 1, actualSize: true }");
   });
 
   it('renders data-only Renderer v1 automation in the Goblet 2 viewer', () => {
@@ -115,6 +118,7 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain("box.dataset.semanticFallback = 'true'");
       expect(viewer).toContain('#vessel-txt-shapes [data-canonical-selected]');
       expect(viewer).toContain('[data-vessel-txt-cell-selected="true"]');
+      expect(viewer).toContain('[data-selection-treatment="selected-text"]');
       expect(viewer).toContain('[data-selection-treatment="crossed-out"]');
       expect(viewer).toContain('[data-selection-treatment="selected-crossed-out"]');
       expect(viewer).toContain('[data-selection-treatment="overwritten"]');
@@ -132,6 +136,9 @@ describe('Goblet embed sizing runtime', () => {
       expect(viewer).toContain('box-shadow: 0 var(--txt-selection-fill-gap, 0px)');
       expect(viewer).toContain('[data-txt-fill-style="dither"] [data-canonical-selected]');
       expect(viewer).toContain('background-image: repeating-conic-gradient');
+      expect(viewer.indexOf('[data-selection-treatment="selected-text"]')).toBeGreaterThan(
+        viewer.indexOf('[data-txt-fill-style="dither"] [data-canonical-selected]'),
+      );
       expect(viewer).toContain("box.dataset.txtFillStyle = fillStyle;");
       expect(viewer).toContain("box.style.setProperty('--txt-dither-size'");
       expect(viewer).toContain('box.style.backgroundPosition = `${-(Number(shape.x) || 0)}px');
