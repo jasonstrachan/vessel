@@ -14,6 +14,7 @@ import {
   WINDOWS_31_UI_SHAPE_PALETTE,
   WINDOWS_95_UI_SHAPE_PALETTE,
 } from '@/utils/uiShape';
+import { resolveUiShapeSierraLiteInkPairs } from '@/utils/uiShapePaint';
 
 const downloadedBlobs: Blob[] = [];
 
@@ -492,6 +493,10 @@ describe('webglExporter bundle contracts', () => {
   });
 
   it('bakes outward arrows and edge-to-edge tracks into the Goblet texture', async () => {
+    const canvasMockGlobal = globalThis as typeof globalThis & {
+      __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean;
+    };
+    canvasMockGlobal.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
     const project = createProject();
     project.height = 80;
     const ownerLayer = createNormalLayer('layer-ui-raster', 0);
@@ -589,38 +594,34 @@ describe('webglExporter bundle contracts', () => {
       return [...imageData.data.slice(offset, offset + 4)];
     };
 
-    themes.forEach(({ theme, y, height, trackTop, trackBottom }) => {
+    themes.forEach(({ y, height, palette }) => {
       const radius = 3;
       const center = Math.floor((height - 1) / 2);
       const start = center - Math.floor(radius / 2);
       const rightButtonX = 64 - height;
-      if (theme === 'macintosh-system-7') {
-        const system7Center = Math.floor(height / 2);
-        expect(pixel(system7Center - radius, y + system7Center)).toEqual([0, 0, 0, 255]);
-        expect(pixel(system7Center - radius, y + system7Center - 1))
-          .not.toEqual([0, 0, 0, 255]);
-        expect(pixel(system7Center + radius, y + system7Center - radius))
-          .toEqual([0, 0, 0, 255]);
-        expect(pixel(rightButtonX + system7Center - radius, y + system7Center - radius))
-          .toEqual([0, 0, 0, 255]);
-        expect(pixel(rightButtonX + system7Center + radius, y + system7Center))
-          .toEqual([0, 0, 0, 255]);
-        expect(pixel(rightButtonX + system7Center + radius, y + system7Center - 1))
-          .not.toEqual([0, 0, 0, 255]);
-        expect(pixel(18, y)).toEqual(trackTop);
-        expect(pixel(18, y + height - 1)).toEqual(trackBottom);
-        return;
-      }
-      expect(pixel(start, y + center)).toEqual([0, 0, 0, 255]);
-      expect(pixel(start, y + center - 1)).not.toEqual([0, 0, 0, 255]);
-      expect(pixel(start + radius, y + center - radius)).toEqual([0, 0, 0, 255]);
-      expect(pixel(rightButtonX + start, y + center - radius)).toEqual([0, 0, 0, 255]);
-      expect(pixel(rightButtonX + start + radius, y + center)).toEqual([0, 0, 0, 255]);
-      expect(pixel(rightButtonX + start + radius, y + center - 1))
-        .not.toEqual([0, 0, 0, 255]);
-      expect(pixel(18, y)).toEqual(trackTop);
-      expect(pixel(18, y + height - 1)).toEqual(trackBottom);
+      const palettePixels = Object.values(palette).map((color) => {
+        const packed = Number.parseInt(color.slice(1), 16);
+        return [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255, 255];
+      });
+      const textPair = resolveUiShapeSierraLiteInkPairs(palette).text;
+      const textPixels = [textPair.lowColor, textPair.highColor].map((color) => {
+        const packed = Number.parseInt(color.slice(1), 16);
+        return [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255, 255];
+      });
+      const isTextPixel = (candidate: number[]) => textPixels.some((textPixel) => (
+        textPixel.every((channel, index) => channel === candidate[index])
+      ));
+      const hasTextPixelNear = (x: number, targetY: number) => [-1, 0, 1].some((dx) => (
+        [0, 1, 2].some((dy) => isTextPixel(pixel(x + dx, targetY + dy)))
+      ));
+      expect(isTextPixel(pixel(start, y + center))).toBe(true);
+      expect(hasTextPixelNear(start + radius, y + center - radius)).toBe(true);
+      expect(hasTextPixelNear(rightButtonX + start, y + center - radius)).toBe(true);
+      expect(isTextPixel(pixel(rightButtonX + start + radius, y + center))).toBe(true);
+      expect(palettePixels).toContainEqual(pixel(18, y));
+      expect(palettePixels).toContainEqual(pixel(18, y + height - 1));
     });
+    canvasMockGlobal.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = false;
   });
 
   it('serializes ordered Interlace groups into Goblet metadata', async () => {

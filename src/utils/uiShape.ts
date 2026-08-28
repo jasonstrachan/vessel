@@ -10,6 +10,10 @@ import type {
   UiShapeTheme,
 } from '@/types';
 import {
+  createUiShapeHanddrawnContext,
+  createUiShapePaintContext,
+} from '@/utils/uiShapePaint';
+import {
   drawUiShapeIcon,
   normalizeUiShapeIconIdForTheme,
 } from '@/utils/uiShapeIcons';
@@ -1523,11 +1527,11 @@ const drawWindows95Component = (
 };
 
 export const drawUiShapeComponent = (
-  ctx: UiShapeCanvasContext,
+  targetContext: UiShapeCanvasContext,
   component: UiShapeComponent,
   originX: number,
   originY: number,
-  palette: UiShapePalette,
+  sourcePalette: UiShapePalette,
   stateOverride?: UiShapeComponentState,
   theme: UiShapeTheme = 'windows-3.1',
   subpixelScrollbars = false,
@@ -1539,16 +1543,23 @@ export const drawUiShapeComponent = (
     ? ACTIVE_TITLE_BAR_STATE
     : stateOverride ?? component.canonicalState;
   const { width, height } = component;
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
+  targetContext.save();
+  targetContext.imageSmoothingEnabled = false;
   if (component.kind === 'icon') {
-    drawUiShapeIcon(ctx, component.iconId, x, y, width, height);
-    ctx.restore();
+    drawUiShapeIcon(targetContext, component.iconId, x, y, width, height);
+    targetContext.restore();
     return;
   }
+  const ctx = createUiShapePaintContext(targetContext, sourcePalette);
+  const palette = sourcePalette;
+  const isScrollbar = component.kind === 'scrollbar-horizontal'
+    || component.kind === 'scrollbar-vertical';
+  const drawContext = isScrollbar
+    ? createUiShapeHanddrawnContext(ctx, component.id)
+    : ctx;
   if (theme === 'macintosh-system-1') {
     drawMacComponent(
-      ctx,
+      drawContext,
       component,
       x,
       y,
@@ -1557,20 +1568,20 @@ export const drawUiShapeComponent = (
       subpixelScrollbars,
       interaction?.scrollbarPressedPart,
     );
-    ctx.restore();
+    targetContext.restore();
     return;
   }
   if (theme === 'macintosh-system-7') {
-    drawSystem7Component(ctx, component, x, y, palette, state, {
+    drawSystem7Component(drawContext, component, x, y, palette, state, {
       subpixelScrollbars,
       scrollbarPressedPart: interaction?.scrollbarPressedPart,
     });
-    ctx.restore();
+    targetContext.restore();
     return;
   }
   if (theme === 'windows-95') {
     drawWindows95Component(
-      ctx,
+      drawContext,
       component,
       x,
       y,
@@ -1579,7 +1590,7 @@ export const drawUiShapeComponent = (
       subpixelScrollbars,
       interaction?.scrollbarPressedPart,
     );
-    ctx.restore();
+    targetContext.restore();
     return;
   }
   switch (component.kind) {
@@ -1645,7 +1656,7 @@ export const drawUiShapeComponent = (
       break;
     case 'scrollbar-horizontal':
       drawScrollbar(
-        ctx,
+        drawContext,
         component,
         x,
         y,
@@ -1658,7 +1669,7 @@ export const drawUiShapeComponent = (
       break;
     case 'scrollbar-vertical':
       drawScrollbar(
-        ctx,
+        drawContext,
         component,
         x,
         y,
@@ -1693,16 +1704,15 @@ export const drawUiShapeComponent = (
     case 'resize-corner':
       ctx.fillStyle = palette.face;
       ctx.fillRect(x, y, width, height);
-      ctx.strokeStyle = palette.shadow;
+      ctx.fillStyle = palette.shadow;
       for (let offset = 3; offset < Math.min(width, height); offset += 4) {
-        ctx.beginPath();
-        ctx.moveTo(x + width - offset, y + height - 1);
-        ctx.lineTo(x + width - 1, y + height - offset);
-        ctx.stroke();
+        for (let step = 0; step < offset; step += 1) {
+          ctx.fillRect(x + width - offset + step, y + height - 1 - step, 1, 1);
+        }
       }
       break;
   }
-  ctx.restore();
+  targetContext.restore();
 };
 
 export const drawUiShape = (

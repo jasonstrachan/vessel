@@ -1,4 +1,4 @@
-import type { UiShape } from '@/types';
+import type { UiShape, UiShapePalette } from '@/types';
 import {
   cloneUiShapes,
   drawUiShape,
@@ -11,6 +11,14 @@ import {
   WINDOWS_31_UI_SHAPE_PALETTE,
   WINDOWS_95_UI_SHAPE_PALETTE,
 } from '@/utils/uiShape';
+import {
+  resolveUiShapeHanddrawnRect,
+  resolveUiShapeSierraLiteInkPairs,
+} from '@/utils/uiShapePaint';
+
+(globalThis as typeof globalThis & {
+  __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean;
+}).__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
 
 const createShape = (updates: Partial<UiShape> = {}): UiShape => ({
   id: 'ui-1',
@@ -49,7 +57,129 @@ const createShape = (updates: Partial<UiShape> = {}): UiShape => ({
   ...updates,
 });
 
+const hexToRgba = (color: string): number[] => {
+  const value = Number.parseInt(color.slice(1), 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255, 255];
+};
+
+const paintedRoleColors = (
+  palette: UiShapePalette,
+  role: keyof UiShapePalette,
+): number[][] => {
+  const pair = resolveUiShapeSierraLiteInkPairs(palette)[role];
+  return [...new Set([pair.lowColor, pair.highColor])].map(hexToRgba);
+};
+
+const pixelMatchesPaintedRole = (
+  pixel: number[],
+  palette: UiShapePalette,
+  role: keyof UiShapePalette,
+): boolean => paintedRoleColors(palette, role).some((color) => (
+  color.every((value, index) => value === pixel[index])
+));
+
+const expectPaintedRole = (
+  pixel: number[],
+  palette: UiShapePalette,
+  role: keyof UiShapePalette,
+): void => {
+  expect(paintedRoleColors(palette, role)).toContainEqual(pixel);
+};
+
+const expectPaintedSourceColor = (
+  pixel: number[],
+  palette: UiShapePalette,
+  source: number[],
+): void => {
+  const role = (Object.keys(palette) as (keyof UiShapePalette)[]).find((candidate) => (
+    hexToRgba(palette[candidate]).every((value, index) => value === source[index])
+  ));
+  expect(role).toBeDefined();
+  expectPaintedRole(pixel, palette, role!);
+};
+
 describe('UI Shape document helpers', () => {
+  it('gives each scrollbar primitive stable, restrained hand-drawn variation', () => {
+    const renderRects = (id: string, width = 8, height = 4) => (
+      Array.from({ length: 32 }, (_, operationIndex) => resolveUiShapeHanddrawnRect(
+        id,
+        operationIndex,
+        10,
+        20,
+        width,
+        height,
+      ))
+    );
+    const first = renderRects('painted-scrollbar');
+    const repeat = renderRects('painted-scrollbar');
+    const second = renderRects('another-painted-scrollbar');
+
+    expect(first).toEqual(repeat);
+    expect(first).not.toEqual(second);
+    expect(first.some((rect) => (
+      rect.x === 10 && rect.y === 20 && rect.width === 8 && rect.height === 4
+    ))).toBe(true);
+    expect(first.some((rect) => (
+      rect.x !== 10 || rect.y !== 20 || rect.width !== 8 || rect.height !== 4
+    ))).toBe(true);
+    first.forEach((rect) => {
+      expect(Math.abs(rect.x - 10)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rect.y - 20)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rect.width - 8)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rect.height - 4)).toBeLessThanOrEqual(1);
+      expect(rect.width).toBeGreaterThanOrEqual(1);
+      expect(rect.height).toBeGreaterThanOrEqual(1);
+    });
+
+    renderRects('one-pixel-scrollbar-primitive', 1, 1).forEach((rect) => {
+      expect(rect.width).toBe(1);
+      expect(rect.height).toBe(1);
+      expect(Math.abs(rect.x - 10)).toBeLessThanOrEqual(1);
+      expect(Math.abs(rect.y - 20)).toBeLessThanOrEqual(1);
+    });
+  });
+
+  it('mixes every UI role with a neighbouring palette ink through Sierra Lite', () => {
+    const pairs = resolveUiShapeSierraLiteInkPairs(WINDOWS_31_UI_SHAPE_PALETTE);
+    const roles = Object.keys(WINDOWS_31_UI_SHAPE_PALETTE) as (
+      keyof typeof WINDOWS_31_UI_SHAPE_PALETTE
+    )[];
+    const usedColors = new Set(roles.flatMap((role) => [
+      pairs[role].lowColor,
+      pairs[role].highColor,
+    ]));
+
+    roles.forEach((role) => {
+      expect([pairs[role].lowColor, pairs[role].highColor])
+        .toContain(WINDOWS_31_UI_SHAPE_PALETTE[role]);
+      expect([0.28, 0.72]).toContain(pairs[role].mix);
+    });
+    expect(usedColors).toEqual(new Set(Object.values(WINDOWS_31_UI_SHAPE_PALETTE)));
+  });
+
+  it('limits hand-drawn geometry to scrollbars while varying their complete chrome', () => {
+    const render = (id: string, kind: 'panel' | 'scrollbar-vertical') => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 24;
+      canvas.height = 64;
+      const context = canvas.getContext('2d')!;
+      drawUiShapeComponent(context, {
+        id,
+        kind,
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 64,
+        canonicalState: { value: 0.5 },
+      }, 0, 0, WINDOWS_31_UI_SHAPE_PALETTE);
+      return [...context.getImageData(0, 0, canvas.width, canvas.height).data];
+    };
+
+    expect(render('scrollbar-a', 'scrollbar-vertical'))
+      .not.toEqual(render('scrollbar-b', 'scrollbar-vertical'));
+    expect(render('panel-a', 'panel')).toEqual(render('panel-b', 'panel'));
+  });
+
   it('keeps canonical scrollbar positions pixel-snapped and allows smooth playback offsets', () => {
     expect(resolveUiShapeScrollbarOffset(16, 0.26)).toBe(4);
     expect(resolveUiShapeScrollbarOffset(16, 0.26, true)).toBeCloseTo(4.16);
@@ -320,13 +450,24 @@ describe('UI Shape document helpers', () => {
       canonicalState: { active: false },
     }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
 
-    expect([...context.getImageData(1, 1, 1, 1).data]).toEqual([232, 232, 232, 255]);
-    expect([...context.getImageData(30, 3, 1, 1).data]).toEqual([232, 232, 232, 255]);
-    expect([...context.getImageData(30, 4, 1, 1).data]).toEqual([128, 128, 128, 255]);
+    expectPaintedRole(
+      [...context.getImageData(1, 1, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'face',
+    );
+    expectPaintedRole(
+      [...context.getImageData(30, 3, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'face',
+    );
+    expectPaintedRole(
+      [...context.getImageData(30, 4, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'shadow',
+    );
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-    for (let offset = 0; offset < pixels.length; offset += 4) {
-      expect([...pixels.slice(offset, offset + 4)]).not.toEqual([0, 0, 255, 255]);
-    }
+    expect(Array.from({ length: pixels.length / 4 }, (_, index) => pixels[index * 4 + 3]))
+      .toEqual(expect.not.arrayContaining([0]));
   });
 
   it('keeps short System 7 windows inside their authored bounds', () => {
@@ -344,7 +485,11 @@ describe('UI Shape document helpers', () => {
       canonicalState: { active: true, open: true },
     }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
 
-    expect([...context.getImageData(1, 6, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expectPaintedRole(
+      [...context.getImageData(1, 6, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'text',
+    );
     expect([...context.getImageData(1, 7, 1, 1).data]).toEqual([0, 0, 0, 0]);
   });
 
@@ -396,10 +541,7 @@ describe('UI Shape document helpers', () => {
     canvas.width = 100;
     canvas.height = 100;
     const context = canvas.getContext('2d')!;
-    const pixel = (x: number, y: number) => {
-      const [red, green, blue, alpha] = context.getImageData(x, y, 1, 1).data;
-      return `rgba(${red},${green},${blue},${alpha})`;
-    };
+    const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
     const windowComponent = {
       ...createShape().components[0]!,
       kind: 'window' as const,
@@ -415,11 +557,11 @@ describe('UI Shape document helpers', () => {
 
     drawUiShape(context, windows95);
 
-    expect(pixel(8, 10)).toBe('rgba(223,223,223,255)');
-    expect(pixel(9, 11)).toBe('rgba(255,255,255,255)');
-    expect(pixel(55, 81)).toBe('rgba(0,0,0,255)');
-    expect(pixel(54, 80)).toBe('rgba(128,128,128,255)');
-    expect(pixel(11, 13)).toBe('rgba(0,0,128,255)');
+    expectPaintedRole(pixel(8, 10), WINDOWS_95_UI_SHAPE_PALETTE, 'face');
+    expectPaintedRole(pixel(9, 11), WINDOWS_95_UI_SHAPE_PALETTE, 'highlight');
+    expectPaintedRole(pixel(55, 81), WINDOWS_95_UI_SHAPE_PALETTE, 'darkShadow');
+    expectPaintedRole(pixel(54, 80), WINDOWS_95_UI_SHAPE_PALETTE, 'shadow');
+    expectPaintedRole(pixel(11, 13), WINDOWS_95_UI_SHAPE_PALETTE, 'active');
   });
 
   it('renders a checkerboard Windows 95 scrollbar track', () => {
@@ -476,7 +618,11 @@ describe('UI Shape document helpers', () => {
       const pixels: string[] = [];
       for (let localY = 2; localY < 14; localY += 1) {
         for (let localX = 2; localX < 14; localX += 1) {
-          if (pixel(originX + localX, originY + localY)[0] === 0) {
+          if (pixelMatchesPaintedRole(
+            pixel(originX + localX, originY + localY),
+            WINDOWS_95_UI_SHAPE_PALETTE,
+            'text',
+          )) {
             pixels.push(`${localX},${localY}`);
           }
         }
@@ -484,11 +630,11 @@ describe('UI Shape document helpers', () => {
       return pixels;
     };
 
-    expect(pixel(0, 0)).toEqual([223, 223, 223, 255]);
-    expect(pixel(1, 1)).toEqual([255, 255, 255, 255]);
+    expectPaintedRole(pixel(0, 0), WINDOWS_95_UI_SHAPE_PALETTE, 'face');
+    expectPaintedRole(pixel(1, 1), WINDOWS_95_UI_SHAPE_PALETTE, 'highlight');
     expect(blackInteriorPixels(0, 0)).toEqual([
       '7,6',
-      '6,7', '7,7', '8,7',
+      '7,7', '8,7',
       '5,8', '6,8', '7,8', '8,8', '9,8',
       '4,9', '5,9', '6,9', '7,9', '8,9', '9,9', '10,9',
     ]);
@@ -559,6 +705,14 @@ describe('UI Shape document helpers', () => {
     );
 
     const pixel = (x: number, y: number) => [...context.getImageData(x, y, 1, 1).data];
+    const hasBlackNearby = (x: number, y: number) => {
+      for (let row = Math.max(0, y - 1); row <= Math.min(height - 1, y + 1); row += 1) {
+        for (let column = Math.max(0, x - 1); column <= Math.min(63, x + 1); column += 1) {
+          if (pixelMatchesPaintedRole(pixel(column, row), palette, 'text')) return true;
+        }
+      }
+      return false;
+    };
     const radius = 3;
     const center = Math.floor((height - 1) / 2);
     const start = center - Math.floor(radius / 2);
@@ -566,25 +720,35 @@ describe('UI Shape document helpers', () => {
 
     if (theme === 'macintosh-system-7') {
       const system7Center = Math.floor(height / 2);
-      expect(pixel(system7Center - radius, system7Center)).toEqual([0, 0, 0, 255]);
-      expect(pixel(system7Center - radius, system7Center - 1)).not.toEqual([0, 0, 0, 255]);
-      expect(pixel(system7Center + radius, system7Center - radius)).toEqual([0, 0, 0, 255]);
-      expect(pixel(rightButtonX + system7Center - radius, system7Center - radius)).toEqual([0, 0, 0, 255]);
-      expect(pixel(rightButtonX + system7Center + radius, system7Center)).toEqual([0, 0, 0, 255]);
-      expect(pixel(rightButtonX + system7Center + radius, system7Center - 1)).not.toEqual([0, 0, 0, 255]);
-      expect(pixel(18, 0)).toEqual(trackTop);
-      expect(pixel(18, height - 1)).toEqual(trackBottom);
+      expectPaintedRole(pixel(system7Center - radius, system7Center), palette, 'text');
+      expect(pixelMatchesPaintedRole(
+        pixel(system7Center - radius, system7Center - 1),
+        palette,
+        'text',
+      )).toBe(false);
+      expectPaintedRole(pixel(system7Center + radius, system7Center - radius), palette, 'text');
+      expectPaintedRole(
+        pixel(rightButtonX + system7Center - radius, system7Center - radius),
+        palette,
+        'text',
+      );
+      expectPaintedRole(pixel(rightButtonX + system7Center + radius, system7Center), palette, 'text');
+      expect(pixelMatchesPaintedRole(
+        pixel(rightButtonX + system7Center + radius, system7Center - 1),
+        palette,
+        'text',
+      )).toBe(false);
+      expectPaintedSourceColor(pixel(18, 0), palette, trackTop);
+      expectPaintedSourceColor(pixel(18, height - 1), palette, trackBottom);
       return;
     }
 
-    expect(pixel(start, center)).toEqual([0, 0, 0, 255]);
-    expect(pixel(start, center - 1)).not.toEqual([0, 0, 0, 255]);
-    expect(pixel(start + radius, center - radius)).toEqual([0, 0, 0, 255]);
-    expect(pixel(rightButtonX + start, center - radius)).toEqual([0, 0, 0, 255]);
-    expect(pixel(rightButtonX + start + radius, center)).toEqual([0, 0, 0, 255]);
-    expect(pixel(rightButtonX + start + radius, center - 1)).not.toEqual([0, 0, 0, 255]);
-    expect(pixel(18, 0)).toEqual(trackTop);
-    expect(pixel(18, height - 1)).toEqual(trackBottom);
+    expectPaintedRole(pixel(start, center), palette, 'text');
+    expectPaintedRole(pixel(start + radius, center - radius), palette, 'text');
+    expect(hasBlackNearby(rightButtonX + start, center - radius)).toBe(true);
+    expectPaintedRole(pixel(rightButtonX + start + radius, center), palette, 'text');
+    expectPaintedSourceColor(pixel(18, 0), palette, trackTop);
+    expectPaintedSourceColor(pixel(18, height - 1), palette, trackBottom);
   });
 
   it('uses the System 7 source greys and grip geometry for scrollbars', () => {
@@ -624,10 +788,22 @@ describe('UI Shape document helpers', () => {
       height: 20,
       canonicalState: { active: true, pressed: false },
     }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
-    expect([...context.getImageData(10, 10, 1, 1).data]).toEqual([255, 255, 255, 255]);
-    expect([...context.getImageData(14, 10, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expectPaintedRole(
+      [...context.getImageData(10, 10, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'highlight',
+    );
+    expectPaintedRole(
+      [...context.getImageData(14, 10, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'text',
+    );
     expect([...context.getImageData(10, 6, 1, 1).data]).toEqual([0, 0, 0, 0]);
-    expect([...context.getImageData(18, 6, 1, 1).data]).toEqual([0, 0, 0, 255]);
+    expectPaintedRole(
+      [...context.getImageData(18, 6, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'text',
+    );
 
     drawUiShapeComponent(context, {
       id: 'system-7-field',
@@ -638,9 +814,21 @@ describe('UI Shape document helpers', () => {
       height: 16,
       canonicalState: { active: true },
     }, 0, 0, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE, undefined, 'macintosh-system-7');
-    expect([...context.getImageData(0, 34, 1, 1).data]).toEqual([0, 0, 0, 255]);
-    expect([...context.getImageData(1, 35, 1, 1).data]).toEqual([0, 0, 0, 255]);
-    expect([...context.getImageData(2, 36, 1, 1).data]).toEqual([0, 0, 255, 255]);
+    expectPaintedRole(
+      [...context.getImageData(0, 34, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'text',
+    );
+    expectPaintedRole(
+      [...context.getImageData(1, 35, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'text',
+    );
+    expectPaintedRole(
+      [...context.getImageData(2, 36, 1, 1).data],
+      MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      'selection',
+    );
   });
 
   it('deep-clones palettes, component state and animation', () => {

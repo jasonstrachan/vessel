@@ -25,6 +25,10 @@ describe('Goblet Renderer v1 scene runtime', () => {
     expect(runtime).toContain('drawContext.drawImage(\n        sourceCanvas,');
     expect(runtime).toContain('sourceViewer?.setExternalClockActive?.(true);');
     expect(runtime).toContain('sourceViewer?.renderAtTime?.(sourcePlaybackTime);');
+    expect(runtime).not.toContain('studio:txt-shape-playback-v1');
+    expect(runtime).not.toContain('studio:ui-shape-playback-v1');
+    expect(runtime).not.toContain('txt-playback:');
+    expect(runtime).not.toContain('ui-playback:');
   });
 
   it('supports hierarchy, local clips, shared resources, and symbol instances', () => {
@@ -124,51 +128,57 @@ describe('Goblet Renderer v1 scene runtime', () => {
     expect(precise.automation?.dataChannels?.[0]?.values).toBeDefined();
   });
 
-  it('fails export when an authored Studio requirement is absent or unresolved', () => {
+  it('accepts a future Studio feature through generic scene requirements', () => {
     const metadata = {
       dynamicFeatures: {
         schemaVersion: 1,
-        authored: ['studio:ui-shape-playback-v1'],
-        compiled: ['studio:ui-shape-playback-v1'],
+        authored: ['studio:future-brush-v1'],
+        compiled: ['studio:future-brush-v1'],
         requirements: [{
-          featureId: 'studio:ui-shape-playback-v1',
+          featureId: 'studio:future-brush-v1',
           objects: [
-            { objectId: 'ui-playback:cursor:1', trackProperties: ['pressed', 'y', 'x'] },
-            { objectId: 'ui-playback:cursor:0', trackProperties: ['pressed', 'y', 'x'] },
+            { objectId: 'future-brush:actor:1', trackProperties: ['visible', 'y', 'x'] },
+            { objectId: 'future-brush:actor:0', trackProperties: ['visible', 'y', 'x'] },
           ],
         }],
       },
       automation: {
         schemaVersion: 1,
         durationSeconds: 1,
-        objects: [{ id: 'ui-playback:cursor:0', kind: 'cursor', x: 0, y: 0 }],
+        objects: [{
+          id: 'future-brush:actor:0', kind: 'rect', x: 0, y: 0,
+          width: 1, height: 1, fill: '#000000',
+        }],
         tracks: [],
       },
     } as WebGLExportMetadata;
 
     expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
-      'Dynamic feature objects were not compiled: studio:ui-shape-playback-v1:ui-playback:cursor:1.',
+      'Dynamic feature objects were not compiled: studio:future-brush-v1:future-brush:actor:1.',
     );
-    metadata.automation!.objects.push({ id: 'ui-playback:cursor:1', kind: 'cursor', x: 0, y: 0 });
+    metadata.automation!.objects.push({
+      id: 'future-brush:actor:1', kind: 'rect', x: 0, y: 0,
+      width: 1, height: 1, fill: '#000000',
+    });
     expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
-      'Dynamic feature object studio:ui-shape-playback-v1:ui-playback:cursor:0 is missing tracks: pressed, x, y.',
+      'Dynamic feature object studio:future-brush-v1:future-brush:actor:0 is missing tracks: visible, x, y.',
     );
-    for (const targetId of ['ui-playback:cursor:0', 'ui-playback:cursor:1']) {
+    for (const targetId of ['future-brush:actor:0', 'future-brush:actor:1']) {
       metadata.automation!.tracks.push(
         { targetId, property: 'x', keyframes: [{ time: 0, value: 0 }] },
         { targetId, property: 'y', keyframes: [{ time: 0, value: 0 }] },
-        { targetId, property: 'pressed', keyframes: [{ time: 0, value: false }] },
+        { targetId, property: 'visible', keyframes: [{ time: 0, value: true }] },
       );
     }
     expect(() => assertDynamicFeatureManifestComplete(metadata)).not.toThrow();
     expect(metadata.dynamicFeatures?.requirements?.[0]?.objects).toEqual([
-      { objectId: 'ui-playback:cursor:0', trackProperties: ['pressed', 'x', 'y'] },
-      { objectId: 'ui-playback:cursor:1', trackProperties: ['pressed', 'x', 'y'] },
+      { objectId: 'future-brush:actor:0', trackProperties: ['visible', 'x', 'y'] },
+      { objectId: 'future-brush:actor:1', trackProperties: ['visible', 'x', 'y'] },
     ]);
 
     metadata.dynamicFeatures!.requirements = [];
     expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
-      'Dynamic features have no object requirements: studio:ui-shape-playback-v1.',
+      'Dynamic features have no object requirements: studio:future-brush-v1.',
     );
   });
 

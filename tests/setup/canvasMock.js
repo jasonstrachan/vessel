@@ -334,7 +334,68 @@ class MockCanvasRenderingContext2D {
     }
   }
 
-  drawImage() {}
+  drawImage(source, ...args) {
+    if (global.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ !== true) return;
+    const sourceContext = source?.getContext?.('2d');
+    if (!sourceContext) return;
+    const sourceWidth = source.width || 0;
+    const sourceHeight = source.height || 0;
+    let sourceX = 0;
+    let sourceY = 0;
+    let sourceDrawWidth = sourceWidth;
+    let sourceDrawHeight = sourceHeight;
+    let destinationX = 0;
+    let destinationY = 0;
+    let destinationWidth = sourceWidth;
+    let destinationHeight = sourceHeight;
+    if (args.length === 2) {
+      [destinationX, destinationY] = args;
+    } else if (args.length === 4) {
+      [destinationX, destinationY, destinationWidth, destinationHeight] = args;
+    } else if (args.length === 8) {
+      [
+        sourceX,
+        sourceY,
+        sourceDrawWidth,
+        sourceDrawHeight,
+        destinationX,
+        destinationY,
+        destinationWidth,
+        destinationHeight
+      ] = args;
+    } else {
+      return;
+    }
+    const sourceData = sourceContext.getImageData(
+      sourceX,
+      sourceY,
+      sourceDrawWidth,
+      sourceDrawHeight
+    );
+    const outputWidth = Math.max(0, Math.round(Math.abs(destinationWidth)));
+    const outputHeight = Math.max(0, Math.round(Math.abs(destinationHeight)));
+    const startX = destinationWidth < 0 ? destinationX + destinationWidth : destinationX;
+    const startY = destinationHeight < 0 ? destinationY + destinationHeight : destinationY;
+    for (let iy = 0; iy < outputHeight; iy++) {
+      const sampleY = Math.min(
+        sourceDrawHeight - 1,
+        Math.floor(iy * sourceDrawHeight / Math.max(1, outputHeight))
+      );
+      for (let ix = 0; ix < outputWidth; ix++) {
+        const sampleX = Math.min(
+          sourceDrawWidth - 1,
+          Math.floor(ix * sourceDrawWidth / Math.max(1, outputWidth))
+        );
+        const index = (sampleY * sourceDrawWidth + sampleX) * 4;
+        this._writePixel(Math.floor(startX + ix), Math.floor(startY + iy), {
+          r: sourceData.data[index],
+          g: sourceData.data[index + 1],
+          b: sourceData.data[index + 2],
+          a: clampColorComponent(Math.round(sourceData.data[index + 3] * this._globalAlpha))
+        });
+      }
+    }
+  }
   getLineDash() { return []; }
   setLineDash() {}
   getTransform() { return { a: 1, d: 1, e: 0, f: 0 }; }
