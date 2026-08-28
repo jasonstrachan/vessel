@@ -311,7 +311,12 @@ type GobletAutomationObjectBase = {
   id: string;
   x: number;
   y: number;
+  layerId?: string;
+  parentId?: string;
   clipId?: string;
+  anchorX?: number;
+  anchorY?: number;
+  blendMode?: 'source-over' | 'multiply' | 'screen' | 'darken' | 'lighten';
   opacity?: number;
   visible?: boolean;
   rotation?: number;
@@ -320,10 +325,40 @@ type GobletAutomationObjectBase = {
 };
 
 export type GobletAutomationObject = GobletAutomationObjectBase & (
+  | { kind: 'artwork'; width?: number; height?: number }
+  | { kind: 'group' }
+  | { kind: 'instance'; symbolId: string }
   | { kind: 'cursor'; pressed?: boolean }
   | { kind: 'rect'; width: number; height: number; fill: string }
-  | { kind: 'sprite'; width: number; height: number; dataUrl: string }
+  | ({
+      kind: 'sprite';
+      width: number;
+      height: number;
+      sourceX?: number;
+      sourceY?: number;
+      sourceWidth?: number;
+      sourceHeight?: number;
+    } & (
+      | { resourceId: string; dataUrl?: never }
+      | { dataUrl: string; resourceId?: never }
+    ))
 );
+
+export type GobletAutomationImageResource = {
+  id: string;
+  kind: 'image';
+  dataUrl: string;
+};
+
+export type GobletAutomationSymbolObject = Exclude<
+  GobletAutomationObject,
+  { kind: 'artwork' } | { kind: 'instance' }
+>;
+
+export type GobletAutomationSymbol = {
+  id: string;
+  objects: GobletAutomationSymbolObject[];
+};
 
 export type GobletAutomationClip = {
   id: string;
@@ -341,9 +376,11 @@ type GobletAutomationKeyframe<T extends number | boolean> = {
 
 export type GobletAutomationTrack = {
   targetId: string;
+  loopStartSeconds?: number;
+  loopDurationSeconds?: number;
 } & (
   | {
-      property: 'x' | 'y' | 'opacity' | 'rotation' | 'scaleX' | 'scaleY';
+      property: 'x' | 'y' | 'opacity' | 'rotation' | 'scaleX' | 'scaleY' | 'sourceX' | 'sourceY';
       keyframes: Array<GobletAutomationKeyframe<number>>;
     }
   | {
@@ -356,8 +393,16 @@ export interface GobletAutomation {
   schemaVersion: 1;
   durationSeconds: number;
   clips?: GobletAutomationClip[];
+  resources?: GobletAutomationImageResource[];
+  symbols?: GobletAutomationSymbol[];
   objects: GobletAutomationObject[];
   tracks: GobletAutomationTrack[];
+}
+
+export interface GobletDynamicFeatureManifest {
+  schemaVersion: 1;
+  authored: string[];
+  compiled: string[];
 }
 
 export interface WebGLExportMetadata {
@@ -394,6 +439,7 @@ export interface WebGLExportMetadata {
   txtShapePlayback?: TxtShapePlaybackSettings;
   uiShapes?: UiShape[];
   automation?: GobletAutomation;
+  dynamicFeatures?: GobletDynamicFeatureManifest;
   layers: WebGLLayerMetadata[];
   interlaceGroups?: WebGLSerializedInterlaceGroup[];
   adjustmentGroups?: WebGLSerializedAdjustmentGroup[];

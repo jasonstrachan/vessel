@@ -39,6 +39,7 @@ import type { WebGLExportSettings } from '@/types';
 import { runExport } from '@/utils/export/exportService';
 import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
 import type { GobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
+import type { GobletTester } from '@/utils/export/goblet/gobletTesterRegistry';
 import { buildGobletExportSnapshotRequest } from '@/utils/export/goblet/gobletSnapshot';
 import type { ExportProgress } from '@/utils/export/types';
 import type { DitherMethod } from '@/utils/gifDither';
@@ -94,6 +95,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const [isExporting, setIsExporting] = useState(false);
   const [progressState, setProgressState] = useState<ExportProgressState | null>(null);
   const [publishingPublisherId, setPublishingPublisherId] = useState<string | null>(null);
+  const [testingTesterId, setTestingTesterId] = useState<string | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
   const continueAnywayRef = useRef(false);
 
@@ -181,10 +183,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   }, [isOpen]);
 
   const isProgressDismissible = progressState
-    ? canDismissExportProgress(progressState, publishingPublisherId)
+    ? canDismissExportProgress(progressState, publishingPublisherId, testingTesterId)
     : false;
   const canCloseModal = !isExporting
     && publishingPublisherId === null
+    && testingTesterId === null
     && (!progressState || isProgressDismissible || progressState.phase === 'blocked');
 
   useEffect(() => {
@@ -638,6 +641,42 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     }
   };
 
+  const testGoblet = async (tester: GobletTester, artifact: GobletArtifact) => {
+    if (!project || publishingPublisherId || testingTesterId) return;
+    const previewWindow = window.open('about:blank', '_blank');
+    if (previewWindow) {
+      previewWindow.opener = null;
+      previewWindow.document.title = 'Preparing renderer preview';
+      previewWindow.document.body.textContent = 'Preparing renderer preview...';
+    }
+    setTestingTesterId(tester.id);
+    try {
+      const result = await tester.test(artifact, {
+        projectId: project.id,
+        projectName: project.name,
+      });
+      if (previewWindow) previewWindow.location.replace(result.url);
+      addNotification({
+        type: 'success',
+        title: `Tested with ${tester.label}`,
+        message: previewWindow ? result.message : `${result.message} ${result.url}`,
+        timestamp: new Date(),
+        duration: 8000,
+      });
+    } catch (error) {
+      previewWindow?.close();
+      addNotification({
+        type: 'error',
+        title: `Test with ${tester.label} failed`,
+        message: error instanceof Error ? error.message : 'Unknown renderer test error',
+        timestamp: new Date(),
+        duration: 8000,
+      });
+    } finally {
+      setTestingTesterId(null);
+    }
+  };
+
   if (!shouldRender) {
     return null;
   }
@@ -706,6 +745,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           <ExportProgressView
             state={progressState}
             publishingPublisherId={publishingPublisherId}
+            testingTesterId={testingTesterId}
             onBack={() => setProgressState(null)}
             onCancel={() => exportAbortRef.current?.abort()}
             onClose={closeExportModal}
@@ -713,6 +753,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             onRepair={openRepairFlow}
             onDownload={(artifact) => downloadBlob(artifact.blob, artifact.filename)}
             onPublish={(publisher, artifact) => { void publishGoblet(publisher, artifact); }}
+            onTest={(tester, artifact) => { void testGoblet(tester, artifact); }}
           />
         ) : (
           <ExportSetupView

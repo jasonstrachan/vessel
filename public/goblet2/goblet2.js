@@ -1484,19 +1484,37 @@ const PROPERTY_UNMINIFY_MAP = {
   s: 'settings',
   l: 'layers',
   ts: 'textShapes',
+  uis: 'uiShapes',
   au: 'automation',
+  df: 'dynamicFeatures',
+  af: 'authored',
+  cf: 'compiled',
   clp: 'clips',
   cid: 'clipId',
+  res: 'resources',
+  rid: 'resourceId',
+  sym: 'symbols',
+  sid: 'symbolId',
   obj: 'objects',
+  lid: 'layerId',
+  pid: 'parentId',
+  ax: 'anchorX',
+  ay: 'anchorY',
   trk: 'tracks',
   k: 'kind',
   pr: 'property',
   tid: 'targetId',
+  lss: 'loopStartSeconds',
+  lds: 'loopDurationSeconds',
   kf: 'keyframes',
   tm: 'time',
   val: 'value',
   es: 'easing',
   du: 'dataUrl',
+  srx: 'sourceX',
+  sry: 'sourceY',
+  srw: 'sourceWidth',
+  srh: 'sourceHeight',
   fi: 'fill',
   rot: 'rotation',
   sx: 'scaleX',
@@ -2018,6 +2036,20 @@ class SequentialLayerPlayer {
     this.frameAccumulatorSeconds -= steps * this.frameDurationSeconds;
     this.currentFrame = (this.currentFrame + steps) % this.frameCount;
     return true;
+  }
+
+  setTime(timeSeconds) {
+    if (!this.hasAnimation()) {
+      return false;
+    }
+    const elapsed = Math.max(0, Number.isFinite(timeSeconds) ? timeSeconds : 0);
+    const framePosition = elapsed * this.fps;
+    const nextFrame = Math.floor(framePosition) % this.frameCount;
+    const nextAccumulator = (framePosition - Math.floor(framePosition)) / this.fps;
+    const changed = nextFrame !== this.currentFrame;
+    this.currentFrame = nextFrame;
+    this.frameAccumulatorSeconds = nextAccumulator;
+    return changed;
   }
 
   getSource() {
@@ -4772,6 +4804,18 @@ class ColorCycleLayerPlayer {
     return true;
   }
 
+  setTime(timeSeconds) {
+    if (this._destroyed || this._isReinitializing) {
+      return false;
+    }
+    const elapsed = Math.max(0, Number.isFinite(timeSeconds) ? timeSeconds : 0);
+    this._lastDeltaSeconds = Math.max(0, elapsed - this.baseTimeSeconds);
+    this.baseTimeSeconds = elapsed;
+    this.legacyOffset01 = wrap01(this.baseOffset + elapsed * (this.legacySpeedCps || 0));
+    this.renderFrame();
+    return true;
+  }
+
   renderFrame() {
     if (!this.indexBuffer) {
       return;
@@ -5446,6 +5490,8 @@ class VesselGoblet {
     this.rafId = null;
     this.isAnimationLoopActive = false;
     this.lastTimestamp = 0;
+    this.playbackTimeSeconds = 0;
+    this.externalClockActive = false;
     this.lastCcReasonLogAt = 0;
     this.rawDpr = getRawDevicePixelRatio();
     this.effectiveDpr = this.rawDpr;
@@ -5637,6 +5683,14 @@ class VesselGoblet {
 
   handleRuntimeLayerOverlaysDirty(event) {
     if (event?.detail?.owner !== this.runtimeLayerOverlayOwner) return;
+    if (event?.detail?.immediate === true) {
+      if (this.runtimeLayerOverlayRafId !== null) {
+        cancelAnimationFrame(this.runtimeLayerOverlayRafId);
+        this.runtimeLayerOverlayRafId = null;
+      }
+      this.renderOnce();
+      return;
+    }
     this.requestRuntimeLayerOverlayRender();
   }
 
@@ -5842,6 +5896,10 @@ class VesselGoblet {
         hasAnimation: () => true,
         advance: (delta) => {
           if (Number.isFinite(delta) && delta > 0 && delta < 1) this.interlaceElapsedSeconds += delta;
+          return true;
+        },
+        setTime: (seconds) => {
+          this.interlaceElapsedSeconds = Math.max(0, Number.isFinite(seconds) ? seconds : 0);
           return true;
         },
         destroy: () => {},
@@ -6838,6 +6896,7 @@ class VesselGoblet {
     if (!this.isDocumentVisible) reasons.push('document-hidden');
     if (!this.isCanvasIntersecting) reasons.push('canvas-offscreen');
     if (this.dynamicPlayers.some((player) => player?._isReinitializing)) reasons.push('scale-transition');
+    if (this.externalClockActive) reasons.push('external-master-clock');
     return reasons;
   }
 
@@ -6846,7 +6905,38 @@ class VesselGoblet {
       && this.dynamicPlayers.length > 0
       && this.isDocumentVisible
       && this.isCanvasIntersecting
+      && !this.externalClockActive
       && !this.dynamicPlayers.some((player) => player?._isReinitializing);
+  }
+
+  canAdvanceExternalClock() {
+    return !this.destroyed
+      && this.isDocumentVisible
+      && this.isCanvasIntersecting
+      && !this.dynamicPlayers.some((player) => player?._isReinitializing);
+  }
+
+  setExternalClockActive(active) {
+    const next = active === true;
+    if (this.externalClockActive === next) return;
+    this.externalClockActive = next;
+    this.lastTimestamp = 0;
+    if (next) this.stop();
+    else this.reconcileAnimationLoop();
+  }
+
+  renderAtTime(timeSeconds) {
+    if (this.destroyed) return false;
+    const elapsed = Math.max(0, Number.isFinite(timeSeconds) ? timeSeconds : 0);
+    this.playbackTimeSeconds = elapsed;
+    let needsRender = false;
+    for (const player of this.dynamicPlayers) {
+      if (typeof player?.setTime === 'function') {
+        if (player.setTime(elapsed)) needsRender = true;
+      }
+    }
+    if (needsRender || this.dynamicPlayers.length === 0) this.renderOnce();
+    return needsRender;
   }
 
   resetPlayerMeasurementWindows() {
@@ -7107,9 +7197,12 @@ class VesselGoblet {
     const frameStart = profileEnabled ? profileNow() : 0;
     let cpuFillMs = 0;
     let cpuBlitMs = 0;
+    this.playbackTimeSeconds += delta;
     let needsRender = false;
     for (const player of this.dynamicPlayers) {
-      if (player && player.advance(delta)) {
+      if (typeof player?.setTime === 'function'
+        ? player.setTime(this.playbackTimeSeconds)
+        : player?.advance?.(delta)) {
         needsRender = true;
       }
       if (profileEnabled) {
@@ -7142,6 +7235,519 @@ class VesselGoblet {
 // ------------------------------------------------------------
 // Public API
 // ------------------------------------------------------------
+const RENDERER_V1_CONTROLLER_KEY = '__vesselRendererV1Controller';
+const RENDERER_V1_OBJECT_KINDS = new Set([
+  'artwork',
+  'cursor',
+  'group',
+  'instance',
+  'rect',
+  'sprite'
+]);
+const RENDERER_V1_PROPERTIES = new Set([
+  'opacity',
+  'pressed',
+  'rotation',
+  'scaleX',
+  'scaleY',
+  'sourceX',
+  'sourceY',
+  'visible',
+  'x',
+  'y'
+]);
+const RENDERER_V1_BLEND_MODES = new Set([
+  'source-over',
+  'multiply',
+  'screen',
+  'darken',
+  'lighten'
+]);
+
+const createRendererV1Image = (dataUrl, redraw, label = 'sprite') => {
+  if (typeof dataUrl !== 'string' || dataUrl.length === 0 || typeof Image === 'undefined') {
+    return null;
+  }
+  const image = new Image();
+  const ready = new Promise((resolve, reject) => {
+    image.addEventListener('load', () => {
+      redraw();
+      resolve(image);
+    }, { once: true });
+    image.addEventListener('error', () => {
+      reject(new Error(`Renderer v1 image failed to load: ${label}`));
+    }, { once: true });
+  });
+  image.src = dataUrl;
+  return { image, ready };
+};
+
+const buildRendererV1Hierarchy = ({
+  sources,
+  clips,
+  imageResources,
+  loadInlineImage,
+  redraw
+}) => {
+  const states = new Map();
+  const ordered = [];
+  for (const source of Array.isArray(sources) ? sources : []) {
+    const id = String(source?.id || '');
+    if (!id || states.has(id) || !RENDERER_V1_OBJECT_KINDS.has(source?.kind)) {
+      continue;
+    }
+    const state = {
+      ...source,
+      id,
+      children: [],
+      clip: clips.get(String(source.clipId || '')) || null,
+      opacity: Number.isFinite(Number(source.opacity)) ? Number(source.opacity) : 1,
+      pressed: source.pressed === true,
+      rotation: Number(source.rotation) || 0,
+      scaleX: Number.isFinite(Number(source.scaleX)) ? Number(source.scaleX) : 1,
+      scaleY: Number.isFinite(Number(source.scaleY)) ? Number(source.scaleY) : 1,
+      visible: source.visible !== false,
+      image: null
+    };
+    if (source.kind === 'sprite') {
+      state.image = imageResources.get(String(source.resourceId || ''))?.image
+        || loadInlineImage(source.dataUrl, source.id)?.image
+        || null;
+    }
+    states.set(id, state);
+    ordered.push(state);
+  }
+
+  const roots = [];
+  for (const state of ordered) {
+    const parent = states.get(String(state.parentId || ''));
+    if (parent && parent !== state) {
+      parent.children.push(state);
+    } else {
+      roots.push(state);
+    }
+  }
+  return { ordered, roots, states };
+};
+
+export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
+  const previous = sourceCanvas?.[RENDERER_V1_CONTROLLER_KEY];
+  previous?.dispose?.();
+  if (!(sourceCanvas instanceof HTMLCanvasElement)) {
+    return null;
+  }
+
+  const automation = metadata?.automation;
+  if (automation?.schemaVersion !== 1
+    || !Array.isArray(automation.objects)
+    || !Array.isArray(automation.tracks)
+    || !Number.isFinite(Number(automation.durationSeconds))
+    || !(Number(automation.durationSeconds) > 0)) {
+    return null;
+  }
+
+  const width = Math.max(1, Number(metadata.project?.width) || 1);
+  const height = Math.max(1, Number(metadata.project?.height) || 1);
+  const duration = Number(automation.durationSeconds);
+  const overlay = document.createElement('canvas');
+  overlay.id = 'vessel-renderer-v1';
+  overlay.width = width;
+  overlay.height = height;
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.style.position = 'absolute';
+  overlay.style.pointerEvents = 'none';
+  overlay.style.zIndex = '20';
+  document.body.appendChild(overlay);
+  const context = overlay.getContext('2d');
+  if (!context) {
+    overlay.remove();
+    return null;
+  }
+
+  let animationFrame = 0;
+  let manualTime = null;
+  let elapsedSeconds = 0;
+  let lastTickAt = 0;
+  let disposed = false;
+  let resizeObserver = null;
+  let controller = null;
+  let layerSceneDirty = true;
+  const sourceViewer = sourceCanvas[RENDERER_KEY] ?? null;
+  sourceViewer?.setExternalClockActive?.(true);
+  const clips = new Map((Array.isArray(automation.clips) ? automation.clips : [])
+    .filter((clip) => (
+      String(clip?.id || '').length > 0
+      && Number.isFinite(Number(clip.x))
+      && Number.isFinite(Number(clip.y))
+      && Number(clip.width) > 0
+      && Number(clip.height) > 0
+    ))
+    .map((clip) => [String(clip.id), clip]));
+
+  const redraw = () => {
+    layerSceneDirty = true;
+    if (disposed || manualTime === null || !controller) {
+      return;
+    }
+    controller.drawAt(((manualTime % duration) + duration) % duration);
+  };
+  const imageReadiness = [];
+  const loadInlineImage = (dataUrl, label) => {
+    const record = createRendererV1Image(dataUrl, redraw, label);
+    if (record) imageReadiness.push(record.ready);
+    return record;
+  };
+  const imageResources = new Map();
+  for (const resource of Array.isArray(automation.resources) ? automation.resources : []) {
+    const id = String(resource?.id || '');
+    if (!id || imageResources.has(id) || resource?.kind !== 'image') {
+      continue;
+    }
+    const record = loadInlineImage(resource.dataUrl, `resource:${id}`);
+    if (record) imageResources.set(id, { ...resource, ...record });
+  }
+
+  const hierarchy = buildRendererV1Hierarchy({
+    sources: automation.objects,
+    clips,
+    imageResources,
+    loadInlineImage,
+    redraw
+  });
+  const supportsLayerOverlays = sourceCanvas.dataset.vesselLayerOverlays === 'true';
+  const layerRoots = new Map();
+  const globalRoots = [];
+  const layerBoundStates = new Set();
+  const markLayerBoundStates = (state) => {
+    if (!state || layerBoundStates.has(state)) return;
+    layerBoundStates.add(state);
+    for (const child of state.children) markLayerBoundStates(child);
+  };
+  for (const root of hierarchy.roots) {
+    const layerId = String(root.layerId || '');
+    if (!supportsLayerOverlays || !layerId) {
+      globalRoots.push(root);
+      continue;
+    }
+    const roots = layerRoots.get(layerId) || [];
+    roots.push(root);
+    layerRoots.set(layerId, roots);
+    markLayerBoundStates(root);
+  }
+  const layerSurfaces = new Map();
+  for (const layerId of layerRoots.keys()) {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const layerContext = canvas.getContext('2d');
+    if (!layerContext) continue;
+    layerContext.imageSmoothingEnabled = false;
+    layerSurfaces.set(layerId, { canvas, context: layerContext });
+  }
+  for (const [layerId, roots] of layerRoots) {
+    if (layerSurfaces.has(layerId)) continue;
+    globalRoots.push(...roots);
+    layerRoots.delete(layerId);
+  }
+  if (layerSurfaces.size > 0) {
+    sourceCanvas.dispatchEvent(new CustomEvent(TXT_LAYER_OVERLAYS_EVENT, {
+      detail: {
+        entries: [...layerSurfaces].map(([layerId, surface]) => [layerId, surface.canvas]),
+        owner: overlay,
+      },
+    }));
+  }
+  const symbols = new Map();
+  for (const symbol of Array.isArray(automation.symbols) ? automation.symbols : []) {
+    const id = String(symbol?.id || '');
+    if (!id || symbols.has(id)) {
+      continue;
+    }
+    symbols.set(id, buildRendererV1Hierarchy({
+      sources: symbol.objects,
+      clips,
+      imageResources,
+      loadInlineImage,
+      redraw
+    }));
+  }
+
+  const tracks = automation.tracks
+    .map((track) => ({ ...track, state: hierarchy.states.get(String(track.targetId)) }))
+    .filter((track) => (
+      track.state
+      && RENDERER_V1_PROPERTIES.has(track.property)
+      && (track.property !== 'pressed' || track.state.kind === 'cursor')
+      && Array.isArray(track.keyframes)
+      && track.keyframes.length > 0
+    ));
+  const containsArtwork = hierarchy.ordered.some((state) => state.kind === 'artwork');
+  const previousSourceOpacity = sourceCanvas.style.opacity;
+  if (containsArtwork) {
+    sourceCanvas.style.opacity = '0';
+  }
+
+  const interpolateTrack = (track, time) => {
+    const loopStart = Number(track.loopStartSeconds);
+    const loopDuration = Number(track.loopDurationSeconds);
+    const resolvedTime = Number.isFinite(loopStart)
+      && loopStart >= 0
+      && Number.isFinite(loopDuration)
+      && loopDuration > 0
+      && time >= loopStart
+      ? loopStart + (((time - loopStart) % loopDuration) + loopDuration) % loopDuration
+      : time;
+    const frames = track.keyframes;
+    if (resolvedTime <= Number(frames[0].time)) return frames[0].value;
+    const last = frames[frames.length - 1];
+    if (resolvedTime >= Number(last.time)) return last.value;
+    let leftIndex = 1;
+    let rightIndex = frames.length - 1;
+    while (leftIndex < rightIndex) {
+      const middleIndex = Math.floor((leftIndex + rightIndex) / 2);
+      if (resolvedTime > Number(frames[middleIndex].time)) {
+        leftIndex = middleIndex + 1;
+      } else {
+        rightIndex = middleIndex;
+      }
+    }
+    const left = frames[leftIndex - 1];
+    const right = frames[leftIndex];
+    if (typeof left.value === 'boolean' || right.easing === 'step') return left.value;
+    const span = Math.max(Number.EPSILON, Number(right.time) - Number(left.time));
+    let amount = Math.max(0, Math.min(1, (resolvedTime - Number(left.time)) / span));
+    if (right.easing === 'minimum-jerk') {
+      amount = amount * amount * amount * (amount * (amount * 6 - 15) + 10);
+    }
+    return Number(left.value) + (Number(right.value) - Number(left.value)) * amount;
+  };
+
+  const drawCursor = (drawContext, state) => {
+    const rows = [
+      'B............', 'BB...........', 'BWB..........', 'BWWB.........',
+      'BWWWB........', 'BWWWWB.......', 'BWWWWWB......', 'BWWWWWWB.....',
+      'BWWWWWWWB....', 'BWWWWWWWWB...', 'BWWWWWBBBBB..', 'BWWBWWB......',
+      'BWB.BWWB.....', 'BB..BWWB.....', '....BWWB.....', '.....BWWB....',
+      '......BBB....'
+    ];
+    drawContext.imageSmoothingEnabled = false;
+    rows.forEach((row, y) => {
+      for (let x = 0; x < row.length; x += 1) {
+        if (row[x] === '.') continue;
+        drawContext.fillStyle = row[x] === 'B' ? '#000000' : '#ffffff';
+        drawContext.fillRect(x, y, 1, 1);
+      }
+    });
+  };
+
+  const drawNode = (drawContext, state, activePath) => {
+    if (!state || state.visible === false || activePath.has(state) || activePath.size >= 128) {
+      return;
+    }
+    activePath.add(state);
+    drawContext.save();
+    drawContext.translate(Number(state.x) || 0, Number(state.y) || 0);
+    drawContext.rotate((Number(state.rotation) || 0) * Math.PI / 180);
+    drawContext.scale(Number(state.scaleX) || 0, Number(state.scaleY) || 0);
+    drawContext.translate(-(Number(state.anchorX) || 0), -(Number(state.anchorY) || 0));
+    if (state.clip) {
+      drawContext.beginPath();
+      drawContext.rect(
+        Number(state.clip.x) || 0,
+        Number(state.clip.y) || 0,
+        Number(state.clip.width) || 0,
+        Number(state.clip.height) || 0
+      );
+      drawContext.clip();
+    }
+    drawContext.globalAlpha *= Math.max(0, Math.min(1, Number(state.opacity) || 0));
+    if (RENDERER_V1_BLEND_MODES.has(state.blendMode)) {
+      drawContext.globalCompositeOperation = state.blendMode;
+    }
+
+    if (state.kind === 'artwork') {
+      drawContext.drawImage(
+        sourceCanvas,
+        0,
+        0,
+        Number(state.width) || width,
+        Number(state.height) || height
+      );
+    } else if (state.kind === 'rect') {
+      drawContext.fillStyle = String(state.fill || '#000000');
+      drawContext.fillRect(0, 0, Number(state.width) || 0, Number(state.height) || 0);
+    } else if (state.kind === 'sprite' && state.image?.complete && state.image.naturalWidth > 0) {
+      const hasSourceRectangle = [state.sourceX, state.sourceY, state.sourceWidth, state.sourceHeight]
+        .every((value) => Number.isFinite(Number(value)));
+      if (hasSourceRectangle) {
+        drawContext.drawImage(
+          state.image,
+          Number(state.sourceX),
+          Number(state.sourceY),
+          Number(state.sourceWidth),
+          Number(state.sourceHeight),
+          0,
+          0,
+          Number(state.width) || 0,
+          Number(state.height) || 0
+        );
+      } else {
+        drawContext.drawImage(
+          state.image,
+          0,
+          0,
+          Number(state.width) || 0,
+          Number(state.height) || 0
+        );
+      }
+    } else if (state.kind === 'cursor') {
+      drawCursor(drawContext, state);
+    } else if (state.kind === 'instance') {
+      const symbol = symbols.get(String(state.symbolId || ''));
+      for (const root of symbol?.roots || []) {
+        drawNode(drawContext, root, activePath);
+      }
+    }
+
+    for (const child of state.children) {
+      drawNode(drawContext, child, activePath);
+    }
+    drawContext.restore();
+    activePath.delete(state);
+  };
+
+  const drawAt = (time) => {
+    for (const track of tracks) {
+      const value = interpolateTrack(track, time);
+      if (layerBoundStates.has(track.state) && track.state[track.property] !== value) {
+        layerSceneDirty = true;
+      }
+      track.state[track.property] = value;
+    }
+    if (layerSceneDirty && layerSurfaces.size > 0) {
+      for (const [layerId, surface] of layerSurfaces) {
+        surface.context.clearRect(0, 0, width, height);
+        for (const root of layerRoots.get(layerId) || []) {
+          drawNode(surface.context, root, new Set());
+        }
+      }
+      sourceCanvas.dispatchEvent(new CustomEvent(TXT_LAYER_OVERLAYS_DIRTY_EVENT, {
+        detail: { immediate: true, owner: overlay },
+      }));
+      layerSceneDirty = false;
+    }
+    context.clearRect(0, 0, width, height);
+    for (const root of globalRoots) {
+      drawNode(context, root, new Set());
+    }
+  };
+
+  const renderAtTime = (time) => {
+    const resolved = Math.max(0, Number.isFinite(time) ? time : 0);
+    sourceViewer?.renderAtTime?.(resolved);
+    drawAt(((resolved % duration) + duration) % duration);
+  };
+
+  const tick = (now) => {
+    if (disposed) return;
+    if (manualTime !== null) return;
+    if (lastTickAt > 0 && (sourceViewer?.canAdvanceExternalClock?.() ?? !document.hidden)) {
+      elapsedSeconds += Math.max(0, (now - lastTickAt) / 1000);
+    }
+    lastTickAt = now;
+    renderAtTime(elapsedSeconds);
+    if (manualTime === null) {
+      animationFrame = requestAnimationFrame(tick);
+    }
+  };
+
+  const handleVisibilityChange = () => {
+    lastTickAt = 0;
+  };
+
+  const position = () => {
+    const rect = sourceCanvas.getBoundingClientRect();
+    overlay.style.left = `${rect.left + window.scrollX}px`;
+    overlay.style.top = `${rect.top + window.scrollY}px`;
+    overlay.style.width = `${rect.width}px`;
+    overlay.style.height = `${rect.height}px`;
+  };
+  position();
+  window.addEventListener('resize', position);
+  window.addEventListener('scroll', position, true);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  if (typeof ResizeObserver === 'function') {
+    resizeObserver = new ResizeObserver(position);
+    resizeObserver.observe(sourceCanvas);
+  }
+
+  const setTime = (seconds) => {
+    cancelAnimationFrame(animationFrame);
+    animationFrame = 0;
+    if (seconds === null || seconds === undefined) {
+      manualTime = null;
+      lastTickAt = 0;
+      animationFrame = requestAnimationFrame(tick);
+      return;
+    }
+    manualTime = Number(seconds) || 0;
+    elapsedSeconds = Math.max(0, manualTime);
+    renderAtTime(elapsedSeconds);
+  };
+
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    cancelAnimationFrame(animationFrame);
+    resizeObserver?.disconnect();
+    window.removeEventListener('resize', position);
+    window.removeEventListener('scroll', position, true);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    if (layerSurfaces.size > 0) {
+      sourceCanvas.dispatchEvent(new CustomEvent(TXT_LAYER_OVERLAYS_EVENT, {
+        detail: { entries: [], owner: overlay },
+      }));
+    }
+    sourceCanvas.style.opacity = previousSourceOpacity;
+    sourceViewer?.setExternalClockActive?.(false);
+    overlay.remove();
+    if (sourceCanvas[RENDERER_V1_CONTROLLER_KEY] === controller) {
+      delete sourceCanvas[RENDERER_V1_CONTROLLER_KEY];
+    }
+    if (window.vesselGobletRendererV1 === controller) {
+      delete window.vesselGobletRendererV1;
+      delete window.vesselGobletSetAutomationTime;
+    }
+  };
+
+  controller = {
+    dispose,
+    drawAt: renderAtTime,
+    error: null,
+    getTime: () => elapsedSeconds,
+    ready: null,
+    setTime,
+  };
+  controller.ready = Promise.all(imageReadiness)
+    .then(() => {
+      if (!disposed) renderAtTime(elapsedSeconds);
+      return controller;
+    })
+    .catch((error) => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+      controller.error = error instanceof Error ? error : new Error(String(error));
+      overlay.dataset.resourceError = controller.error.message;
+      throw controller.error;
+    });
+  sourceCanvas[RENDERER_V1_CONTROLLER_KEY] = controller;
+  window.vesselGobletRendererV1 = controller;
+  window.vesselGobletSetAutomationTime = setTime;
+  renderAtTime(0);
+  animationFrame = requestAnimationFrame(tick);
+  return controller;
+};
+
 const ensureResizeListener = () => {
   if (resizeListenerAttached || typeof window === 'undefined') {
     return;

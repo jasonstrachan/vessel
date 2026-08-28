@@ -226,6 +226,44 @@ const minifyProperties = (value: unknown): unknown => {
   return result;
 };
 
+const normalizeDynamicFeatureIds = (features: readonly string[]): string[] => (
+  [...new Set(features.map((feature) => feature.trim()).filter(Boolean))].sort()
+);
+
+const getNativeGobletDynamicFeatures = (metadata: WebGLExportMetadata): string[] => {
+  const features: string[] = [];
+  if (metadata.layers.some((layer) => Boolean(layer.colorCycle) && layer.colorCycle?.isAnimating !== false)) {
+    features.push('goblet:color-cycle-v1');
+  }
+  if (metadata.layers.some((layer) => (
+    (layer.sequential?.totalFrames ?? layer.assets?.textureFrames?.length ?? 0) > 1
+  ))) {
+    features.push('goblet:sequential-v1');
+  }
+  if ((metadata.interlaceGroups?.length ?? 0) > 0) {
+    features.push('goblet:interlace-v1');
+  }
+  return features;
+};
+
+const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetadata): void => {
+  const manifest = metadata.dynamicFeatures;
+  if (!manifest || manifest.schemaVersion !== 1) {
+    throw new Error('Goblet export requires a dynamic feature manifest.');
+  }
+  const authored = normalizeDynamicFeatureIds(manifest.authored);
+  const compiled = normalizeDynamicFeatureIds(manifest.compiled);
+  const missing = authored.filter((feature) => !compiled.includes(feature));
+  const undeclared = compiled.filter((feature) => !authored.includes(feature));
+  if (missing.length > 0 || undeclared.length > 0) {
+    throw new Error([
+      missing.length > 0 ? `Dynamic features were not compiled: ${missing.join(', ')}.` : '',
+      undeclared.length > 0 ? `Compiled features were not declared: ${undeclared.join(', ')}.` : '',
+    ].filter(Boolean).join(' '));
+  }
+  metadata.dynamicFeatures = { schemaVersion: 1, authored, compiled };
+};
+
 
 
 
@@ -280,6 +318,11 @@ export const buildProjectGobletArtifact = async (
     options.project.height,
     options.layers,
   );
+  const txtShapePlayback = getProjectTxtShapePlaybackSettings(options.project);
+  const rasterTextShapes = studioExtension.transformGobletRasterTextShapes?.(
+    normalizedTextShapes,
+    { txtShapePlayback },
+  ) ?? normalizedTextShapes;
   const normalizedUiShapes = normalizeUiShapes(
     options.project.uiShapes,
     options.project.width,
@@ -423,7 +466,7 @@ export const buildProjectGobletArtifact = async (
     const txtRasterCache = layer.layerType === 'normal'
       ? createTxtShapeLayerRasterCache({
           layer,
-          shapes: normalizedTextShapes,
+          shapes: rasterTextShapes,
           width: options.project.width,
           height: options.project.height,
         })
@@ -1002,7 +1045,7 @@ export const buildProjectGobletArtifact = async (
     textShapes: normalizedTextShapes.filter((shape) => (
       metadataLayers.some((layer) => layer.id === shape.layerId)
     )),
-    txtShapePlayback: getProjectTxtShapePlaybackSettings(options.project),
+    txtShapePlayback,
     uiShapes: normalizedUiShapes.filter((shape) => (
       metadataLayers.some((layer) => layer.id === shape.layerId)
     )),
@@ -1048,7 +1091,15 @@ export const buildProjectGobletArtifact = async (
     metadata.fallback = fallback;
   }
 
+  const nativeDynamicFeatures = getNativeGobletDynamicFeatures(metadata);
+  const extensionDynamicFeatures = studioExtension.getGobletAuthoredDynamicFeatures?.(metadata) ?? [];
+  metadata.dynamicFeatures = {
+    schemaVersion: 1,
+    authored: normalizeDynamicFeatureIds([...nativeDynamicFeatures, ...extensionDynamicFeatures]),
+    compiled: normalizeDynamicFeatureIds(nativeDynamicFeatures),
+  };
   metadata = studioExtension.transformGobletMetadata?.(metadata) ?? metadata;
+  assertDynamicFeatureManifestComplete(metadata);
 
   if (gobletDiagnosticsActive && placementByLayerId) {
     placementByLayerId.forEach((placement, layerId) => {

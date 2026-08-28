@@ -24,12 +24,14 @@ import {
   getTxtShapeTransientSelectionRevision,
   getTxtShapeUnmappedTextCoverage,
   normalizeTxtShapeSelectionTreatments,
+  normalizeTxtShapeDitherInkSpread,
   normalizeTxtShapeSelections,
   normalizeTxtShapeSampleTone,
   normalizeTxtShapePlaybackSettings,
   normalizeTxtShapeTextState,
   normalizeTxtShapes,
   resolveTxtShapeHiddenUnmappedRanges,
+  resolveTxtShapeDitherInkPair,
   setTxtShapeTransientSelectionOverrides,
   simplifyTxtShapeFreehandPath,
   splitTxtShapeSegments,
@@ -37,6 +39,7 @@ import {
   updateTxtShapeSelectionTreatmentsForContent,
   updateTxtShapeSelectionsForContent,
 } from '@/utils/txtShape';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import { layoutTxtShapeText } from '@/utils/txtShapeLayout';
 import {
   createTxtShapeFontFaceCss,
@@ -317,6 +320,46 @@ describe('TXT Shape document helpers', () => {
     expect(filled.backgroundColor).toBe('#336699');
     expect(legacy.backgroundColor).toBeUndefined();
     expect(invalid.backgroundColor).toBeUndefined();
+  });
+
+  it('normalizes ordered-dither fills without changing legacy flat shapes', () => {
+    const [dithered, clamped, legacy] = normalizeTxtShapes([
+      createShape({ id: 'dithered', fillStyle: 'dither', ditherResolution: 3 }),
+      createShape({
+        id: 'clamped',
+        fillStyle: 'dither',
+        ditherResolution: 99,
+        ditherInkSpread: 999,
+      }),
+      createShape({ id: 'legacy' }),
+    ], 200, 100);
+
+    expect(dithered).toEqual(expect.objectContaining({
+      fillStyle: 'dither',
+      ditherResolution: 3,
+      ditherInkSpread: 25,
+    }));
+    expect(clamped.ditherResolution).toBe(8);
+    expect(clamped.ditherInkSpread).toBe(100);
+    expect(legacy.fillStyle).toBeUndefined();
+    expect(legacy.ditherResolution).toBeUndefined();
+    expect(legacy.ditherInkSpread).toBeUndefined();
+  });
+
+  it('keeps the two dither inks centred on their block colour and widens them by spread', () => {
+    const narrow = resolveTxtShapeDitherInkPair('#808080', 10)
+      .map((color) => parseCssColor(color));
+    const wide = resolveTxtShapeDitherInkPair('#808080', 80)
+      .map((color) => parseCssColor(color));
+    const distance = (pair: ReturnType<typeof parseCssColor>[]) => (
+      Math.abs(pair[1]!.r - pair[0]!.r)
+      + Math.abs(pair[1]!.g - pair[0]!.g)
+      + Math.abs(pair[1]!.b - pair[0]!.b)
+    );
+
+    expect(distance(narrow)).toBeLessThan(distance(wide));
+    expect(normalizeTxtShapeDitherInkSpread(-1)).toBe(0);
+    expect(normalizeTxtShapeDitherInkSpread(101)).toBe(100);
   });
 
   it('normalizes persisted sampled-tone controls without changing legacy shapes', () => {
@@ -869,6 +912,45 @@ describe('TXT Shape document helpers', () => {
     expect((ctx.fillRect as jest.Mock).mock.invocationCallOrder[0]).toBeLessThan(
       (ctx.fillText as jest.Mock).mock.invocationCallOrder[0]!,
     );
+  });
+
+  it('dithers selected blocks and box backgrounds with their own local ink pairs', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 24;
+    canvas.height = 16;
+    const ctx = canvas.getContext('2d');
+    expect(ctx).not.toBeNull();
+    const shape = createShape({
+      x: 0,
+      y: 0,
+      width: 24,
+      height: 16,
+      content: 'AB',
+      fontFamily: 'mek-sans',
+      fontSize: 10,
+      lineHeight: 1,
+      selectionColor: 'rgba(0, 0, 0, 0)',
+      selectionBackgroundColor: '#ff0000',
+      backgroundColor: '#0000ff',
+      fillStyle: 'dither',
+      ditherResolution: 2,
+      ditherInkSpread: 25,
+      selections: [{ start: 0, end: 2 }],
+    });
+
+    drawTxtShapesToCanvas(ctx!, [shape]);
+
+    const blockPair = resolveTxtShapeDitherInkPair('#ff0000', 25)
+      .map((color) => parseCssColor(color));
+    const boxPair = resolveTxtShapeDitherInkPair('#0000ff', 25)
+      .map((color) => parseCssColor(color));
+    const pixel = (x: number) => [...ctx!.getImageData(x, 0, 1, 1).data];
+    const rgba = ({ r, g, b, a }: ReturnType<typeof parseCssColor>) => [r, g, b, a];
+
+    expect(pixel(0)).toEqual(rgba(blockPair[1]!));
+    expect(pixel(2)).toEqual(rgba(blockPair[0]!));
+    expect(pixel(20)).toEqual(rgba(boxPair[1]!));
+    expect(pixel(22)).toEqual(rgba(boxPair[0]!));
   });
 
   it('limits a dirty layer repaint to intersecting TXT Shapes and text lines', () => {

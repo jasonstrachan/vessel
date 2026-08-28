@@ -13,6 +13,11 @@ import {
   subscribeGobletPublishers,
   type GobletPublisher,
 } from '@/utils/export/goblet/gobletPublisherRegistry';
+import {
+  getGobletTesters,
+  subscribeGobletTesters,
+  type GobletTester,
+} from '@/utils/export/goblet/gobletTesterRegistry';
 
 interface GobletReleaseSummaryProps {
   artifact: GobletArtifact;
@@ -169,20 +174,25 @@ export const GobletReleaseSummary: React.FC<GobletReleaseSummaryProps> = ({ arti
 interface GobletReleaseActionsProps {
   artifact: GobletArtifact;
   publishingPublisherId: string | null;
+  testingTesterId: string | null;
   onClose: () => void;
   onDownload: (artifact: GobletArtifact) => void;
   onPublish: (publisher: GobletPublisher, artifact: GobletArtifact) => void;
+  onTest: (tester: GobletTester, artifact: GobletArtifact) => void;
 }
 
 export const GobletReleaseActions: React.FC<GobletReleaseActionsProps> = ({
   artifact,
   publishingPublisherId,
+  testingTesterId,
   onClose,
   onDownload,
   onPublish,
+  onTest,
 }) => {
   const [publishers, setPublishers] = useState<GobletPublisher[]>(getGobletPublishers);
-  const isPublishing = publishingPublisherId !== null;
+  const [testers, setTesters] = useState<GobletTester[]>(getGobletTesters);
+  const isBusy = publishingPublisherId !== null || testingTesterId !== null;
 
   useEffect(() => {
     const refresh = () => setPublishers(getGobletPublishers());
@@ -192,11 +202,18 @@ export const GobletReleaseActions: React.FC<GobletReleaseActionsProps> = ({
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    const refresh = () => setTesters(getGobletTesters());
+    const unsubscribe = subscribeGobletTesters(refresh);
+    refresh();
+    return unsubscribe;
+  }, []);
+
   return (
     <>
       <Button
         variant="secondary"
-        disabled={isPublishing}
+        disabled={isBusy}
         onClick={() => onDownload(artifact)}
       >
         Download
@@ -204,21 +221,40 @@ export const GobletReleaseActions: React.FC<GobletReleaseActionsProps> = ({
       {publishers.map((publisher) => {
         const canPublish = publisher.canPublish?.(artifact) ?? true;
         const unavailableReason = publisher.unavailableReason ?? 'Unsupported artifact';
+        const actionLabel = publisher.actionLabel ?? publisher.label;
         return (
           <Button
             key={publisher.id}
             variant="primary"
-            disabled={isPublishing || !canPublish}
+            disabled={isBusy || !canPublish}
             onClick={() => onPublish(publisher, artifact)}
             title={canPublish ? undefined : unavailableReason}
           >
             {publishingPublisherId === publisher.id
               ? 'Publishing...'
-              : `Publish to ${publisher.label}${canPublish ? '' : ` (${unavailableReason})`}`}
+              : `${actionLabel}${canPublish ? '' : ` (${unavailableReason})`}`}
           </Button>
         );
       })}
-      <Button variant="secondary" disabled={isPublishing} onClick={onClose}>Close</Button>
+      {testers.map((tester) => {
+        const canTest = tester.canTest?.(artifact) ?? true;
+        const unavailableReason = tester.unavailableReason ?? 'Unsupported artifact';
+        const actionLabel = tester.actionLabel ?? tester.label;
+        return (
+          <Button
+            key={tester.id}
+            variant="primary"
+            disabled={isBusy || !canTest}
+            onClick={() => onTest(tester, artifact)}
+            title={canTest ? undefined : unavailableReason}
+          >
+            {testingTesterId === tester.id
+              ? 'Preparing preview...'
+              : `${actionLabel}${canTest ? '' : ` (${unavailableReason})`}`}
+          </Button>
+        );
+      })}
+      <Button variant="secondary" disabled={isBusy} onClick={onClose}>Close</Button>
     </>
   );
 };

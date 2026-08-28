@@ -7,6 +7,7 @@ import {
 } from '@/components/modals/GobletReleasePanel';
 import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
 import { registerGobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
+import { registerGobletTester } from '@/utils/export/goblet/gobletTesterRegistry';
 
 const createArtifact = (width = 1024, height = 768): GobletArtifact => ({
   blob: new Blob(['<html></html>'], { type: 'text/html' }),
@@ -160,9 +161,11 @@ describe('GobletReleaseActions', () => {
       <GobletReleaseActions
         artifact={createArtifact()}
         publishingPublisherId="archive"
+        testingTesterId={null}
         onClose={jest.fn()}
         onDownload={jest.fn()}
         onPublish={jest.fn()}
+        onTest={jest.fn()}
       />,
     );
 
@@ -184,15 +187,47 @@ describe('GobletReleaseActions', () => {
         <GobletReleaseActions
           artifact={createArtifact()}
           publishingPublisherId={null}
+          testingTesterId={null}
           onClose={jest.fn()}
           onDownload={jest.fn()}
           onPublish={jest.fn()}
+          onTest={jest.fn()}
         />,
       );
 
       expect(screen.getByRole('button', {
-        name: 'Publish to HTML archive (Single HTML required)',
+        name: 'HTML archive (Single HTML required)',
       })).toBeDisabled();
+    } finally {
+      act(() => unregister());
+    }
+  });
+
+  it('shows a registered renderer tester without changing the normal download action', () => {
+    const onTest = jest.fn();
+    const artifact = createArtifact();
+    const unregister = registerGobletTester({
+      id: 'private-renderer',
+      label: 'Private renderer',
+      test: jest.fn(async () => ({ message: 'Ready', url: 'http://127.0.0.1:4181/preview' })),
+    });
+
+    try {
+      render(
+        <GobletReleaseActions
+          artifact={artifact}
+          publishingPublisherId={null}
+          testingTesterId={null}
+          onClose={jest.fn()}
+          onDownload={jest.fn()}
+          onPublish={jest.fn()}
+          onTest={onTest}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Private renderer' }));
+      expect(onTest).toHaveBeenCalledWith(expect.objectContaining({ id: 'private-renderer' }), artifact);
+      expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled();
     } finally {
       act(() => unregister());
     }

@@ -7,6 +7,7 @@ import {
 } from '@/components/modals/GobletReleasePanel';
 import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
 import type { GobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
+import type { GobletTester } from '@/utils/export/goblet/gobletTesterRegistry';
 
 import {
   formatExactBytes,
@@ -18,6 +19,7 @@ import {
 interface ExportProgressViewProps {
   state: ExportProgressState;
   publishingPublisherId: string | null;
+  testingTesterId: string | null;
   onBack: () => void;
   onCancel: () => void;
   onClose: () => void;
@@ -25,19 +27,23 @@ interface ExportProgressViewProps {
   onRepair: () => void;
   onDownload: (artifact: GobletArtifact) => void;
   onPublish: (publisher: GobletPublisher, artifact: GobletArtifact) => void;
+  onTest: (tester: GobletTester, artifact: GobletArtifact) => void;
 }
 
 export const canDismissExportProgress = (
   state: ExportProgressState,
   publishingPublisherId: string | null,
+  testingTesterId: string | null = null,
 ): boolean => (
   (state.phase === 'complete' || state.phase === 'failed')
   && publishingPublisherId === null
+  && testingTesterId === null
 );
 
 export const ExportProgressView = ({
   state,
   publishingPublisherId,
+  testingTesterId,
   onBack,
   onCancel,
   onClose,
@@ -45,9 +51,10 @@ export const ExportProgressView = ({
   onRepair,
   onDownload,
   onPublish,
+  onTest,
 }: ExportProgressViewProps) => {
   const artifact = state.artifact;
-  const canClose = canDismissExportProgress(state, publishingPublisherId);
+  const canClose = canDismissExportProgress(state, publishingPublisherId, testingTesterId);
   const isBlocked = state.phase === 'blocked';
   const diagnosticsText = state.layers
     .flatMap((layer) => layer.colorCycle?.diagnostics
@@ -217,9 +224,11 @@ export const ExportProgressView = ({
           <GobletReleaseActions
             artifact={artifact}
             publishingPublisherId={publishingPublisherId}
+            testingTesterId={testingTesterId}
             onClose={onClose}
             onDownload={onDownload}
             onPublish={onPublish}
+            onTest={onTest}
           />
         ) : state.phase === 'failed' ? (
           <>

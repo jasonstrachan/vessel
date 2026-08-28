@@ -747,7 +747,7 @@ describe('ExportModal', () => {
         fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
       });
 
-      fireEvent.click(await screen.findByRole('button', { name: 'Publish to Test archive' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Test archive' }));
 
       const progressModal = within(screen.getByRole('dialog', { name: 'Goblet ready' }));
       expect(await progressModal.findByRole('button', { name: 'Publishing...' })).toBeDisabled();
@@ -761,7 +761,7 @@ describe('ExportModal', () => {
         await Promise.resolve();
       });
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Publish to Test archive' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Test archive' })).toBeEnabled();
       });
     } finally {
       await act(async () => {

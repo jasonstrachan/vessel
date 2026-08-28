@@ -4,6 +4,7 @@ import type {
   TxtShape,
   TxtShapeColorRange,
   TxtShapeColorSource,
+  TxtShapeFillStyle,
   TxtShapePlaybackSettings,
   TxtShapeRegionPoint,
   TxtShapeSampleTone,
@@ -13,6 +14,8 @@ import type {
   TxtShapeTextAlign,
   TxtShapeTextState,
 } from '@/types';
+import { OKLabConverter } from '@/lib/colorCycle/colorSpace/OKLabConverter';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import {
   layoutTxtShapeTextPage,
   type TxtShapeLayoutLine,
@@ -44,6 +47,8 @@ export const DEFAULT_TXT_SHAPE_PLAYBACK_SETTINGS: Readonly<TxtShapePlaybackSetti
   dragSpeed: 140,
 };
 export const DEFAULT_TXT_SHAPE_UNMAPPED_TEXT_COVERAGE = 100;
+export const DEFAULT_TXT_SHAPE_DITHER_RESOLUTION = 2;
+export const DEFAULT_TXT_SHAPE_DITHER_INK_SPREAD = 25;
 
 export interface TxtShapePaintRect {
   x: number;
@@ -166,6 +171,80 @@ export const normalizeTxtShapeSampleTone = (value: unknown): TxtShapeSampleTone 
       100,
     ),
   };
+};
+
+export const normalizeTxtShapeFillStyle = (value: unknown): TxtShapeFillStyle => (
+  value === 'dither' ? 'dither' : 'flat'
+);
+
+export const normalizeTxtShapeDitherResolution = (value: unknown): number => (
+  clamp(
+    Math.round(finite(value, DEFAULT_TXT_SHAPE_DITHER_RESOLUTION)),
+    1,
+    8,
+  )
+);
+
+export const normalizeTxtShapeDitherInkSpread = (value: unknown): number => (
+  clamp(
+    Math.round(finite(value, DEFAULT_TXT_SHAPE_DITHER_INK_SPREAD)),
+    0,
+    100,
+  )
+);
+
+const isDirectlyParseableTxtShapeColor = (color: string): boolean => (
+  color.trim().toLowerCase() === 'transparent'
+  || /^#[\da-f]{3,8}$/iu.test(color.trim())
+  || /^rgba?\(/iu.test(color.trim())
+);
+
+const formatTxtShapeDitherInk = (
+  rgb: { r: number; g: number; b: number },
+  alpha: number,
+): string => alpha < 255
+  ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${Math.round((alpha / 255) * 1000) / 1000})`
+  : `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`;
+
+/** Resolve a subtle two-ink pair centred perceptually on the authored fill colour. */
+export const resolveTxtShapeDitherInkPair = (
+  color: string,
+  spread: unknown,
+): readonly [string, string] => {
+  if (!isDirectlyParseableTxtShapeColor(color)) return [color, color];
+  const rgba = parseCssColor(color);
+  if (rgba.a === 0) return [color, color];
+  const target = OKLabConverter.rgbToOKLab(rgba);
+  const normalizedSpread = normalizeTxtShapeDitherInkSpread(spread) / 100;
+  let halfSpread = 0.006 + Math.pow(normalizedSpread, 1.8) * 0.174;
+  let low = OKLabConverter.oklabToRGB({
+    ...target,
+    L: clamp(target.L - halfSpread, 0, 1),
+  });
+  let high = OKLabConverter.oklabToRGB({
+    ...target,
+    L: clamp(target.L + halfSpread, 0, 1),
+  });
+  while (
+    low.r === high.r
+    && low.g === high.g
+    && low.b === high.b
+    && halfSpread < 0.08
+  ) {
+    halfSpread += 0.01;
+    low = OKLabConverter.oklabToRGB({
+      ...target,
+      L: clamp(target.L - halfSpread, 0, 1),
+    });
+    high = OKLabConverter.oklabToRGB({
+      ...target,
+      L: clamp(target.L + halfSpread, 0, 1),
+    });
+  }
+  return [
+    formatTxtShapeDitherInk(low, rgba.a),
+    formatTxtShapeDitherInk(high, rgba.a),
+  ];
 };
 
 const doesTxtShapePaintRectIntersect = (
@@ -502,6 +581,9 @@ export const normalizeTxtShape = (
     || candidate.renderMode === 'glyph-map';
   const letterSpacing = clamp(finite(candidate.letterSpacing, 0), 0, 64);
   const sampleTone = normalizeTxtShapeSampleTone(candidate.sampleTone);
+  const fillStyle = normalizeTxtShapeFillStyle(candidate.fillStyle);
+  const ditherResolution = normalizeTxtShapeDitherResolution(candidate.ditherResolution);
+  const ditherInkSpread = normalizeTxtShapeDitherInkSpread(candidate.ditherInkSpread);
   const unmappedTextCoverage = clamp(
     Math.round(finite(
       candidate.unmappedTextCoverage,
@@ -564,6 +646,7 @@ export const normalizeTxtShape = (
     ...(isCssColor(candidate.backgroundColor)
       ? { backgroundColor: candidate.backgroundColor }
       : {}),
+    ...(fillStyle === 'dither' ? { fillStyle, ditherResolution, ditherInkSpread } : {}),
     selections,
     ...(selectionTreatments.length > 0 ? { selectionTreatments } : {}),
     ...(nonCanonicalState !== 'none' ? { nonCanonicalState } : {}),
@@ -1024,6 +1107,9 @@ export const splitTxtShapeSegments = (
 type TxtShapeCanvasContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 type TxtShapeCanvasSurface = HTMLCanvasElement | OffscreenCanvas;
 
+const TXT_SHAPE_DITHER_TILE_CACHE_LIMIT = 64;
+const txtShapeDitherTileCache = new Map<string, TxtShapeCanvasSurface>();
+
 const createTxtShapeCanvasSurface = (width: number, height: number): TxtShapeCanvasSurface | null => {
   const canvas = typeof document !== 'undefined'
     ? document.createElement('canvas')
@@ -1042,6 +1128,87 @@ const getTxtShapeCanvasContext = (canvas: TxtShapeCanvasSurface): TxtShapeCanvas
     { willReadFrequently: true } as CanvasRenderingContext2DSettings,
   ) as TxtShapeCanvasContext | null
 );
+
+const getTxtShapeDitherTile = (
+  lowColor: string,
+  highColor: string,
+  resolution: number,
+): TxtShapeCanvasSurface | null => {
+  const cellSize = normalizeTxtShapeDitherResolution(resolution);
+  const cacheKey = `${lowColor}:${highColor}:${cellSize}`;
+  const cached = txtShapeDitherTileCache.get(cacheKey);
+  if (cached) return cached;
+  const tileSize = cellSize * 2;
+  const tile = createTxtShapeCanvasSurface(tileSize, tileSize);
+  if (!tile) return null;
+  const tileContext = getTxtShapeCanvasContext(tile);
+  if (!tileContext) return null;
+  tileContext.fillStyle = lowColor;
+  tileContext.fillRect(0, 0, tileSize, tileSize);
+  tileContext.fillStyle = highColor;
+  tileContext.fillRect(0, 0, cellSize, cellSize);
+  tileContext.fillRect(cellSize, cellSize, cellSize, cellSize);
+  if (txtShapeDitherTileCache.size >= TXT_SHAPE_DITHER_TILE_CACHE_LIMIT) {
+    const oldestKey = txtShapeDitherTileCache.keys().next().value;
+    if (oldestKey !== undefined) txtShapeDitherTileCache.delete(oldestKey);
+  }
+  txtShapeDitherTileCache.set(cacheKey, tile);
+  return tile;
+};
+
+const fillTxtShapeDitherRect = (
+  ctx: TxtShapeCanvasContext,
+  {
+    color,
+    inkSpread,
+    resolution,
+    x,
+    y,
+    width,
+    height,
+  }: {
+    color: string;
+    inkSpread: number;
+    resolution: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  },
+): void => {
+  if (width <= 0 || height <= 0) return;
+  const [lowColor, highColor] = resolveTxtShapeDitherInkPair(color, inkSpread);
+  ctx.fillStyle = lowColor;
+  ctx.fillRect(x, y, width, height);
+  if (lowColor === highColor) return;
+  const tile = getTxtShapeDitherTile(lowColor, highColor, resolution);
+  const pattern = tile && typeof ctx.createPattern === 'function'
+    ? ctx.createPattern(tile, 'repeat')
+    : null;
+  if (pattern) {
+    ctx.fillStyle = pattern;
+    ctx.fillRect(x, y, width, height);
+    return;
+  }
+  const cellSize = normalizeTxtShapeDitherResolution(resolution);
+  const firstCellX = Math.floor(x / cellSize);
+  const firstCellY = Math.floor(y / cellSize);
+  const lastCellX = Math.ceil((x + width) / cellSize);
+  const lastCellY = Math.ceil((y + height) / cellSize);
+  ctx.fillStyle = highColor;
+  for (let cellY = firstCellY; cellY < lastCellY; cellY += 1) {
+    for (let cellX = firstCellX; cellX < lastCellX; cellX += 1) {
+      if ((cellX + cellY) % 2 !== 0) continue;
+      const left = Math.max(x, cellX * cellSize);
+      const top = Math.max(y, cellY * cellSize);
+      const right = Math.min(x + width, (cellX + 1) * cellSize);
+      const bottom = Math.min(y + height, (cellY + 1) * cellSize);
+      if (right > left && bottom > top) {
+        ctx.fillRect(left, top, right - left, bottom - top);
+      }
+    }
+  }
+};
 
 export const thresholdTxtShapePixelAlpha = (
   pixels: Uint8ClampedArray,
@@ -1474,9 +1641,24 @@ const drawTxtShapesToCanvasWithSelectionMode = (
     const hiddenUnmappedRanges = resolveTxtShapeHiddenUnmappedRanges(shape);
     ctx.save();
     clipTxtShapeRegion(ctx, shape);
+    const fillStyle = normalizeTxtShapeFillStyle(shape.fillStyle);
+    const ditherResolution = normalizeTxtShapeDitherResolution(shape.ditherResolution);
+    const ditherInkSpread = normalizeTxtShapeDitherInkSpread(shape.ditherInkSpread);
     if (shape.backgroundColor) {
-      ctx.fillStyle = shape.backgroundColor;
-      ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
+      if (fillStyle === 'dither') {
+        fillTxtShapeDitherRect(ctx, {
+          color: shape.backgroundColor,
+          inkSpread: ditherInkSpread,
+          resolution: ditherResolution,
+          x: shape.x,
+          y: shape.y,
+          width: shape.width,
+          height: shape.height,
+        });
+      } else {
+        ctx.fillStyle = shape.backgroundColor;
+        ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
+      }
     }
     const rasterFontSize = getTxtShapeRasterFontSize(
       shape.fontFamily,
@@ -1624,8 +1806,21 @@ const drawTxtShapesToCanvasWithSelectionMode = (
           keepsSelectionHighlight
           && shape.renderMode !== 'glyph-map'
         ) {
-          ctx.fillStyle = color ?? shape.selectionBackgroundColor;
-          ctx.fillRect(fragmentX, y, width, lineHeightPx);
+          const blockColor = color ?? shape.selectionBackgroundColor;
+          if (fillStyle === 'dither') {
+            fillTxtShapeDitherRect(ctx, {
+              color: blockColor,
+              inkSpread: ditherInkSpread,
+              resolution: ditherResolution,
+              x: fragmentX,
+              y,
+              width,
+              height: lineHeightPx,
+            });
+          } else {
+            ctx.fillStyle = blockColor;
+            ctx.fillRect(fragmentX, y, width, lineHeightPx);
+          }
         }
         if (isRedacted) {
           ctx.fillStyle = treatmentColor;

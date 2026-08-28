@@ -209,8 +209,10 @@
           '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); }',
           '#vessel-txt-shapes [data-inactive-state="none"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; opacity: 1; text-decoration: none; visibility: visible; }',
           '#vessel-txt-shapes [data-canonical-selected], #vessel-txt-shapes [data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-non-canonical-state="selected"], #vessel-txt-shapes [data-inactive-state="selected"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
+          '#vessel-txt-shapes [data-txt-fill-style="dither"] [data-canonical-selected], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-non-canonical-state="selected"], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-inactive-state="selected"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { background-color: var(--txt-dither-low, var(--txt-selection-bg)); background-image: repeating-conic-gradient(var(--txt-dither-high, var(--txt-selection-bg)) 0 25%, var(--txt-dither-low, var(--txt-selection-bg)) 0 50%); background-size: var(--txt-dither-size, 4px) var(--txt-dither-size, 4px); box-shadow: none; }',
           '#vessel-txt-shapes [data-selection-treatment="crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; text-decoration-line: line-through; text-decoration-color: var(--txt-selection-bg); text-decoration-thickness: 0.1em; }',
           '#vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="selected-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
+          '#vessel-txt-shapes [data-txt-fill-style="dither"] [data-selection-treatment="selected-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-selection-treatment="selected-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-selection-treatment="selected-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-inactive-state="selected-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { background-color: var(--txt-dither-low, var(--txt-selection-bg)); background-image: repeating-conic-gradient(var(--txt-dither-high, var(--txt-selection-bg)) 0 25%, var(--txt-dither-low, var(--txt-selection-bg)) 0 50%); background-size: var(--txt-dither-size, 4px) var(--txt-dither-size, 4px); box-shadow: none; }',
           '#vessel-txt-shapes [data-selection-treatment="overwritten"], #vessel-txt-shapes [data-inactive-state="overwritten"] { position: relative; }',
           '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="overwritten"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="overwritten"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; }',
           '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected]::after, #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"]::after, #vessel-txt-shapes [data-selection-treatment="overwritten"][data-non-canonical-state]::after, #vessel-txt-shapes [data-inactive-state="overwritten"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"])::after { content: attr(data-overwrite-text); position: absolute; left: 1px; top: -1px; color: var(--txt-selection-bg); text-shadow: -1px 1px 0 var(--txt-selection-bg); }',
@@ -369,6 +371,17 @@
           );
           return words.filter((word) => !visibleStarts.has(word.start));
         };
+        const getDitherInkPair = (color, spreadValue) => {
+          const spread = Number.isFinite(Number(spreadValue))
+            ? Math.max(0, Math.min(100, Math.round(Number(spreadValue))))
+            : 25;
+          const mix = 0.6 + Math.pow(spread / 100, 1.8) * 17.4;
+          const retained = Math.max(0, 100 - mix);
+          return [
+            `color-mix(in oklab, ${String(color)} ${retained}%, black)`,
+            `color-mix(in oklab, ${String(color)} ${retained}%, white)`,
+          ];
+        };
         shapes.forEach((shape) => {
           const owner = layerById.get(String(shape.layerId || ''));
           const hasOwnerTexture = Boolean(
@@ -395,6 +408,30 @@
           box.style.pointerEvents = 'auto';
           box.style.userSelect = 'text';
           box.style.cursor = 'text';
+          const fillStyle = shape.fillStyle === 'dither' ? 'dither' : 'flat';
+          const ditherResolution = Math.max(1, Math.min(8, Math.round(Number(shape.ditherResolution) || 2)));
+          const [selectionDitherLow, selectionDitherHigh] = getDitherInkPair(
+            shape.selectionBackgroundColor || '#000000',
+            shape.ditherInkSpread,
+          );
+          box.dataset.txtFillStyle = fillStyle;
+          box.style.setProperty('--txt-dither-size', `${ditherResolution * 2}px`);
+          box.style.setProperty('--txt-dither-low', selectionDitherLow);
+          box.style.setProperty('--txt-dither-high', selectionDitherHigh);
+          if (!hasOwnerTexture && shape.backgroundColor) {
+            if (fillStyle === 'dither') {
+              const [backgroundLow, backgroundHigh] = getDitherInkPair(
+                shape.backgroundColor,
+                shape.ditherInkSpread,
+              );
+              box.style.backgroundColor = backgroundLow;
+              box.style.backgroundImage = `repeating-conic-gradient(${backgroundHigh} 0 25%, ${backgroundLow} 0 50%)`;
+              box.style.backgroundPosition = `${-(Number(shape.x) || 0)}px ${-(Number(shape.y) || 0)}px`;
+              box.style.backgroundSize = `${ditherResolution * 2}px ${ditherResolution * 2}px`;
+            } else {
+              box.style.backgroundColor = String(shape.backgroundColor);
+            }
+          }
           box.style.color = hasOwnerTexture ? 'transparent' : String(shape.color || '#000000');
           if (!hasOwnerTexture) box.dataset.semanticFallback = 'true';
           const columns = Math.max(1, Math.min(6, Math.round(Number(shape.columns) || 1)));
@@ -482,6 +519,12 @@
               if (colorRange?.color) {
                 cell.style.setProperty('--txt-selection-bg', String(colorRange.color));
                 cell.style.setProperty('--txt-selection-color', String(shape.selectionColor || '#ffffff'));
+                const [ditherLow, ditherHigh] = getDitherInkPair(
+                  colorRange.color,
+                  shape.ditherInkSpread,
+                );
+                cell.style.setProperty('--txt-dither-low', ditherLow);
+                cell.style.setProperty('--txt-dither-high', ditherHigh);
               }
               box.appendChild(cell);
               continue;

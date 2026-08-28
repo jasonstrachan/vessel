@@ -77,6 +77,7 @@
     <script type="module">
       import {
         expandVesselMetadata,
+        mountGobletRendererV1,
         renderVesselWebGL,
         resizeVesselWebGL,
         debugLog,
@@ -210,8 +211,10 @@
           '#vessel-txt-shapes [data-txt-shape-id]::selection, #vessel-txt-shapes [data-txt-shape-id] *::selection { color: var(--txt-selection-color); background: var(--txt-selection-bg); }',
           '#vessel-txt-shapes [data-inactive-state="none"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; opacity: 1; text-decoration: none; visibility: visible; }',
           '#vessel-txt-shapes [data-canonical-selected], #vessel-txt-shapes [data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-non-canonical-state="selected"], #vessel-txt-shapes [data-inactive-state="selected"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); }',
+          '#vessel-txt-shapes [data-txt-fill-style="dither"] [data-canonical-selected], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-non-canonical-state="selected"], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-inactive-state="selected"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { background-color: var(--txt-dither-low, var(--txt-selection-bg)); background-image: repeating-conic-gradient(var(--txt-dither-high, var(--txt-selection-bg)) 0 25%, var(--txt-dither-low, var(--txt-selection-bg)) 0 50%); background-size: var(--txt-dither-size, 4px) var(--txt-dither-size, 4px); box-shadow: none; }',
           '#vessel-txt-shapes [data-selection-treatment="crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; text-decoration-line: line-through; text-decoration-color: var(--txt-selection-bg); text-decoration-thickness: 0.1em; }',
           '#vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="selected-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="selected-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-selection-color); background: var(--txt-selection-bg); box-shadow: 0 var(--txt-selection-fill-gap, 0px) 0 var(--txt-selection-bg); text-decoration-line: line-through; text-decoration-color: var(--txt-selection-color); text-decoration-thickness: 0.1em; }',
+          '#vessel-txt-shapes [data-txt-fill-style="dither"] [data-selection-treatment="selected-crossed-out"][data-canonical-selected], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-selection-treatment="selected-crossed-out"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-selection-treatment="selected-crossed-out"][data-non-canonical-state], #vessel-txt-shapes [data-txt-fill-style="dither"] [data-inactive-state="selected-crossed-out"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { background-color: var(--txt-dither-low, var(--txt-selection-bg)); background-image: repeating-conic-gradient(var(--txt-dither-high, var(--txt-selection-bg)) 0 25%, var(--txt-dither-low, var(--txt-selection-bg)) 0 50%); background-size: var(--txt-dither-size, 4px) var(--txt-dither-size, 4px); box-shadow: none; }',
           '#vessel-txt-shapes [data-selection-treatment="overwritten"], #vessel-txt-shapes [data-inactive-state="overwritten"] { position: relative; }',
           '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected], #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"], #vessel-txt-shapes [data-selection-treatment="overwritten"][data-non-canonical-state], #vessel-txt-shapes [data-inactive-state="overwritten"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"]) { color: var(--txt-base-color); background: transparent; box-shadow: none; }',
           '#vessel-txt-shapes [data-selection-treatment="overwritten"][data-canonical-selected]::after, #vessel-txt-shapes [data-selection-treatment="overwritten"][data-vessel-txt-cell-selected="true"]::after, #vessel-txt-shapes [data-selection-treatment="overwritten"][data-non-canonical-state]::after, #vessel-txt-shapes [data-inactive-state="overwritten"]:not([data-canonical-selected]):not([data-vessel-txt-cell-selected="true"])::after { content: attr(data-overwrite-text); position: absolute; left: 1px; top: -1px; color: var(--txt-selection-bg); text-shadow: -1px 1px 0 var(--txt-selection-bg); }',
@@ -370,6 +373,17 @@
           );
           return words.filter((word) => !visibleStarts.has(word.start));
         };
+        const getDitherInkPair = (color, spreadValue) => {
+          const spread = Number.isFinite(Number(spreadValue))
+            ? Math.max(0, Math.min(100, Math.round(Number(spreadValue))))
+            : 25;
+          const mix = 0.6 + Math.pow(spread / 100, 1.8) * 17.4;
+          const retained = Math.max(0, 100 - mix);
+          return [
+            `color-mix(in oklab, ${String(color)} ${retained}%, black)`,
+            `color-mix(in oklab, ${String(color)} ${retained}%, white)`,
+          ];
+        };
         shapes.forEach((shape) => {
           const owner = layerById.get(String(shape.layerId || ''));
           const hasOwnerTexture = Boolean(
@@ -396,6 +410,30 @@
           box.style.pointerEvents = 'auto';
           box.style.userSelect = 'text';
           box.style.cursor = 'text';
+          const fillStyle = shape.fillStyle === 'dither' ? 'dither' : 'flat';
+          const ditherResolution = Math.max(1, Math.min(8, Math.round(Number(shape.ditherResolution) || 2)));
+          const [selectionDitherLow, selectionDitherHigh] = getDitherInkPair(
+            shape.selectionBackgroundColor || '#000000',
+            shape.ditherInkSpread,
+          );
+          box.dataset.txtFillStyle = fillStyle;
+          box.style.setProperty('--txt-dither-size', `${ditherResolution * 2}px`);
+          box.style.setProperty('--txt-dither-low', selectionDitherLow);
+          box.style.setProperty('--txt-dither-high', selectionDitherHigh);
+          if (!hasOwnerTexture && shape.backgroundColor) {
+            if (fillStyle === 'dither') {
+              const [backgroundLow, backgroundHigh] = getDitherInkPair(
+                shape.backgroundColor,
+                shape.ditherInkSpread,
+              );
+              box.style.backgroundColor = backgroundLow;
+              box.style.backgroundImage = `repeating-conic-gradient(${backgroundHigh} 0 25%, ${backgroundLow} 0 50%)`;
+              box.style.backgroundPosition = `${-(Number(shape.x) || 0)}px ${-(Number(shape.y) || 0)}px`;
+              box.style.backgroundSize = `${ditherResolution * 2}px ${ditherResolution * 2}px`;
+            } else {
+              box.style.backgroundColor = String(shape.backgroundColor);
+            }
+          }
           box.style.color = hasOwnerTexture ? 'transparent' : String(shape.color || '#000000');
           if (!hasOwnerTexture) box.dataset.semanticFallback = 'true';
           const columns = Math.max(1, Math.min(6, Math.round(Number(shape.columns) || 1)));
@@ -483,6 +521,12 @@
               if (colorRange?.color) {
                 cell.style.setProperty('--txt-selection-bg', String(colorRange.color));
                 cell.style.setProperty('--txt-selection-color', String(shape.selectionColor || '#ffffff'));
+                const [ditherLow, ditherHigh] = getDitherInkPair(
+                  colorRange.color,
+                  shape.ditherInkSpread,
+                );
+                cell.style.setProperty('--txt-dither-low', ditherLow);
+                cell.style.setProperty('--txt-dither-high', ditherHigh);
               }
               box.appendChild(cell);
               continue;
@@ -550,215 +594,6 @@
             if (overlay.isConnected) position();
           });
         }
-      };
-
-      let automationFrame = 0;
-      let automationResizeObserver = null;
-      let automationPositionCleanup = null;
-      let automationCleanup = null;
-      const mountAutomation = (metadata) => {
-        automationCleanup?.();
-        automationCleanup = null;
-        cancelAnimationFrame(automationFrame);
-        automationFrame = 0;
-        automationResizeObserver?.disconnect();
-        automationResizeObserver = null;
-        automationPositionCleanup?.();
-        automationPositionCleanup = null;
-        document.getElementById('vessel-automation')?.remove();
-
-        const automation = metadata?.automation;
-        if (!(canvas instanceof HTMLCanvasElement)
-          || automation?.schemaVersion !== 1
-          || !Array.isArray(automation.objects)
-          || !Array.isArray(automation.tracks)
-          || !Number.isFinite(Number(automation.durationSeconds))
-          || !(Number(automation.durationSeconds) > 0)) {
-          return;
-        }
-
-        const width = Math.max(1, Number(metadata.project?.width) || 1);
-        const height = Math.max(1, Number(metadata.project?.height) || 1);
-        const overlay = document.createElement('canvas');
-        overlay.id = 'vessel-automation';
-        overlay.width = width;
-        overlay.height = height;
-        overlay.setAttribute('aria-hidden', 'true');
-        overlay.style.position = 'absolute';
-        overlay.style.pointerEvents = 'none';
-        overlay.style.zIndex = '20';
-        document.body.appendChild(overlay);
-        const context = overlay.getContext('2d');
-        if (!context) {
-          overlay.remove();
-          return;
-        }
-
-        const clips = new Map((Array.isArray(automation.clips) ? automation.clips : [])
-          .filter((clip) => (
-            String(clip?.id || '').length > 0
-            && Number.isFinite(Number(clip.x))
-            && Number.isFinite(Number(clip.y))
-            && Number(clip.width) > 0
-            && Number(clip.height) > 0
-          ))
-          .map((clip) => [String(clip.id), clip]));
-        const automationObjectKinds = new Set(['cursor', 'rect', 'sprite']);
-        const automationProperties = new Set([
-          'opacity', 'pressed', 'rotation', 'scaleX', 'scaleY', 'visible', 'x', 'y',
-        ]);
-        const states = new Map();
-        const objects = automation.objects
-          .filter((source) => source && automationObjectKinds.has(source.kind))
-          .map((source) => {
-            const state = {
-              ...source,
-              clip: clips.get(String(source.clipId || '')) || null,
-              opacity: Number.isFinite(Number(source.opacity)) ? Number(source.opacity) : 1,
-              pressed: source.pressed === true,
-              rotation: Number(source.rotation) || 0,
-              scaleX: Number.isFinite(Number(source.scaleX)) ? Number(source.scaleX) : 1,
-              scaleY: Number.isFinite(Number(source.scaleY)) ? Number(source.scaleY) : 1,
-              visible: source.visible !== false,
-              image: null,
-            };
-            states.set(String(source.id), state);
-            if (source.kind === 'sprite' && typeof source.dataUrl === 'string') {
-              const image = new Image();
-              image.addEventListener('load', () => {
-                state.image = image;
-                if (manualTime !== null) drawAt(((manualTime % duration) + duration) % duration);
-              });
-              image.src = source.dataUrl;
-            }
-            return state;
-          });
-        const tracks = automation.tracks
-          .map((track) => ({ ...track, state: states.get(String(track.targetId)) }))
-          .filter((track) => (
-            track.state
-            && automationProperties.has(track.property)
-            && (track.property !== 'pressed' || track.state.kind === 'cursor')
-            && Array.isArray(track.keyframes)
-            && track.keyframes.length > 0
-          ));
-        const duration = Number(automation.durationSeconds);
-        let startedAt = performance.now();
-        let manualTime = null;
-        let disposed = false;
-
-        const interpolateTrack = (track, time) => {
-          const frames = track.keyframes;
-          if (time <= Number(frames[0].time)) return frames[0].value;
-          const last = frames[frames.length - 1];
-          if (time >= Number(last.time)) return last.value;
-          let rightIndex = 1;
-          while (rightIndex < frames.length && time > Number(frames[rightIndex].time)) rightIndex += 1;
-          const left = frames[rightIndex - 1];
-          const right = frames[rightIndex];
-          if (typeof left.value === 'boolean' || right.easing === 'step') return left.value;
-          const span = Math.max(Number.EPSILON, Number(right.time) - Number(left.time));
-          let amount = Math.max(0, Math.min(1, (time - Number(left.time)) / span));
-          if (right.easing === 'minimum-jerk') {
-            amount = amount * amount * amount * (amount * (amount * 6 - 15) + 10);
-          }
-          return Number(left.value) + (Number(right.value) - Number(left.value)) * amount;
-        };
-
-        const drawCursor = (state) => {
-          context.beginPath();
-          context.moveTo(0, 0);
-          context.lineTo(0, 20);
-          context.lineTo(5, 15);
-          context.lineTo(9, 24);
-          context.lineTo(13, 22);
-          context.lineTo(9, 14);
-          context.lineTo(16, 14);
-          context.closePath();
-          context.fillStyle = state.pressed ? '#202020' : '#ffffff';
-          context.strokeStyle = state.pressed ? '#ffffff' : '#202020';
-          context.lineWidth = 1.5;
-          context.lineJoin = 'round';
-          context.fill();
-          context.stroke();
-        };
-
-        const drawAt = (time) => {
-          for (const track of tracks) track.state[track.property] = interpolateTrack(track, time);
-          context.clearRect(0, 0, width, height);
-          for (const state of objects) {
-            if (state.visible === false) continue;
-            context.save();
-            if (state.clip) {
-              context.beginPath();
-              context.rect(
-                Number(state.clip.x) || 0,
-                Number(state.clip.y) || 0,
-                Number(state.clip.width) || 0,
-                Number(state.clip.height) || 0,
-              );
-              context.clip();
-            }
-            context.globalAlpha = Math.max(0, Math.min(1, Number(state.opacity) || 0));
-            context.translate(Number(state.x) || 0, Number(state.y) || 0);
-            context.rotate((Number(state.rotation) || 0) * Math.PI / 180);
-            context.scale(Number(state.scaleX) || 0, Number(state.scaleY) || 0);
-            if (state.kind === 'rect') {
-              context.fillStyle = String(state.fill || '#000000');
-              context.fillRect(0, 0, Number(state.width) || 0, Number(state.height) || 0);
-            } else if (state.kind === 'sprite' && state.image) {
-              context.drawImage(state.image, 0, 0, Number(state.width) || 0, Number(state.height) || 0);
-            } else if (state.kind === 'cursor') {
-              drawCursor(state);
-            }
-            context.restore();
-          }
-        };
-
-        const tick = (now) => {
-          if (disposed) return;
-          const elapsed = manualTime === null ? (now - startedAt) / 1000 : manualTime;
-          drawAt(((elapsed % duration) + duration) % duration);
-          if (manualTime === null) automationFrame = requestAnimationFrame(tick);
-        };
-
-        const position = () => {
-          const rect = canvas.getBoundingClientRect();
-          overlay.style.left = `${rect.left + window.scrollX}px`;
-          overlay.style.top = `${rect.top + window.scrollY}px`;
-          overlay.style.width = `${rect.width}px`;
-          overlay.style.height = `${rect.height}px`;
-        };
-        position();
-        window.addEventListener('resize', position);
-        automationPositionCleanup = () => window.removeEventListener('resize', position);
-        if (typeof ResizeObserver === 'function') {
-          automationResizeObserver = new ResizeObserver(position);
-          automationResizeObserver.observe(canvas);
-        }
-        const setAutomationTime = (seconds) => {
-          cancelAnimationFrame(automationFrame);
-          automationFrame = 0;
-          if (seconds === null || seconds === undefined) {
-            manualTime = null;
-            startedAt = performance.now();
-            automationFrame = requestAnimationFrame(tick);
-            return;
-          }
-          manualTime = Number(seconds) || 0;
-          drawAt(((manualTime % duration) + duration) % duration);
-        };
-        window.vesselGobletSetAutomationTime = setAutomationTime;
-        automationCleanup = () => {
-          disposed = true;
-          cancelAnimationFrame(automationFrame);
-          if (window.vesselGobletSetAutomationTime === setAutomationTime) {
-            delete window.vesselGobletSetAutomationTime;
-          }
-          overlay.remove();
-        };
-        drawAt(0);
-        automationFrame = requestAnimationFrame(tick);
       };
 
       const computeScale = (metadata) => {
@@ -831,7 +666,8 @@
               : { scale };
             const summary = await renderVesselWebGL(current, canvas, opts);
             mountTxtShapes(current);
-            mountAutomation(current);
+            const rendererV1 = mountGobletRendererV1(current, canvas);
+            await rendererV1?.ready;
             debugLog('[DEBUG] drawMetadata render summary', summary);
             lastMetadata = current;
           } catch (error) {

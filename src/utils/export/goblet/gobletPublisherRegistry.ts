@@ -13,6 +13,7 @@ export interface GobletPublishResult {
 export interface GobletPublisher {
   id: string;
   label: string;
+  actionLabel?: string;
   canPublish?: (artifact: GobletArtifact) => boolean;
   unavailableReason?: string;
   publish: (

@@ -26,6 +26,213 @@ const createSolidTexture = (color: string, width: number, height: number) => (
   )}`
 );
 
+const createLayerBoundAutomationBundle = () => {
+  const width = 16;
+  const height = 16;
+  const createLayer = (id: string, color: string, stackIndex: number) => ({
+    id,
+    name: id,
+    type: 'normal',
+    source: { width, height },
+    documentBoundsPx: { x: 0, y: 0, width, height },
+    documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+    alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+    assets: { texture: createSolidTexture(color, width, height) },
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    stackIndex,
+  });
+  const bundle = createGoblet2Bundle({
+    layers: [
+      createLayer('txt-layer', 'transparent', 0),
+      createLayer('cover-layer', '#ff0000', 1),
+    ],
+  });
+  bundle.project.width = width;
+  bundle.project.height = height;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = width;
+  bundle.viewport.designHeight = height;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 1,
+    objects: [
+      { id: 'artwork', kind: 'artwork', x: 0, y: 0 },
+      {
+        id: 'txt-selection',
+        kind: 'rect',
+        layerId: 'txt-layer',
+        x: 0,
+        y: 0,
+        width,
+        height,
+        fill: '#0000ff',
+      },
+    ],
+    tracks: [],
+  };
+  return bundle;
+};
+
+const createMasterClockAutomationBundle = () => {
+  const bundle = createGoblet2Bundle();
+  bundle.project.width = 32;
+  bundle.project.height = 16;
+  bundle.viewport.designWidth = 32;
+  bundle.viewport.designHeight = 16;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 2,
+    objects: [
+      { id: 'artwork', kind: 'artwork', x: 0, y: 0 },
+      { id: 'txt-selection', kind: 'rect', x: 0, y: 8, width: 8, height: 8, fill: '#ffffff' },
+      { id: 'cursor', kind: 'cursor', x: 20, y: 0 },
+    ],
+    tracks: [
+      {
+        targetId: 'txt-selection', property: 'x',
+        keyframes: [{ time: 0, value: 0 }, { time: 2, value: 16, easing: 'linear' }],
+      },
+      {
+        targetId: 'cursor', property: 'x',
+        keyframes: [{ time: 0, value: 20 }, { time: 2, value: 24, easing: 'linear' }],
+      },
+    ],
+  };
+  return bundle;
+};
+
+const createResourceFailureBundle = () => {
+  const bundle = createGoblet2Bundle();
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 1,
+    resources: [{ id: 'broken', kind: 'image', dataUrl: 'data:image/png;base64,AAAA' }],
+    objects: [{
+      id: 'broken-sprite', kind: 'sprite', resourceId: 'broken',
+      x: 0, y: 0, width: 8, height: 8,
+    }],
+    tracks: [],
+  };
+  return bundle;
+};
+
+const createAtlasUiAnimationBundle = () => {
+  const bundle = createGoblet2Bundle({ layers: [] });
+  bundle.project.width = 40;
+  bundle.project.height = 24;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = 40;
+  bundle.viewport.designHeight = 24;
+  const atlas = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2">'
+      + '<rect width="2" height="2" fill="#ff0000"/>'
+      + '<rect x="2" width="2" height="2" fill="#0000ff"/></svg>',
+  )}`;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 2,
+    resources: [{ id: 'ui-atlas', kind: 'image', dataUrl: atlas }],
+    objects: [
+      {
+        id: 'ui-playback:shape:window', kind: 'sprite', resourceId: 'ui-atlas',
+        sourceX: 0, sourceY: 0, sourceWidth: 2, sourceHeight: 2,
+        x: 1, y: 10, width: 2, height: 2,
+      },
+      { id: 'ui-playback:cursor:0', kind: 'cursor', x: 10, y: 1 },
+    ],
+    tracks: [
+      {
+        targetId: 'ui-playback:shape:window', property: 'sourceX',
+        keyframes: [
+          { time: 0, value: 0 },
+          { time: 1, value: 2, easing: 'step' },
+          { time: 2, value: 2 },
+        ],
+      },
+      {
+        targetId: 'ui-playback:cursor:0', property: 'x',
+        keyframes: [
+          { time: 0, value: 10 },
+          { time: 1, value: 20, easing: 'step' },
+          { time: 2, value: 20 },
+        ],
+      },
+    ],
+  };
+  return bundle;
+};
+
+const createInheritedGroupOpacityBundle = () => {
+  const bundle = createGoblet2Bundle({ layers: [] });
+  bundle.project.width = 16;
+  bundle.project.height = 16;
+  bundle.viewport.designWidth = 16;
+  bundle.viewport.designHeight = 16;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 1,
+    objects: [
+      { id: 'group', kind: 'group', x: 0, y: 0, opacity: 0.5 },
+      { id: 'red', parentId: 'group', kind: 'rect', x: 0, y: 0, width: 12, height: 12, fill: '#ff0000' },
+      { id: 'blue', parentId: 'group', kind: 'rect', x: 4, y: 4, width: 12, height: 12, fill: '#0000ff' },
+    ],
+    tracks: [],
+  };
+  return bundle;
+};
+
+const createPopupAndClippedArtworkBundle = () => {
+  const width = 16;
+  const height = 16;
+  const bundle = createGoblet2Bundle({ layers: [{
+    id: 'portrait', name: 'Portrait', type: 'normal',
+    source: { width, height },
+    documentBoundsPx: { x: 0, y: 0, width, height },
+    documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+    alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+    assets: { texture: createSolidTexture('#00ff00', width, height) },
+    visible: true, opacity: 1, blendMode: 'source-over', stackIndex: 0,
+  }] } as Parameters<typeof createGoblet2Bundle>[0]);
+  bundle.project.width = width;
+  bundle.project.height = height;
+  bundle.viewport.designWidth = width;
+  bundle.viewport.designHeight = height;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 2,
+    clips: [{ id: 'window', x: 0, y: 0, width: 8, height: 8 }],
+    objects: [
+      { id: 'window-group', kind: 'group', clipId: 'window', x: 4, y: 4 },
+      { id: 'portrait-artwork', parentId: 'window-group', kind: 'artwork', x: 0, y: 0, width, height, scaleX: 0.5, scaleY: 0.5 },
+      { id: 'popup', kind: 'rect', x: 0, y: 0, width: 4, height: 4, fill: '#0000ff' },
+      { id: 'cursor', kind: 'cursor', x: 14, y: 14 },
+    ],
+    tracks: [
+      { targetId: 'popup', property: 'visible', keyframes: [
+        { time: 0, value: true }, { time: 1, value: false, easing: 'step' }, { time: 2, value: false },
+      ] },
+      { targetId: 'portrait-artwork', property: 'x', keyframes: [
+        { time: 0, value: 0 }, { time: 2, value: -4, easing: 'minimum-jerk' },
+      ] },
+      { targetId: 'portrait-artwork', property: 'scaleX', keyframes: [
+        { time: 0, value: 0.5 }, { time: 2, value: 1, easing: 'minimum-jerk' },
+      ] },
+      { targetId: 'portrait-artwork', property: 'scaleY', keyframes: [
+        { time: 0, value: 0.5 }, { time: 2, value: 1, easing: 'minimum-jerk' },
+      ] },
+      { targetId: 'cursor', property: 'x', keyframes: [
+        { time: 0, value: 14 }, { time: 1, value: 3, easing: 'minimum-jerk' }, { time: 2, value: 3 },
+      ] },
+      { targetId: 'cursor', property: 'y', keyframes: [
+        { time: 0, value: 14 }, { time: 1, value: 3, easing: 'minimum-jerk' }, { time: 2, value: 3 },
+      ] },
+    ],
+  };
+  return bundle;
+};
+
 const createSierraTravelBundle = (revealTexture?: string) => {
   const width = 160;
   const height = 48;
@@ -265,6 +472,8 @@ const __smokeCountPixels__ = () => {
 };
 try {
   const summary = await renderVesselWebGL(__SMOKE_METADATA__, __SMOKE_CANVAS__, {});
+  const rendererV1 = mountGobletRendererV1(__SMOKE_METADATA__, __SMOKE_CANVAS__);
+  await rendererV1?.ready;
   const pixels = __smokeCountPixels__();
   window.__gobletSmoke = { ready: true, summary, ...pixels };
 } catch (error) {
@@ -279,6 +488,43 @@ try {
     '</html>',
   ].join('\n');
 };
+
+const buildReconstructedGoblet2Html = () => [
+  '<!DOCTYPE html>',
+  '<html lang="en">',
+  '<head>',
+  '  <meta charset="utf-8" />',
+  '  <style>html, body { margin: 0; background: #000; }</style>',
+  '</head>',
+  '<body>',
+  '  <canvas id="preview-canvas"></canvas>',
+  '  <script type="module">',
+  `    import {
+      expandVesselMetadata,
+      mountGobletRendererV1,
+      renderVesselWebGL,
+    } from './goblet2.js';
+    window.__gobletSmoke = { ready: false };
+    try {
+      const response = await fetch('./artwork.json');
+      if (!response.ok) throw new Error('Artwork request failed');
+      const metadata = expandVesselMetadata(await response.json());
+      const canvas = document.getElementById('preview-canvas');
+      await renderVesselWebGL(metadata, canvas, {});
+      const rendererV1 = mountGobletRendererV1(metadata, canvas);
+      await rendererV1?.ready;
+      window.__gobletSmoke = { ready: true };
+    } catch (error) {
+      window.__gobletSmoke = {
+        ready: true,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      throw error;
+    }`,
+  '  </script>',
+  '</body>',
+  '</html>',
+].join('\n');
 
 const installControlledBrowserState = async (
   context: BrowserContext,
@@ -505,6 +751,206 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     expect(pixel[1]).toBeGreaterThan(200);
     expect(pixel[0]).toBeLessThan(30);
     expect(pixel[2]).toBeLessThan(30);
+  });
+
+  test('composites layer-bound automation beneath higher Goblet layers', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createLayerBoundAutomationBundle()));
+    await expect.poll(async () => page.locator('#vessel-renderer-v1').evaluate((canvas) => {
+      const target = canvas as HTMLCanvasElement;
+      const context = target.getContext('2d', { willReadFrequently: true });
+      return Array.from(context?.getImageData(8, 8, 1, 1).data ?? []);
+    })).toEqual([255, 0, 0, 255]);
+  });
+
+  test('seeks Color Cycle, TXT scene objects, and cursors from one absolute clock', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createMasterClockAutomationBundle()));
+    await waitForSmokeReady(page);
+    const checkpoint = await page.evaluate(() => {
+      const canvas = document.querySelector('#preview-canvas') as HTMLCanvasElement;
+      const overlay = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const controller = (window as Window & {
+        vesselGobletRendererV1?: { setTime: (seconds: number) => void; getTime: () => number };
+      }).vesselGobletRendererV1!;
+      const context = overlay.getContext('2d', { willReadFrequently: true })!;
+      const pixel = (x: number, y: number) => Array.from(context.getImageData(x, y, 1, 1).data);
+      controller.setTime(0);
+      const before = {
+        colorCycle: pixel(0, 0),
+        selectionStart: pixel(1, 9),
+        selectionEnd: pixel(11, 9),
+      };
+      controller.setTime(1.25);
+      const after = {
+        colorCycle: pixel(0, 0),
+        selectionStart: pixel(1, 9),
+        selectionEnd: pixel(11, 9),
+      };
+      const viewer = Object.getOwnPropertySymbols(canvas)
+        .map((symbol) => (canvas as unknown as Record<symbol, unknown>)[symbol])
+        .find((value) => typeof value === 'object' && value !== null && 'dynamicPlayers' in value) as {
+          playbackTimeSeconds: number;
+          dynamicPlayers: Array<{ baseTimeSeconds?: number }>;
+        };
+      return {
+        after,
+        before,
+        times: {
+          colorCycle: viewer.dynamicPlayers.find((player) => typeof player.baseTimeSeconds === 'number')?.baseTimeSeconds,
+          core: viewer.playbackTimeSeconds,
+          scene: controller.getTime(),
+        },
+      };
+    });
+    expect(checkpoint.times).toEqual({ colorCycle: 1.25, core: 1.25, scene: 1.25 });
+    expect(checkpoint.after.colorCycle).not.toEqual(checkpoint.before.colorCycle);
+    expect(checkpoint.before.selectionStart).toEqual([255, 255, 255, 255]);
+    expect(checkpoint.after.selectionStart).not.toEqual([255, 255, 255, 255]);
+    expect(checkpoint.before.selectionEnd).not.toEqual([255, 255, 255, 255]);
+    expect(checkpoint.after.selectionEnd).toEqual([255, 255, 255, 255]);
+  });
+
+  test('pauses and resumes the shared clock without adding hidden-tab time', async ({ browser }) => {
+    const context = await browser.newContext();
+    await installControlledBrowserState(context, { useManualAnimationFrames: true });
+    const page = await context.newPage();
+    await page.setContent(buildSingleFileGoblet2Html(createMasterClockAutomationBundle()));
+    await waitForSmokeReady(page);
+    const readTime = () => page.evaluate(() => (
+      (window as Window & { vesselGobletRendererV1?: { getTime: () => number } })
+        .vesselGobletRendererV1?.getTime() ?? -1
+    ));
+    const step = (timestamp: number) => page.evaluate((time) => (
+      (window as Window & { __stepGobletAnimationFrame?: (value: number) => boolean })
+        .__stepGobletAnimationFrame?.(time) ?? false
+    ), timestamp);
+    await step(1);
+    await step(1_001);
+    expect(await readTime()).toBeCloseTo(1, 5);
+    await page.evaluate(() => (
+      (window as Window & { __setGobletDocumentHidden?: (hidden: boolean) => void })
+        .__setGobletDocumentHidden?.(true)
+    ));
+    await step(2_001);
+    expect(await readTime()).toBeCloseTo(1, 5);
+    await page.evaluate(() => (
+      (window as Window & { __setGobletDocumentHidden?: (hidden: boolean) => void })
+        .__setGobletDocumentHidden?.(false)
+    ));
+    await step(3_001);
+    await step(4_001);
+    expect(await readTime()).toBeCloseTo(2, 5);
+    await context.close();
+  });
+
+  test('reports image decode failures through Renderer v1 readiness', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setContent(buildSingleFileGoblet2Html(createResourceFailureBundle()));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { error?: string } }).__gobletSmoke?.error
+    ))).toContain('Renderer v1 image failed to load: resource:broken');
+    expect(errors.some((message) => message.includes('resource:broken'))).toBe(true);
+  });
+
+  test('renders atlas-backed UI frames and cursor motion at deterministic checkpoints', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createAtlasUiAnimationBundle()));
+    await waitForSmokeReady(page);
+    const checkpoint = (time: number) => page.evaluate((seconds) => {
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(seconds);
+      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const context = canvas.getContext('2d', { willReadFrequently: true })!;
+      return {
+        cursorAtStart: Array.from(context.getImageData(10, 1, 1, 1).data),
+        cursorAtEnd: Array.from(context.getImageData(20, 1, 1, 1).data),
+        uiFrame: Array.from(context.getImageData(1, 10, 1, 1).data),
+      };
+    }, time);
+    const before = await checkpoint(0);
+    const after = await checkpoint(1.1);
+    expect(before.uiFrame).toEqual([255, 0, 0, 255]);
+    expect(after.uiFrame).toEqual([0, 0, 255, 255]);
+    expect(before.cursorAtStart).toEqual([0, 0, 0, 255]);
+    expect(after.cursorAtStart[3]).toBe(0);
+    expect(after.cursorAtEnd).toEqual([0, 0, 0, 255]);
+  });
+
+  test('uses inherited per-descendant group opacity rather than isolated group compositing', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createInheritedGroupOpacityBundle()));
+    await waitForSmokeReady(page);
+    const pixel = await page.locator('#vessel-renderer-v1').evaluate((canvas) => (
+      Array.from((canvas as HTMLCanvasElement).getContext('2d', { willReadFrequently: true })!
+        .getImageData(6, 6, 1, 1).data)
+    ));
+    expect(pixel[0]).toBeGreaterThanOrEqual(84);
+    expect(pixel[0]).toBeLessThanOrEqual(86);
+    expect(pixel[2]).toBeGreaterThanOrEqual(169);
+    expect(pixel[2]).toBeLessThanOrEqual(171);
+    expect(pixel[3]).toBeGreaterThanOrEqual(190);
+    expect(pixel[3]).toBeLessThanOrEqual(192);
+  });
+
+  test('dismisses a popup while panning and zooming artwork inside a fixed clip', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createPopupAndClippedArtworkBundle()));
+    await waitForSmokeReady(page);
+    const checkpoint = async (time: number) => page.evaluate((seconds) => {
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(seconds);
+      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const context = canvas.getContext('2d', { willReadFrequently: true })!;
+      return {
+        clipInside: Array.from(context.getImageData(10, 4, 1, 1).data),
+        outside: Array.from(context.getImageData(15, 0, 1, 1).data),
+        popup: Array.from(context.getImageData(1, 1, 1, 1).data),
+      };
+    }, time);
+    const before = await checkpoint(0);
+    const after = await checkpoint(1.5);
+    expect(before.popup).toEqual([0, 0, 255, 255]);
+    expect(after.popup[3]).toBe(0);
+    expect(after.clipInside).toEqual([0, 255, 0, 255]);
+    expect(after.outside[3]).toBe(0);
+  });
+
+  test('matches local export pixels with the reconstructed frozen runtime', async ({ page }) => {
+    const bundle = createPopupAndClippedArtworkBundle();
+    const checkpoints = [0, 0.75, 1.5];
+    const readCheckpoints = async () => page.evaluate((times) => times.map((seconds) => {
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(seconds);
+      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      return Array.from(canvas.getContext('2d', { willReadFrequently: true })!
+        .getImageData(0, 0, canvas.width, canvas.height).data);
+    }), checkpoints);
+
+    await page.setContent(buildSingleFileGoblet2Html(bundle));
+    await waitForSmokeReady(page);
+    const localPixels = await readCheckpoints();
+
+    await page.route('http://renderer-v1.test/**', async (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname === '/goblet2.js') {
+        const runtime = read('public/goblet2/goblet2-inline.js');
+        await route.fulfill({
+          body: `${runtime}\nexport {
+            expandVesselMetadata,
+            mountGobletRendererV1,
+            renderVesselWebGL,
+          };\n`,
+          contentType: 'application/javascript',
+        });
+        return;
+      }
+      if (pathname === '/artwork.json') {
+        await route.fulfill({ body: JSON.stringify(bundle), contentType: 'application/json' });
+        return;
+      }
+      await route.fulfill({ body: buildReconstructedGoblet2Html(), contentType: 'text/html' });
+    });
+    await page.goto('http://renderer-v1.test/');
+    await waitForSmokeReady(page);
+
+    expect(await readCheckpoints()).toEqual(localPixels);
   });
 
   test('uses adjustment-layer opacity as the effect mix', async ({ page }) => {

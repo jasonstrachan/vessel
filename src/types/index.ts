@@ -338,6 +338,7 @@ export type TxtShapeTextAlign = 'left' | 'center' | 'right';
 export type TxtShapeColorSource = 'foreground' | 'palette' | 'sample' | 'manual';
 export type TxtShapeRegionKind = 'rectangle' | 'oval' | 'freehand';
 export type TxtShapeRenderMode = 'selection' | 'glyph-map';
+export type TxtShapeFillStyle = 'flat' | 'dither';
 export type TxtShapeSelectionTreatment =
   | 'crossed-out'
   | 'selected-crossed-out'
@@ -513,6 +514,11 @@ export interface TxtShape extends LayerOwnedProjectObject {
   selectionColor: string;
   selectionBackgroundColor: string;
   backgroundColor?: string;
+  fillStyle?: TxtShapeFillStyle;
+  /** Ordered-dither cell size in document pixels. */
+  ditherResolution?: number;
+  /** Perceptual distance between the two inks used by dithered fills, from 0-100. */
+  ditherInkSpread?: number;
   selections: TxtShapeSelectionRange[];
   selectionTreatments?: TxtShapeSelectionTreatmentRange[];
   nonCanonicalState?: TxtShapeTextState;

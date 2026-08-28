@@ -1,6 +1,12 @@
 import type React from 'react';
 
-import type { BrushPreset, BrushSettings, Tool } from '@/types';
+import type {
+  BrushPreset,
+  BrushSettings,
+  Tool,
+  TxtShape,
+  TxtShapePlaybackSettings,
+} from '@/types';
 import type { WebGLExportMetadata } from '@/utils/export/goblet/gobletTypes';
 
 export interface StudioCanvasOverlayProps {
@@ -44,6 +50,13 @@ export interface VesselStudioExtension {
   transformGobletMetadata?: (
     metadata: WebGLExportMetadata,
   ) => WebGLExportMetadata;
+  getGobletAuthoredDynamicFeatures?: (
+    metadata: WebGLExportMetadata,
+  ) => readonly string[];
+  transformGobletRasterTextShapes?: (
+    shapes: readonly TxtShape[],
+    context: { txtShapePlayback: TxtShapePlaybackSettings },
+  ) => readonly TxtShape[];
   transformGobletTemplate?: (
     template: string,
     context: { metadata: WebGLExportMetadata },
