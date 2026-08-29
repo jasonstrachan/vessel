@@ -17,6 +17,8 @@ export interface GobletHealthMetric {
   status: 'ok' | 'warning';
 }
 
+export const GOBLET_ARTIFACT_SIZE_WARNING_BYTES = 8 * 1024 * 1024;
+
 const formatBytes = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -36,7 +38,7 @@ export const getGobletArtifactHealth = (artifact: GobletArtifact): GobletHealthM
       id: 'artifact-size',
       label: 'Artifact',
       value: formatBytes(artifact.blob.size),
-      status: artifact.blob.size > 25 * 1024 * 1024 ? 'warning' : 'ok',
+      status: artifact.blob.size > GOBLET_ARTIFACT_SIZE_WARNING_BYTES ? 'warning' : 'ok',
     },
     {
       id: 'layers',

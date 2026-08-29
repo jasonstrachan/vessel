@@ -1,4 +1,5 @@
 import {
+  GOBLET_ARTIFACT_SIZE_WARNING_BYTES,
   getGobletArtifactHealth,
   type GobletArtifact,
 } from '@/utils/export/goblet/gobletArtifact';
@@ -85,6 +86,15 @@ describe('Goblet release workflow', () => {
       'payload',
     ]);
     expect(metrics.every((metric) => metric.status === 'ok')).toBe(true);
+  });
+
+  it('flags artifacts only after they exceed 8 MiB', () => {
+    const artifact = createArtifact();
+    artifact.blob = new Blob([new Uint8Array(GOBLET_ARTIFACT_SIZE_WARNING_BYTES)]);
+    expect(getGobletArtifactHealth(artifact)[0]?.status).toBe('ok');
+
+    artifact.blob = new Blob([new Uint8Array(GOBLET_ARTIFACT_SIZE_WARNING_BYTES + 1)]);
+    expect(getGobletArtifactHealth(artifact)[0]?.status).toBe('warning');
   });
 
   it('passes the exact artifact object to a registered publisher', async () => {
