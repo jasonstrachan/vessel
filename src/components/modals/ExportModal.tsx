@@ -52,6 +52,38 @@ interface ExportModalProps {
 
 const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
 
+const showGobletTestStatus = (
+  previewWindow: Window,
+  title: string,
+  message: string,
+): void => {
+  if (previewWindow.closed) return;
+  try {
+    const { document: previewDocument } = previewWindow;
+    previewDocument.title = title;
+    previewDocument.body.replaceChildren();
+    previewDocument.body.style.cssText = [
+      'box-sizing:border-box',
+      'margin:0',
+      'min-height:100vh',
+      'padding:32px',
+      'background:#171717',
+      'color:#e5e5e5',
+      'font:16px/1.5 monospace',
+    ].join(';');
+    const heading = previewDocument.createElement('h1');
+    heading.style.cssText = 'margin:0 0 16px;font-size:20px';
+    heading.textContent = title;
+    const detail = previewDocument.createElement('p');
+    detail.style.cssText = 'margin:0;white-space:pre-wrap';
+    detail.textContent = message;
+    previewDocument.body.append(heading, detail);
+  } catch {
+    // The popup may already have navigated cross-origin. The in-app notification
+    // remains the fallback status surface in that case.
+  }
+};
+
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
   useKeyboardScope('modal', isOpen);
 
@@ -646,8 +678,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
     const previewWindow = window.open('about:blank', '_blank');
     if (previewWindow) {
       previewWindow.opener = null;
-      previewWindow.document.title = 'Preparing renderer preview';
-      previewWindow.document.body.textContent = 'Preparing renderer preview...';
+      showGobletTestStatus(
+        previewWindow,
+        'Preparing renderer preview',
+        'Building the canonical onchain packages. This tab will update automatically.',
+      );
     }
     setTestingTesterId(tester.id);
     try {
@@ -664,11 +699,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         duration: 8000,
       });
     } catch (error) {
-      previewWindow?.close();
+      const message = error instanceof Error ? error.message : 'Unknown renderer test error';
+      if (previewWindow) {
+        showGobletTestStatus(
+          previewWindow,
+          `Test with ${tester.label} failed`,
+          message,
+        );
+      }
       addNotification({
         type: 'error',
         title: `Test with ${tester.label} failed`,
-        message: error instanceof Error ? error.message : 'Unknown renderer test error',
+        message,
         timestamp: new Date(),
         duration: 8000,
       });

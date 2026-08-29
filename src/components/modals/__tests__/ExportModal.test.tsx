@@ -3,6 +3,7 @@ import React from 'react';
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 
 import { registerGobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
+import { registerGobletTester } from '@/utils/export/goblet/gobletTesterRegistry';
 
 import { ExportModal } from '../ExportModal';
 
@@ -708,6 +709,70 @@ describe('ExportModal', () => {
 
     expect(await screen.findByRole('button', { name: 'Download' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Publish/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps the preview tab open and shows the renderer error when a test fails', async () => {
+    const sizeReport = {
+      format: 'json' as const,
+      totalBytes: 4,
+      metadataBytes: 4,
+      runtimeBytes: 0,
+      htmlBytes: 0,
+      ccBufferBytes: 0,
+      maskBytes: 0,
+      textureBytes: 0,
+      sequentialFrameBytes: 0,
+      previewBytes: 0,
+      fallbackBytes: 0,
+      binarySidecarBytes: 0,
+      binarySidecarCount: 0,
+      duplicatedMetadataBytes: 0,
+    };
+    runExportMock.mockResolvedValue(makeWebglResult(store.layers, sizeReport));
+    const unregister = registerGobletTester({
+      id: 'failing-renderer',
+      label: 'Failing renderer',
+      test: jest.fn(async () => {
+        throw new Error('Preview package could not be reconstructed');
+      }),
+    });
+    const previewDocument = document.implementation.createHTMLDocument();
+    const closePreview = jest.fn();
+    const previewWindow = {
+      closed: false,
+      close: closePreview,
+      document: previewDocument,
+      location: { replace: jest.fn() },
+      opener: window,
+    } as unknown as Window;
+    const openPreview = jest.spyOn(window, 'open').mockReturnValue(previewWindow);
+
+    try {
+      render(<ExportModal isOpen onClose={jest.fn()} />);
+      act(() => {
+        jest.runAllTimers();
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+      });
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Failing renderer' }));
+
+      await waitFor(() => {
+        expect(previewDocument.title).toBe('Test with Failing renderer failed');
+      });
+      expect(previewDocument.body.textContent).toContain('Preview package could not be reconstructed');
+      expect(closePreview).not.toHaveBeenCalled();
+      expect(openPreview).toHaveBeenCalledWith('about:blank', '_blank');
+      expect(store.addNotification).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'error',
+        title: 'Test with Failing renderer failed',
+        message: 'Preview package could not be reconstructed',
+      }));
+    } finally {
+      openPreview.mockRestore();
+      act(() => unregister());
+    }
   });
 
   it('keeps release actions visible and locked while publishing', async () => {
