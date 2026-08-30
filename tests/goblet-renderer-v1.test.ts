@@ -92,6 +92,8 @@ describe('Goblet Renderer v1 scene runtime', () => {
     expect(runtime).toContain("? 'destination-out'");
     expect(runtime).toContain(": 'destination-in'");
     expect(runtime).toContain("state.kind === 'group' && (opacity !== 1");
+    expect(runtime).toContain('getRendererV1IsolationBounds(drawContext, state)');
+    expect(runtime).toContain('getIsolationProfile: () => ({');
     expect(runtime).toContain('const dataChannels = new Map(');
     expect(runtime).toContain("track.property === 'playbackTime'");
   });

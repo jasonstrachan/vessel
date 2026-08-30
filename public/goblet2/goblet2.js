@@ -7955,40 +7955,212 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     );
   };
 
+  const unionRendererV1Bounds = (left, right) => {
+    if (!left) return right;
+    if (!right) return left;
+    return {
+      left: Math.min(left.left, right.left),
+      top: Math.min(left.top, right.top),
+      right: Math.max(left.right, right.right),
+      bottom: Math.max(left.bottom, right.bottom)
+    };
+  };
+
+  const intersectRendererV1Bounds = (left, right) => {
+    if (!left || !right) return null;
+    const intersection = {
+      left: Math.max(left.left, right.left),
+      top: Math.max(left.top, right.top),
+      right: Math.min(left.right, right.right),
+      bottom: Math.min(left.bottom, right.bottom)
+    };
+    return intersection.right > intersection.left && intersection.bottom > intersection.top
+      ? intersection
+      : null;
+  };
+
+  const rendererV1RectBounds = (x, y, rectWidth, rectHeight) => (
+    rectWidth > 0 && rectHeight > 0
+      ? { left: x, top: y, right: x + rectWidth, bottom: y + rectHeight }
+      : null
+  );
+
+  const getRendererV1LocalTransform = (state) => {
+    const rotation = (Number(state.rotation) || 0) * Math.PI / 180;
+    const scaleX = Number(state.scaleX) || 0;
+    const scaleY = Number(state.scaleY) || 0;
+    const cosine = Math.cos(rotation);
+    const sine = Math.sin(rotation);
+    const a = cosine * scaleX;
+    const b = sine * scaleX;
+    const c = -sine * scaleY;
+    const d = cosine * scaleY;
+    const anchorX = Number(state.anchorX) || 0;
+    const anchorY = Number(state.anchorY) || 0;
+    return {
+      a,
+      b,
+      c,
+      d,
+      e: (Number(state.x) || 0) - a * anchorX - c * anchorY,
+      f: (Number(state.y) || 0) - b * anchorX - d * anchorY
+    };
+  };
+
+  const transformRendererV1Bounds = (bounds, transform) => {
+    if (!bounds) return null;
+    const points = [
+      [bounds.left, bounds.top],
+      [bounds.right, bounds.top],
+      [bounds.left, bounds.bottom],
+      [bounds.right, bounds.bottom]
+    ];
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+    for (const [x, y] of points) {
+      const transformedX = transform.a * x + transform.c * y + transform.e;
+      const transformedY = transform.b * x + transform.d * y + transform.f;
+      left = Math.min(left, transformedX);
+      top = Math.min(top, transformedY);
+      right = Math.max(right, transformedX);
+      bottom = Math.max(bottom, transformedY);
+    }
+    return { left, top, right, bottom };
+  };
+
+  let isolationBoundsCache = new WeakMap();
+  const getLocalRendererV1Bounds = (state, activePath = new Set()) => {
+    if (!state || state.visible === false || activePath.has(state) || activePath.size >= 128) {
+      return null;
+    }
+    if (isolationBoundsCache.has(state)) return isolationBoundsCache.get(state);
+    const opacity = Math.max(0, Math.min(1, Number(state.opacity) || 0));
+    if (opacity <= 0) {
+      isolationBoundsCache.set(state, null);
+      return null;
+    }
+    activePath.add(state);
+    let bounds = null;
+    if (state.kind === 'artwork') {
+      bounds = rendererV1RectBounds(
+        0,
+        0,
+        Number(state.width) || width,
+        Number(state.height) || height
+      );
+    } else if (state.kind === 'rect' || state.kind === 'sprite') {
+      bounds = rendererV1RectBounds(0, 0, Number(state.width) || 0, Number(state.height) || 0);
+    } else if (state.kind === 'cursor') {
+      bounds = rendererV1RectBounds(0, 0, 13, 17);
+    } else if (state.kind === 'instance') {
+      const symbol = symbols.get(String(state.symbolId || ''));
+      for (const root of symbol?.roots || []) {
+        bounds = unionRendererV1Bounds(bounds, getLocalRendererV1Bounds(root, activePath));
+      }
+    }
+    for (const child of state.children) {
+      bounds = unionRendererV1Bounds(bounds, getLocalRendererV1Bounds(child, activePath));
+    }
+    if (state.clip) {
+      bounds = intersectRendererV1Bounds(bounds, rendererV1RectBounds(
+        Number(state.clip.x) || 0,
+        Number(state.clip.y) || 0,
+        Number(state.clip.width) || 0,
+        Number(state.clip.height) || 0
+      ));
+    }
+    if (state.mask && !state.mask.invert) {
+      const maskOpacity = Math.max(0, Math.min(1, Number(state.mask.opacity) || 0));
+      const maskBounds = maskOpacity > 0
+        ? transformRendererV1Bounds(
+            rendererV1RectBounds(
+              0,
+              0,
+              Number(state.mask.width) || 0,
+              Number(state.mask.height) || 0
+            ),
+            getRendererV1LocalTransform(state.mask)
+          )
+        : null;
+      bounds = intersectRendererV1Bounds(bounds, maskBounds);
+    }
+    activePath.delete(state);
+    const transformedBounds = transformRendererV1Bounds(bounds, getRendererV1LocalTransform(state));
+    isolationBoundsCache.set(state, transformedBounds);
+    return transformedBounds;
+  };
+
+  const getRendererV1IsolationBounds = (drawContext, state) => {
+    const transformedBounds = transformRendererV1Bounds(
+      getLocalRendererV1Bounds(state),
+      drawContext.getTransform()
+    );
+    if (!transformedBounds) return null;
+    const left = Math.max(0, Math.floor(transformedBounds.left) - 1);
+    const top = Math.max(0, Math.floor(transformedBounds.top) - 1);
+    const right = Math.min(drawContext.canvas.width, Math.ceil(transformedBounds.right) + 1);
+    const bottom = Math.min(drawContext.canvas.height, Math.ceil(transformedBounds.bottom) + 1);
+    return right > left && bottom > top
+      ? { x: left, y: top, width: right - left, height: bottom - top }
+      : null;
+  };
+
   const isolationSurfaces = [];
-  const getIsolationSurfaces = (depth) => {
-    if (
-      depth >= RENDERER_V1_MAX_ISOLATION_DEPTH
-      || (depth + 1) * width * height * 8 > RENDERER_V1_MAX_ISOLATION_BYTES
-    ) {
+  let isolationAllocatedPixels = 0;
+  let isolationFrameBlitPixels = 0;
+  let isolationMaximumFrameBlitPixels = 0;
+  const getIsolationSurfaces = (depth, regionWidth, regionHeight) => {
+    if (depth >= RENDERER_V1_MAX_ISOLATION_DEPTH) {
       throw new Error('Renderer v1 isolated-compositing budget exceeded');
     }
-    if (isolationSurfaces[depth]) return isolationSurfaces[depth];
-    const createSurface = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const surfaceContext = canvas.getContext('2d');
+    const current = isolationSurfaces[depth] || null;
+    const surfaceWidth = Math.max(current?.width || 0, Math.max(1, Math.ceil(regionWidth)));
+    const surfaceHeight = Math.max(current?.height || 0, Math.max(1, Math.ceil(regionHeight)));
+    const previousPixels = current ? current.width * current.height : 0;
+    const nextAllocatedPixels = isolationAllocatedPixels
+      - previousPixels
+      + surfaceWidth * surfaceHeight;
+    if (nextAllocatedPixels * 8 > RENDERER_V1_MAX_ISOLATION_BYTES) {
+      throw new Error('Renderer v1 isolated-compositing budget exceeded');
+    }
+    if (current && current.width === surfaceWidth && current.height === surfaceHeight) {
+      return current;
+    }
+    const createSurface = (existing) => {
+      const canvas = existing?.canvas || document.createElement('canvas');
+      canvas.width = surfaceWidth;
+      canvas.height = surfaceHeight;
+      const surfaceContext = existing?.context || canvas.getContext('2d');
       if (!surfaceContext) return null;
       surfaceContext.imageSmoothingEnabled = false;
       return { canvas, context: surfaceContext };
     };
-    const content = createSurface();
-    const mask = createSurface();
+    const content = createSurface(current?.content);
+    const mask = createSurface(current?.mask);
     if (!content || !mask) return null;
-    const surfaces = { content, mask };
+    const surfaces = { content, mask, width: surfaceWidth, height: surfaceHeight };
+    isolationAllocatedPixels = nextAllocatedPixels;
     isolationSurfaces[depth] = surfaces;
     return surfaces;
   };
 
-  const prepareIsolationContext = (surface, transform) => {
+  const prepareIsolationContext = (surface, transform, bounds) => {
     surface.context.save();
     surface.context.setTransform(1, 0, 0, 1, 0, 0);
     surface.context.globalAlpha = 1;
     surface.context.globalCompositeOperation = 'source-over';
-    surface.context.clearRect(0, 0, width, height);
+    surface.context.clearRect(0, 0, bounds.width, bounds.height);
     surface.context.restore();
-    surface.context.setTransform(transform);
+    surface.context.setTransform(
+      transform.a,
+      transform.b,
+      transform.c,
+      transform.d,
+      transform.e - bounds.x,
+      transform.f - bounds.y
+    );
     surface.context.globalAlpha = 1;
     surface.context.globalCompositeOperation = 'source-over';
   };
@@ -7998,6 +8170,7 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       return;
     }
     const opacity = Math.max(0, Math.min(1, Number(state.opacity) || 0));
+    if (opacity <= 0) return;
     const blendMode = RENDERER_V1_BLEND_MODES.has(state.blendMode)
       ? state.blendMode
       : 'source-over';
@@ -8006,13 +8179,15 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       || (state.kind === 'group' && (opacity !== 1 || blendMode !== 'source-over'))
     );
     if (needsIsolation) {
-      const surfaces = getIsolationSurfaces(isolationDepth);
+      const bounds = getRendererV1IsolationBounds(drawContext, state);
+      if (!bounds) return;
+      const surfaces = getIsolationSurfaces(isolationDepth, bounds.width, bounds.height);
       if (!surfaces) return;
       const parentTransform = drawContext.getTransform();
-      prepareIsolationContext(surfaces.content, parentTransform);
+      prepareIsolationContext(surfaces.content, parentTransform, bounds);
       drawNode(surfaces.content.context, state, activePath, isolationDepth + 1, true);
       if (state.mask) {
-        prepareIsolationContext(surfaces.mask, parentTransform);
+        prepareIsolationContext(surfaces.mask, parentTransform, bounds);
         surfaces.mask.context.save();
         applyNodeTransform(surfaces.mask.context, state);
         applyNodeTransform(surfaces.mask.context, state.mask);
@@ -8028,15 +8203,36 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
         surfaces.content.context.globalCompositeOperation = state.mask.invert
           ? 'destination-out'
           : 'destination-in';
-        surfaces.content.context.drawImage(surfaces.mask.canvas, 0, 0);
+        surfaces.content.context.drawImage(
+          surfaces.mask.canvas,
+          0,
+          0,
+          bounds.width,
+          bounds.height,
+          0,
+          0,
+          bounds.width,
+          bounds.height
+        );
         surfaces.content.context.restore();
       }
       drawContext.save();
       drawContext.setTransform(1, 0, 0, 1, 0, 0);
       drawContext.globalAlpha *= opacity;
       drawContext.globalCompositeOperation = blendMode;
-      drawContext.drawImage(surfaces.content.canvas, 0, 0);
+      drawContext.drawImage(
+        surfaces.content.canvas,
+        0,
+        0,
+        bounds.width,
+        bounds.height,
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height
+      );
       drawContext.restore();
+      isolationFrameBlitPixels += bounds.width * bounds.height * (state.mask ? 2 : 1);
       return;
     }
     activePath.add(state);
@@ -8087,6 +8283,8 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
   };
 
   const drawAt = (time, defaultPlaybackTime = time) => {
+    isolationBoundsCache = new WeakMap();
+    isolationFrameBlitPixels = 0;
     for (const track of tracks) {
       const value = interpolateTrack(track, time);
       if (layerBoundStates.has(track.state) && track.state[track.property] !== value) {
@@ -8114,6 +8312,10 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     for (const root of globalRoots) {
       drawNode(context, root, new Set());
     }
+    isolationMaximumFrameBlitPixels = Math.max(
+      isolationMaximumFrameBlitPixels,
+      isolationFrameBlitPixels
+    );
   };
 
   const renderAtTime = (time) => {
@@ -8197,6 +8399,12 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     dispose,
     drawAt: renderAtTime,
     error: null,
+    getIsolationProfile: () => ({
+      allocatedSurfacePixels: isolationAllocatedPixels * 2,
+      lastFrameBlitPixels: isolationFrameBlitPixels,
+      maximumFrameBlitPixels: isolationMaximumFrameBlitPixels,
+      surfaceCount: isolationSurfaces.filter(Boolean).length * 2
+    }),
     getTime: () => elapsedSeconds,
     ready: null,
     setTime,

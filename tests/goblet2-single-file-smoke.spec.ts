@@ -340,6 +340,89 @@ const createDataDrivenMaskBundle = () => {
   return bundle;
 };
 
+const createRegionalIsolationBundle = () => {
+  const bundle = createGoblet2Bundle({ layers: [] });
+  bundle.project.width = 256;
+  bundle.project.height = 256;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = 256;
+  bundle.viewport.designHeight = 256;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 1,
+    resources: [{ id: 'alpha-mask', kind: 'image', dataUrl: WHITE_PIXEL_PNG }],
+    masks: [{
+      id: 'small-mask', resourceId: 'alpha-mask', x: 0, y: 0, width: 8, height: 8,
+    }],
+    objects: [{
+      id: 'masked-canvas', kind: 'rect', maskId: 'small-mask',
+      x: 128, y: 120, width: 256, height: 256, rotation: 90, fill: '#00ff00',
+    }],
+    tracks: [],
+  };
+  return bundle;
+};
+
+const createRegionalInvertedIsolationBundle = () => {
+  const bundle = createGoblet2Bundle({ layers: [] });
+  bundle.project.width = 256;
+  bundle.project.height = 256;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = 256;
+  bundle.viewport.designHeight = 256;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 1,
+    resources: [{ id: 'alpha-mask', kind: 'image', dataUrl: WHITE_PIXEL_PNG }],
+    masks: [{
+      id: 'small-mask', resourceId: 'alpha-mask', x: 0, y: 0, width: 8, height: 8,
+      invert: true,
+    }],
+    objects: [{
+      id: 'masked-square', kind: 'rect', maskId: 'small-mask',
+      x: 100, y: 100, width: 16, height: 16, fill: '#00ff00',
+    }],
+    tracks: [],
+  };
+  return bundle;
+};
+
+const createRegionalIsolationStressBundle = (maskCount = 512) => {
+  const width = 768;
+  const height = 960;
+  const bundle = createGoblet2Bundle({ layers: [] });
+  bundle.project.width = width;
+  bundle.project.height = height;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = width;
+  bundle.viewport.designHeight = height;
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 1,
+    resources: [{ id: 'alpha-mask', kind: 'image', dataUrl: WHITE_PIXEL_PNG }],
+    masks: Array.from({ length: maskCount }, (_, index) => ({
+      id: `mask-${index}`,
+      resourceId: 'alpha-mask',
+      x: 0,
+      y: 0,
+      width: 8,
+      height: 8,
+    })),
+    objects: Array.from({ length: maskCount }, (_, index) => ({
+      id: `masked-${index}`,
+      kind: 'rect',
+      maskId: `mask-${index}`,
+      x: (index % 32) * 20,
+      y: Math.floor(index / 32) * 20,
+      width: 8,
+      height: 8,
+      fill: '#00ff00',
+    })),
+    tracks: [],
+  };
+  return bundle;
+};
+
 const createPopupAndClippedArtworkBundle = () => {
   const width = 16;
   const height = 16;
@@ -1318,6 +1401,84 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
       left: [0, 0, 0, 0],
       right: [0, 255, 0, 255],
     });
+  });
+
+  test('bounds mask isolation work to the visible region', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createRegionalIsolationBundle()));
+    await waitForSmokeReady(page);
+    const result = await page.evaluate(() => {
+      const renderer = (window as Window & {
+        vesselGobletRendererV1?: {
+          getIsolationProfile: () => {
+            allocatedSurfacePixels: number;
+            lastFrameBlitPixels: number;
+            maximumFrameBlitPixels: number;
+            surfaceCount: number;
+          };
+          setTime: (value: number) => void;
+        };
+      }).vesselGobletRendererV1;
+      renderer?.setTime(0);
+      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const context = canvas.getContext('2d', { willReadFrequently: true })!;
+      return {
+        inside: Array.from(context.getImageData(124, 124, 1, 1).data),
+        outside: Array.from(context.getImageData(20, 20, 1, 1).data),
+        profile: renderer?.getIsolationProfile(),
+      };
+    });
+    expect(result.inside).toEqual([0, 255, 0, 255]);
+    expect(result.outside).toEqual([0, 0, 0, 0]);
+    expect(result.profile).toMatchObject({ surfaceCount: 2 });
+    expect(result.profile?.allocatedSurfacePixels).toBeLessThan(256 * 256);
+    expect(result.profile?.lastFrameBlitPixels).toBeLessThan(256 * 256);
+  });
+
+  test('keeps inverted-mask content outside the bounded cutout', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createRegionalInvertedIsolationBundle()));
+    await waitForSmokeReady(page);
+    const result = await page.evaluate(() => {
+      const renderer = (window as Window & {
+        vesselGobletRendererV1?: {
+          getIsolationProfile: () => { lastFrameBlitPixels: number };
+          setTime: (value: number) => void;
+        };
+      }).vesselGobletRendererV1;
+      renderer?.setTime(0);
+      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const context = canvas.getContext('2d', { willReadFrequently: true })!;
+      return {
+        cutout: Array.from(context.getImageData(104, 104, 1, 1).data),
+        retained: Array.from(context.getImageData(112, 112, 1, 1).data),
+        profile: renderer?.getIsolationProfile(),
+      };
+    });
+    expect(result.cutout).toEqual([0, 0, 0, 0]);
+    expect(result.retained).toEqual([0, 255, 0, 255]);
+    expect(result.profile?.lastFrameBlitPixels).toBeLessThan(256 * 256);
+  });
+
+  test('bounds 512 live regional masks to their composited pixels', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createRegionalIsolationStressBundle()));
+    await waitForSmokeReady(page);
+    const profile = await page.evaluate(() => {
+      const renderer = (window as Window & {
+        vesselGobletRendererV1?: {
+          getIsolationProfile: () => {
+            allocatedSurfacePixels: number;
+            lastFrameBlitPixels: number;
+            maximumFrameBlitPixels: number;
+            surfaceCount: number;
+          };
+          setTime: (value: number) => void;
+        };
+      }).vesselGobletRendererV1!;
+      renderer.setTime(0);
+      return renderer.getIsolationProfile();
+    });
+    expect(profile).toMatchObject({ surfaceCount: 2 });
+    expect(profile.allocatedSurfacePixels).toBeLessThanOrEqual(200);
+    expect(profile.lastFrameBlitPixels).toBeLessThanOrEqual(512 * 200);
   });
 
   test('fails closed instead of silently dropping an invalid scene track', async ({ page }) => {
