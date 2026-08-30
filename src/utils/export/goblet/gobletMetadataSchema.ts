@@ -16,6 +16,7 @@ export const GOBLET_PROPERTY_MINIFY_MAP = {
   compiled: 'cf',
   requirements: 'req',
   featureId: 'fid',
+  rasterLayerIds: 'rli',
   objectId: 'oid',
   trackProperties: 'tpr',
   clips: 'clp',

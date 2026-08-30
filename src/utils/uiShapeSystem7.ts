@@ -3,6 +3,7 @@ import type {
   UiShapeComponentState,
   UiShapePalette,
 } from '@/types';
+import { resolveUiShapeCleanContext } from '@/utils/uiShapePaint';
 
 type UiShapeCanvasContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
@@ -111,14 +112,22 @@ const drawRoundedRect = (
   outline?: string,
 ): void => {
   if (width <= 0 || height <= 0) return;
-  ctx.fillStyle = fill;
+  ctx.save();
+  ctx.beginPath();
   for (let row = 0; row < height; row += 1) {
+    let start = -1;
+    let end = -1;
     for (let column = 0; column < width; column += 1) {
-      if (roundedRectContains(column, row, width, height, radius)) {
-        ctx.fillRect(x + column, y + row, 1, 1);
-      }
+      if (!roundedRectContains(column, row, width, height, radius)) continue;
+      if (start < 0) start = column;
+      end = column;
     }
+    if (start >= 0) ctx.rect(x + start, y + row, end - start + 1, 1);
   }
+  ctx.clip();
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, width, height);
+  ctx.restore();
   if (!outline) return;
   ctx.fillStyle = outline;
   for (let row = 0; row < height; row += 1) {
@@ -238,19 +247,20 @@ const drawArrow = (
   height: number,
   color: string,
 ): void => {
+  const cleanCtx = resolveUiShapeCleanContext(ctx);
   const centerX = x + Math.floor(width / 2);
   const centerY = y + Math.floor(height / 2);
-  ctx.fillStyle = color;
+  cleanCtx.fillStyle = color;
   for (let step = 0; step <= 6; step += 1) {
     const halfSpan = Math.ceil(step / 2);
     if (direction === 'up') {
-      ctx.fillRect(centerX - halfSpan, centerY - 3 + step, halfSpan * 2 + 1, 1);
+      cleanCtx.fillRect(centerX - halfSpan, centerY - 3 + step, halfSpan * 2 + 1, 1);
     } else if (direction === 'down') {
-      ctx.fillRect(centerX - halfSpan, centerY + 3 - step, halfSpan * 2 + 1, 1);
+      cleanCtx.fillRect(centerX - halfSpan, centerY + 3 - step, halfSpan * 2 + 1, 1);
     } else if (direction === 'left') {
-      ctx.fillRect(centerX - 3 + step, centerY - halfSpan, 1, halfSpan * 2 + 1);
+      cleanCtx.fillRect(centerX - 3 + step, centerY - halfSpan, 1, halfSpan * 2 + 1);
     } else {
-      ctx.fillRect(centerX + 3 - step, centerY - halfSpan, 1, halfSpan * 2 + 1);
+      cleanCtx.fillRect(centerX + 3 - step, centerY - halfSpan, 1, halfSpan * 2 + 1);
     }
   }
 };

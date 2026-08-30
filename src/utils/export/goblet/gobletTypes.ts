@@ -467,7 +467,13 @@ export interface GobletDynamicFeatureManifest {
 
 export interface GobletDynamicFeatureRequirement {
   featureId: string;
-  objects: GobletDynamicFeatureObjectRequirement[];
+  objects?: GobletDynamicFeatureObjectRequirement[];
+  /**
+   * Layers whose sequential frame textures are the deterministic fallback for
+   * this authored feature. This lets future 2D features compile to pixels when
+   * they cannot be expressed compactly with Renderer v1 scene objects.
+   */
+  rasterLayerIds?: string[];
 }
 
 export interface GobletDynamicFeatureObjectRequirement {

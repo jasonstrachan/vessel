@@ -1407,6 +1407,7 @@ const PROPERTY_UNMINIFY_MAP = {
   cf: 'compiled',
   req: 'requirements',
   fid: 'featureId',
+  rli: 'rasterLayerIds',
   oid: 'objectId',
   tpr: 'trackProperties',
   clp: 'clips',

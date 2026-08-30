@@ -12,6 +12,7 @@ import type {
 import {
   createUiShapeHanddrawnContext,
   createUiShapePaintContext,
+  resolveUiShapeCleanContext,
 } from '@/utils/uiShapePaint';
 import {
   drawUiShapeIcon,
@@ -474,15 +475,16 @@ const drawArrow = (
   height: number,
   color: string,
 ): void => {
+  const cleanCtx = resolveUiShapeCleanContext(ctx);
   const centerX = x + Math.floor((width - 1) / 2);
   const centerY = y + Math.floor((height - 1) / 2);
   const radius = Math.max(0, Math.min(3, Math.floor((Math.min(width, height) - 3) / 2)));
   const mainOffset = Math.floor(radius / 2);
-  ctx.fillStyle = color;
+  cleanCtx.fillStyle = color;
   for (let step = 0; step <= radius; step += 1) {
     if (direction === 'left' || direction === 'right') {
       const halfHeight = direction === 'left' ? step : radius - step;
-      ctx.fillRect(
+      cleanCtx.fillRect(
         centerX - mainOffset + step,
         centerY - halfHeight,
         1,
@@ -490,7 +492,7 @@ const drawArrow = (
       );
     } else {
       const halfWidth = direction === 'up' ? step : radius - step;
-      ctx.fillRect(
+      cleanCtx.fillRect(
         centerX - halfWidth,
         centerY - mainOffset + step,
         halfWidth * 2 + 1,
@@ -688,22 +690,6 @@ const drawScrollbar = (
   }
 };
 
-const drawMacPattern = (
-  ctx: UiShapeCanvasContext,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  color: string,
-): void => {
-  ctx.fillStyle = color;
-  for (let row = 0; row < height; row += 2) {
-    for (let column = row % 4 === 0 ? 0 : 1; column < width; column += 2) {
-      ctx.fillRect(x + column, y + row, 1, 1);
-    }
-  }
-};
-
 const drawMacFrame = (
   ctx: UiShapeCanvasContext,
   x: number,
@@ -759,12 +745,17 @@ const drawMacRoundedFill = (
   color: string,
 ): void => {
   const radius = Math.max(1, Math.min(4, Math.floor(Math.min(width, height) / 4)));
-  ctx.fillStyle = color;
+  ctx.save();
+  ctx.beginPath();
   for (let row = 0; row < height; row += 1) {
     const edgeDistance = Math.min(row, height - row - 1);
     const inset = edgeDistance < radius ? radius - edgeDistance : 0;
-    ctx.fillRect(x + inset, y + row, Math.max(0, width - inset * 2), 1);
+    ctx.rect(x + inset, y + row, Math.max(0, width - inset * 2), 1);
   }
+  ctx.clip();
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, width, height);
+  ctx.restore();
 };
 
 const drawMacButton = (
@@ -891,7 +882,6 @@ const drawMacScrollbar = (
 ): void => {
   ctx.fillStyle = palette.face;
   ctx.fillRect(x, y, component.width, component.height);
-  drawMacPattern(ctx, x, y, component.width, component.height, palette.text);
   const {
     crossSize: cross,
     thumbLength: thumb,
@@ -1227,14 +1217,8 @@ const drawWindows95Track = (
   height: number,
   palette: UiShapePalette,
 ): void => {
-  ctx.fillStyle = palette.highlight;
+  ctx.fillStyle = palette.light;
   ctx.fillRect(x, y, width, height);
-  ctx.fillStyle = palette.face;
-  for (let row = 0; row < height; row += 1) {
-    for (let column = row % 2; column < width; column += 2) {
-      ctx.fillRect(x + column, y + row, 1, 1);
-    }
-  }
 };
 
 const drawWindows95ScrollbarBox = (

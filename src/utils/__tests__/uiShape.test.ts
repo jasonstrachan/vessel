@@ -12,6 +12,7 @@ import {
   WINDOWS_95_UI_SHAPE_PALETTE,
 } from '@/utils/uiShape';
 import {
+  createUiShapePaintContext,
   resolveUiShapeHanddrawnRect,
   resolveUiShapeSierraLiteInkPairs,
 } from '@/utils/uiShapePaint';
@@ -139,22 +140,104 @@ describe('UI Shape document helpers', () => {
     });
   });
 
-  it('mixes every UI role with a neighbouring palette ink through Sierra Lite', () => {
+  it('uses Sierra Lite with a restrained secondary ink around every UI role', () => {
     const pairs = resolveUiShapeSierraLiteInkPairs(WINDOWS_31_UI_SHAPE_PALETTE);
     const roles = Object.keys(WINDOWS_31_UI_SHAPE_PALETTE) as (
       keyof typeof WINDOWS_31_UI_SHAPE_PALETTE
     )[];
-    const usedColors = new Set(roles.flatMap((role) => [
-      pairs[role].lowColor,
-      pairs[role].highColor,
-    ]));
-
     roles.forEach((role) => {
       expect([pairs[role].lowColor, pairs[role].highColor])
         .toContain(WINDOWS_31_UI_SHAPE_PALETTE[role]);
       expect([0.28, 0.72]).toContain(pairs[role].mix);
+      const secondaryInk = pairs[role].lowColor === WINDOWS_31_UI_SHAPE_PALETTE[role]
+        ? pairs[role].highColor
+        : pairs[role].lowColor;
+      expect(secondaryInk).not.toBe(WINDOWS_31_UI_SHAPE_PALETTE[role]);
+      expect(Object.values(WINDOWS_31_UI_SHAPE_PALETTE)).not.toContain(secondaryInk);
     });
-    expect(usedColors).toEqual(new Set(Object.values(WINDOWS_31_UI_SHAPE_PALETTE)));
+
+    const system1Pairs = resolveUiShapeSierraLiteInkPairs(
+      MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
+    );
+    expect(system1Pairs.face).toEqual({
+      lowColor: '#efefef',
+      highColor: '#ffffff',
+      mix: 0.72,
+    });
+    expect(system1Pairs.text).toEqual({
+      lowColor: '#000000',
+      highColor: '#101010',
+      mix: 0.28,
+    });
+  });
+
+  it('dithers flat fills from a registered field and keeps thin details solid', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 40;
+    canvas.height = 12;
+    const context = canvas.getContext('2d')!;
+    const paintContext = createUiShapePaintContext(
+      context,
+      WINDOWS_31_UI_SHAPE_PALETTE,
+    );
+    paintContext.fillStyle = WINDOWS_31_UI_SHAPE_PALETTE.face;
+    paintContext.fillRect(0, 0, 40, 8);
+    paintContext.fillRect(0, 10, 40, 1);
+
+    const flatPixels = [...context.getImageData(0, 0, 40, 8).data];
+    const flatColors = new Set<string>();
+    for (let offset = 0; offset < flatPixels.length; offset += 4) {
+      flatColors.add(flatPixels.slice(offset, offset + 4).join(','));
+    }
+    expect(flatColors.size).toBe(2);
+
+    const firstEight = [...context.getImageData(0, 0, 8, 8).data];
+    const nextEight = [...context.getImageData(8, 0, 8, 8).data];
+    expect(firstEight).not.toEqual(nextEight);
+
+    const detailPixels = [...context.getImageData(0, 10, 40, 1).data];
+    for (let offset = 0; offset < detailPixels.length; offset += 4) {
+      expect(detailPixels.slice(offset, offset + 4)).toEqual([192, 192, 192, 255]);
+    }
+  });
+
+  it('registers one Sierra topology across palette roles and extra component tones', () => {
+    const render = (color: string) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 40;
+      canvas.height = 8;
+      const context = canvas.getContext('2d')!;
+      const paintContext = createUiShapePaintContext(
+        context,
+        MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
+      );
+      paintContext.fillStyle = color;
+      paintContext.fillRect(0, 0, canvas.width, canvas.height);
+      return [...context.getImageData(0, 0, canvas.width, canvas.height).data];
+    };
+    const resolveSecondaryMask = (pixels: number[], source: string) => {
+      const sourcePixel = hexToRgba(source).join(',');
+      return Array.from({ length: pixels.length / 4 }, (_, index) => (
+        pixels.slice(index * 4, index * 4 + 4).join(',') !== sourcePixel
+      ));
+    };
+
+    const facePixels = render(MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE.face);
+    const highlightPixels = render(MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE.highlight);
+    expect(resolveSecondaryMask(facePixels, MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE.face))
+      .toEqual(resolveSecondaryMask(
+        highlightPixels,
+        MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE.highlight,
+      ));
+
+    const extraTone = '#d0d0d0';
+    const extraPixels = render(extraTone);
+    const extraColors = new Set<string>();
+    for (let offset = 0; offset < extraPixels.length; offset += 4) {
+      extraColors.add(extraPixels.slice(offset, offset + 4).join(','));
+    }
+    expect(extraColors.size).toBe(2);
+    expect(extraColors).toContain(hexToRgba(extraTone).join(','));
   });
 
   it('limits hand-drawn geometry to scrollbars while varying their complete chrome', () => {
@@ -557,14 +640,14 @@ describe('UI Shape document helpers', () => {
 
     drawUiShape(context, windows95);
 
-    expectPaintedRole(pixel(8, 10), WINDOWS_95_UI_SHAPE_PALETTE, 'face');
+    expectPaintedRole(pixel(8, 10), WINDOWS_95_UI_SHAPE_PALETTE, 'light');
     expectPaintedRole(pixel(9, 11), WINDOWS_95_UI_SHAPE_PALETTE, 'highlight');
     expectPaintedRole(pixel(55, 81), WINDOWS_95_UI_SHAPE_PALETTE, 'darkShadow');
     expectPaintedRole(pixel(54, 80), WINDOWS_95_UI_SHAPE_PALETTE, 'shadow');
     expectPaintedRole(pixel(11, 13), WINDOWS_95_UI_SHAPE_PALETTE, 'active');
   });
 
-  it('renders a checkerboard Windows 95 scrollbar track', () => {
+  it('renders the Windows 95 track with Sierra Lite instead of a checkerboard overlay', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 100;
     canvas.height = 100;
@@ -580,13 +663,15 @@ describe('UI Shape document helpers', () => {
 
     drawUiShape(context, shape);
 
-    const first = [...context.getImageData(8, 45, 1, 1).data];
-    const adjacent = [...context.getImageData(9, 45, 1, 1).data];
-    expect(first).not.toEqual(adjacent);
-    expect([first, adjacent]).toEqual(expect.arrayContaining([
-      [192, 192, 192, 255],
-      [255, 255, 255, 255],
-    ]));
+    const trackColors = new Set<string>();
+    for (let row = 44; row < 48; row += 1) {
+      for (let column = 10; column < 22; column += 1) {
+        trackColors.add([...context.getImageData(column, row, 1, 1).data].join(','));
+      }
+    }
+    expect(trackColors).toEqual(new Set(
+      paintedRoleColors(WINDOWS_95_UI_SHAPE_PALETTE, 'light').map((color) => color.join(',')),
+    ));
   });
 
   it('matches the Windows 95 scrollbar bevel and arrow pixel grammar', () => {
@@ -618,10 +703,8 @@ describe('UI Shape document helpers', () => {
       const pixels: string[] = [];
       for (let localY = 2; localY < 14; localY += 1) {
         for (let localX = 2; localX < 14; localX += 1) {
-          if (pixelMatchesPaintedRole(
-            pixel(originX + localX, originY + localY),
-            WINDOWS_95_UI_SHAPE_PALETTE,
-            'text',
+          if (pixel(originX + localX, originY + localY).join(',') === (
+            hexToRgba(WINDOWS_95_UI_SHAPE_PALETTE.text).join(',')
           )) {
             pixels.push(`${localX},${localY}`);
           }
@@ -630,11 +713,11 @@ describe('UI Shape document helpers', () => {
       return pixels;
     };
 
-    expectPaintedRole(pixel(0, 0), WINDOWS_95_UI_SHAPE_PALETTE, 'face');
+    expectPaintedRole(pixel(0, 0), WINDOWS_95_UI_SHAPE_PALETTE, 'light');
     expectPaintedRole(pixel(1, 1), WINDOWS_95_UI_SHAPE_PALETTE, 'highlight');
     expect(blackInteriorPixels(0, 0)).toEqual([
       '7,6',
-      '7,7', '8,7',
+      '6,7', '7,7', '8,7',
       '5,8', '6,8', '7,8', '8,8', '9,8',
       '4,9', '5,9', '6,9', '7,9', '8,9', '9,9', '10,9',
     ]);
@@ -651,7 +734,7 @@ describe('UI Shape document helpers', () => {
       theme: 'macintosh-system-1' as const,
       palette: MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
       height: 16,
-      trackTop: [0, 0, 0, 255],
+      trackTop: [255, 255, 255, 255],
       trackBottom: [255, 255, 255, 255],
     },
     {
@@ -672,8 +755,8 @@ describe('UI Shape document helpers', () => {
       theme: 'windows-95' as const,
       palette: WINDOWS_95_UI_SHAPE_PALETTE,
       height: 16,
-      trackTop: [192, 192, 192, 255],
-      trackBottom: [255, 255, 255, 255],
+      trackTop: [223, 223, 223, 255],
+      trackBottom: [223, 223, 223, 255],
     },
   ])('points $theme arrows outward and paints the track to both edges', ({
     theme,

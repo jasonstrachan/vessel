@@ -51,6 +51,7 @@ describe('Goblet Renderer v1 scene runtime', () => {
     expect(schema).toContain("sourceX: 'srx'");
     expect(schema).toContain("loopDurationSeconds: 'lds'");
     expect(schema).toContain("requirements: 'req'");
+    expect(schema).toContain("rasterLayerIds: 'rli'");
     expect(schema).toContain("objectId: 'oid'");
     expect(schema).toContain("trackProperties: 'tpr'");
     expect(schema).toContain("masks: 'msk'");
@@ -74,6 +75,7 @@ describe('Goblet Renderer v1 scene runtime', () => {
       expect(runtime).toContain("srx: 'sourceX'");
       expect(runtime).toContain("lds: 'loopDurationSeconds'");
       expect(runtime).toContain("req: 'requirements'");
+      expect(runtime).toContain("rli: 'rasterLayerIds'");
       expect(runtime).toContain("oid: 'objectId'");
       expect(runtime).toContain("tpr: 'trackProperties'");
       expect(runtime).toContain("msk: 'masks'");
@@ -179,6 +181,42 @@ describe('Goblet Renderer v1 scene runtime', () => {
     metadata.dynamicFeatures!.requirements = [];
     expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
       'Dynamic features have no object requirements: studio:future-brush-v1.',
+    );
+  });
+
+  it('accepts a future Studio feature through the raster-tape fallback', () => {
+    const metadata = {
+      layers: [{
+        id: 'future-raster-tape',
+        assets: {
+          textureFrames: [
+            'data:image/png;base64,frame-a',
+            'data:image/png;base64,frame-b',
+          ],
+          textureFrameMap: [0, 1],
+        },
+        sequential: { fps: 12, totalFrames: 2, durationSeconds: 1 / 6, perfectLoop: true },
+      }],
+      dynamicFeatures: {
+        schemaVersion: 1,
+        authored: ['goblet:raster-tape-v1', 'studio:future-raster-brush-v1'],
+        compiled: ['goblet:raster-tape-v1', 'studio:future-raster-brush-v1'],
+        requirements: [{
+          featureId: 'studio:future-raster-brush-v1',
+          rasterLayerIds: ['future-raster-tape'],
+        }],
+      },
+    } as WebGLExportMetadata;
+
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).not.toThrow();
+    expect(metadata.dynamicFeatures?.requirements).toEqual([{
+      featureId: 'studio:future-raster-brush-v1',
+      rasterLayerIds: ['future-raster-tape'],
+    }]);
+
+    metadata.layers[0]!.assets!.textureFrames = [];
+    expect(() => assertDynamicFeatureManifestComplete(metadata)).toThrow(
+      'Native dynamic features do not match artwork data: goblet:raster-tape-v1.',
     );
   });
 

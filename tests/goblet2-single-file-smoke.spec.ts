@@ -13,6 +13,10 @@ type Goblet2Bundle = ReturnType<typeof createGoblet2Bundle>;
 
 const WHITE_PIXEL_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
+const createUiTortureBundle = (): Goblet2Bundle => JSON.parse(
+  read('tests/fixtures/goblet2/renderer-v1-ui-torture.json'),
+) as Goblet2Bundle;
+
 const encodeFloat32Values = (values: readonly number[]): string => {
   const bytes = Buffer.alloc(values.length * Float32Array.BYTES_PER_ELEMENT);
   values.forEach((value, index) => {
@@ -188,6 +192,103 @@ const createAtlasUiAnimationBundle = () => {
       },
     ],
   };
+  return bundle;
+};
+
+const createRasterTapeBundle = () => {
+  const width = 8;
+  const height = 8;
+  const red = createSolidTexture('#ff0000', width, height);
+  const blue = createSolidTexture('#0000ff', width, height);
+  const bundle = createGoblet2Bundle({ layers: [{
+    id: 'raster-tape',
+    name: 'Raster tape',
+    type: 'sequential',
+    source: { width, height },
+    documentBoundsPx: { x: 0, y: 0, width, height },
+    documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+    alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+    assets: { texture: red, textureFrames: [red, blue], textureFrameMap: [0, 1] },
+    sequential: { fps: 1, totalFrames: 2, durationSeconds: 2, perfectLoop: true },
+    visible: true,
+    opacity: 1,
+    blendMode: 'source-over',
+    stackIndex: 0,
+  }] } as Parameters<typeof createGoblet2Bundle>[0]);
+  bundle.project.width = width;
+  bundle.project.height = height;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = width;
+  bundle.viewport.designHeight = height;
+  bundle.animation = { fps: 1, totalFrames: 2, durationSeconds: 2, perfectLoop: true };
+  (bundle as typeof bundle & { automation: unknown }).automation = {
+    schemaVersion: 1,
+    durationSeconds: 2,
+    objects: [{ id: 'artwork', kind: 'artwork', x: 0, y: 0 }],
+    tracks: [],
+  };
+  return bundle;
+};
+
+const DISPLAY_FILTER_CASES = [
+  { id: 'pixelate', enabled: true, settings: { cellSize: 3 } },
+  { id: 'round-pixels', enabled: true, settings: { blurRadius: 6, threshold: 0.35, crush: 0.8, preserveColor: 0.2 } },
+  { id: 'bloom', enabled: true, settings: { blurRadius: 2, intensity: 0.5 } },
+  { id: 'color-grade', enabled: true, settings: { brightness: -0.15, contrast: 0.2, saturation: 0.7 } },
+  { id: 'lcd-mask', enabled: true, settings: { stripeOpacity: 0.35, scanlineOpacity: 0.2 } },
+  {
+    id: 'crt', enabled: true, settings: {
+      cellSize: 6, scanlineIntensity: 0.2, maskIntensity: 0.2, barrelDistortion: 0.05,
+      chromaticAberration: 1, beamFocus: 0.5, brightness: 0.8, shadowLift: 0.1,
+      vignetteIntensity: 0.2, flickerIntensity: 0, signalArtifacts: 0.1,
+      bloomIntensity: 0.5, bloomRadius: 2,
+    },
+  },
+  {
+    id: 'ntse-crt', enabled: true, settings: {
+      signalSmear: 0.5, signalNoise: 0.1, scanlineSize: 1,
+      scanlineStrength: 0.4, glowStrength: 0.25,
+    },
+  },
+  {
+    id: 'crt-grid', enabled: true, settings: {
+      lineOpacity: 0.3, lineSpacing: 3, phosphorOpacity: 0.2, scanlineOpacity: 0.25,
+    },
+  },
+  { id: 'chromatic-aberration', enabled: true, settings: { offset: 2, intensity: 0.7 } },
+  { id: 'noise', enabled: true, settings: { opacity: 0.25, scale: 2 } },
+  { id: 'film-noise', enabled: true, settings: { opacity: 0.3, scale: 1.5, tone: 0, shadowBias: 0.6 } },
+] as const;
+
+const createDisplayFilterBundle = (filter?: typeof DISPLAY_FILTER_CASES[number]) => {
+  const width = 24;
+  const height = 16;
+  const texture = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="16">'
+      + '<rect width="24" height="16" fill="#182840"/>'
+      + '<rect width="12" height="8" fill="#ffffff"/>'
+      + '<rect x="12" y="8" width="12" height="8" fill="#db4b32"/>'
+      + '<rect x="2" y="10" width="1" height="1" fill="#ffffff"/>'
+      + '<rect x="5" y="12" width="2" height="1" fill="#00ff88"/>'
+      + '<rect x="18" y="3" width="1" height="2" fill="#ffe000"/>'
+      + '</svg>',
+  )}`;
+  const bundle = createGoblet2Bundle({ layers: [{
+    id: 'filtered-artwork', name: 'Filtered artwork', type: 'normal',
+    source: { width, height },
+    documentBoundsPx: { x: 0, y: 0, width, height },
+    documentBoundsPercent: { x: 0, y: 0, width: 100, height: 100 },
+    alignment: { fit: 'none', horizontal: 'left', vertical: 'top', positioning: 'anchor' },
+    assets: { texture }, visible: true, opacity: 1, blendMode: 'source-over', stackIndex: 0,
+  }] } as Parameters<typeof createGoblet2Bundle>[0]);
+  bundle.project.width = width;
+  bundle.project.height = height;
+  bundle.project.backgroundColor = 'transparent';
+  bundle.viewport.designWidth = width;
+  bundle.viewport.designHeight = height;
+  bundle.settings.displayFilters = filter
+    ? [filter] as typeof bundle.settings.displayFilters
+    : [];
   return bundle;
 };
 
@@ -487,9 +588,13 @@ const createTargetedAdjustmentBundle = () => {
   return bundle;
 };
 
-const buildSingleFileGoblet2Html = (bundle: Goblet2Bundle = createGoblet2Bundle()) => {
+const buildSingleFileGoblet2Html = (
+  bundle: Goblet2Bundle = createGoblet2Bundle(),
+  renderOptions: Record<string, unknown> = {},
+) => {
   const runtime = read('public/goblet2/goblet2-inline.js');
   const metadata = JSON.stringify(bundle);
+  const options = JSON.stringify(renderOptions);
 
   return [
     '<!DOCTYPE html>',
@@ -527,7 +632,7 @@ const __smokeCountPixels__ = () => {
   return { nonZeroAlpha, nonZeroRgba };
 };
 try {
-  const summary = await renderVesselWebGL(__SMOKE_METADATA__, __SMOKE_CANVAS__, {});
+  const summary = await renderVesselWebGL(__SMOKE_METADATA__, __SMOKE_CANVAS__, ${options});
   const rendererV1 = mountGobletRendererV1(__SMOKE_METADATA__, __SMOKE_CANVAS__);
   await rendererV1?.ready;
   const pixels = __smokeCountPixels__();
@@ -958,6 +1063,227 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     expect(after.cursorAtEnd).toEqual([0, 0, 0, 255]);
   });
 
+  test('passes the Renderer v1 UI torture fixture at deterministic checkpoints', async ({ page }) => {
+    const bundle = createUiTortureBundle();
+    const automation = (bundle as typeof bundle & {
+      automation: {
+        tracks: Array<{ dataChannelId?: string; property: string; targetId: string }>;
+      };
+    }).automation;
+    expect(automation.tracks.filter((track) => track.property === 'pressed').map((track) => (
+      track.targetId
+    ))).toEqual(['cursor-button', 'cursor-scroll']);
+    expect(automation.tracks.filter((track) => (
+      track.dataChannelId === 'scroll-progress'
+    )).map((track) => track.targetId)).toEqual([
+      'portrait-artwork',
+      'content-marker',
+      'scroll-thumb',
+      'cursor-scroll',
+    ]);
+
+    await page.setContent(buildSingleFileGoblet2Html(bundle));
+    await waitForSmokeReady(page);
+    const checkpoint = (time: number) => page.evaluate((seconds) => {
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(seconds);
+      const overlay = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const source = document.querySelector('#preview-canvas') as HTMLCanvasElement;
+      const overlayContext = overlay.getContext('2d', { willReadFrequently: true })!;
+      const sourceContext = source.getContext('2d', { willReadFrequently: true })!;
+      const pixel = (x: number, y: number) => Array.from(
+        overlayContext.getImageData(x, y, 1, 1).data,
+      );
+      return {
+        button: pixel(30, 50),
+        canvas: {
+          height: overlay.height,
+          imageRendering: getComputedStyle(overlay).imageRendering,
+          width: overlay.width,
+        },
+        caret: pixel(29, 30),
+        colorCycle: Array.from(sourceContext.getImageData(40, 40, 1, 1).data),
+        hover: pixel(3, 43),
+        markerAtEnd: pixel(11, 9),
+        markerAtStart: pixel(11, 23),
+        oldThumb: pixel(63, 10),
+        orderProof: pixel(5, 9),
+        outsideClip: pixel(48, 41),
+        popup: pixel(20, 16),
+        selection: pixel(10, 31),
+        thumbAtEnd: pixel(63, 30),
+      };
+    }, time);
+
+    const initial = await checkpoint(0);
+    const hover = await checkpoint(0.65);
+    const pressed = await checkpoint(0.9);
+    const selected = await checkpoint(2.5);
+    const scrolled = await checkpoint(3.2);
+
+    expect(initial.orderProof[0]).toBeGreaterThan(200);
+    expect(initial.orderProof[2]).toBeLessThan(80);
+    expect(initial.canvas).toEqual({ height: 56, imageRendering: 'pixelated', width: 80 });
+    expect(initial.outsideClip[3]).toBe(0);
+    expect(initial.popup[2]).toBeGreaterThan(200);
+    expect(initial.markerAtStart).toEqual([0, 255, 0, 255]);
+    expect(initial.oldThumb).toEqual([208, 208, 208, 255]);
+    expect(hover.hover).toEqual([255, 255, 0, 255]);
+    expect(pressed.button).toEqual([128, 128, 128, 255]);
+    expect(pressed.colorCycle).toEqual(initial.colorCycle);
+    expect(selected.popup[2]).toBeLessThan(200);
+    expect(selected.selection).toEqual([0, 255, 255, 255]);
+    expect(selected.caret).toEqual([255, 255, 255, 255]);
+    expect(selected.colorCycle).not.toEqual(initial.colorCycle);
+    expect(scrolled.markerAtStart).not.toEqual([0, 255, 0, 255]);
+    expect(scrolled.markerAtEnd).toEqual([0, 255, 0, 255]);
+    expect(scrolled.oldThumb).toEqual([64, 64, 64, 255]);
+    expect(scrolled.thumbAtEnd).toEqual([208, 208, 208, 255]);
+  });
+
+  test('pauses, seeks, resumes, and loops the Renderer v1 UI torture fixture', async ({ browser }) => {
+    const context = await browser.newContext();
+    await installControlledBrowserState(context, { useManualAnimationFrames: true });
+    const page = await context.newPage();
+    await page.setContent(buildSingleFileGoblet2Html(createUiTortureBundle()));
+    await waitForSmokeReady(page);
+    const readTime = () => page.evaluate(() => (
+      (window as Window & { vesselGobletRendererV1?: { getTime: () => number } })
+        .vesselGobletRendererV1?.getTime() ?? -1
+    ));
+    const step = (timestamp: number) => page.evaluate((time) => (
+      (window as Window & { __stepGobletAnimationFrame?: (value: number) => boolean })
+        .__stepGobletAnimationFrame?.(time) ?? false
+    ), timestamp);
+    const readOverlay = () => page.locator('#vessel-renderer-v1').evaluate((canvas) => (
+      Array.from((canvas as HTMLCanvasElement).getContext('2d', { willReadFrequently: true })!
+        .getImageData(0, 0, (canvas as HTMLCanvasElement).width, (canvas as HTMLCanvasElement).height).data)
+    ));
+
+    await step(1);
+    await step(1_001);
+    expect(await readTime()).toBeCloseTo(1, 5);
+    await page.evaluate(() => (
+      (window as Window & { __setGobletDocumentHidden?: (hidden: boolean) => void })
+        .__setGobletDocumentHidden?.(true)
+    ));
+    await step(2_001);
+    expect(await readTime()).toBeCloseTo(1, 5);
+    await page.evaluate(() => (
+      (window as Window & { __setGobletDocumentHidden?: (hidden: boolean) => void })
+        .__setGobletDocumentHidden?.(false)
+    ));
+    await step(3_001);
+    await step(4_001);
+    expect(await readTime()).toBeCloseTo(2, 5);
+
+    await page.evaluate(() => (
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(0.1)
+    ));
+    const firstLoop = await readOverlay();
+    await page.evaluate(() => (
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(4.1)
+    ));
+    expect(await readOverlay()).toEqual(firstLoop);
+    await context.close();
+  });
+
+  test('fails the Renderer v1 UI torture fixture when a required image resource is corrupt', async ({ page }) => {
+    const bundle = createUiTortureBundle() as Goblet2Bundle & {
+      automation: { resources: Array<{ dataUrl: string }> };
+    };
+    bundle.automation.resources[0]!.dataUrl = 'data:image/png;base64,AAAA';
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setContent(buildSingleFileGoblet2Html(bundle));
+    await expect.poll(async () => page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { error?: string } }).__gobletSmoke?.error
+    ))).toContain('Renderer v1 image failed to load: resource:solid-alpha');
+    await expect.poll(() => errors.some((message) => (
+      message.includes('resource:solid-alpha')
+    ))).toBe(true);
+  });
+
+  test('plays the generic raster-tape fallback on the shared absolute clock', async ({ page }) => {
+    await page.setContent(buildSingleFileGoblet2Html(createRasterTapeBundle()));
+    await waitForSmokeReady(page);
+    const checkpoint = (time: number) => page.evaluate((seconds) => {
+      (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
+        .vesselGobletRendererV1?.setTime(seconds);
+      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      return Array.from(canvas.getContext('2d', { willReadFrequently: true })!
+        .getImageData(4, 4, 1, 1).data);
+    }, time);
+
+    expect(await checkpoint(0)).toEqual([255, 0, 0, 255]);
+    expect(await checkpoint(1.1)).toEqual([0, 0, 255, 255]);
+  });
+
+  test('renders every declared display-filter family deterministically', async ({ page }) => {
+    const renderPixels = async (filter: typeof DISPLAY_FILTER_CASES[number]) => {
+      await page.setContent(buildSingleFileGoblet2Html(createDisplayFilterBundle(filter)));
+      await waitForSmokeReady(page);
+      return page.evaluate(() => {
+        const canvas = document.querySelector('#preview-canvas') as HTMLCanvasElement;
+        const capture = () => Array.from(canvas.getContext('2d', { willReadFrequently: true })!
+          .getImageData(0, 0, canvas.width, canvas.height).data);
+        const first = capture();
+        return { first, second: capture() };
+      });
+    };
+
+    const unfiltered = (await renderPixels(undefined)).first;
+    for (const filter of DISPLAY_FILTER_CASES) {
+      const result = await renderPixels(filter);
+      expect(result.first, filter.id).toEqual(result.second);
+      expect(result.first.some((value) => value !== 0), filter.id).toBe(true);
+      expect(result.first, `${filter.id} should alter the rendered pixels`).not.toEqual(unfiltered);
+    }
+  });
+
+  test('rejects static artwork whose viewport exceeds the allocation budget', async ({ page }) => {
+    const bundle = createGoblet2Bundle();
+    bundle.viewport.designWidth = 8_193;
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setContent(buildSingleFileGoblet2Html(bundle));
+    await waitForSmokeReady(page);
+    const error = await page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { error?: string } }).__gobletSmoke?.error
+    ));
+    expect(error).toContain('Viewport dimensions exceed the Renderer v1 allocation budget');
+    expect(errors.some((message) => message.includes('allocation budget'))).toBe(true);
+  });
+
+  test('rejects a scale override that exceeds the allocation budget', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setContent(buildSingleFileGoblet2Html(createGoblet2Bundle(), { scale: 5_000 }));
+    await waitForSmokeReady(page);
+    const error = await page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { error?: string } }).__gobletSmoke?.error
+    ));
+    expect(error).toContain('Canvas scale exceeds the Renderer v1 allocation budget');
+    expect(errors.some((message) => message.includes('allocation budget'))).toBe(true);
+  });
+
+  test('rejects a fill viewport that exceeds the allocation budget', async ({ page }) => {
+    const bundle = createGoblet2Bundle();
+    bundle.viewport.mode = 'fill';
+    await page.setViewportSize({ width: 8_193, height: 200 });
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.setContent(buildSingleFileGoblet2Html(bundle));
+    await waitForSmokeReady(page);
+    const error = await page.evaluate(() => (
+      (window as Window & { __gobletSmoke?: { error?: string } }).__gobletSmoke?.error
+    ));
+    expect(error).toContain('Canvas viewport exceeds the Renderer v1 allocation budget');
+    expect(errors.some((message) => message.includes('allocation budget'))).toBe(true);
+  });
+
   test('isolates group opacity before compositing the group', async ({ page }) => {
     await page.setContent(buildSingleFileGoblet2Html(createInheritedGroupOpacityBundle()));
     await waitForSmokeReady(page);
@@ -1054,14 +1380,22 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
 
   test('matches local export pixels with the reconstructed frozen runtime', async ({ page }) => {
     const bundles = [
+      createUiTortureBundle(),
       createPopupAndClippedArtworkBundle(),
       createDataDrivenMaskBundle(),
+      createRasterTapeBundle(),
+      createDisplayFilterBundle(DISPLAY_FILTER_CASES.find((filter) => (
+        filter.id === 'color-grade'
+      ))!),
     ];
     const checkpoints = [0, 0.75, 1.5];
     const readCheckpoints = async () => page.evaluate((times) => times.map((seconds) => {
       (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
         .vesselGobletRendererV1?.setTime(seconds);
-      const canvas = document.querySelector('#vessel-renderer-v1') as HTMLCanvasElement;
+      const canvas = (
+        document.querySelector('#vessel-renderer-v1')
+        ?? document.querySelector('#preview-canvas')
+      ) as HTMLCanvasElement;
       return Array.from(canvas.getContext('2d', { willReadFrequently: true })!
         .getImageData(0, 0, canvas.width, canvas.height).data);
     }), checkpoints);

@@ -1491,6 +1491,7 @@ const PROPERTY_UNMINIFY_MAP = {
   cf: 'compiled',
   req: 'requirements',
   fid: 'featureId',
+  rli: 'rasterLayerIds',
   oid: 'objectId',
   tpr: 'trackProperties',
   clp: 'clips',
@@ -1884,6 +1885,19 @@ const normalizeLayerSpatialMetadata = (metadata) => {
   return metadata;
 };
 
+const GOBLET_MAX_CANVAS_DIMENSION = 8192;
+const GOBLET_MAX_CANVAS_PIXELS = 16777216;
+
+const gobletCanvasDimensionsFitBudget = (width, height) => (
+  Number.isSafeInteger(width)
+  && width > 0
+  && width <= GOBLET_MAX_CANVAS_DIMENSION
+  && Number.isSafeInteger(height)
+  && height > 0
+  && height <= GOBLET_MAX_CANVAS_DIMENSION
+  && width * height <= GOBLET_MAX_CANVAS_PIXELS
+);
+
 const validateMetadata = (metadata) => {
   if (!metadata || (metadata.format !== 'vessel-goblet' && metadata.format !== 'vessel-goblet2')) {
     throw new Error('Unsupported bundle format');
@@ -1894,8 +1908,15 @@ const validateMetadata = (metadata) => {
   const viewport = metadata.viewport;
   const designWidth = toNum(viewport.designWidth ?? viewport.width ?? metadata.project?.width, 0);
   const designHeight = toNum(viewport.designHeight ?? viewport.height ?? metadata.project?.height, 0);
-  if (designWidth <= 0 || designHeight <= 0) {
-    throw new Error('Missing viewport dimensions');
+  if (!gobletCanvasDimensionsFitBudget(designWidth, designHeight)) {
+    throw new Error('Viewport dimensions exceed the Renderer v1 allocation budget');
+  }
+  if (metadata.project) {
+    const projectWidth = toNum(metadata.project.width, 0);
+    const projectHeight = toNum(metadata.project.height, 0);
+    if (!gobletCanvasDimensionsFitBudget(projectWidth, projectHeight)) {
+      throw new Error('Project dimensions exceed the Renderer v1 allocation budget');
+    }
   }
   viewport.designWidth = designWidth;
   viewport.designHeight = designHeight;
@@ -5344,15 +5365,28 @@ const createCanvasStrategy = (metadata, canvas, initialOverride, actualSize = fa
 
   const getOverride = () => scaleOverride ?? { x: 1, y: 1 };
 
+  const requireCanvasSizeBudget = (size) => {
+    if (!gobletCanvasDimensionsFitBudget(size.width, size.height)) {
+      throw new Error('Canvas viewport exceeds the Renderer v1 allocation budget');
+    }
+    return size;
+  };
+
   const applyOverride = (baseScale, override) => ({
     x: clampScaleValue(baseScale.x * override.x),
     y: clampScaleValue(baseScale.y * override.y)
   });
 
-  const computeCanvasSizeForScale = (scale) => ({
-    width: sanitizeCanvasDimension(baseWidth * scale.x, baseWidth),
-    height: sanitizeCanvasDimension(baseHeight * scale.y, baseHeight)
-  });
+  const computeCanvasSizeForScale = (scale) => {
+    const size = {
+      width: sanitizeCanvasDimension(baseWidth * scale.x, baseWidth),
+      height: sanitizeCanvasDimension(baseHeight * scale.y, baseHeight)
+    };
+    if (!gobletCanvasDimensionsFitBudget(size.width, size.height)) {
+      throw new Error('Canvas scale exceeds the Renderer v1 allocation budget');
+    }
+    return size;
+  };
 
   const resolveFillState = (nextOverride) => {
     if (nextOverride) {
@@ -5367,7 +5401,7 @@ const createCanvasStrategy = (metadata, canvas, initialOverride, actualSize = fa
     const scale = applyOverride(baseScale, override);
     return {
       scale,
-      canvasSize: windowSize
+      canvasSize: requireCanvasSizeBudget(windowSize)
     };
   };
 
@@ -5397,7 +5431,7 @@ const createCanvasStrategy = (metadata, canvas, initialOverride, actualSize = fa
     const scale = applyOverride(baseScale, override);
     return {
       scale,
-      canvasSize: windowSize
+      canvasSize: requireCanvasSizeBudget(windowSize)
     };
   };
 
@@ -5415,7 +5449,7 @@ const createCanvasStrategy = (metadata, canvas, initialOverride, actualSize = fa
       const scale = applyOverride(baseScale, override);
       return {
         scale,
-        canvasSize: windowSize
+        canvasSize: requireCanvasSizeBudget(windowSize)
       };
     }
     return {
@@ -7303,8 +7337,8 @@ const RENDERER_V1_BLEND_MODES = new Set([
 ]);
 const RENDERER_V1_MAX_ISOLATION_BYTES = 256 * 1024 * 1024;
 const RENDERER_V1_MAX_ISOLATION_DEPTH = 16;
-const RENDERER_V1_MAX_DIMENSION = 8192;
-const RENDERER_V1_MAX_PIXELS = 16777216;
+const RENDERER_V1_MAX_DIMENSION = GOBLET_MAX_CANVAS_DIMENSION;
+const RENDERER_V1_MAX_PIXELS = GOBLET_MAX_CANVAS_PIXELS;
 const RENDERER_V1_MAX_DATA_CHANNELS = 1024;
 const RENDERER_V1_MAX_DATA_SAMPLES = 262144;
 const RENDERER_V1_MAX_DATA_SAMPLES_PER_CHANNEL = 65536;

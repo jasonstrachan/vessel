@@ -401,18 +401,40 @@ const assertRendererV1AutomationReferencesComplete = (metadata: WebGLExportMetad
   }
 };
 
+const NATIVE_GOBLET_DYNAMIC_FEATURES = new Set([
+  'goblet:adjustment-layers-v1',
+  'goblet:color-cycle-v1',
+  'goblet:display-filters-v1',
+  'goblet:interlace-v1',
+  'goblet:raster-tape-v1',
+  'goblet:sequential-v1',
+]);
+
 const getNativeGobletDynamicFeatures = (metadata: WebGLExportMetadata): string[] => {
   const features: string[] = [];
-  if (metadata.layers.some((layer) => Boolean(layer.colorCycle) && layer.colorCycle?.isAnimating !== false)) {
+  const layers = metadata.layers ?? [];
+  if (layers.some((layer) => Boolean(layer.colorCycle) && layer.colorCycle?.isAnimating !== false)) {
     features.push('goblet:color-cycle-v1');
   }
-  if (metadata.layers.some((layer) => (
+  const rasterTapeLayers = layers.filter((layer) => (
     (layer.sequential?.totalFrames ?? layer.assets?.textureFrames?.length ?? 0) > 1
-  ))) {
+    && Array.isArray(layer.assets?.textureFrames)
+    && layer.assets.textureFrames.length > 0
+  ));
+  if (rasterTapeLayers.length > 0) {
+    features.push('goblet:raster-tape-v1');
+  }
+  if (rasterTapeLayers.some((layer) => layer.type === 'sequential')) {
     features.push('goblet:sequential-v1');
   }
   if ((metadata.interlaceGroups?.length ?? 0) > 0) {
     features.push('goblet:interlace-v1');
+  }
+  if (metadata.settings?.displayFilters?.some((filter) => filter.enabled)) {
+    features.push('goblet:display-filters-v1');
+  }
+  if (layers.some((layer) => Boolean(layer.adjustment))) {
+    features.push('goblet:adjustment-layers-v1');
   }
   return features;
 };
@@ -424,6 +446,24 @@ export const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetada
   }
   const authored = normalizeDynamicFeatureIds(manifest.authored);
   const compiled = normalizeDynamicFeatureIds(manifest.compiled);
+  const expectedNativeFeatures = getNativeGobletDynamicFeatures(metadata);
+  const missingNativeFeatures = expectedNativeFeatures.filter((feature) => (
+    !authored.includes(feature) || !compiled.includes(feature)
+  ));
+  const unexpectedNativeFeatures = authored.filter((feature) => (
+    feature.startsWith('goblet:')
+    && (!NATIVE_GOBLET_DYNAMIC_FEATURES.has(feature) || !expectedNativeFeatures.includes(feature))
+  ));
+  if (missingNativeFeatures.length > 0 || unexpectedNativeFeatures.length > 0) {
+    throw new Error([
+      missingNativeFeatures.length > 0
+        ? `Native dynamic features were not declared and compiled: ${missingNativeFeatures.join(', ')}.`
+        : '',
+      unexpectedNativeFeatures.length > 0
+        ? `Native dynamic features do not match artwork data: ${unexpectedNativeFeatures.join(', ')}.`
+        : '',
+    ].filter(Boolean).join(' '));
+  }
   const missing = authored.filter((feature) => !compiled.includes(feature));
   const undeclared = compiled.filter((feature) => !authored.includes(feature));
   if (missing.length > 0 || undeclared.length > 0) {
@@ -443,6 +483,15 @@ export const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetada
       ? requirement.featureId.trim()
       : '';
     const requiredObjects = Array.isArray(requirement?.objects) ? requirement.objects : [];
+    const rawRasterLayerIds = requirement?.rasterLayerIds;
+    const rasterLayerIds = rawRasterLayerIds === undefined
+      ? []
+      : Array.isArray(rawRasterLayerIds)
+      && rawRasterLayerIds.every((layerId) => (
+        typeof layerId === 'string' && layerId.trim().length > 0
+      ))
+      ? [...new Set(rawRasterLayerIds.map((layerId) => layerId.trim()))].sort()
+      : null;
     const seenObjectIds = new Set<string>();
     const objects = requiredObjects.map((object) => {
       const objectId = typeof object?.objectId === 'string' ? object.objectId.trim() : '';
@@ -456,14 +505,25 @@ export const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetada
       seenObjectIds.add(objectId);
       return { objectId, trackProperties };
     }).sort((left, right) => left.objectId.localeCompare(right.objectId));
-    if (!featureId || requirementFeatures.has(featureId) || objects.length === 0) {
-      throw new Error('Dynamic feature requirements need unique feature IDs and object IDs.');
+    if (
+      !featureId
+      || requirementFeatures.has(featureId)
+      || rasterLayerIds === null
+      || (objects.length === 0 && rasterLayerIds.length === 0)
+    ) {
+      throw new Error(
+        'Dynamic feature requirements need unique feature IDs and at least one object or raster layer.',
+      );
     }
     if (!authored.includes(featureId) || !compiled.includes(featureId)) {
       throw new Error(`Dynamic feature requirement is not declared and compiled: ${featureId}.`);
     }
     requirementFeatures.add(featureId);
-    return { featureId, objects };
+    return {
+      featureId,
+      ...(objects.length > 0 ? { objects } : {}),
+      ...(rasterLayerIds.length > 0 ? { rasterLayerIds } : {}),
+    };
   }).sort((left, right) => left.featureId.localeCompare(right.featureId));
   const missingRequirements = authored.filter((feature) => (
     feature.startsWith('studio:') && !requirementFeatures.has(feature)
@@ -475,7 +535,7 @@ export const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetada
     ...(metadata.automation?.objects.map((object) => object.id) ?? []),
     ...(metadata.automation?.masks?.map((mask) => mask.id) ?? []),
   ]);
-  const missingObjects = normalizedRequirements.flatMap(({ featureId, objects }) => (
+  const missingObjects = normalizedRequirements.flatMap(({ featureId, objects = [] }) => (
     objects.filter(({ objectId }) => !actualObjectIds.has(objectId)).map(({ objectId }) => (
       `${featureId}:${objectId}`
     ))
@@ -489,7 +549,7 @@ export const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetada
     properties.add(track.property);
     trackPropertiesByTarget.set(track.targetId, properties);
   });
-  normalizedRequirements.forEach(({ featureId, objects }) => {
+  normalizedRequirements.forEach(({ featureId, objects = [] }) => {
     objects.forEach(({ objectId, trackProperties }) => {
       const actualProperties = trackPropertiesByTarget.get(objectId) ?? new Set<string>();
       const missingProperties = trackProperties.filter((property) => !actualProperties.has(property));
@@ -500,6 +560,19 @@ export const assertDynamicFeatureManifestComplete = (metadata: WebGLExportMetada
       }
     });
   });
+  const rasterTapeLayerIds = new Set((metadata.layers ?? []).filter((layer) => (
+    (layer.sequential?.totalFrames ?? layer.assets?.textureFrames?.length ?? 0) > 1
+    && Array.isArray(layer.assets?.textureFrames)
+    && layer.assets.textureFrames.length > 0
+  )).map((layer) => layer.id));
+  const missingRasterLayers = normalizedRequirements.flatMap(({ featureId, rasterLayerIds = [] }) => (
+    rasterLayerIds.filter((layerId) => !rasterTapeLayerIds.has(layerId)).map((layerId) => (
+      `${featureId}:${layerId}`
+    ))
+  ));
+  if (missingRasterLayers.length > 0) {
+    throw new Error(`Dynamic feature raster layers were not compiled: ${missingRasterLayers.join(', ')}.`);
+  }
   metadata.dynamicFeatures = {
     schemaVersion: 1,
     authored,
@@ -1343,6 +1416,21 @@ export const buildProjectGobletArtifact = async (
     compiled: normalizeDynamicFeatureIds(nativeDynamicFeatures),
   };
   metadata = studioExtension.transformGobletMetadata?.(metadata) ?? metadata;
+  const finalNativeDynamicFeatures = getNativeGobletDynamicFeatures(metadata);
+  metadata.dynamicFeatures = {
+    schemaVersion: 1,
+    authored: normalizeDynamicFeatureIds([
+      ...(metadata.dynamicFeatures?.authored ?? []),
+      ...finalNativeDynamicFeatures,
+    ]),
+    compiled: normalizeDynamicFeatureIds([
+      ...(metadata.dynamicFeatures?.compiled ?? []),
+      ...finalNativeDynamicFeatures,
+    ]),
+    ...(metadata.dynamicFeatures?.requirements
+      ? { requirements: metadata.dynamicFeatures.requirements }
+      : {}),
+  };
   assertDynamicFeatureManifestComplete(metadata);
 
   if (gobletDiagnosticsActive && placementByLayerId) {

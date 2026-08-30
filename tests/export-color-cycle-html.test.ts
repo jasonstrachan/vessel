@@ -13,6 +13,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import { captureLayerTexture } from '@/utils/export/goblet/gobletTextureEncoder';
 import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
+import studioExtension from '@/extensions/studioExtension';
 import type {
   GobletSizeReport,
   WebGLExportProgressEvent,
@@ -1272,6 +1273,158 @@ describe('exportProjectAsWebGL color cycle integration', () => {
 
     expect(metadata.settings.displayFilters).toEqual(project.viewState.displayFilters);
     expect(metadata.settings.transparencyBackgroundMode).toBe(useAppStore.getState().canvas.transparencyBackgroundMode);
+    expect(metadata.dynamicFeatures?.authored).toContain('goblet:display-filters-v1');
+    expect(metadata.dynamicFeatures?.compiled).toContain('goblet:display-filters-v1');
+  });
+
+  it('declares adjustment layers as a native Renderer v1 feature', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+
+    const paintLayer = createColorCycleLayer(canvas);
+    const adjustmentLayer: Layer = {
+      id: 'adjustment-layer',
+      name: 'Hue/Sat',
+      visible: true,
+      opacity: 0.65,
+      blendMode: 'source-over',
+      locked: false,
+      transparencyLocked: false,
+      order: 1,
+      imageData: null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'adjustment',
+      adjustmentData: {
+        targetLayerIds: [paintLayer.id],
+        effect: {
+          id: 'hue-sat',
+          settings: {
+            hue: 45,
+            saturation: 12,
+            vibrance: 3,
+            lightness: -4,
+            contrast: 5,
+            red: 0,
+            green: 0,
+            blue: 0,
+            hueRangeEnabled: true,
+            hueRangeStart: 20,
+            hueRangeEnd: 200,
+          },
+        },
+      },
+      version: 1,
+    };
+    const project = {
+      ...createProject(paintLayer),
+      layers: [paintLayer, adjustmentLayer],
+    };
+
+    const metadata = await exportProjectAsWebGL({
+      project,
+      layers: project.layers,
+      layout: createDefaultExportLayout(),
+      viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+      fps: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+      perfectLoop: false,
+      includeHiddenLayers: true,
+      embedCanvasFallback: false,
+      minify: false,
+      filenameBase: 'adjustment-layer-export',
+      bundleFormat: 'json',
+    });
+
+    expect(metadata.dynamicFeatures?.authored).toContain('goblet:adjustment-layers-v1');
+    expect(metadata.dynamicFeatures?.compiled).toContain('goblet:adjustment-layers-v1');
+    expect(metadata.layers.find((layer) => layer.id === adjustmentLayer.id)?.adjustment)
+      .toEqual(adjustmentLayer.adjustmentData);
+  });
+
+  it('derives native capabilities after a Studio extension adds a raster tape', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const layer = createColorCycleLayer(canvas);
+    const project = createProject(layer);
+    const featureId = 'studio:future-raster-brush-v1';
+    const previousFeatureReader = studioExtension.getGobletAuthoredDynamicFeatures;
+    const previousTransformer = studioExtension.transformGobletMetadata;
+
+    studioExtension.getGobletAuthoredDynamicFeatures = () => [featureId];
+    studioExtension.transformGobletMetadata = (metadata) => {
+      const sourceLayer = metadata.layers[0]!;
+      const frame = sourceLayer.assets?.texture;
+      if (!frame || !metadata.dynamicFeatures) {
+        throw new Error('Test fixture requires a serialized layer texture and feature manifest.');
+      }
+      return {
+        ...metadata,
+        layers: [
+          ...metadata.layers,
+          {
+            ...sourceLayer,
+            id: 'future-raster-tape',
+            name: 'Future raster tape',
+            type: 'normal',
+            colorCycle: undefined,
+            assets: {
+              texture: frame,
+              textureFrames: [frame, frame],
+              textureFrameMap: [0, 1],
+            },
+            sequential: {
+              fps: 12,
+              totalFrames: 2,
+              durationSeconds: 1 / 6,
+              perfectLoop: true,
+            },
+            stackIndex: metadata.layers.length,
+          },
+        ],
+        dynamicFeatures: {
+          ...metadata.dynamicFeatures,
+          compiled: [...metadata.dynamicFeatures.compiled, featureId],
+          requirements: [{ featureId, rasterLayerIds: ['future-raster-tape'] }],
+        },
+      };
+    };
+
+    try {
+      const metadata = await exportProjectAsWebGL({
+        project,
+        layers: [layer],
+        layout: createDefaultExportLayout(),
+        viewport: { designWidth: project.width, designHeight: project.height, mode: 'fixed' },
+        fps: 30,
+        totalFrames: 60,
+        durationSeconds: 2,
+        perfectLoop: false,
+        includeHiddenLayers: true,
+        embedCanvasFallback: false,
+        minify: false,
+        filenameBase: 'future-raster-extension-export',
+        bundleFormat: 'json',
+      });
+
+      expect(metadata.dynamicFeatures?.authored).toEqual(expect.arrayContaining([
+        featureId,
+        'goblet:raster-tape-v1',
+      ]));
+      expect(metadata.dynamicFeatures?.compiled).toEqual(expect.arrayContaining([
+        featureId,
+        'goblet:raster-tape-v1',
+      ]));
+      expect(metadata.dynamicFeatures?.requirements).toEqual([
+        { featureId, rasterLayerIds: ['future-raster-tape'] },
+      ]);
+    } finally {
+      studioExtension.getGobletAuthoredDynamicFeatures = previousFeatureReader;
+      studioExtension.transformGobletMetadata = previousTransformer;
+    }
   });
 
   it('exports sequential layer frame textures for Goblet playback', async () => {
@@ -1310,6 +1463,10 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     expect(exportedLayer.assets?.texture).toBe(exportedLayer.assets?.textureFrames?.[0]);
     expect(exportedLayer.sequential?.fps).toBe(12);
     expect(exportedLayer.sequential?.totalFrames).toBe(2);
+    expect(metadata.dynamicFeatures?.authored).toEqual(expect.arrayContaining([
+      'goblet:raster-tape-v1',
+      'goblet:sequential-v1',
+    ]));
   });
 
   it('maps all populated sequential frames for Goblet playback', async () => {

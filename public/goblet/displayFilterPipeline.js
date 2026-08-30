@@ -358,6 +358,65 @@ const buildColorGradeFilter = (filter) => {
   return `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
 };
 
+let canvas2dColorFilterSupported;
+
+const supportsCanvas2dColorFilter = () => {
+  if (typeof canvas2dColorFilterSupported === 'boolean') {
+    return canvas2dColorFilterSupported;
+  }
+  if (typeof document === 'undefined') {
+    canvas2dColorFilterSupported = false;
+    return canvas2dColorFilterSupported;
+  }
+  const source = document.createElement('canvas');
+  const target = document.createElement('canvas');
+  source.width = target.width = 1;
+  source.height = target.height = 1;
+  const sourceCtx = source.getContext('2d');
+  const targetCtx = target.getContext('2d', { willReadFrequently: true });
+  if (!sourceCtx || !targetCtx || !('filter' in targetCtx)) {
+    canvas2dColorFilterSupported = false;
+    return canvas2dColorFilterSupported;
+  }
+  sourceCtx.fillStyle = 'rgb(128, 128, 128)';
+  sourceCtx.fillRect(0, 0, 1, 1);
+  targetCtx.filter = 'brightness(50%)';
+  targetCtx.drawImage(source, 0, 0);
+  targetCtx.filter = 'none';
+  const red = targetCtx.getImageData(0, 0, 1, 1).data[0];
+  canvas2dColorFilterSupported = red < 100;
+  return canvas2dColorFilterSupported;
+};
+
+const applyColorGradePixelFallback = (ctx, canvas, filter) => {
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const brightness = Math.max(0, 1 + getNumeric(filter?.settings?.brightness, 0));
+  const contrast = Math.max(0, 1 + getNumeric(filter?.settings?.contrast, 0));
+  const saturation = Math.max(0, getNumeric(filter?.settings?.saturation, 1));
+  for (let index = 0; index < data.length; index += 4) {
+    let red = ((data[index] / 255) * brightness - 0.5) * contrast + 0.5;
+    let green = ((data[index + 1] / 255) * brightness - 0.5) * contrast + 0.5;
+    let blue = ((data[index + 2] / 255) * brightness - 0.5) * contrast + 0.5;
+    const saturatedRed = (0.213 + 0.787 * saturation) * red
+      + (0.715 - 0.715 * saturation) * green
+      + (0.072 - 0.072 * saturation) * blue;
+    const saturatedGreen = (0.213 - 0.213 * saturation) * red
+      + (0.715 + 0.285 * saturation) * green
+      + (0.072 - 0.072 * saturation) * blue;
+    const saturatedBlue = (0.213 - 0.213 * saturation) * red
+      + (0.715 - 0.715 * saturation) * green
+      + (0.072 + 0.928 * saturation) * blue;
+    red = saturatedRed;
+    green = saturatedGreen;
+    blue = saturatedBlue;
+    data[index] = Math.round(Math.min(1, Math.max(0, red)) * 255);
+    data[index + 1] = Math.round(Math.min(1, Math.max(0, green)) * 255);
+    data[index + 2] = Math.round(Math.min(1, Math.max(0, blue)) * 255);
+  }
+  ctx.putImageData(image, 0, 0);
+};
+
 const clamp01 = (value) => Math.min(1, Math.max(0, getNumeric(value, 0)));
 
 const mix = (start, end, alpha) => start + (end - start) * clamp01(alpha);
@@ -2663,7 +2722,7 @@ export const applyDisplayFilterStack = ({
 
   if (
     roundPixelsFilter?.enabled &&
-    getNumeric(pixelateFilter?.settings?.cellSize, 1) > 1
+    getNumeric(pixelateFilter?.settings?.cellSize, 3) > 1
   ) {
     const workCanvas = ensureDisplayFilterCanvas(
       filterState.auxCanvas,
@@ -2730,9 +2789,14 @@ export const applyDisplayFilterStack = ({
   if (colorGradeFilter?.enabled) {
     const nextCtx = clearDisplayFilterCanvas(nextCanvas);
     if (nextCtx) {
-      nextCtx.filter = buildColorGradeFilter(colorGradeFilter);
-      nextCtx.drawImage(currentCanvas, 0, 0);
-      nextCtx.filter = 'none';
+      if (supportsCanvas2dColorFilter()) {
+        nextCtx.filter = buildColorGradeFilter(colorGradeFilter);
+        nextCtx.drawImage(currentCanvas, 0, 0);
+        nextCtx.filter = 'none';
+      } else {
+        nextCtx.drawImage(currentCanvas, 0, 0);
+        applyColorGradePixelFallback(nextCtx, nextCanvas, colorGradeFilter);
+      }
       swap(nextCanvas);
     }
   }
