@@ -82,6 +82,12 @@ const createShape = (updates: Partial<TxtShape> = {}): TxtShape => ({
 
 describe('TXT Shape document helpers', () => {
   it('normalizes project-owned playback settings and migrates legacy brush settings', () => {
+    expect(normalizeTxtShapePlaybackSettings(undefined)).toEqual({
+      blockGap: 50,
+      cursorCount: 5,
+      dragSpeed: 240,
+    });
+
     expect(normalizeTxtShapePlaybackSettings({
       blockGap: 120,
       cursorCount: 7.4,

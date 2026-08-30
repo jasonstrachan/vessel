@@ -43,8 +43,8 @@ export const DEFAULT_TXT_SHAPE_SAMPLE_TONE: Readonly<TxtShapeSampleTone> = {
 };
 export const DEFAULT_TXT_SHAPE_PLAYBACK_SETTINGS: Readonly<TxtShapePlaybackSettings> = {
   blockGap: 50,
-  cursorCount: 2,
-  dragSpeed: 140,
+  cursorCount: 5,
+  dragSpeed: 240,
 };
 export const DEFAULT_TXT_SHAPE_UNMAPPED_TEXT_COVERAGE = 100;
 export const DEFAULT_TXT_SHAPE_DITHER_RESOLUTION = 2;
