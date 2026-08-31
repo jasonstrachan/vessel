@@ -406,7 +406,17 @@ export type UiShapeComponentKind =
   | 'selection-field'
   | 'separator'
   | 'resize-corner'
-  | 'icon';
+  | 'icon'
+  | 'image-viewport';
+
+export type UiShapeViewportScrollbars = 'none' | 'horizontal' | 'vertical' | 'both';
+
+export interface UiShapeImageViewport {
+  dataUrl?: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  scrollbars: UiShapeViewportScrollbars;
+}
 
 export interface UiShapeRegionPoint {
   x: number;
@@ -432,9 +442,18 @@ export interface UiShapeComponentState {
   open?: boolean;
   pressed?: boolean;
   value?: number;
+  panX?: number;
+  panY?: number;
+  zoom?: number;
+  viewportRatio?: number;
 }
 
-export type UiShapeAnimationKind = 'scroll' | 'press' | 'activate' | 'open-close';
+export type UiShapeAnimationKind =
+  | 'scroll'
+  | 'press'
+  | 'activate'
+  | 'open-close'
+  | 'viewport-pan-zoom';
 
 export interface UiShapeComponentAnimation {
   enabled: boolean;
@@ -444,6 +463,10 @@ export interface UiShapeComponentAnimation {
   rangeStart: number;
   rangeEnd: number;
   phaseOffset: number;
+  panYStart?: number;
+  panYEnd?: number;
+  zoomStart?: number;
+  zoomEnd?: number;
 }
 
 export interface UiShapeComponent {
@@ -457,6 +480,7 @@ export interface UiShapeComponent {
   iconId?: string;
   palette?: UiShapePalette;
   paletteSource?: UiShapePalette;
+  imageViewport?: UiShapeImageViewport;
   canonicalState: UiShapeComponentState;
   animation?: UiShapeComponentAnimation;
 }

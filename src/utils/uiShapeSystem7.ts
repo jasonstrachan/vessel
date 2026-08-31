@@ -311,7 +311,10 @@ const drawScrollbar = (
   const crossAxisSize = vertical ? component.width : component.height;
   const crossSize = Math.max(1, Math.min(16, crossAxisSize, mainSize / 3));
   const trackLength = Math.max(0, mainSize - crossSize * 2);
-  const thumbLength = Math.min(trackLength, Math.max(10, Math.round(trackLength * 0.28)));
+  const thumbRatio = Number.isFinite(state.viewportRatio)
+    ? clamp(state.viewportRatio!, 0, 1)
+    : 0.28;
+  const thumbLength = Math.min(trackLength, Math.max(10, Math.round(trackLength * thumbRatio)));
   const travel = Math.max(0, trackLength - thumbLength);
   const rawOffset = travel * clamp(state.value ?? 0.5, 0, 1);
   const offset = options.subpixelScrollbars ? rawOffset : Math.round(rawOffset);

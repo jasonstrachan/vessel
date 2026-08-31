@@ -48,6 +48,7 @@ export const UI_SHAPE_REFERENCE_COMPONENT_KINDS: readonly UiShapeComponentKind[]
   'separator',
   'resize-corner',
   'icon',
+  'image-viewport',
 ] as const;
 
 const common = ({
@@ -157,6 +158,13 @@ const common = ({
     minimumWidth: 16,
     minimumHeight: 16,
     canonicalState: {},
+  },
+  'image-viewport': {
+    width: 160,
+    height: 120,
+    minimumWidth: scrollbar + 3,
+    minimumHeight: scrollbar + 3,
+    canonicalState: { panX: 0, panY: 0.5, zoom: 1 },
   },
 });
 

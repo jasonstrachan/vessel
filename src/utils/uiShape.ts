@@ -19,6 +19,11 @@ import {
   normalizeUiShapeIconIdForTheme,
 } from '@/utils/uiShapeIcons';
 import { drawSystem7Component } from '@/utils/uiShapeSystem7';
+import {
+  UI_SHAPE_VIEWPORT_MAX_IMAGE_BYTES,
+  UI_SHAPE_VIEWPORT_MAX_IMAGE_PIXELS,
+  resolveUiShapeViewportLayout,
+} from '@/utils/uiShapeViewport';
 
 export const UI_SHAPE_MIN_GRID_SIZE = 2;
 export const UI_SHAPE_MAX_GRID_SIZE = 128;
@@ -41,6 +46,8 @@ export interface UiShapeScrollbarGeometry {
   trackLength: number;
   travel: number;
 }
+
+export const UI_SHAPE_VIEWPORT_IMAGE_READY_EVENT = 'vessel-ui-shape-viewport-image-ready';
 
 export const WINDOWS_31_UI_SHAPE_PALETTE: UiShapePalette = {
   face: '#c0c0c0',
@@ -115,6 +122,7 @@ const COMPONENT_KINDS = new Set<UiShapeComponentKind>([
   'separator',
   'resize-corner',
   'icon',
+  'image-viewport',
 ]);
 
 type UiShapeCanvasContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -143,11 +151,13 @@ export const resolveUiShapeScrollbarGeometry = ({
   height,
   vertical,
   theme,
+  thumbRatio,
 }: {
   width: number;
   height: number;
   vertical: boolean;
   theme: UiShapeTheme;
+  thumbRatio?: number;
 }): UiShapeScrollbarGeometry => {
   const mainSize = vertical ? height : width;
   const crossAxisSize = vertical ? width : height;
@@ -155,9 +165,12 @@ export const resolveUiShapeScrollbarGeometry = ({
     ? Math.max(1, Math.floor(Math.min(16, crossAxisSize, mainSize / 3)))
     : Math.max(1, Math.min(crossAxisSize, mainSize / 3));
   const trackLength = Math.max(0, mainSize - crossSize * 2);
+  const resolvedRatio = Number.isFinite(thumbRatio)
+    ? clamp(Number(thumbRatio), 0, 1)
+    : 0.28;
   const unconstrainedThumbLength = theme === 'macintosh-system-7'
-    ? Math.max(10, Math.round(trackLength * 0.28))
-    : Math.max(crossSize, Math.round(trackLength * 0.28));
+    ? Math.max(10, Math.round(trackLength * resolvedRatio))
+    : Math.max(crossSize, Math.round(trackLength * resolvedRatio));
   const thumbLength = Math.min(trackLength, unconstrainedThumbLength);
   return {
     crossSize,
@@ -207,6 +220,15 @@ const normalizeState = (value: unknown): UiShapeComponentState => {
     ...(Number.isFinite(Number(state.value))
       ? { value: clamp(Number(state.value), 0, 1) }
       : {}),
+    ...(Number.isFinite(Number(state.panX))
+      ? { panX: clamp(Number(state.panX), 0, 1) }
+      : {}),
+    ...(Number.isFinite(Number(state.panY))
+      ? { panY: clamp(Number(state.panY), 0, 1) }
+      : {}),
+    ...(Number.isFinite(Number(state.zoom))
+      ? { zoom: clamp(Number(state.zoom), 0.1, 16) }
+      : {}),
   };
 };
 
@@ -214,7 +236,13 @@ const normalizeAnimation = (value: unknown): UiShapeComponentAnimation | undefin
   if (!value || typeof value !== 'object') return undefined;
   const animation = value as Partial<UiShapeComponentAnimation>;
   const kind = animation.kind;
-  if (kind !== 'scroll' && kind !== 'press' && kind !== 'activate' && kind !== 'open-close') {
+  if (
+    kind !== 'scroll'
+    && kind !== 'press'
+    && kind !== 'activate'
+    && kind !== 'open-close'
+    && kind !== 'viewport-pan-zoom'
+  ) {
     return undefined;
   }
   return {
@@ -225,6 +253,48 @@ const normalizeAnimation = (value: unknown): UiShapeComponentAnimation | undefin
     rangeStart: clamp(finiteNumber(animation.rangeStart, 0), 0, 1),
     rangeEnd: clamp(finiteNumber(animation.rangeEnd, 1), 0, 1),
     phaseOffset: clamp(finiteNumber(animation.phaseOffset, 0), 0, 1),
+    ...(Number.isFinite(Number(animation.panYStart))
+      ? { panYStart: clamp(Number(animation.panYStart), 0, 1) }
+      : {}),
+    ...(Number.isFinite(Number(animation.panYEnd))
+      ? { panYEnd: clamp(Number(animation.panYEnd), 0, 1) }
+      : {}),
+    ...(Number.isFinite(Number(animation.zoomStart))
+      ? { zoomStart: clamp(Number(animation.zoomStart), 0.1, 16) }
+      : {}),
+    ...(Number.isFinite(Number(animation.zoomEnd))
+      ? { zoomEnd: clamp(Number(animation.zoomEnd), 0.1, 16) }
+      : {}),
+  };
+};
+
+const normalizeImageViewport = (
+  value: unknown,
+): UiShapeComponent['imageViewport'] | undefined => {
+  if (!value || typeof value !== 'object') return undefined;
+  const viewport = value as Partial<NonNullable<UiShapeComponent['imageViewport']>>;
+  const scrollbars = viewport.scrollbars === 'none'
+    || viewport.scrollbars === 'horizontal'
+    || viewport.scrollbars === 'vertical'
+    || viewport.scrollbars === 'both'
+    ? viewport.scrollbars
+    : 'both';
+  const dataUrl = typeof viewport.dataUrl === 'string'
+    && viewport.dataUrl.startsWith('data:image/')
+    && viewport.dataUrl.length <= Math.ceil(UI_SHAPE_VIEWPORT_MAX_IMAGE_BYTES * 4 / 3) + 512
+    ? viewport.dataUrl
+    : undefined;
+  const inputWidth = clamp(Math.round(finiteNumber(viewport.naturalWidth, 1)), 1, 16_384);
+  const inputHeight = clamp(Math.round(finiteNumber(viewport.naturalHeight, 1)), 1, 16_384);
+  const dimensionScale = Math.min(
+    1,
+    Math.sqrt(UI_SHAPE_VIEWPORT_MAX_IMAGE_PIXELS / (inputWidth * inputHeight)),
+  );
+  return {
+    ...(dataUrl ? { dataUrl } : {}),
+    naturalWidth: Math.max(1, Math.floor(inputWidth * dimensionScale)),
+    naturalHeight: Math.max(1, Math.floor(inputHeight * dimensionScale)),
+    scrollbars,
   };
 };
 
@@ -269,6 +339,13 @@ const normalizeComponent = (
     Math.max(1, height - y),
   );
   const animation = normalizeAnimation(component.animation);
+  const imageViewport = component.kind === 'image-viewport'
+    ? normalizeImageViewport(component.imageViewport) ?? {
+        naturalWidth: componentWidth,
+        naturalHeight: componentHeight,
+        scrollbars: 'both' as const,
+      }
+    : undefined;
   return {
     id: typeof component.id === 'string' && component.id.trim()
       ? component.id.trim().slice(0, 160)
@@ -290,6 +367,7 @@ const normalizeComponent = (
     ...(component.paletteSource && typeof component.paletteSource === 'object'
       ? { paletteSource: normalizePalette(component.paletteSource, theme) }
       : {}),
+    ...(imageViewport ? { imageViewport } : {}),
     canonicalState: normalizeState(component.canonicalState),
     ...(animation ? { animation } : {}),
   };
@@ -395,10 +473,89 @@ export const cloneUiShapes = (shapes: readonly UiShape[]): UiShape[] => shapes.m
     ...(component.paletteSource
       ? { paletteSource: { ...component.paletteSource } }
       : {}),
+    ...(component.imageViewport ? { imageViewport: { ...component.imageViewport } } : {}),
     canonicalState: { ...component.canonicalState },
     animation: component.animation ? { ...component.animation } : undefined,
   })),
 }));
+
+interface UiShapeViewportImageCacheEntry {
+  image: HTMLImageElement;
+  ready: boolean;
+  failed: boolean;
+  promise: Promise<HTMLImageElement | null>;
+}
+
+const uiShapeViewportImageCache = new Map<string, UiShapeViewportImageCacheEntry>();
+const uiShapeViewportPrimedImageCache = new Map<string, CanvasImageSource>();
+let uiShapeViewportImageRevision = 0;
+
+export const primeUiShapeViewportImage = (
+  dataUrl: string,
+  source: CanvasImageSource,
+): void => {
+  uiShapeViewportPrimedImageCache.set(dataUrl, source);
+  uiShapeViewportImageRevision += 1;
+};
+
+const loadUiShapeViewportImage = (dataUrl: string): UiShapeViewportImageCacheEntry | null => {
+  if (typeof Image === 'undefined' || !dataUrl.startsWith('data:image/')) return null;
+  const cached = uiShapeViewportImageCache.get(dataUrl);
+  if (cached) return cached;
+  const image = new Image();
+  let resolvePromise: (value: HTMLImageElement | null) => void = () => undefined;
+  const promise = new Promise<HTMLImageElement | null>((resolve) => {
+    resolvePromise = resolve;
+  });
+  const entry: UiShapeViewportImageCacheEntry = {
+    image,
+    ready: false,
+    failed: false,
+    promise,
+  };
+  const markReady = () => {
+    const wasReady = entry.ready;
+    entry.ready = image.naturalWidth > 0 && image.naturalHeight > 0;
+    entry.failed = !entry.ready;
+    resolvePromise(entry.ready ? image : null);
+    if (entry.ready && !wasReady) {
+      uiShapeViewportImageRevision += 1;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(UI_SHAPE_VIEWPORT_IMAGE_READY_EVENT, {
+          detail: dataUrl,
+        }));
+      }
+    }
+  };
+  image.onload = markReady;
+  image.onerror = () => {
+    entry.failed = true;
+    resolvePromise(null);
+  };
+  uiShapeViewportImageCache.set(dataUrl, entry);
+  image.src = dataUrl;
+  if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+    markReady();
+  }
+  if (uiShapeViewportImageCache.size > 32) {
+    const oldest = uiShapeViewportImageCache.keys().next().value;
+    if (oldest) uiShapeViewportImageCache.delete(oldest);
+  }
+  return entry;
+};
+
+export const preloadUiShapeViewportImage = async (
+  dataUrl: string,
+): Promise<{ image: HTMLImageElement; naturalWidth: number; naturalHeight: number } | null> => {
+  const entry = loadUiShapeViewportImage(dataUrl);
+  const image = entry?.ready ? entry.image : await entry?.promise;
+  if (!image) return null;
+  return {
+    image,
+    naturalWidth: image.naturalWidth,
+    naturalHeight: image.naturalHeight,
+  };
+};
 
 export const getUiShapesForLayer = (
   shapes: readonly UiShape[] | undefined,
@@ -632,6 +789,7 @@ const drawScrollbar = (
     height: component.height,
     vertical,
     theme: 'windows-3.1',
+    thumbRatio: state.viewportRatio,
   });
   if (vertical) {
     drawRaisedBox(ctx, x, y, component.width, crossSize, palette, pressedPart === 'decrement');
@@ -891,6 +1049,7 @@ const drawMacScrollbar = (
     height: component.height,
     vertical,
     theme: 'macintosh-system-1',
+    thumbRatio: state.viewportRatio,
   });
   const button = (
     buttonX: number,
@@ -1275,6 +1434,7 @@ const drawWindows95Scrollbar = (
     height: component.height,
     vertical,
     theme: 'windows-95',
+    thumbRatio: state.viewportRatio,
   });
   drawWindows95Track(ctx, x, y, component.width, component.height, palette);
   if (vertical) {
@@ -1534,6 +1694,104 @@ export const drawUiShapeComponent = (
     targetContext.restore();
     return;
   }
+  if (component.kind === 'image-viewport') {
+    const viewport = component.imageViewport ?? {
+      naturalWidth: width,
+      naturalHeight: height,
+      scrollbars: 'both' as const,
+    };
+    const layout = resolveUiShapeViewportLayout({
+      width,
+      height,
+      naturalWidth: viewport.naturalWidth,
+      naturalHeight: viewport.naturalHeight,
+      scrollbars: viewport.scrollbars,
+      state,
+      theme,
+    });
+    drawUiShapeComponent(
+      targetContext,
+      { ...component, kind: 'panel', imageViewport: undefined },
+      originX,
+      originY,
+      sourcePalette,
+      {},
+      theme,
+      subpixelScrollbars,
+    );
+    const primedImage = viewport.dataUrl
+      ? uiShapeViewportPrimedImageCache.get(viewport.dataUrl)
+      : undefined;
+    const imageEntry = viewport.dataUrl && !primedImage
+      ? loadUiShapeViewportImage(viewport.dataUrl)
+      : null;
+    targetContext.save();
+    targetContext.beginPath();
+    targetContext.rect(
+      x + layout.contentRect.x,
+      y + layout.contentRect.y,
+      layout.contentRect.width,
+      layout.contentRect.height,
+    );
+    targetContext.clip();
+    targetContext.fillStyle = sourcePalette.face;
+    targetContext.fillRect(
+      x + layout.contentRect.x,
+      y + layout.contentRect.y,
+      layout.contentRect.width,
+      layout.contentRect.height,
+    );
+    const imageSource = primedImage ?? (imageEntry?.ready ? imageEntry.image : null);
+    if (imageSource) {
+      targetContext.imageSmoothingEnabled = false;
+      targetContext.drawImage(
+        imageSource,
+        x + layout.contentRect.x - layout.scrollX,
+        y + layout.contentRect.y - layout.scrollY,
+        layout.scaledWidth,
+        layout.scaledHeight,
+      );
+    }
+    targetContext.restore();
+
+    const drawViewportPart = (
+      kind: 'scrollbar-horizontal' | 'scrollbar-vertical' | 'resize-corner',
+      rect: { x: number; y: number; width: number; height: number },
+      partState: UiShapeComponentState,
+    ) => drawUiShapeComponent(
+      targetContext,
+      {
+        id: `${component.id}:${kind}`,
+        kind,
+        x: component.x + rect.x,
+        y: component.y + rect.y,
+        width: rect.width,
+        height: rect.height,
+        canonicalState: partState,
+      },
+      originX,
+      originY,
+      sourcePalette,
+      partState,
+      theme,
+      subpixelScrollbars,
+    );
+    if (layout.horizontalScrollbar) {
+      drawViewportPart('scrollbar-horizontal', layout.horizontalScrollbar, {
+        value: layout.panX,
+        viewportRatio: layout.horizontalRatio,
+      });
+    }
+    if (layout.verticalScrollbar) {
+      drawViewportPart('scrollbar-vertical', layout.verticalScrollbar, {
+        value: layout.panY,
+        viewportRatio: layout.verticalRatio,
+      });
+    }
+    if (layout.cornerRect) drawViewportPart('resize-corner', layout.cornerRect, {});
+    targetContext.restore();
+    return;
+  }
   const ctx = createUiShapePaintContext(targetContext, sourcePalette);
   const palette = sourcePalette;
   const isScrollbar = component.kind === 'scrollbar-horizontal'
@@ -1748,6 +2006,7 @@ export const drawUiShapesForLayer = (
 
 interface UiShapeLayerRasterCacheEntry {
   shapes: readonly UiShape[];
+  imageRevision: number;
   width: number;
   height: number;
   shapeCanvas: UiShapeCanvasSurface;
@@ -1794,6 +2053,7 @@ const resolveUiShapeLayerRasterCache = ({
     if (!shapeContext || !combinedContext) return null;
     cache = {
       shapes,
+      imageRevision: uiShapeViewportImageRevision,
       width,
       height,
       shapeCanvas,
@@ -1810,6 +2070,10 @@ const resolveUiShapeLayerRasterCache = ({
   }
   if (cache.shapes !== shapes) {
     cache.shapes = shapes;
+    repaint = true;
+  }
+  if (cache.imageRevision !== uiShapeViewportImageRevision) {
+    cache.imageRevision = uiShapeViewportImageRevision;
     repaint = true;
   }
   if (repaint) {

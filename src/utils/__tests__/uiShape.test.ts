@@ -1,11 +1,13 @@
 import type { UiShape, UiShapePalette } from '@/types';
 import {
   cloneUiShapes,
+  composeUiShapesIntoLayerSource,
   drawUiShape,
   drawUiShapeComponent,
   MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
   MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
   normalizeUiShapes,
+  primeUiShapeViewportImage,
   resolveUiShapeScrollbarGeometry,
   resolveUiShapeScrollbarOffset,
   WINDOWS_31_UI_SHAPE_PALETTE,
@@ -302,6 +304,18 @@ describe('UI Shape document helpers', () => {
       trackLength: 2,
       travel: 0,
     });
+    expect(resolveUiShapeScrollbarGeometry({
+      width: 16,
+      height: 96,
+      vertical: true,
+      theme: 'windows-95',
+      thumbRatio: 0.5,
+    })).toEqual({
+      crossSize: 16,
+      thumbLength: 32,
+      trackLength: 64,
+      travel: 32,
+    });
   });
 
   it('renders scrollbar arrow presses from transient draw interaction state', () => {
@@ -391,6 +405,180 @@ describe('UI Shape document helpers', () => {
 
     expect(system7Shape?.theme).toBe('macintosh-system-7');
     expect(system7Shape?.palette).toEqual(MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE);
+  });
+
+  it('normalizes and clones image viewport content and pan-zoom animation', () => {
+    const dataUrl = 'data:image/png;base64,AAAA';
+    const [shape] = normalizeUiShapes([createShape({
+      componentKinds: ['image-viewport'],
+      components: [{
+        id: 'viewport-1',
+        kind: 'image-viewport',
+        x: 0,
+        y: 0,
+        width: 48,
+        height: 72,
+        imageViewport: {
+          dataUrl,
+          naturalWidth: 640,
+          naturalHeight: 480,
+          scrollbars: 'both',
+        },
+        canonicalState: { panX: 2, panY: -1, zoom: 99, viewportRatio: 0.1 },
+        animation: {
+          enabled: true,
+          kind: 'viewport-pan-zoom',
+          speed: 0.5,
+          direction: 1,
+          rangeStart: 0,
+          rangeEnd: 1,
+          panYStart: 0.2,
+          panYEnd: 0.8,
+          zoomStart: 0.01,
+          zoomEnd: 99,
+          phaseOffset: 0,
+        },
+      }],
+    })], 100, 100, [{ id: 'layer-1', layerType: 'normal', order: 0 }]);
+
+    const component = shape?.components[0];
+    expect(component?.imageViewport).toEqual({
+      dataUrl,
+      naturalWidth: 640,
+      naturalHeight: 480,
+      scrollbars: 'both',
+    });
+    expect(component?.canonicalState).toEqual({ panX: 1, panY: 0, zoom: 16 });
+    expect(component?.animation).toEqual(expect.objectContaining({
+      kind: 'viewport-pan-zoom',
+      panYStart: 0.2,
+      panYEnd: 0.8,
+      zoomStart: 0.1,
+      zoomEnd: 16,
+    }));
+    const [clone] = cloneUiShapes([shape!]);
+    clone!.components[0]!.imageViewport!.naturalWidth = 1;
+    expect(shape?.components[0]?.imageViewport?.naturalWidth).toBe(640);
+  });
+
+  it('bounds persisted viewport dimensions to the import pixel budget', () => {
+    const [shape] = normalizeUiShapes([createShape({
+      componentKinds: ['image-viewport'],
+      components: [{
+        id: 'viewport-large',
+        kind: 'image-viewport',
+        x: 0,
+        y: 0,
+        width: 48,
+        height: 72,
+        imageViewport: {
+          dataUrl: 'data:image/png;base64,AAAA',
+          naturalWidth: 16_384,
+          naturalHeight: 16_384,
+          scrollbars: 'both',
+        },
+        canonicalState: {},
+      }],
+    })], 100, 100, [{ id: 'layer-1', layerType: 'normal', order: 0 }]);
+    const viewport = shape?.components[0]?.imageViewport;
+
+    expect(viewport).toBeDefined();
+    expect(viewport!.naturalWidth * viewport!.naturalHeight).toBeLessThanOrEqual(16_777_216);
+    expect(viewport!.naturalWidth / viewport!.naturalHeight).toBeCloseTo(1);
+  });
+
+  it('clips and draws a loaded image inside the viewport chrome', () => {
+    const source = document.createElement('canvas');
+    source.width = 8;
+    source.height = 8;
+    const sourceContext = source.getContext('2d')!;
+    sourceContext.fillStyle = '#ff0000';
+    sourceContext.fillRect(0, 0, 8, 8);
+    const dataUrl = source.toDataURL('image/png');
+    primeUiShapeViewportImage(dataUrl, source);
+
+    const target = document.createElement('canvas');
+    target.width = 48;
+    target.height = 48;
+    const context = target.getContext('2d')!;
+    drawUiShapeComponent(context, {
+      id: 'viewport-draw',
+      kind: 'image-viewport',
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      imageViewport: {
+        dataUrl,
+        naturalWidth: 8,
+        naturalHeight: 8,
+        scrollbars: 'none',
+      },
+      canonicalState: { panX: 0, panY: 0, zoom: 4 },
+    }, 0, 0, WINDOWS_31_UI_SHAPE_PALETTE);
+
+    expect([...context.getImageData(10, 10, 1, 1).data]).toEqual([255, 0, 0, 255]);
+    expect([...context.getImageData(47, 47, 1, 1).data]).toEqual([0, 0, 0, 0]);
+  });
+
+  it('repaints a cached layer when its viewport image becomes ready', () => {
+    const dataUrl = 'data:image/png;base64,viewport-cache-revision';
+    const red = document.createElement('canvas');
+    red.width = 8;
+    red.height = 8;
+    const redContext = red.getContext('2d')!;
+    redContext.fillStyle = '#ff0000';
+    redContext.fillRect(0, 0, 8, 8);
+    const blue = document.createElement('canvas');
+    blue.width = 8;
+    blue.height = 8;
+    const blueContext = blue.getContext('2d')!;
+    blueContext.fillStyle = '#0000ff';
+    blueContext.fillRect(0, 0, 8, 8);
+    const shapes = [createShape({
+      x: 0,
+      y: 0,
+      width: 40,
+      height: 40,
+      componentKinds: ['image-viewport'],
+      components: [{
+        id: 'viewport-cache',
+        kind: 'image-viewport',
+        x: 0,
+        y: 0,
+        width: 40,
+        height: 40,
+        imageViewport: {
+          dataUrl,
+          naturalWidth: 8,
+          naturalHeight: 8,
+          scrollbars: 'none',
+        },
+        canonicalState: { panX: 0, panY: 0.5, zoom: 4 },
+      }],
+    })];
+
+    primeUiShapeViewportImage(dataUrl, red);
+    const first = composeUiShapesIntoLayerSource({
+      source: null,
+      shapes,
+      layerId: 'layer-1',
+      width: 40,
+      height: 40,
+    }) as HTMLCanvasElement;
+    expect([...first.getContext('2d')!.getImageData(10, 10, 1, 1).data])
+      .toEqual([255, 0, 0, 255]);
+
+    primeUiShapeViewportImage(dataUrl, blue);
+    const second = composeUiShapesIntoLayerSource({
+      source: null,
+      shapes,
+      layerId: 'layer-1',
+      width: 40,
+      height: 40,
+    }) as HTMLCanvasElement;
+    expect([...second.getContext('2d')!.getImageData(10, 10, 1, 1).data])
+      .toEqual([0, 0, 255, 255]);
   });
 
   it('preserves a bounded grouping identifier without inventing one', () => {
