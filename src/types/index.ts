@@ -410,6 +410,11 @@ export type UiShapeComponentKind =
   | 'image-viewport';
 
 export type UiShapeViewportScrollbars = 'none' | 'horizontal' | 'vertical' | 'both';
+export type UiShapeViewportCompositionPreset =
+  | 'cascade'
+  | 'survey'
+  | 'echo'
+  | 'counterpoint';
 
 export interface UiShapeImageViewport {
   assetId?: string;
@@ -418,6 +423,9 @@ export interface UiShapeImageViewport {
   naturalWidth: number;
   naturalHeight: number;
   scrollbars: UiShapeViewportScrollbars;
+  compositionPreset?: UiShapeViewportCompositionPreset;
+  autoCropA?: boolean;
+  autoCropB?: boolean;
 }
 
 export interface UiShapeRegionPoint {
@@ -473,6 +481,8 @@ export interface UiShapeComponentAnimation {
 
 export interface UiShapeComponent {
   id: string;
+  /** Parent Image Viewport component. Coordinates remain local to the owning UI Shape. */
+  parentId?: string;
   kind: UiShapeComponentKind;
   x: number;
   y: number;
@@ -630,6 +640,7 @@ export interface UiImageAsset {
   dataUrl: string;
   naturalWidth: number;
   naturalHeight: number;
+  focusPoints?: Array<{ x: number; y: number; weight: number }>;
   createdAt: number;
   updatedAt: number;
 }

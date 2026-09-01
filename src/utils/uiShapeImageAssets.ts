@@ -35,6 +35,28 @@ const normalizeDimensions = (
   };
 };
 
+const normalizeFocusPoints = (
+  value: unknown,
+): UiImageAsset['focusPoints'] => {
+  if (!Array.isArray(value)) return undefined;
+  const points = value.slice(0, 12).flatMap<NonNullable<UiImageAsset['focusPoints']>[number]>(
+    (entry) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const point = entry as { x?: unknown; y?: unknown; weight?: unknown };
+      const x = Number(point.x);
+      const y = Number(point.y);
+      const weight = Number(point.weight);
+      if (![x, y, weight].every(Number.isFinite)) return [];
+      return [{
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+        weight: Math.max(0, Math.min(1, weight)),
+      }];
+    },
+  );
+  return points.length > 0 ? points : undefined;
+};
+
 const hashImageDataUrl = (dataUrl: string): string => {
   let hash = 0x811c9dc5;
   for (let index = 0; index < dataUrl.length; index += 1) {
@@ -68,6 +90,7 @@ export const normalizeUiImageAssets = (value: unknown): UiImageAsset[] => {
     const requestedId = typeof candidate.id === 'string' ? candidate.id.trim().slice(0, 160) : '';
     let id = requestedId || createAssetId(candidate.dataUrl, assets);
     if (ids.has(id)) id = createAssetId(candidate.dataUrl, assets);
+    const focusPoints = normalizeFocusPoints(candidate.focusPoints);
     const createdAt = Number.isFinite(Number(candidate.createdAt))
       ? Number(candidate.createdAt)
       : Date.now() + index;
@@ -78,6 +101,7 @@ export const normalizeUiImageAssets = (value: unknown): UiImageAsset[] => {
         : `Image ${index + 1}`,
       dataUrl: candidate.dataUrl,
       ...dimensions,
+      ...(focusPoints ? { focusPoints } : {}),
       createdAt,
       updatedAt: Number.isFinite(Number(candidate.updatedAt))
         ? Number(candidate.updatedAt)
@@ -95,17 +119,27 @@ export const upsertUiImageAsset = ({
   name,
   naturalWidth,
   naturalHeight,
+  focusPoints,
 }: {
   assets: readonly UiImageAsset[] | undefined;
   dataUrl: string;
   name: string;
   naturalWidth: number;
   naturalHeight: number;
+  focusPoints?: UiImageAsset['focusPoints'];
 }): { asset: UiImageAsset; assets: UiImageAsset[] } => {
   if (!isValidImageDataUrl(dataUrl)) throw new Error('Image data is invalid or too large.');
   const assets = normalizeUiImageAssets(inputAssets);
   const existing = assets.find((asset) => asset.dataUrl === dataUrl);
-  if (existing) return { asset: existing, assets };
+  const normalizedFocusPoints = normalizeFocusPoints(focusPoints);
+  if (existing) {
+    if (existing.focusPoints || !normalizedFocusPoints) return { asset: existing, assets };
+    const asset = { ...existing, focusPoints: normalizedFocusPoints, updatedAt: Date.now() };
+    return {
+      asset,
+      assets: assets.map((candidate) => candidate.id === asset.id ? asset : candidate),
+    };
+  }
   if (assets.length >= UI_IMAGE_ASSET_LIMIT) {
     throw new Error(`This project already contains ${UI_IMAGE_ASSET_LIMIT} UI images.`);
   }
@@ -115,6 +149,7 @@ export const upsertUiImageAsset = ({
     name: name.trim().slice(0, 160) || `Image ${assets.length + 1}`,
     dataUrl,
     ...normalizeDimensions(naturalWidth, naturalHeight),
+    ...(normalizedFocusPoints ? { focusPoints: normalizedFocusPoints } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -173,6 +208,11 @@ export const normalizeUiShapeImageAssets = ({
           naturalWidth: asset?.naturalWidth ?? viewport.naturalWidth,
           naturalHeight: asset?.naturalHeight ?? viewport.naturalHeight,
           scrollbars: viewport.scrollbars,
+          ...(viewport.compositionPreset
+            ? { compositionPreset: viewport.compositionPreset }
+            : {}),
+          ...(typeof viewport.autoCropA === 'boolean' ? { autoCropA: viewport.autoCropA } : {}),
+          ...(typeof viewport.autoCropB === 'boolean' ? { autoCropB: viewport.autoCropB } : {}),
         },
       };
     }),

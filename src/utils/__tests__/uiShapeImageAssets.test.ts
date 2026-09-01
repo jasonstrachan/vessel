@@ -98,4 +98,32 @@ describe('UI Shape image assets', () => {
     expect(second.asset.id).toBe(first.asset.id);
     expect(second.asset.name).toBe('First.png');
   });
+
+  it('normalizes focus metadata and enriches an existing asset once', () => {
+    const first = upsertUiImageAsset({
+      assets: [],
+      dataUrl,
+      name: 'Portrait.png',
+      naturalWidth: 320,
+      naturalHeight: 240,
+    });
+    const enriched = upsertUiImageAsset({
+      assets: first.assets,
+      dataUrl,
+      name: 'Portrait.png',
+      naturalWidth: 320,
+      naturalHeight: 240,
+      focusPoints: [
+        { x: -0.2, y: 1.4, weight: 2 },
+        { x: Number.NaN, y: 0.5, weight: 1 },
+      ],
+    });
+
+    expect(enriched.assets).toHaveLength(1);
+    expect(enriched.asset.focusPoints).toEqual([{ x: 0, y: 1, weight: 1 }]);
+    expect(normalizeUiShapeImageAssets({
+      assets: enriched.assets,
+      shapes: [],
+    }).assets[0]?.focusPoints).toEqual([{ x: 0, y: 1, weight: 1 }]);
+  });
 });

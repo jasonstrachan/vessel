@@ -12,6 +12,12 @@ import type {
 } from '@/types';
 import { resolveUiShapeViewportImageDataUrl } from '@/utils/uiShapeImageAssets';
 import {
+  normalizeUiShapeViewportCompositionPreset,
+  normalizeUiShapeViewportHierarchy,
+  resolveUiShapeViewportAncestorClipRects,
+  sortUiShapeComponentsForRendering,
+} from '@/utils/uiShapeViewportComposition';
+import {
   createUiShapeHanddrawnContext,
   createUiShapePaintContext,
   resolveUiShapeCleanContext,
@@ -296,12 +302,18 @@ const normalizeImageViewport = (
     1,
     Math.sqrt(UI_SHAPE_VIEWPORT_MAX_IMAGE_PIXELS / (inputWidth * inputHeight)),
   );
+  const compositionPreset = normalizeUiShapeViewportCompositionPreset(
+    viewport.compositionPreset,
+  );
   return {
     ...(assetId ? { assetId } : {}),
     ...(dataUrl ? { dataUrl } : {}),
     naturalWidth: Math.max(1, Math.floor(inputWidth * dimensionScale)),
     naturalHeight: Math.max(1, Math.floor(inputHeight * dimensionScale)),
     scrollbars,
+    ...(compositionPreset ? { compositionPreset } : {}),
+    ...(typeof viewport.autoCropA === 'boolean' ? { autoCropA: viewport.autoCropA } : {}),
+    ...(typeof viewport.autoCropB === 'boolean' ? { autoCropB: viewport.autoCropB } : {}),
   };
 };
 
@@ -357,6 +369,9 @@ const normalizeComponent = (
     id: typeof component.id === 'string' && component.id.trim()
       ? component.id.trim().slice(0, 160)
       : `ui-component-${index}`,
+    ...(typeof component.parentId === 'string' && component.parentId.trim()
+      ? { parentId: component.parentId.trim().slice(0, 160) }
+      : {}),
     kind: component.kind as UiShapeComponentKind,
     x,
     y,
@@ -415,14 +430,14 @@ export const normalizeUiShapes = (
           COMPONENT_KINDS.has(kind as UiShapeComponentKind)
         )))].slice(0, COMPONENT_KINDS.size)
       : [];
-    const components = Array.isArray(shape.components)
+    const components = normalizeUiShapeViewportHierarchy(Array.isArray(shape.components)
       ? shape.components.slice(0, UI_SHAPE_MAX_COMPONENTS).flatMap<UiShapeComponent>(
           (component, componentIndex) => {
             const normalized = normalizeComponent(component, componentIndex, width, height, theme);
             return normalized ? [normalized] : [];
           },
         )
-      : [];
+      : []);
     const regionPath = normalizeRegionPath(shape.regionPath, width, height);
     shapeIds.add(id);
     const now = Date.now();
@@ -1978,8 +1993,14 @@ export const drawUiShape = (
   // Clipping that mask to the raw gesture would cut diagonal edges through its cells.
   ctx.rect(shape.x, shape.y, shape.width, shape.height);
   ctx.clip();
-  shape.components.forEach((component) => {
+  sortUiShapeComponentsForRendering(shape.components).forEach((component) => {
     const stateOverride = stateOverrides?.get(component.id);
+    ctx.save();
+    resolveUiShapeViewportAncestorClipRects(shape, component.id).forEach((rect) => {
+      ctx.beginPath();
+      ctx.rect(shape.x + rect.x, shape.y + rect.y, rect.width, rect.height);
+      ctx.clip();
+    });
     drawUiShapeComponent(
       ctx,
       component,
@@ -1992,6 +2013,7 @@ export const drawUiShape = (
       options.interactions?.get(component.id),
       options.imageAssets,
     );
+    ctx.restore();
   });
   ctx.restore();
 };
