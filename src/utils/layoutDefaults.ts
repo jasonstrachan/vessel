@@ -18,6 +18,7 @@ import { normalizeCcCustomTilePatternPack } from '@/utils/colorCycle/ccCustomTil
 import { DEFAULT_GRADIENT_ID, GRADIENT_PRESETS } from '@/utils/gradientPresets';
 import { normalizeTxtShapes } from '@/utils/txtShape';
 import { normalizeUiShapes } from '@/utils/uiShape';
+import { normalizeUiShapeImageAssets } from '@/utils/uiShapeImageAssets';
 import {
   normalizeReferenceAssets,
   normalizeReferenceSamplingSource,
@@ -363,6 +364,15 @@ export const normalizeProject = (project: Project): Project => {
     layers: layersWithValidGroups,
     legacyReferenceLayerId: project.referenceLayerId,
   });
+  const uiShapeProjectAssets = normalizeUiShapeImageAssets({
+    assets: project.uiImageAssets,
+    shapes: normalizeUiShapes(
+      project.uiShapes,
+      project.width,
+      project.height,
+      layersWithValidGroups,
+    ),
+  });
 
   return {
     ...project,
@@ -381,12 +391,8 @@ export const normalizeProject = (project: Project): Project => {
       project.height,
       layersWithValidGroups,
     ),
-    uiShapes: normalizeUiShapes(
-      project.uiShapes,
-      project.width,
-      project.height,
-      layersWithValidGroups,
-    ),
+    uiShapes: uiShapeProjectAssets.shapes,
+    uiImageAssets: uiShapeProjectAssets.assets,
     referenceAssets,
     referenceSamplingSource,
   };

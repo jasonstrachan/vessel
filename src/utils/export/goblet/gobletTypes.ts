@@ -514,6 +514,7 @@ export interface WebGLExportMetadata {
   textShapes?: TxtShape[];
   txtShapePlayback?: TxtShapePlaybackSettings;
   uiShapes?: UiShape[];
+  uiImageAssets?: Project['uiImageAssets'];
   automation?: GobletAutomation;
   dynamicFeatures?: GobletDynamicFeatureManifest;
   layers: WebGLLayerMetadata[];

@@ -7216,7 +7216,7 @@ describe('projectIO serialize/deserialize layering', () => {
         theme: 'windows-3.1',
         drawMode: 'place',
         regionKind: 'rectangle',
-        componentKinds: ['scrollbar-vertical'],
+        componentKinds: ['scrollbar-vertical', 'image-viewport'],
         colorSource: 'default',
         palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
         components: [{
@@ -7236,9 +7236,32 @@ describe('projectIO serialize/deserialize layering', () => {
             rangeEnd: 0.9,
             phaseOffset: 0,
           },
+        }, {
+          id: 'ui-image-1',
+          kind: 'image-viewport',
+          x: 0,
+          y: 0,
+          width: 2,
+          height: 2,
+          imageViewport: {
+            assetId: 'shared-ui-image',
+            naturalWidth: 2,
+            naturalHeight: 2,
+            scrollbars: 'both',
+          },
+          canonicalState: { panX: 0.2, panY: 0.7, zoom: 1.5 },
         }],
         createdAt: 1,
         updatedAt: 2,
+      }],
+      uiImageAssets: [{
+        id: 'shared-ui-image',
+        name: 'Shared image',
+        dataUrl: 'data:image/png;base64,AAAA',
+        naturalWidth: 2,
+        naturalHeight: 2,
+        createdAt: 1,
+        updatedAt: 1,
       }],
       createdAt: new Date('2025-01-01T00:00:00.000Z'),
       updatedAt: new Date('2025-01-01T00:00:00.000Z'),
@@ -7257,6 +7280,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restored.canvasShape?.kind).toBe('circle');
     expect(restored.txtShapes).toEqual(project.txtShapes);
     expect(restored.uiShapes).toEqual(project.uiShapes);
+    expect(restored.uiImageAssets).toEqual(project.uiImageAssets);
     expect(restored.referenceLayerId).toBe('layer-2');
   });
 

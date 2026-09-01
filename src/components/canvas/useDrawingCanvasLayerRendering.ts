@@ -22,7 +22,7 @@ import {
 interface UseDrawingCanvasLayerRenderingOptions {
   project: Pick<
     Project,
-    'width' | 'height' | 'backgroundColor' | 'txtShapes' | 'uiShapes'
+    'width' | 'height' | 'backgroundColor' | 'txtShapes' | 'uiImageAssets' | 'uiShapes'
   > | null;
   layers: Layer[];
   activeLayerId: string | null;
@@ -191,7 +191,7 @@ export const useDrawingCanvasLayerRendering = ({
           project.width,
           project.height,
         );
-        drawUiShapesForLayer(ctx, project.uiShapes, layer.id);
+        drawUiShapesForLayer(ctx, project.uiShapes, layer.id, undefined, project.uiImageAssets);
       }
 
       ctx.restore();

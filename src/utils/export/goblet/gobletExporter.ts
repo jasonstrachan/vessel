@@ -112,6 +112,7 @@ import {
   getUiShapesForLayer,
   normalizeUiShapes,
 } from '@/utils/uiShape';
+import { normalizeUiShapeImageAssets } from '@/utils/uiShapeImageAssets';
 import {
   ensureTxtShapeFontsReadyForRaster,
   inlineTxtShapeFontsInGobletTemplate,
@@ -640,12 +641,16 @@ export const buildProjectGobletArtifact = async (
     normalizedTextShapes,
     { txtShapePlayback },
   ) ?? normalizedTextShapes;
-  const normalizedUiShapes = normalizeUiShapes(
-    options.project.uiShapes,
-    options.project.width,
-    options.project.height,
-    options.layers,
-  );
+  const normalizedUiShapeProjectAssets = normalizeUiShapeImageAssets({
+    assets: options.project.uiImageAssets,
+    shapes: normalizeUiShapes(
+      options.project.uiShapes,
+      options.project.width,
+      options.project.height,
+      options.layers,
+    ),
+  });
+  const normalizedUiShapes = normalizedUiShapeProjectAssets.shapes;
   await ensureTxtShapeFontsReadyForRaster(normalizedTextShapes);
   throwIfExportAborted(options.signal);
   const metricsMap = new Map<string, LayerExportMetrics>();
@@ -794,6 +799,7 @@ export const buildProjectGobletArtifact = async (
             ? { ...layer, framebuffer: txtRasterCache, imageData: null }
             : layer,
           shapes: normalizedUiShapes,
+          imageAssets: normalizedUiShapeProjectAssets.assets,
           width: options.project.width,
           height: options.project.height,
         })
@@ -1319,6 +1325,12 @@ export const buildProjectGobletArtifact = async (
   const displayFilters = cloneDisplayFilters(
     options.displayFilters ?? options.project.viewState?.displayFilters ?? []
   );
+  const exportedUiShapes = normalizedUiShapes.filter((shape) => (
+    metadataLayers.some((layer) => layer.id === shape.layerId)
+  ));
+  const exportedUiImageAssetIds = new Set(exportedUiShapes.flatMap((shape) => (
+    shape.components.flatMap((component) => component.imageViewport?.assetId ?? [])
+  )));
 
   let metadata: WebGLExportMetadata = {
     format: gobletFormat,
@@ -1363,8 +1375,9 @@ export const buildProjectGobletArtifact = async (
       metadataLayers.some((layer) => layer.id === shape.layerId)
     )),
     txtShapePlayback,
-    uiShapes: normalizedUiShapes.filter((shape) => (
-      metadataLayers.some((layer) => layer.id === shape.layerId)
+    uiShapes: exportedUiShapes,
+    uiImageAssets: normalizedUiShapeProjectAssets.assets.filter((asset) => (
+      exportedUiImageAssetIds.has(asset.id)
     )),
     layers: metadataLayers,
     interlaceGroups: (options.project.layerGroups ?? [])

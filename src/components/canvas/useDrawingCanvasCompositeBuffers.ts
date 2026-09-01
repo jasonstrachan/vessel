@@ -26,7 +26,7 @@ import {
 import { useTxtShapeRasterInvalidation } from './useTxtShapeRasterInvalidation';
 
 interface UseDrawingCanvasCompositeBuffersOptions {
-  project: Pick<Project, 'width' | 'height' | 'txtShapes' | 'uiShapes'> | null;
+  project: Pick<Project, 'width' | 'height' | 'txtShapes' | 'uiImageAssets' | 'uiShapes'> | null;
   layers: Layer[];
   activeLayerId: string | null;
   brushShape: BrushShape | undefined;
@@ -325,7 +325,13 @@ export const useDrawingCanvasCompositeBuffers = ({
         }
         const layerUiShapes = getUiShapesForLayer(project.uiShapes, layer.id);
         if (layerUiShapes.length > 0) {
-          drawUiShapesForLayer(targetCtx, project.uiShapes, layer.id);
+          drawUiShapesForLayer(
+            targetCtx,
+            project.uiShapes,
+            layer.id,
+            undefined,
+            project.uiImageAssets,
+          );
           drewLayer = true;
         }
       }

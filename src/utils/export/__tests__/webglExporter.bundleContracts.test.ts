@@ -457,7 +457,7 @@ describe('webglExporter bundle contracts', () => {
       theme: 'windows-3.1',
       drawMode: 'place',
       regionKind: 'rectangle',
-      componentKinds: ['scrollbar-vertical'],
+      componentKinds: ['scrollbar-vertical', 'image-viewport'],
       colorSource: 'default',
       palette: { ...WINDOWS_31_UI_SHAPE_PALETTE },
       components: [{
@@ -477,9 +477,40 @@ describe('webglExporter bundle contracts', () => {
           rangeEnd: 0.88,
           phaseOffset: 0.4,
         },
+      }, {
+        id: 'image-view',
+        kind: 'image-viewport',
+        x: 0,
+        y: 0,
+        width: 16,
+        height: 24,
+        canonicalState: { panX: 0.2, panY: 0.7, zoom: 2 },
+        imageViewport: {
+          assetId: 'used-image',
+          naturalWidth: 32,
+          naturalHeight: 48,
+          scrollbars: 'both',
+        },
       }],
       createdAt: 1,
       updatedAt: 2,
+    }];
+    project.uiImageAssets = [{
+      id: 'used-image',
+      name: 'Used image',
+      dataUrl: 'data:image/png;base64,AAAA',
+      naturalWidth: 32,
+      naturalHeight: 48,
+      createdAt: 1,
+      updatedAt: 1,
+    }, {
+      id: 'unused-image',
+      name: 'Unused image',
+      dataUrl: 'data:image/png;base64,BBBB',
+      naturalWidth: 32,
+      naturalHeight: 48,
+      createdAt: 1,
+      updatedAt: 1,
     }];
 
     const metadata = await exportProjectAsWebGL({
@@ -490,6 +521,7 @@ describe('webglExporter bundle contracts', () => {
     });
 
     expect(metadata.uiShapes).toEqual(project.uiShapes);
+    expect(metadata.uiImageAssets).toEqual([project.uiImageAssets[0]]);
   });
 
   it('bakes outward arrows and edge-to-edge tracks into the Goblet texture', async () => {

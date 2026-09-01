@@ -29,6 +29,7 @@ import {
   normalizeTxtShapes,
 } from '@/utils/txtShape';
 import { drawUiShapesForLayer, normalizeUiShapes } from '@/utils/uiShape';
+import { normalizeUiShapeImageAssets } from '@/utils/uiShapeImageAssets';
 import { captureCanvasImageData } from '@/utils/canvas/canvasImage';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { applyColorCycleBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushSettingsController';
@@ -482,6 +483,7 @@ export interface VesselProject {
     txtShapes?: Project['txtShapes'];
     txtShapePlayback?: Project['txtShapePlayback'];
     uiShapes?: Project['uiShapes'];
+    uiImageAssets?: Project['uiImageAssets'];
     viewState?: Project['viewState'];
   };
   binaries?: {
@@ -4190,7 +4192,13 @@ export function generateProjectThumbnail(
     }
 
     drawTxtShapesForLayer(fullCtx, project.txtShapes, layer.id);
-    drawUiShapesForLayer(fullCtx, project.uiShapes, layer.id);
+    drawUiShapesForLayer(
+      fullCtx,
+      project.uiShapes,
+      layer.id,
+      undefined,
+      project.uiImageAssets,
+    );
   }
 
   fullCtx.globalAlpha = 1;
@@ -4559,6 +4567,15 @@ const buildSerializedProjectArtifacts = async (
     previewBuiltFromVersion = resolveProjectThumbnailBuiltFromVersion(layers);
   }
 
+  const uiShapeProjectAssets = normalizeUiShapeImageAssets({
+    assets: project.uiImageAssets,
+    shapes: normalizeUiShapes(
+      project.uiShapes,
+      project.width,
+      project.height,
+      layersToSerialize,
+    ),
+  });
   const vesselProject: VesselProject = {
     version: PROJECT_VERSION,
     manifestVersion: PROJECT_ARCHIVE_MANIFEST_VERSION,
@@ -4595,12 +4612,8 @@ const buildSerializedProjectArtifacts = async (
         layersToSerialize,
       ),
       txtShapePlayback: getProjectTxtShapePlaybackSettings(project),
-      uiShapes: normalizeUiShapes(
-        project.uiShapes,
-        project.width,
-        project.height,
-        layersToSerialize,
-      ),
+      uiShapes: uiShapeProjectAssets.shapes,
+      uiImageAssets: uiShapeProjectAssets.assets,
       viewState: project.viewState
         ? {
             zoom: project.viewState.zoom,
@@ -5862,6 +5875,16 @@ export async function deserializeProjectWithReport(
       ? serializedDefaultId
       : null;
 
+  const uiShapeProjectAssets = normalizeUiShapeImageAssets({
+    assets: serializedProject.uiImageAssets,
+    shapes: normalizeUiShapes(
+      serializedProject.uiShapes,
+      serializedProject.width,
+      serializedProject.height,
+      layers,
+    ),
+  });
+
 
   return {
     migration: migration.summary,
@@ -5901,12 +5924,8 @@ export async function deserializeProjectWithReport(
       > | undefined,
       txtShapePlayback: serializedProject.txtShapePlayback,
     }),
-    uiShapes: normalizeUiShapes(
-      serializedProject.uiShapes,
-      serializedProject.width,
-      serializedProject.height,
-      layers,
-    ),
+    uiShapes: uiShapeProjectAssets.shapes,
+    uiImageAssets: uiShapeProjectAssets.assets,
     viewState: serializedProject.viewState
       ? {
           zoom: toFiniteNumber(serializedProject.viewState.zoom, 1),
@@ -6811,7 +6830,7 @@ export async function exportProjectAsPNG(
     }
 
     drawTxtShapesForLayer(ctx, project.txtShapes, layer.id);
-    drawUiShapesForLayer(ctx, project.uiShapes, layer.id);
+    drawUiShapesForLayer(ctx, project.uiShapes, layer.id, undefined, project.uiImageAssets);
   }
 
   ctx.globalAlpha = 1;

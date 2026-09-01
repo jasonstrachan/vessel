@@ -412,6 +412,8 @@ export type UiShapeComponentKind =
 export type UiShapeViewportScrollbars = 'none' | 'horizontal' | 'vertical' | 'both';
 
 export interface UiShapeImageViewport {
+  assetId?: string;
+  /** Legacy inline payload. Project normalization migrates this into uiImageAssets. */
   dataUrl?: string;
   naturalWidth: number;
   naturalHeight: number;
@@ -622,6 +624,16 @@ export interface ReferenceAsset {
   updatedAt: number;
 }
 
+export interface UiImageAsset {
+  id: string;
+  name: string;
+  dataUrl: string;
+  naturalWidth: number;
+  naturalHeight: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type ReferenceSamplingSource =
   | { kind: 'canvas' }
   | { kind: 'layer'; layerId: string }
@@ -645,6 +657,7 @@ export interface Project {
   txtShapes?: TxtShape[];
   txtShapePlayback?: TxtShapePlaybackSettings;
   uiShapes?: UiShape[];
+  uiImageAssets?: UiImageAsset[];
   // Canvas view state
   viewState?: {
     zoom: number;

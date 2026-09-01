@@ -10,7 +10,7 @@ import {
   getUiShapesForLayer,
 } from '@/utils/uiShape';
 
-type LayerObjectProject = Pick<Project, 'txtShapes' | 'uiShapes'>;
+type LayerObjectProject = Pick<Project, 'txtShapes' | 'uiImageAssets' | 'uiShapes'>;
 
 export const hasLayerOwnedProjectObjects = (
   project: LayerObjectProject,
@@ -25,7 +25,7 @@ export const drawLayerOwnedProjectObjectsForLayer = (
   dirtyRects?: readonly { x: number; y: number; width: number; height: number }[],
 ): void => {
   drawTxtShapesForLayer(ctx, project.txtShapes, layerId, dirtyRects);
-  drawUiShapesForLayer(ctx, project.uiShapes, layerId, dirtyRects);
+  drawUiShapesForLayer(ctx, project.uiShapes, layerId, dirtyRects, project.uiImageAssets);
 };
 
 export const composeLayerOwnedProjectObjectsIntoLayerSource = ({
@@ -51,6 +51,7 @@ export const composeLayerOwnedProjectObjectsIntoLayerSource = ({
   return composeUiShapesIntoLayerSource({
     source: withText,
     shapes: project.uiShapes,
+    imageAssets: project.uiImageAssets,
     layerId,
     width,
     height,

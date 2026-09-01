@@ -509,13 +509,21 @@ describe('UI Shape document helpers', () => {
       width: 40,
       height: 40,
       imageViewport: {
-        dataUrl,
+        assetId: 'viewport-asset',
         naturalWidth: 8,
         naturalHeight: 8,
         scrollbars: 'none',
       },
       canonicalState: { panX: 0, panY: 0, zoom: 4 },
-    }, 0, 0, WINDOWS_31_UI_SHAPE_PALETTE);
+    }, 0, 0, WINDOWS_31_UI_SHAPE_PALETTE, undefined, undefined, false, undefined, [{
+      id: 'viewport-asset',
+      name: 'Viewport asset',
+      dataUrl,
+      naturalWidth: 8,
+      naturalHeight: 8,
+      createdAt: 1,
+      updatedAt: 1,
+    }]);
 
     expect([...context.getImageData(10, 10, 1, 1).data]).toEqual([255, 0, 0, 255]);
     expect([...context.getImageData(47, 47, 1, 1).data]).toEqual([0, 0, 0, 0]);

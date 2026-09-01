@@ -1,5 +1,6 @@
 import type {
   Layer,
+  UiImageAsset,
   UiShape,
   UiShapeComponent,
   UiShapeComponentAnimation,
@@ -9,6 +10,7 @@ import type {
   UiShapeRegionPoint,
   UiShapeTheme,
 } from '@/types';
+import { resolveUiShapeViewportImageDataUrl } from '@/utils/uiShapeImageAssets';
 import {
   createUiShapeHanddrawnContext,
   createUiShapePaintContext,
@@ -30,6 +32,7 @@ export const UI_SHAPE_MAX_GRID_SIZE = 128;
 export const UI_SHAPE_MAX_COMPONENTS = 4_096;
 
 export interface UiShapeDrawOptions {
+  imageAssets?: readonly UiImageAsset[];
   subpixelScrollbars?: boolean;
   interactions?: ReadonlyMap<string, UiShapeComponentInteraction>;
 }
@@ -284,6 +287,9 @@ const normalizeImageViewport = (
     && viewport.dataUrl.length <= Math.ceil(UI_SHAPE_VIEWPORT_MAX_IMAGE_BYTES * 4 / 3) + 512
     ? viewport.dataUrl
     : undefined;
+  const assetId = typeof viewport.assetId === 'string' && viewport.assetId.trim()
+    ? viewport.assetId.trim().slice(0, 160)
+    : undefined;
   const inputWidth = clamp(Math.round(finiteNumber(viewport.naturalWidth, 1)), 1, 16_384);
   const inputHeight = clamp(Math.round(finiteNumber(viewport.naturalHeight, 1)), 1, 16_384);
   const dimensionScale = Math.min(
@@ -291,6 +297,7 @@ const normalizeImageViewport = (
     Math.sqrt(UI_SHAPE_VIEWPORT_MAX_IMAGE_PIXELS / (inputWidth * inputHeight)),
   );
   return {
+    ...(assetId ? { assetId } : {}),
     ...(dataUrl ? { dataUrl } : {}),
     naturalWidth: Math.max(1, Math.floor(inputWidth * dimensionScale)),
     naturalHeight: Math.max(1, Math.floor(inputHeight * dimensionScale)),
@@ -1680,6 +1687,7 @@ export const drawUiShapeComponent = (
   theme: UiShapeTheme = 'windows-3.1',
   subpixelScrollbars = false,
   interaction?: UiShapeComponentInteraction,
+  imageAssets?: readonly UiImageAsset[],
 ): void => {
   const x = Math.round(originX + component.x);
   const y = Math.round(originY + component.y);
@@ -1719,11 +1727,12 @@ export const drawUiShapeComponent = (
       theme,
       subpixelScrollbars,
     );
-    const primedImage = viewport.dataUrl
-      ? uiShapeViewportPrimedImageCache.get(viewport.dataUrl)
+    const imageDataUrl = resolveUiShapeViewportImageDataUrl(viewport, imageAssets);
+    const primedImage = imageDataUrl
+      ? uiShapeViewportPrimedImageCache.get(imageDataUrl)
       : undefined;
-    const imageEntry = viewport.dataUrl && !primedImage
-      ? loadUiShapeViewportImage(viewport.dataUrl)
+    const imageEntry = imageDataUrl && !primedImage
+      ? loadUiShapeViewportImage(imageDataUrl)
       : null;
     targetContext.save();
     targetContext.beginPath();
@@ -1981,6 +1990,7 @@ export const drawUiShape = (
       shape.theme,
       options.subpixelScrollbars === true && stateOverride !== undefined,
       options.interactions?.get(component.id),
+      options.imageAssets,
     );
   });
   ctx.restore();
@@ -1991,6 +2001,7 @@ export const drawUiShapesForLayer = (
   shapes: readonly UiShape[] | undefined,
   layerId: string,
   dirtyRects?: readonly { x: number; y: number; width: number; height: number }[],
+  imageAssets?: readonly UiImageAsset[],
 ): void => {
   const layerShapes = getUiShapesForLayer(shapes, layerId);
   if (layerShapes.length === 0) return;
@@ -2000,11 +2011,12 @@ export const drawUiShapesForLayer = (
     dirtyRects.forEach((rect) => ctx.rect(rect.x, rect.y, rect.width, rect.height));
     ctx.clip();
   }
-  layerShapes.forEach((shape) => drawUiShape(ctx, shape));
+  layerShapes.forEach((shape) => drawUiShape(ctx, shape, undefined, { imageAssets }));
   ctx.restore();
 };
 
 interface UiShapeLayerRasterCacheEntry {
+  imageAssets: readonly UiImageAsset[] | undefined;
   shapes: readonly UiShape[];
   imageRevision: number;
   width: number;
@@ -2032,11 +2044,13 @@ const getCanvasContext = (canvas: UiShapeCanvasSurface): UiShapeCanvasContext | 
 
 const resolveUiShapeLayerRasterCache = ({
   shapes,
+  imageAssets,
   layerId,
   width,
   height,
 }: {
   shapes: readonly UiShape[] | undefined;
+  imageAssets?: readonly UiImageAsset[];
   layerId: string;
   width: number;
   height: number;
@@ -2053,6 +2067,7 @@ const resolveUiShapeLayerRasterCache = ({
     if (!shapeContext || !combinedContext) return null;
     cache = {
       shapes,
+      imageAssets,
       imageRevision: uiShapeViewportImageRevision,
       width,
       height,
@@ -2072,13 +2087,17 @@ const resolveUiShapeLayerRasterCache = ({
     cache.shapes = shapes;
     repaint = true;
   }
+  if (cache.imageAssets !== imageAssets) {
+    cache.imageAssets = imageAssets;
+    repaint = true;
+  }
   if (cache.imageRevision !== uiShapeViewportImageRevision) {
     cache.imageRevision = uiShapeViewportImageRevision;
     repaint = true;
   }
   if (repaint) {
     cache.shapeContext.clearRect(0, 0, width, height);
-    drawUiShapesForLayer(cache.shapeContext, shapes, layerId);
+    drawUiShapesForLayer(cache.shapeContext, shapes, layerId, undefined, imageAssets);
   }
   return cache;
 };
@@ -2086,17 +2105,19 @@ const resolveUiShapeLayerRasterCache = ({
 export const composeUiShapesIntoLayerSource = ({
   source,
   shapes,
+  imageAssets,
   layerId,
   width,
   height,
 }: {
   source: CanvasImageSource | null;
   shapes: readonly UiShape[] | undefined;
+  imageAssets?: readonly UiImageAsset[];
   layerId: string;
   width: number;
   height: number;
 }): CanvasImageSource | null => {
-  const cache = resolveUiShapeLayerRasterCache({ shapes, layerId, width, height });
+  const cache = resolveUiShapeLayerRasterCache({ shapes, imageAssets, layerId, width, height });
   if (!cache) return source;
   if (!source) return cache.shapeCanvas as CanvasImageSource;
   cache.combinedContext.clearRect(0, 0, width, height);
@@ -2108,11 +2129,13 @@ export const composeUiShapesIntoLayerSource = ({
 export const createUiShapeLayerRasterCache = ({
   layer,
   shapes,
+  imageAssets,
   width,
   height,
 }: {
   layer: Pick<Layer, 'id' | 'framebuffer' | 'imageData'>;
   shapes: readonly UiShape[] | undefined;
+  imageAssets?: readonly UiImageAsset[];
   width: number;
   height: number;
 }): UiShapeCanvasSurface | null => {
@@ -2123,6 +2146,6 @@ export const createUiShapeLayerRasterCache = ({
   if (!context) return null;
   if (layer.framebuffer) context.drawImage(layer.framebuffer as CanvasImageSource, 0, 0);
   else if (layer.imageData) context.putImageData(layer.imageData, 0, 0);
-  drawUiShapesForLayer(context, shapes, layer.id);
+  drawUiShapesForLayer(context, shapes, layer.id, undefined, imageAssets);
   return canvas;
 };
