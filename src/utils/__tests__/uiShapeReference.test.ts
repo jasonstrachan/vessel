@@ -81,7 +81,8 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     separator: '02864edacda05f7c46332d4fa90ab9088dd22418eb839f5a081dc97108f830dc',
     'resize-corner': '643e514d8d0b07835de273122d10a3d312fbe9d7d66b9914800cbc60713c9011',
     icon: 'a2ca7ab3eeb2796b9aad5e4edb1299d2d593710b8ec82a0f505eb040076fba5b',
-    board: 'cbb06d5c204152a933ccada52a4eadf744af3174619f0b518dbae3f2b3bbe5dc',
+    'image-viewport': 'bae7e5ac10a3f27025ee6de4629b67ea0461771d54bff843191ca1e2dfc57d1a',
+    board: '52fe52220ce88133b325ef6c7edf0c8bb309cd7cead2a83140106230e6c237b7',
   },
   'macintosh-system-7': {
     window: 'ae0868e7373c9d6fa7b19c32cf704319428561aee4a66de62accd04ccc84ffca',
@@ -97,7 +98,8 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     separator: 'a7f99e564140614e3e2d04222af8d231846f2c59243aab39f34dfbf842ea8093',
     'resize-corner': 'af5ef10938522ee42886607b473836b26e0f9aabdc3c734d3bdb1d190b40b3c5',
     icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
-    board: '18e5d46540594ac8603fe6cdf4977502af3ff676aa3b0b6017218807dd97683e',
+    'image-viewport': '800b9f3e1f4ce503af95830b30552a1dc1fa55cadd474bdf7a839c60bc6a2b2d',
+    board: '43ba0c5157704ac5fa880d95e8c3521a1948b2044d8acb61310681eea7567799',
   },
   'windows-3.1': {
     window: '7cb8b1f3deeedbcaa2442669e125f253c36ad0de2abe0db5641b7d3468270cc2',
@@ -113,7 +115,8 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     separator: 'd32942255ca6da16209eea758460b1aa46cdc51340838fd0c61936302eb294bb',
     'resize-corner': '6a55a39d199c5cb5b27d8944b371c5f929ffe900a8b34cbeb7f688766f8f9872',
     icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
-    board: '49ca80ddd26f78cf8646106f5340240d46308059ca50d59bf1b624583983e0b4',
+    'image-viewport': 'c0dc1803ac29eb4cf13c1987f95ddd57c27c3841eb6f8b2d3c31753e7a75574a',
+    board: '462dbc8673cfc2f2601ba3d430a1cc491823eca5a71d2db92d6c99fa5dd72c6a',
   },
   'windows-95': {
     window: '67c7bdf15c434f0e436648f861b237d2dc5dea55545c0932496242c8c10c2d98',
@@ -129,7 +132,8 @@ const GOLDEN_HASHES: Record<UiShapeTheme, Record<string, string>> = {
     separator: '29ca3d383222da608d5ba4709461f1995779136f6ef1990ad3ea3a0767bf5381',
     'resize-corner': '9c06f87d8ac6abc909016d496bbf543da210afad124db5af2bc5b084a5698d4a',
     icon: 'd83d3ef7bee3cd9ad4b913be9648b3edda149ac2ea66c83b8b695aaa2330855a',
-    board: 'a4aa4eba3cd19883a80984d117eb6404b1c8cfda77a40e153cce6c166bce120a',
+    'image-viewport': 'dd39e3f6861ca77dc646307cad5b66d2ddadb712c153100efb004cdb363e4521',
+    board: 'ad1bfce55156118b7f334e11282062c6ac16f309c23d520ed6f6aa1ae1e1db89',
   },
 };
 
