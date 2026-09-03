@@ -125,7 +125,57 @@ describe('ColorPickerPanel', () => {
     })).toBeInTheDocument();
   });
 
-  it('restores a transparent stop when the shared picker assigns a color', async () => {
+  it('keeps opacity persistent and applies it to the selected color target', async () => {
+    const user = userEvent.setup();
+    const layer = {
+      id: 'cc-layer',
+      name: 'CC',
+      layerType: 'color-cycle',
+    } as Layer;
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const activeGradient = useAppStore.getState().palette.colorCycleGradients?.find(
+      (gradient) => gradient.id === useAppStore.getState().palette.activeColorCycleGradientId,
+    );
+    expect(activeGradient?.stops[1]).toBeDefined();
+
+    render(<ColorPickerPanel />);
+
+    const opacitySlider = screen.getByRole('slider', { name: 'Selected color opacity' });
+    expect(opacitySlider).toHaveValue('100');
+    fireEvent.change(opacitySlider, { target: { value: '65' } });
+    expect(useAppStore.getState().palette.foregroundColor).toBe('rgba(0, 0, 0, 0.65)');
+    fireEvent.change(screen.getByRole('slider', { name: 'Red' }), {
+      target: { value: '17' },
+    });
+    await waitFor(() => {
+      expect(useAppStore.getState().palette.foregroundColor).toBe('rgba(17, 0, 0, 0.65)');
+    });
+
+    await user.click(screen.getByRole('button', {
+      name: `Gradient stop 2 ${activeGradient!.stops[1].color}`,
+    }));
+
+    expect(opacitySlider).toHaveValue('100');
+    fireEvent.change(opacitySlider, { target: { value: '35' } });
+
+    await waitFor(() => {
+      const updated = useAppStore.getState().palette.colorCycleGradients?.find(
+        (gradient) => gradient.id === activeGradient!.id,
+      );
+      expect(updated?.stops[1]).toEqual(expect.objectContaining({
+        color: activeGradient!.stops[1].color.toUpperCase(),
+        opacity: 0.35,
+      }));
+      expect(updated?.stops[0]).toEqual(activeGradient!.stops[0]);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Select background color swatch' }));
+    expect(opacitySlider).toHaveValue('100');
+    fireEvent.change(opacitySlider, { target: { value: '20' } });
+    expect(useAppStore.getState().palette.backgroundColor).toBe('rgba(255, 255, 255, 0.2)');
+  });
+
+  it('preserves a transparent stop when the shared picker assigns a color', async () => {
     const user = userEvent.setup();
     const layer = {
       id: 'cc-layer',
@@ -171,7 +221,7 @@ describe('ColorPickerPanel', () => {
       );
       expect(updated?.stops[0]).toEqual(expect.objectContaining({
         color: expectedColor,
-        opacity: 1,
+        opacity: 0,
       }));
     });
   });

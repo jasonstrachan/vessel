@@ -97,7 +97,7 @@ function normalizeSettings(params: FillParams): HatchShearSettings {
     spacing,
     lineWidth: thickness,
     spacingJitter,
-    offset: Math.max(thickness * 2.2, spacing * 0.55),
+    offset: spacing * 0.55,
     organic,
     cutSegments: requestedSegments,
     verticalAlpha: clamp01(0.7 + organic * 0.25),

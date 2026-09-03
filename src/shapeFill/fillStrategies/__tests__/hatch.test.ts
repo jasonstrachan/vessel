@@ -75,4 +75,21 @@ describe('hatchFill', () => {
     const segment = result.strokeSegments?.find(Boolean);
     expect(segment?.lineWidth).toBeGreaterThanOrEqual(3.5);
   });
+
+  it('keeps hatch geometry stable when only line width changes', () => {
+    const shape = rectangle(140, 90);
+    const params = {
+      ...defaultParams(),
+      variance: 0,
+      organic: 0,
+      seed: hashPoints(shape.points),
+    };
+
+    const thin = hatchFill(shape, { ...params, thickness: 1 });
+    const thick = hatchFill(shape, { ...params, thickness: 6 });
+    const geometry = (result: ReturnType<typeof hatchFill>) =>
+      result.strokeSegments?.map(segment => segment.points);
+
+    expect(geometry(thick)).toEqual(geometry(thin));
+  });
 });

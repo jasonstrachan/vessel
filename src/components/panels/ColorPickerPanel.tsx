@@ -1,21 +1,45 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
-import { useAppStore } from '../../stores/useAppStore';
-import ColorPicker from '../ui/ColorPicker';
-import ColorSwatches from '../toolbar/ColorSwatches';
-import { ColorCycleGradientSwatches } from '../toolbar/ColorCycleGradientSwatches';
-import PaletteSwatches from '../ui/PaletteSwatches';
+import { ColorCycleGradientSwatches } from '@/components/toolbar/ColorCycleGradientSwatches';
+import ColorSwatches from '@/components/toolbar/ColorSwatches';
+import ColorPicker from '@/components/ui/ColorPicker';
+import PaletteSwatches from '@/components/ui/PaletteSwatches';
+import ProgressSlider from '@/components/ui/ProgressSlider';
 import { isColorCycleBrushShape } from '@/stores/helpers/toolsState';
+import { useAppStore } from '@/stores/useAppStore';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 
 type ColorEditTarget =
-  | { kind: 'palette' }
+  | { kind: 'palette'; slot: 'foreground' | 'background' }
   | { kind: 'gradient-stop'; gradientId: string; stopIndex: number };
+
+const clampOpacity = (value: number): number => Math.max(0, Math.min(1, value));
+
+const toOpaqueHex = (color: string): string => {
+  const { r, g, b } = parseCssColor(color, { r: 0, g: 0, b: 0, a: 255 });
+  return `#${[r, g, b]
+    .map((channel) => channel.toString(16).padStart(2, '0'))
+    .join('')}`.toUpperCase();
+};
+
+const getCssOpacity = (color: string): number => (
+  parseCssColor(color, { r: 0, g: 0, b: 0, a: 255 }).a / 255
+);
+
+const withCssOpacity = (color: string, opacity: number): string => {
+  const { r, g, b } = parseCssColor(color, { r: 0, g: 0, b: 0, a: 255 });
+  const alpha = clampOpacity(opacity);
+  if (alpha === 1) {
+    return toOpaqueHex(color);
+  }
+  return `rgba(${r}, ${g}, ${b}, ${Number(alpha.toFixed(2))})`;
+};
 
 const ColorPickerPanel = React.memo(() => {
   // Use individual selectors to avoid unstable object references  
   const palette = useAppStore(state => state.palette);
   const ditherEnabled = useAppStore(state => state.tools.brushSettings.ditherEnabled);
-  const setActiveColor = useAppStore(state => state.setActiveColor);
+  const setPaletteColor = useAppStore(state => state.setPaletteColor);
   const setActivePaletteSlot = useAppStore(state => state.setActivePaletteSlot);
   const updateActiveColorCycleGradient = useAppStore(
     state => state.updateActiveColorCycleGradient,
@@ -46,7 +70,16 @@ const ColorPickerPanel = React.memo(() => {
   const selectedStop = selectedGradientStop && selectedGradientStop.gradientId === activeGradient?.id
     ? activeGradient.stops[selectedGradientStop.index]
     : undefined;
-  const editableColor = selectedStop?.color ?? activeColor;
+  const editableColor = useMemo(
+    () => toOpaqueHex(selectedStop?.color ?? activeColor),
+    [activeColor, selectedStop?.color],
+  );
+  const editableOpacity = useMemo(() => {
+    if (!selectedStop) {
+      return getCssOpacity(activeColor);
+    }
+    return clampOpacity(getCssOpacity(selectedStop.color) * (selectedStop.opacity ?? 1));
+  }, [activeColor, selectedStop]);
   const colorEditTarget = useMemo<ColorEditTarget>(() => (
     selectedStop && selectedGradientStop
       ? {
@@ -54,8 +87,8 @@ const ColorPickerPanel = React.memo(() => {
           gradientId: selectedGradientStop.gradientId,
           stopIndex: selectedGradientStop.index,
         }
-      : { kind: 'palette' }
-  ), [selectedGradientStop, selectedStop]);
+      : { kind: 'palette', slot: activeSlot }
+  ), [activeSlot, selectedGradientStop, selectedStop]);
   const paletteRef = React.useRef(palette);
   paletteRef.current = palette;
 
@@ -125,7 +158,10 @@ const ColorPickerPanel = React.memo(() => {
       pendingColorRef.current = null;
       const target = pending.target;
       if (target.kind === 'palette') {
-        setActiveColor(pending.color);
+        const currentColor = target.slot === 'foreground'
+          ? paletteRef.current.foregroundColor
+          : paletteRef.current.backgroundColor;
+        setPaletteColor(target.slot, withCssOpacity(pending.color, getCssOpacity(currentColor)));
         return;
       }
 
@@ -145,14 +181,12 @@ const ColorPickerPanel = React.memo(() => {
           ? {
               ...stop,
               color: pending.color.toUpperCase(),
-              ...((stop.opacity ?? 1) === 0 || stop.color.toLowerCase() === 'transparent'
-                ? { opacity: 1 }
-                : {}),
+              opacity: clampOpacity(getCssOpacity(stop.color) * (stop.opacity ?? 1)),
             }
           : { ...stop }
       )));
     }
-  }, [setActiveColor, updateActiveColorCycleGradient]);
+  }, [setPaletteColor, updateActiveColorCycleGradient]);
 
   const scheduleActiveColorUpdate = useCallback((
     color: string,
@@ -278,15 +312,47 @@ const ColorPickerPanel = React.memo(() => {
       pendingColorRef.current = { color, target: colorEditTarget };
       flushPendingColor();
     } else {
-      setActiveColor(color);
+      const currentColor = colorEditTarget.slot === 'foreground'
+        ? paletteRef.current.foregroundColor
+        : paletteRef.current.backgroundColor;
+      setPaletteColor(
+        colorEditTarget.slot,
+        withCssOpacity(color, getCssOpacity(currentColor)),
+      );
     }
     requestDitherWarmup();
-  }, [colorEditTarget, flushPendingColor, requestDitherWarmup, setActiveColor]);
+  }, [colorEditTarget, flushPendingColor, requestDitherWarmup, setPaletteColor]);
 
   const handlePaletteSlotSelect = useCallback((slot: 'foreground' | 'background') => {
     setSelectedGradientStop(null);
     setActivePaletteSlot(slot);
   }, [setActivePaletteSlot]);
+
+  const handleOpacityChange = useCallback((value: number) => {
+    const opacity = clampOpacity(value / 100);
+    if (!selectedGradientStop) {
+      setPaletteColor(activeSlot, withCssOpacity(activeColor, opacity));
+      return;
+    }
+
+    const currentPalette = paletteRef.current;
+    const gradient = currentPalette.colorCycleGradients?.find(
+      (entry) => entry.id === selectedGradientStop.gradientId,
+    );
+    if (
+      !gradient ||
+      gradient.id !== currentPalette.activeColorCycleGradientId ||
+      !gradient.stops[selectedGradientStop.index]
+    ) {
+      return;
+    }
+
+    updateActiveColorCycleGradient(gradient.stops.map((stop, index) => (
+      index === selectedGradientStop.index
+        ? { ...stop, color: toOpaqueHex(stop.color), opacity }
+        : { ...stop }
+    )));
+  }, [activeColor, activeSlot, selectedGradientStop, setPaletteColor, updateActiveColorCycleGradient]);
 
   return (
     <div className="h-full overflow-y-auto bg-[#1A1A1A]">
@@ -299,6 +365,23 @@ const ColorPickerPanel = React.memo(() => {
           onInteractionStart={handleColorPickerDragStart}
           onInteractionEnd={handleColorPickerDragEnd}
           className="w-full"
+        />
+      </div>
+
+      <div className="flex items-center gap-2 border-t border-white/10 bg-[#1A1A1A] px-2 py-1.5">
+        <label className="w-16 text-sm text-[#D9D9D9]">
+          Opacity
+        </label>
+        <ProgressSlider
+          value={Math.round(editableOpacity * 100)}
+          min={0}
+          max={100}
+          step={1}
+          onChange={handleOpacityChange}
+          onCommit={requestDitherWarmup}
+          formatValue={(value) => `${Math.round(value)}%`}
+          aria-label="Selected color opacity"
+          className="flex-1"
         />
       </div>
 
