@@ -790,6 +790,7 @@ export const commitColorCycleLayerStroke = async (
             region: strokeCaptureRoi,
             pathPadding: args.strokeCapturePadding + args.roiPadding,
             ditherPrimaryBuffer: brush.getSampledStrokeDitherPrimaryBuffer?.(targetLayerId),
+            ditherBandCount: args.brushSettings.gradientBands,
           });
           if (remappedSnapshot) {
             const didApplySampledStrokePhase = strokeFinalizeProbeTimeSync(

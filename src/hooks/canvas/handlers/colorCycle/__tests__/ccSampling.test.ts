@@ -114,7 +114,7 @@ describe('ccSampling', () => {
     expect(remapped?.phaseBuffer).toBe(phaseBuffer);
   });
 
-  it('preserves the stamp dither pattern while remapping sampled stroke phase', () => {
+  it('preserves the stamp dither pattern and band count while remapping sampled stroke phase', () => {
     const width = 4;
     const primary = new Uint8Array([10, 10, 20, 20]);
     const paint = new Uint8Array([10, 74, 20, 84]);
@@ -135,12 +135,13 @@ describe('ccSampling', () => {
       region: { x: 0, y: 0, width, height: 1 },
       pathPadding: 1,
       ditherPrimaryBuffer: primary,
+      ditherBandCount: 2,
     });
 
     expect(Array.from(new Uint8Array(remapped?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
       1,
-      150,
-      170,
+      65,
+      255,
       64,
     ]);
   });

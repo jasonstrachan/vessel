@@ -9,6 +9,7 @@ import {
 } from '@/hooks/canvas/utils/autoSampleGradient';
 import { equidistantPointsOnPolyline } from '@/hooks/canvas/handlers/brushSampling';
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
+import { mapColorCycleBandIndexToPaletteIndex } from '@/hooks/brushEngine/colorCycleStrokeTimingRuntime';
 import { resolveStampDitherSecondaryIndex } from '@/hooks/brushEngine/strokeStampDither';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -70,6 +71,7 @@ export const remapSampledStrokePaintPhase = ({
   region,
   pathPadding,
   ditherPrimaryBuffer,
+  ditherBandCount,
 }: {
   snapshot: ColorCyclePaintSnapshot;
   width: number;
@@ -79,6 +81,7 @@ export const remapSampledStrokePaintPhase = ({
   region?: CaptureRegion;
   pathPadding: number;
   ditherPrimaryBuffer?: Uint8Array | null;
+  ditherBandCount?: number;
 }): ColorCyclePaintSnapshot | null => {
   const safeWidth = Math.floor(width);
   const safeHeight = Math.floor(height);
@@ -120,6 +123,7 @@ export const remapSampledStrokePaintPhase = ({
   const ditherPrimary = ditherPrimaryBuffer?.byteLength === pixelCount
     ? ditherPrimaryBuffer
     : null;
+  const ditherBands = Math.max(2, Math.min(254, Math.floor(ditherBandCount || 12)));
   const bestDistanceSq = new Float32Array(regionWidth * regionHeight);
   bestDistanceSq.fill(Number.POSITIVE_INFINITY);
   const bestPathT = new Float32Array(regionWidth * regionHeight);
@@ -193,7 +197,13 @@ export const remapSampledStrokePaintPhase = ({
         continue;
       }
       const pixelIndex = row + x;
-      const nextPrimary = 1 + Math.round(clamp(bestPathT[localIndex], 0, 1) * 254);
+      const pathT = clamp(bestPathT[localIndex], 0, 1);
+      const nextPrimary = ditherPrimary
+        ? mapColorCycleBandIndexToPaletteIndex(
+          Math.round(pathT * (ditherBands - 1)),
+          ditherBands,
+        )
+        : 1 + Math.round(pathT * 254);
       let nextIndex = nextPrimary;
       if (ditherPrimary) {
         const sourcePrimary = ditherPrimary[pixelIndex];
