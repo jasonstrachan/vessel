@@ -135,11 +135,13 @@ export class ColorCycleStrokeApiRuntime {
   readonly startStroke = (
     layerId?: string,
     clearBuffer: boolean = false,
+    phaseOffsetUnits?: number,
   ): void => {
     startColorCycleStrokeLifecycle(
       this.getStrokeLifecycleContext(),
       layerId,
       clearBuffer,
+      phaseOffsetUnits,
     );
   };
 

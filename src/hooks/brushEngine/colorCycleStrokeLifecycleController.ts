@@ -17,7 +17,7 @@ export type ColorCycleBrushLifecycle = ColorCycleSurfaceBrush & {
   clearPaintBuffer?: (layerId: string) => void;
   finalizeCurrentStroke?: (layerId: string) => void;
   endStroke?: (layerId?: string) => void;
-  startStroke?: (layerId: string, clearBuffer?: boolean) => void;
+  startStroke?: (layerId: string, clearBuffer?: boolean, phaseOffsetUnits?: number) => void;
 };
 
 export const resetColorCycleStroke = ({

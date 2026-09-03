@@ -2739,6 +2739,33 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(strokeState.stampCounter).toBe(1);
   });
 
+  it('starts a non-dither stroke from an explicit phase offset', () => {
+    const canvas = makeCanvas(16, 16);
+    const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
+    const layerId = 'layer-non-dither-phase-offset';
+    brush.setBrushSize(1);
+    brush.setStampShape('square');
+
+    brush.startStroke(layerId, false, 96);
+    brush.paint(2, 2, layerId, 1);
+    brush.endStroke(layerId);
+
+    const animator = (brush as unknown as {
+      animators: Map<string, { getIndexBuffers: () => { data: Uint8Array } }>;
+    }).animators.get(layerId);
+    const strokeState = readBrushStrokeState<ColorCycleBrushPersistenceStrokeState & {
+      strokePhaseUnits: number;
+      stampCounter: number;
+    }>(brush, layerId);
+    if (!animator || !strokeState) {
+      throw new Error('Missing non-dither phase-offset state');
+    }
+
+    expect(animator.getIndexBuffers().data[2 + 2 * canvas.width]).toBe(97);
+    expect(strokeState.strokePhaseUnits).toBe(96);
+    expect(strokeState.stampCounter).toBe(97);
+  });
+
   it('advances captured-data custom stamp phase even when stamp dithering is off', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

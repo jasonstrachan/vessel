@@ -122,7 +122,7 @@ export type ColorCycleBrushSettingsControls = {
 };
 
 export type ColorCycleBrushLifecycleControls = {
-  startStroke?(layerId?: string, clearBuffer?: boolean): void;
+  startStroke?(layerId?: string, clearBuffer?: boolean, phaseOffsetUnits?: number): void;
   endStroke(layerId?: string): void;
   cleanup?: () => void;
   destroy?: () => void;

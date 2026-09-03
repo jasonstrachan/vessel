@@ -752,7 +752,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
 
     const commitBrush = brush as ColorCycleCommitBrushContext;
     const lifecycleBrush = brush as {
-      startStroke?: (layerId: string, clearBuffer?: boolean) => void;
+      startStroke?: (layerId: string, clearBuffer?: boolean, phaseOffsetUnits?: number) => void;
       finalizeCurrentStroke?: (layerId: string) => void;
       clearPaintBuffer?: (layerId: string) => void;
     };

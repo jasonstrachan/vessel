@@ -41,6 +41,7 @@ type ClearStrokeMutation = {
 export type ColorCycleStartStrokeContext = {
   layerId?: string;
   clearBuffer: boolean;
+  phaseOffsetUnits?: number;
   activeLayerId: string | null;
   setActiveLayerId: (layerId: string) => void;
   setIsDrawing: (isDrawing: boolean) => void;
@@ -90,6 +91,9 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
     animator.startStroke();
   }
   const strokeData = context.getStrokeData(id);
+  const phaseOffsetUnits = Number.isFinite(context.phaseOffsetUnits)
+    ? ((Math.round(context.phaseOffsetUnits ?? 0) % 255) + 255) % 255
+    : 0;
   if (context.clearBuffer && !context.isHistoryRestore() && !strokeData) {
     try { animator.clear(); } catch {}
   }
@@ -123,8 +127,10 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
     }
     if (!context.stampDitherEnabled()) {
       strokeData.lastPoint = null;
-      strokeData.strokePhaseUnits = 0;
-      strokeData.stampCounter = 0;
+      strokeData.strokePhaseUnits = phaseOffsetUnits;
+      strokeData.stampCounter = phaseOffsetUnits;
+    } else if (context.phaseOffsetUnits !== undefined) {
+      strokeData.strokePhaseUnits = phaseOffsetUnits;
     }
     strokeData.flow.activeSlot = context.resolveActiveStrokeSlot(id, strokeData);
     strokeData.flow.mode = context.flowMode();
@@ -144,8 +150,12 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
       );
     }
     if (context.clearBuffer && !context.isHistoryRestore()) {
-      const preservedStampCounter = context.stampDitherEnabled() ? strokeData.stampCounter : 0;
-      const preservedPhaseUnits = context.stampDitherEnabled() ? strokeData.strokePhaseUnits : 0;
+      const preservedStampCounter = context.stampDitherEnabled()
+        ? strokeData.stampCounter
+        : phaseOffsetUnits;
+      const preservedPhaseUnits = context.stampDitherEnabled()
+        ? strokeData.strokePhaseUnits
+        : phaseOffsetUnits;
       context.mutateLayerStrokeState({
         layerId: id,
         reason: 'brush-stroke-write',
