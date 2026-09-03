@@ -61,6 +61,30 @@ describe('goblet metadata schema', () => {
     });
   });
 
+  it('keeps Renderer v1 cursor hand state compact and decodable', () => {
+    expect(__TESTING__.minifyProperties({
+      automation: {
+        objects: [{ id: 'cursor', kind: 'cursor', hand: true }],
+        tracks: [{
+          targetId: 'cursor',
+          property: 'hand',
+          keyframes: [{ time: 0, value: true }],
+        }],
+      },
+    })).toEqual({
+      au: {
+        obj: [{ i: 'cursor', k: 'cursor', hd: true }],
+        trk: [{
+          tid: 'cursor',
+          pr: 'hand',
+          kf: [{ tm: 0, val: true }],
+        }],
+      },
+    });
+    expect(GOBLET_PROPERTY_UNMINIFY_MAP.hd).toBe('hand');
+    expect(readRuntime('goblet2')).toContain("hd: 'hand'");
+  });
+
   it('keeps Goblet runtimes in contract for their supported minified fields', () => {
     for (const runtime of ['goblet', 'goblet2'] as const) {
       const source = readRuntime(runtime);

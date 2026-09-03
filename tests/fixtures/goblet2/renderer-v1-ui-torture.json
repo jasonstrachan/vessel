@@ -167,7 +167,7 @@
           { "objectId": "popup", "trackProperties": ["visible"] },
           { "objectId": "selection", "trackProperties": ["visible"] },
           { "objectId": "caret", "trackProperties": ["visible"] },
-          { "objectId": "cursor-button", "trackProperties": ["pressed", "x", "y"] },
+          { "objectId": "cursor-button", "trackProperties": ["hand", "pressed", "x", "y"] },
           { "objectId": "cursor-scroll", "trackProperties": ["pressed", "x", "y"] }
         ]
       }
@@ -255,7 +255,7 @@
       },
       { "id": "caret", "kind": "rect", "x": 29, "y": 29, "width": 1, "height": 7, "fill": "#ffffff", "visible": false },
       { "id": "cursor-button", "kind": "cursor", "x": 68, "y": 40, "pressed": false },
-      { "id": "cursor-scroll", "kind": "cursor", "x": 68, "y": 8, "pressed": false }
+      { "id": "cursor-scroll", "kind": "cursor", "x": 68, "y": 8, "hand": true, "pressed": false }
     ],
     "tracks": [
       {
@@ -383,6 +383,16 @@
           { "time": 0.78, "value": 44, "easing": "minimum-jerk" },
           { "time": 1.1, "value": 44 },
           { "time": 4, "value": 40, "easing": "minimum-jerk" }
+        ]
+      },
+      {
+        "targetId": "cursor-button",
+        "property": "hand",
+        "keyframes": [
+          { "time": 0, "value": false },
+          { "time": 0.6, "value": true, "easing": "step" },
+          { "time": 1.1, "value": false, "easing": "step" },
+          { "time": 4, "value": false }
         ]
       },
       {

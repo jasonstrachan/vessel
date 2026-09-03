@@ -334,7 +334,7 @@ export type GobletAutomationObject = GobletAutomationObjectBase & (
   | { kind: 'artwork'; width?: number; height?: number }
   | { kind: 'group' }
   | { kind: 'instance'; symbolId: string }
-  | { kind: 'cursor'; pressed?: boolean }
+  | { kind: 'cursor'; hand?: boolean; pressed?: boolean }
   | { kind: 'rect'; width: number; height: number; fill: string }
   | ({
       kind: 'sprite';
@@ -438,7 +438,7 @@ export type GobletAutomationTrack = {
       keyframes?: never;
     }
   | {
-      property: 'visible' | 'pressed';
+      property: 'visible' | 'hand' | 'pressed';
       keyframes: Array<GobletAutomationKeyframe<boolean>>;
       dataChannelId?: never;
       valueScale?: never;

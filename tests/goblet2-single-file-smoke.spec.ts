@@ -1156,6 +1156,9 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     expect(automation.tracks.filter((track) => track.property === 'pressed').map((track) => (
       track.targetId
     ))).toEqual(['cursor-button', 'cursor-scroll']);
+    expect(automation.tracks.filter((track) => track.property === 'hand').map((track) => (
+      track.targetId
+    ))).toEqual(['cursor-button']);
     expect(automation.tracks.filter((track) => (
       track.dataChannelId === 'scroll-progress'
     )).map((track) => track.targetId)).toEqual([
@@ -1167,6 +1170,9 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
 
     await page.setContent(buildSingleFileGoblet2Html(bundle));
     await waitForSmokeReady(page);
+    expect(await page.evaluate(() => (
+      window as Window & { __gobletSmoke?: { error?: string } }
+    ).__gobletSmoke?.error)).toBeUndefined();
     const checkpoint = (time: number) => page.evaluate((seconds) => {
       (window as Window & { vesselGobletRendererV1?: { setTime: (value: number) => void } })
         .vesselGobletRendererV1?.setTime(seconds);
@@ -1186,6 +1192,8 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
         },
         caret: pixel(29, 30),
         colorCycle: Array.from(sourceContext.getImageData(40, 40, 1, 1).data),
+        cursorGrab: pixel(4, 38),
+        cursorHand: pixel(66, 0),
         hover: pixel(3, 43),
         markerAtEnd: pixel(11, 9),
         markerAtStart: pixel(11, 23),
@@ -1211,8 +1219,10 @@ test.describe('Goblet 2 single-file runtime smoke', () => {
     expect(initial.popup[2]).toBeGreaterThan(200);
     expect(initial.markerAtStart).toEqual([0, 255, 0, 255]);
     expect(initial.oldThumb).toEqual([208, 208, 208, 255]);
+    expect(initial.cursorHand).toEqual([0, 0, 0, 255]);
     expect(hover.hover).toEqual([255, 255, 0, 255]);
     expect(pressed.button).toEqual([128, 128, 128, 255]);
+    expect(pressed.cursorGrab).toEqual([0, 0, 0, 255]);
     expect(pressed.colorCycle).toEqual(initial.colorCycle);
     expect(selected.popup[2]).toBeLessThan(200);
     expect(selected.selection).toEqual([0, 255, 255, 255]);

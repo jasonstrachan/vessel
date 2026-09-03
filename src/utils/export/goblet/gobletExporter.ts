@@ -283,7 +283,7 @@ const normalizeDynamicFeatureIds = (features: readonly string[]): string[] => (
 );
 
 const GOBLET_AUTOMATION_TRACK_PROPERTIES = new Set<GobletAutomationTrack['property']>([
-  'x', 'y', 'opacity', 'visible', 'rotation', 'scaleX', 'scaleY', 'pressed', 'sourceX', 'sourceY',
+  'x', 'y', 'opacity', 'visible', 'rotation', 'scaleX', 'scaleY', 'hand', 'pressed', 'sourceX', 'sourceY',
   'playbackTime',
 ]);
 
@@ -373,8 +373,11 @@ const assertRendererV1AutomationReferencesComplete = (metadata: WebGLExportMetad
       throw new Error(`Renderer v1 track ${trackKey} requires exactly one valid data source.`);
     }
     if (hasDataChannel) usedDataChannelIds.add(dataChannelId);
-    if (hasDataChannel && (property === 'visible' || property === 'pressed')) {
+    if (hasDataChannel && (property === 'visible' || property === 'hand' || property === 'pressed')) {
       throw new Error(`Renderer v1 track ${trackKey} cannot use numeric data.`);
+    }
+    if ((property === 'hand' || property === 'pressed') && target.kind !== 'cursor') {
+      throw new Error(`Renderer v1 cursor track ${trackKey} must target a cursor.`);
     }
     if (property === 'playbackTime') {
       playbackTimeTracks += 1;
@@ -389,7 +392,7 @@ const assertRendererV1AutomationReferencesComplete = (metadata: WebGLExportMetad
     ) {
       throw new Error(`Renderer v1 source track ${trackKey} must target a sprite or mask.`);
     }
-    if (target.kind === 'mask' && (property === 'visible' || property === 'pressed')) {
+    if (target.kind === 'mask' && (property === 'visible' || property === 'hand' || property === 'pressed')) {
       throw new Error(`Renderer v1 mask track ${trackKey} uses an unsupported property.`);
     }
   }

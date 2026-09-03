@@ -1538,6 +1538,7 @@ const PROPERTY_UNMINIFY_MAP = {
   rot: 'rotation',
   sx: 'scaleX',
   sy: 'scaleY',
+  hd: 'hand',
   pd: 'pressed',
   ag: 'adjustmentGroups',
   adj: 'adjustment',
@@ -7316,6 +7317,7 @@ const RENDERER_V1_OBJECT_KINDS = new Set([
   'sprite'
 ]);
 const RENDERER_V1_PROPERTIES = new Set([
+  'hand',
   'opacity',
   'playbackTime',
   'pressed',
@@ -7455,8 +7457,10 @@ const buildRendererV1Hierarchy = ({
     if (source.blendMode !== undefined && !RENDERER_V1_BLEND_MODES.has(source.blendMode)) {
       rendererV1Error(`object ${id} has invalid blendMode`);
     }
-    if (source.pressed !== undefined && (source.kind !== 'cursor' || typeof source.pressed !== 'boolean')) {
-      rendererV1Error(`object ${id} has invalid pressed state`);
+    for (const property of ['hand', 'pressed']) {
+      if (source[property] !== undefined && (source.kind !== 'cursor' || typeof source[property] !== 'boolean')) {
+        rendererV1Error(`object ${id} has invalid ${property} state`);
+      }
     }
     for (const property of ['anchorX', 'anchorY', 'opacity', 'rotation', 'scaleX', 'scaleY']) {
       if (source[property] !== undefined && !Number.isFinite(source[property])) {
@@ -7485,6 +7489,7 @@ const buildRendererV1Hierarchy = ({
       clip: clips.get(String(source.clipId || '')) || null,
       mask: masks.get(String(source.maskId || '')) || null,
       opacity: Number.isFinite(Number(source.opacity)) ? Number(source.opacity) : 1,
+      hand: source.hand === true,
       pressed: source.pressed === true,
       rotation: Number(source.rotation) || 0,
       scaleX: Number.isFinite(Number(source.scaleX)) ? Number(source.scaleX) : 1,
@@ -7789,11 +7794,14 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
       || !RENDERER_V1_PROPERTIES.has(track.property)
       || hasKeyframes === hasDataChannel
       || (hasDataChannel && !track.channel)
-      || (track.property === 'pressed' && track.state.kind !== 'cursor')
+      || ((track.property === 'hand' || track.property === 'pressed')
+        && track.state.kind !== 'cursor')
       || (track.property === 'playbackTime' && track.state.kind !== 'artwork')
       || ((track.property === 'sourceX' || track.property === 'sourceY')
         && track.state.kind !== 'sprite' && track.state.kind !== 'mask')
-      || (hasDataChannel && (track.property === 'visible' || track.property === 'pressed'))
+      || (hasDataChannel && (track.property === 'visible'
+        || track.property === 'hand'
+        || track.property === 'pressed'))
     ) {
       rendererV1Error(`track ${key} is invalid or unsupported`);
     }
@@ -7813,7 +7821,9 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
         if (
           !isRendererV1Object(keyframe)
           || !Number.isFinite(keyframe.time) || keyframe.time < previousTime
-          || ((track.property === 'visible' || track.property === 'pressed')
+          || ((track.property === 'visible'
+            || track.property === 'hand'
+            || track.property === 'pressed')
             ? typeof keyframe.value !== 'boolean'
             : !Number.isFinite(keyframe.value))
           || (keyframe.easing !== undefined
@@ -7904,19 +7914,35 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
   };
 
   const drawCursor = (drawContext, state) => {
-    const rows = [
+    const pointerRows = [
       'B............', 'BB...........', 'BWB..........', 'BWWB.........',
       'BWWWB........', 'BWWWWB.......', 'BWWWWWB......', 'BWWWWWWB.....',
       'BWWWWWWWB....', 'BWWWWWWWWB...', 'BWWWWWBBBBB..', 'BWWBWWB......',
       'BWB.BWWB.....', 'BB..BWWB.....', '....BWWB.....', '.....BWWB....',
       '......BBB....'
     ];
+    const handRows = [
+      '....BB.......', '...BWWB......', '...BWWB......', '...BWWB.BB...',
+      '...BWWBBWWB..', '.BBBWWBWWB...', 'BWWBWWWWWWB..', 'BWWWWWWWWWB..',
+      'BWWWWWWWWWB..', '.BWWWWWWWWB..', '..BWWWWWWB...', '..BWWWWWWB...',
+      '...BWWWWB....', '...BWWWWB....', '....BBBB.....', '.............',
+      '.............'
+    ];
+    const grabbingRows = [
+      '.............', '.............', '..BB.BB.BB...', '.BWWBWWBWWB..',
+      '.BWWWWWWWWB..', '.BWWWWWWWWB..', '..BWWWWWWB...', '..BWWWWWWB...',
+      '...BWWWWB....', '...BWWWWB....', '....BBBB.....', '.............',
+      '.............', '.............', '.............', '.............', '.............'
+    ];
+    const rows = state.hand ? (state.pressed ? grabbingRows : handRows) : pointerRows;
+    const offsetX = state.hand ? -6 : 0;
+    const offsetY = state.hand ? -8 : 0;
     drawContext.imageSmoothingEnabled = false;
     rows.forEach((row, y) => {
       for (let x = 0; x < row.length; x += 1) {
         if (row[x] === '.') continue;
         drawContext.fillStyle = row[x] === 'B' ? '#000000' : '#ffffff';
-        drawContext.fillRect(x, y, 1, 1);
+        drawContext.fillRect(x + offsetX, y + offsetY, 1, 1);
       }
     });
   };
@@ -8053,7 +8079,9 @@ export const mountGobletRendererV1 = (metadata, sourceCanvas) => {
     } else if (state.kind === 'rect' || state.kind === 'sprite') {
       bounds = rendererV1RectBounds(0, 0, Number(state.width) || 0, Number(state.height) || 0);
     } else if (state.kind === 'cursor') {
-      bounds = rendererV1RectBounds(0, 0, 13, 17);
+      bounds = state.hand
+        ? rendererV1RectBounds(-6, -8, 13, 17)
+        : rendererV1RectBounds(0, 0, 13, 17);
     } else if (state.kind === 'instance') {
       const symbol = symbols.get(String(state.symbolId || ''));
       for (const root of symbol?.roots || []) {

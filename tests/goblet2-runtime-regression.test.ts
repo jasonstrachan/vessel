@@ -21,6 +21,22 @@ const loadRuntimeSeamProfileHelper = (runtime: string): ApplyGradientSeamProfile
 };
 
 describe('Goblet 2 runtime export regression guard', () => {
+  it('keeps viewport cursor hand and grab states in source and inline runtimes', () => {
+    const runtime = read('public/goblet2/goblet2.js');
+    const inlineRuntime = read('public/goblet2/goblet2-inline.js');
+
+    [runtime, inlineRuntime].forEach((source) => {
+      expect(source).toContain('hand');
+      expect(source).toContain('....BB.......');
+      expect(source).toContain('..BB.BB.BB...');
+    });
+    expect(runtime).toContain("hd: 'hand'");
+    expect(runtime).toContain("for (const property of ['hand', 'pressed'])");
+    expect(runtime).toContain('hand: source.hand === true');
+    expect(runtime).toContain('state.hand ? (state.pressed ? grabbingRows : handRows) : pointerRows');
+    expect(runtime).toContain('rendererV1RectBounds(-6, -8, 13, 17)');
+  });
+
   it('keeps named adjustment targets in the Goblet 2 export and playback contract', () => {
     const runtime = read('public/goblet2/goblet2.js');
     const inlineRuntime = read('public/goblet2/goblet2-inline.js');

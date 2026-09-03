@@ -69,6 +69,7 @@ export const GOBLET_PROPERTY_MINIFY_MAP = {
   rotation: 'rot',
   scaleX: 'sx',
   scaleY: 'sy',
+  hand: 'hd',
   pressed: 'pd',
   adjustmentGroups: 'ag',
   adjustment: 'adj',
