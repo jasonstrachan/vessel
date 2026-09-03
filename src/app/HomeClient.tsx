@@ -18,10 +18,6 @@ import SelectionConstraintStrip from '@/components/SelectionConstraintStrip';
 import { ReferenceStudioBridge } from '@/components/reference/ReferenceStudioBridge';
 import FPSMeter from '@/components/dev/FPSMeter';
 import DevDebugOverlay from '@/components/dev/DevDebugOverlay';
-import {
-  DEFAULT_NEW_DOCUMENT_HEIGHT,
-  DEFAULT_NEW_DOCUMENT_WIDTH,
-} from '@/constants/canvas';
 // import RHC1Panel from '../components/panels/RHC1Panel'; // HIDDEN
 
 import { DocumentModal } from '@/components/modals/DocumentModal';
@@ -35,7 +31,11 @@ import { selectAutosaveSaveStatus } from '@/stores/selectors/stateSelectors';
 import { preloadRisographTexture } from '@/utils/risographTexture';
 import { autosaveService } from '@/utils/autosave';
 import { devLog } from '@/utils/devLog';
-import { isUserSelectableHistorySize, readLocalSettings } from '@/utils/localSettings';
+import {
+  getStoredLastDocumentSize,
+  isUserSelectableHistorySize,
+  readLocalSettings,
+} from '@/utils/localSettings';
 import { setAppFeedbackHandler } from '@/utils/appFeedback';
 // import TestPluginBrushes from '../components/TestPluginBrushes'; // TEST COMPONENT - Disabled due to render loop
 
@@ -99,9 +99,10 @@ export default function Home() {
       }
 
       if (layers.length === 0) {
+        const { width, height } = getStoredLastDocumentSize();
         newProject(
-          DEFAULT_NEW_DOCUMENT_WIDTH,
-          DEFAULT_NEW_DOCUMENT_HEIGHT,
+          width,
+          height,
           'Untitled',
           { preserveRecoverySession: true },
         );

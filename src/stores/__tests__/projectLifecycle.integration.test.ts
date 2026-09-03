@@ -6,6 +6,7 @@ import type { AppState } from '@/stores/useAppStore';
 import { exportProjectAsPNG, saveProjectToFile } from '@/utils/projectIO';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import { readLocalSettings } from '@/utils/localSettings';
 import { fileBackupService } from '@/utils/fileBackupService';
 import {
   waitForAllPendingColorCycleSaves,
@@ -169,6 +170,7 @@ const makeCustomBrush = (id: string): CustomBrush => ({
 describe('project slice lifecycle flows', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.removeItem('vessel-settings');
     mockManager.getDocument.mockReset().mockReturnValue(undefined);
     mockManager.brushes.clear();
     mockManager.brushMetadata.clear();
@@ -1672,6 +1674,7 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.autosave.hasUnsavedChanges).toBe(false);
     expect(nextState.autosave.dirtyRevision).toBe(nextState.autosave.savedRevision);
     expect(nextState.autosave.dirtyRevision).toBeGreaterThan(previousRevision);
+    expect(readLocalSettings().canvas?.lastDocumentSize).toEqual({ width: 256, height: 128 });
   });
 
   it('detaches the previous project single-file autosave target from a new project', async () => {

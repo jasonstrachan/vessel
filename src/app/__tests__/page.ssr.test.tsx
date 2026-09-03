@@ -221,6 +221,7 @@ jest.mock('@/stores/useAppStore', () => {
 describe('Home page client rendering', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.removeItem('vessel-settings');
     resetMockStore();
   });
 
@@ -273,6 +274,26 @@ describe('Home page client rendering', () => {
       expect(mockStore.newProject).toHaveBeenCalledWith(
         768,
         960,
+        'Untitled',
+        { preserveRecoverySession: true },
+      );
+    });
+  });
+
+  it('creates the startup project at the last used canvas size', async () => {
+    localStorage.setItem(
+      'vessel-settings',
+      JSON.stringify({
+        canvas: { lastDocumentSize: { width: 1280, height: 720 } },
+      }),
+    );
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mockStore.newProject).toHaveBeenCalledWith(
+        1280,
+        720,
         'Untitled',
         { preserveRecoverySession: true },
       );

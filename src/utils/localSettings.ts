@@ -1,4 +1,13 @@
+import {
+  DEFAULT_NEW_DOCUMENT_HEIGHT,
+  DEFAULT_NEW_DOCUMENT_WIDTH,
+} from '@/constants/canvas';
 import type { CanvasState, DisplayFilterConfig } from '@/types';
+
+export interface DocumentSize {
+  width: number;
+  height: number;
+}
 
 export interface VesselLocalSettings {
   autosave?: {
@@ -12,6 +21,7 @@ export interface VesselLocalSettings {
     transparencyBackgroundMode?: CanvasState['transparencyBackgroundMode'];
     frameColor?: string;
     displayFilterDefaults?: DisplayFilterConfig[];
+    lastDocumentSize?: DocumentSize;
   };
   history?: {
     maxHistorySize?: number;
@@ -70,6 +80,37 @@ export const mergeLocalSettings = (partial: VesselLocalSettings): boolean => {
     history: {
       ...(current.history ?? {}),
       ...(partial.history ?? {}),
+    },
+  });
+};
+
+const isValidDocumentDimension = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+export const getStoredLastDocumentSize = (): DocumentSize => {
+  const stored = readLocalSettings().canvas?.lastDocumentSize;
+  if (
+    stored &&
+    isValidDocumentDimension(stored.width) &&
+    isValidDocumentDimension(stored.height)
+  ) {
+    return stored;
+  }
+
+  return {
+    width: DEFAULT_NEW_DOCUMENT_WIDTH,
+    height: DEFAULT_NEW_DOCUMENT_HEIGHT,
+  };
+};
+
+export const persistLastDocumentSize = (width: number, height: number): boolean => {
+  if (!isValidDocumentDimension(width) || !isValidDocumentDimension(height)) {
+    return false;
+  }
+
+  return mergeLocalSettings({
+    canvas: {
+      lastDocumentSize: { width, height },
     },
   });
 };

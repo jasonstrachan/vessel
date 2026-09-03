@@ -25,6 +25,7 @@ describe('DocumentModal', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
+    localStorage.removeItem('vessel-settings');
   });
 
   afterEach(() => {
@@ -49,6 +50,25 @@ describe('DocumentModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Document' }));
 
     expect(mockNewProject).toHaveBeenCalledWith(768, 960);
+  });
+
+  it('defaults new documents to the last used canvas size', () => {
+    localStorage.setItem(
+      'vessel-settings',
+      JSON.stringify({
+        canvas: { lastDocumentSize: { width: 1920, height: 1080 } },
+      }),
+    );
+
+    render(<DocumentModal isOpen onClose={jest.fn()} />);
+
+    expect(
+      screen.getAllByRole('spinbutton').map((input) => (input as HTMLInputElement).value),
+    ).toEqual(['1920', '1080', '2000', '2000']);
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Document' }));
+
+    expect(mockNewProject).toHaveBeenCalledWith(1920, 1080);
   });
 
   it('selects a proportional size variant and creates that document', () => {

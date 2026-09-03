@@ -277,6 +277,7 @@ import {
   setGradientApplyStateGetter,
 } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { backgroundStorageService } from '@/utils/backgroundStorage';
+import { persistLastDocumentSize } from '@/utils/localSettings';
 import { setCcImageTileThresholdResolver } from '@/utils/colorCycle/ccPatternThreshold';
 import {
   createCcCustomTileThresholdResolver,
@@ -1369,6 +1370,30 @@ const subscribeToSequentialSettingsPersistence = (): void => {
   }
 };
 
+const subscribeToLastDocumentSizePersistence = (): void => {
+  storeSubscribeWithSelector(
+    (state) => state.project
+      ? {
+          id: state.project.id,
+          width: state.project.width,
+          height: state.project.height,
+        }
+      : null,
+    (project) => {
+      if (project) {
+        persistLastDocumentSize(project.width, project.height);
+      }
+    },
+    {
+      equalityFn: (next, previous) => (
+        next?.id === previous?.id &&
+        next?.width === previous?.width &&
+        next?.height === previous?.height
+      ),
+    },
+  );
+};
+
 const subscribeToSaveInFlightUnloadGuard = (): void => {
   if (typeof window === 'undefined') {
     return;
@@ -1461,6 +1486,7 @@ export const initializeAppStoreRuntime = (): void => {
   subscribeToWebglExportSettingsPersistence();
   hydrateSequentialSettings();
   subscribeToSequentialSettingsPersistence();
+  subscribeToLastDocumentSizePersistence();
   subscribeToSaveInFlightUnloadGuard();
 };
 
