@@ -275,6 +275,7 @@ export type ColorCycleCommitBrushContext =
       bbox?: { minX: number; minY: number; width: number; height: number },
       previewSlot?: number | null,
     ) => void;
+    getSampledStrokeDitherPrimaryBuffer?: (layerId: string) => Uint8Array | null;
   };
 
 export type ColorCycleSpeedSettingsBrushContext = {

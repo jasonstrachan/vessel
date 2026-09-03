@@ -1,5 +1,6 @@
-import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
+
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   MIN_AUTO_SAMPLE_PREVIEW_DISTANCE,
@@ -8,6 +9,7 @@ import {
 } from '@/hooks/canvas/utils/autoSampleGradient';
 import { equidistantPointsOnPolyline } from '@/hooks/canvas/handlers/brushSampling';
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
+import { resolveStampDitherSecondaryIndex } from '@/hooks/brushEngine/strokeStampDither';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
@@ -67,6 +69,7 @@ export const remapSampledStrokePaintPhase = ({
   targetSlot,
   region,
   pathPadding,
+  ditherPrimaryBuffer,
 }: {
   snapshot: ColorCyclePaintSnapshot;
   width: number;
@@ -75,6 +78,7 @@ export const remapSampledStrokePaintPhase = ({
   targetSlot: number;
   region?: CaptureRegion;
   pathPadding: number;
+  ditherPrimaryBuffer?: Uint8Array | null;
 }): ColorCyclePaintSnapshot | null => {
   const safeWidth = Math.floor(width);
   const safeHeight = Math.floor(height);
@@ -113,6 +117,9 @@ export const remapSampledStrokePaintPhase = ({
 
   const sourcePaint = new Uint8Array(snapshot.paintBuffer);
   const gradientIds = new Uint8Array(gradientIdBuffer);
+  const ditherPrimary = ditherPrimaryBuffer?.byteLength === pixelCount
+    ? ditherPrimaryBuffer
+    : null;
   const bestDistanceSq = new Float32Array(regionWidth * regionHeight);
   bestDistanceSq.fill(Number.POSITIVE_INFINITY);
   const bestPathT = new Float32Array(regionWidth * regionHeight);
@@ -186,7 +193,20 @@ export const remapSampledStrokePaintPhase = ({
         continue;
       }
       const pixelIndex = row + x;
-      const nextIndex = 1 + Math.round(clamp(bestPathT[localIndex], 0, 1) * 254);
+      const nextPrimary = 1 + Math.round(clamp(bestPathT[localIndex], 0, 1) * 254);
+      let nextIndex = nextPrimary;
+      if (ditherPrimary) {
+        const sourcePrimary = ditherPrimary[pixelIndex];
+        const sourceIndex = sourcePaint[pixelIndex];
+        if (sourcePrimary === 0) {
+          continue;
+        }
+        if (sourceIndex === resolveStampDitherSecondaryIndex(sourcePrimary)) {
+          nextIndex = resolveStampDitherSecondaryIndex(nextPrimary);
+        } else if (sourceIndex !== sourcePrimary) {
+          continue;
+        }
+      }
       if (remappedPaint[pixelIndex] !== nextIndex) {
         remappedPaint[pixelIndex] = nextIndex;
         didChange = true;

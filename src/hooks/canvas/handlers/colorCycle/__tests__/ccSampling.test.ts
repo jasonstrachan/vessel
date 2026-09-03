@@ -114,6 +114,37 @@ describe('ccSampling', () => {
     expect(remapped?.phaseBuffer).toBe(phaseBuffer);
   });
 
+  it('preserves the stamp dither pattern while remapping sampled stroke phase', () => {
+    const width = 4;
+    const primary = new Uint8Array([10, 10, 20, 20]);
+    const paint = new Uint8Array([10, 74, 20, 84]);
+    const gradientIds = new Uint8Array(width).fill(TEMP_SAMPLE_SLOT);
+
+    const remapped = remapSampledStrokePaintPhase({
+      snapshot: {
+        paintBuffer: paint.buffer,
+        gradientIdBuffer: gradientIds.buffer,
+      },
+      width,
+      height: 1,
+      points: [
+        { x: 0.5, y: 0.5 },
+        { x: 3.5, y: 0.5 },
+      ],
+      targetSlot: TEMP_SAMPLE_SLOT,
+      region: { x: 0, y: 0, width, height: 1 },
+      pathPadding: 1,
+      ditherPrimaryBuffer: primary,
+    });
+
+    expect(Array.from(new Uint8Array(remapped?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
+      1,
+      150,
+      170,
+      64,
+    ]);
+  });
+
   it('blocks sampled preview downgrades when fallback stops are richer', () => {
     const session = makeSession();
     session.fallbackStopsStored = [

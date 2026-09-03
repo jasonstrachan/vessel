@@ -852,6 +852,10 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       bindGradientDefIdToSlot: typeof commitBrush.bindGradientDefIdToSlot === 'function'
         ? commitBrush.bindGradientDefIdToSlot.bind(brush)
         : undefined,
+      getSampledStrokeDitherPrimaryBuffer:
+        typeof commitBrush.getSampledStrokeDitherPrimaryBuffer === 'function'
+          ? commitBrush.getSampledStrokeDitherPrimaryBuffer.bind(brush)
+          : undefined,
     };
     registerBrushContextPersistenceOwner(context, brush);
     commitBrushContexts.set(brush, context);

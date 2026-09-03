@@ -69,6 +69,7 @@ function createMockBrush() {
     setActiveGradientSlot: jest.fn(),
     syncGradientDefRuntime: jest.fn(),
     bindGradientDefIdToSlot: jest.fn(),
+    getSampledStrokeDitherPrimaryBuffer: jest.fn(() => new Uint8Array([1, 65])),
     getColorCycleLayerDocument: jest.fn(() => undefined),
     setUseCanvas2D: jest.fn(),
     setColorCycleLayerDocument: jest.fn(),
@@ -587,6 +588,7 @@ describe('colorCycleBrushManager integration', () => {
       'flush',
       'getCanvas',
       'getColorCycleLayerDocument',
+      'getSampledStrokeDitherPrimaryBuffer',
       'isPlaying',
       'pause',
       'presentCurrentFrameToCanvas',
@@ -610,10 +612,13 @@ describe('colorCycleBrushManager integration', () => {
     commitBrush?.commitCurrentStroke?.('layer-1');
     commitBrush?.commitToLayer?.(canvas, 'layer-1', 0.5);
     commitBrush?.bindGradientDefIdToSlot?.('layer-1', 7, 2);
+    const ditherPrimary = commitBrush?.getSampledStrokeDitherPrimaryBuffer?.('layer-1');
 
     expect(brush.commitCurrentStroke).toHaveBeenCalledWith('layer-1');
     expect(brush.commitToLayer).toHaveBeenCalledWith(canvas, 'layer-1', 0.5);
     expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith('layer-1', 7, 2);
+    expect(brush.getSampledStrokeDitherPrimaryBuffer).toHaveBeenCalledWith('layer-1');
+    expect(ditherPrimary).toEqual(new Uint8Array([1, 65]));
   });
 
   it('exposes a stable speed-settings brush facade without render or lifecycle controls', () => {

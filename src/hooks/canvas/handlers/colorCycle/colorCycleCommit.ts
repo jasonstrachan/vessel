@@ -145,6 +145,7 @@ export type ManagedColorCycleBrush = ColorCycleSurfaceBrush
     bbox?: { minX: number; minY: number; width: number; height: number },
     previewSlot?: number | null
   ) => void;
+  getSampledStrokeDitherPrimaryBuffer?: (layerId: string) => Uint8Array | null;
 };
 
 export type CommitColorCycleLayerStrokeArgs = {
@@ -788,6 +789,7 @@ export const commitColorCycleLayerStroke = async (
             targetSlot: TEMP_SAMPLE_SLOT,
             region: strokeCaptureRoi,
             pathPadding: args.strokeCapturePadding + args.roiPadding,
+            ditherPrimaryBuffer: brush.getSampledStrokeDitherPrimaryBuffer?.(targetLayerId),
           });
           if (remappedSnapshot) {
             const didApplySampledStrokePhase = strokeFinalizeProbeTimeSync(
