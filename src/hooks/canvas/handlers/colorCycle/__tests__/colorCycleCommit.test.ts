@@ -7,6 +7,7 @@ import {
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { Layer } from '@/types';
@@ -597,7 +598,9 @@ describe('commitRasterOverlay', () => {
     getStateSpy.mockRestore();
   });
 
-  it('rebinds sampled stroke commits across the full layer to prevent temp-slot leakage', async () => {
+  it.each(['hard', 'soft'] as const)(
+    'remaps sampled stroke phase and retains the %s seam through commit',
+    async (seamProfile) => {
     const layer = createLayer();
     const canvas = document.createElement('canvas');
     canvas.width = 8;
@@ -648,10 +651,16 @@ describe('commitRasterOverlay', () => {
       frozenHash: 'hash-sampled',
       binding: { kind: 'def', defId: 22, slot: 6 },
       speedCps: 0.3,
-      seamProfile: 'soft',
+      seamProfile,
+      sampledStrokePoints: [
+        { x: 2.5, y: 3.5 },
+        { x: 3.5, y: 3.5 },
+      ],
     });
 
-    const brush = makeCommittedBrush(6);
+    const brush = makeCommittedBrush(TEMP_SAMPLE_SLOT);
+    const applySnapshot = jest.fn();
+    registerColorCycleBrushLayerSnapshotRuntime(brush, { apply: applySnapshot });
 
     await commitColorCycleLayerStroke(
       {
@@ -686,8 +695,18 @@ describe('commitRasterOverlay', () => {
         { position: 0, color: '#102030' },
         { position: 1, color: '#90a0b0' },
       ],
-      'soft'
+      seamProfile
     );
+    expect(applySnapshot).toHaveBeenCalledWith(
+      layer.id,
+      expect.objectContaining({ paintBuffer: expect.any(ArrayBuffer) }),
+      undefined,
+      'sampled-stroke-path-phase',
+      undefined,
+    );
+    const remappedPaint = new Uint8Array(applySnapshot.mock.calls[0]?.[1].paintBuffer);
+    expect(remappedPaint[3 * 8 + 2]).toBe(1);
+    expect(remappedPaint[3 * 8 + 3]).toBe(255);
     expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(
       layer.id,
       22,
@@ -710,7 +729,7 @@ describe('commitRasterOverlay', () => {
           slotPalettes: [
             {
               slot: 6,
-              seamProfile: 'soft',
+              seamProfile,
               stops: [
                 expect.objectContaining({ position: 0, color: '#081018' }),
                 expect.objectContaining({ position: 0.5, color: '#506070' }),
@@ -725,7 +744,8 @@ describe('commitRasterOverlay', () => {
     expect(setCcGradientSampleCount).toHaveBeenCalledWith(0);
 
     getStateSpy.mockRestore();
-  });
+    },
+  );
 });
 
 describe('scheduleDeferredColorCycleSaveWithState', () => {

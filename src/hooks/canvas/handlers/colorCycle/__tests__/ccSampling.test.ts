@@ -1,8 +1,10 @@
 import {
   CC_SAMPLED_MAX_STOPS,
+  remapSampledStrokePaintPhase,
   resolveSampledStopsWithFallback,
   updateCcSampledSession,
 } from '../ccSampling';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 const makeSession = (): MarkGradientSession => ({
@@ -64,6 +66,52 @@ describe('ccSampling', () => {
     });
 
     expect(result).toBeNull();
+    expect(session.sampledStrokePoints).toEqual([
+      { x: 0, y: 0 },
+      { x: 40, y: 0 },
+    ]);
+  });
+
+  it('maps one sampled gradient continuously across a stroke longer than 255 stamps', () => {
+    const width = 300;
+    const paint = new Uint8Array(width);
+    const gradientIds = new Uint8Array(width).fill(TEMP_SAMPLE_SLOT);
+    for (let x = 0; x < width; x += 1) {
+      paint[x] = 1 + (x % 255);
+    }
+    gradientIds[150] = 7;
+    const speedBuffer = new Uint8Array(width).fill(27).buffer;
+    const flowBuffer = new Uint8Array(width).fill(1).buffer;
+    const phaseBuffer = new Uint8Array(width).buffer;
+
+    const remapped = remapSampledStrokePaintPhase({
+      snapshot: {
+        paintBuffer: paint.buffer,
+        gradientIdBuffer: gradientIds.buffer,
+        speedBuffer,
+        flowBuffer,
+        phaseBuffer,
+      },
+      width,
+      height: 1,
+      points: [
+        { x: 0.5, y: 0.5 },
+        { x: 299.5, y: 0.5 },
+      ],
+      targetSlot: TEMP_SAMPLE_SLOT,
+      region: { x: 0, y: 0, width, height: 1 },
+      pathPadding: 1,
+    });
+
+    const nextPaint = new Uint8Array(remapped?.paintBuffer ?? new ArrayBuffer(0));
+    expect(nextPaint[0]).toBe(1);
+    expect(nextPaint[254]).toBe(217);
+    expect(nextPaint[255]).toBe(218);
+    expect(nextPaint[299]).toBe(255);
+    expect(nextPaint[150]).toBe(paint[150]);
+    expect(remapped?.speedBuffer).toBe(speedBuffer);
+    expect(remapped?.flowBuffer).toBe(flowBuffer);
+    expect(remapped?.phaseBuffer).toBe(phaseBuffer);
   });
 
   it('blocks sampled preview downgrades when fallback stops are richer', () => {
@@ -143,6 +191,28 @@ describe('ccSampling', () => {
     expect(result?.stops).toHaveLength(CC_SAMPLED_MAX_STOPS);
     expect(session.samples).toHaveLength(CC_SAMPLED_MAX_STOPS);
   });
+
+  it.each(['hard', 'soft'] as const)(
+    'retains the %s seam profile while sampled stops update',
+    (seamProfile) => {
+      const session = makeSession();
+      session.seamProfile = seamProfile;
+
+      updateCcSampledSession({
+        session,
+        sourcePts: [
+          { x: 0, y: 0 },
+          { x: 64, y: 0 },
+        ],
+        now: 200,
+        lastUpdateRef: { current: 0 },
+        sampleColor: (x) => (x < 32 ? '#112233' : '#ddeeff'),
+        allowTiny: true,
+      });
+
+      expect(session.seamProfile).toBe(seamProfile);
+    },
+  );
 
   it('preserves fallback stops when sampled stops collapse to one color', () => {
     const fallbackStops = [

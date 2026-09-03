@@ -288,10 +288,9 @@ export const processBatchedStrokes = (
       const velocityPxPerMs = deltaMs !== null
         ? Math.max(0, Math.min(4, segmentDistance / deltaMs))
         : undefined;
-      const ccFlowVelocityPxPerMs = resolveCcFlowVelocitySignal(
-        args.ccFlowVelocityRef.current,
-        velocityPxPerMs
-      );
+      const ccFlowVelocityPxPerMs = currentState.tools.brushSettings.velocityAnimationSpeedEnabled
+        ? resolveCcFlowVelocitySignal(args.ccFlowVelocityRef.current, velocityPxPerMs)
+        : undefined;
 
       if (currentTool === 'eraser') {
         if (deps.isEraserV2) {

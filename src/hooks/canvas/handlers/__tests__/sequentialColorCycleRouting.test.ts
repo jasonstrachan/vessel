@@ -198,6 +198,7 @@ const createColorCycleBatchHarness = (options?: {
   spacing?: number;
   shouldDrawStamp?: ProcessBatchedStrokesDeps['shouldDrawStamp'];
   gridSnapSize?: number;
+  velocityAnimationSpeedEnabled?: boolean;
 }) => {
   createSequentialState();
   const spacing = options?.spacing ?? 8;
@@ -207,6 +208,7 @@ const createColorCycleBatchHarness = (options?: {
       brushSettings: {
         ...state.tools.brushSettings,
         spacing,
+        velocityAnimationSpeedEnabled: options?.velocityAnimationSpeedEnabled ?? true,
       },
     },
   }));
@@ -537,6 +539,20 @@ describe('sequential color-cycle routing', () => {
     expect(drawColorCycle).toHaveBeenCalledTimes(1);
     const forwardedOptions = drawColorCycle.mock.calls[0]?.[5];
     expect(forwardedOptions?.speedSamplePxPerMs ?? 0).toBeCloseTo(0, 4);
+  });
+
+  it('does not vary CC animation speed when the velocity toggle is off', () => {
+    const { args, deps, drawColorCycle } = createColorCycleBatchHarness({
+      batch: [{ pos: { x: 24, y: 0 }, pressure: 1, timestampMs: 1004 }],
+      velocityAnimationSpeedEnabled: false,
+    });
+
+    processBatchedStrokes(args, deps);
+
+    expect(drawColorCycle).toHaveBeenCalled();
+    expect(drawColorCycle.mock.calls.every((call) => (
+      call[5]?.speedSamplePxPerMs === undefined
+    ))).toBe(true);
   });
 
   it('keeps noisy timestamps from creating alternating speed pockets', () => {

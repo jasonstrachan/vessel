@@ -44,6 +44,7 @@ export type MarkGradientSession = {
   fallbackStopsStored?: StoredStop[];
   samples?: Array<{ t01: number; rgba: [number, number, number, number] }>;
   sampledRepresentativeColor?: string;
+  sampledStrokePoints?: Array<{ x: number; y: number }>;
   ditherRenderConfig?: FrozenCcDitherRenderConfig;
 };
 
