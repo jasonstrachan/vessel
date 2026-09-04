@@ -17,7 +17,7 @@ import {
   buildColorAdjustSessionTargets,
 } from '@/stores/helpers/colorAdjustSession';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
-import { applyColorAdjustments } from '@/utils/imageProcessing';
+import { applyColorAdjustments, rgbToHsl } from '@/utils/imageProcessing';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { bindBrushToCanvas, refreshLayerCCSurface } from '@/hooks/brushEngine/colorCycleSurface';
@@ -38,6 +38,7 @@ import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { writeColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { hashStops as hashColorCycleDefStops } from '@/utils/colorCycleGradientDefs';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { OKLabConverter } from '@/lib/colorCycle/colorSpace/OKLabConverter';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -300,11 +301,73 @@ const applyColorAdjustmentsToColor = (
 const applyColorAdjustmentsToGradient = (
   stops: ColorCycleGradientStop[],
   params: ColorAdjustParams
-): ColorCycleGradientStop[] =>
-  stops.map((stop) => ({
+): ColorCycleGradientStop[] => {
+  const adjustedStops = stops.map((stop) => ({
     ...stop,
-    color: applyColorAdjustmentsToColor(stop.color, params),
+    color: applyColorAdjustmentsToColor(stop.color, {
+      ...params,
+      contrast: 0,
+    }),
   }));
+
+  if (params.contrast === 0 || adjustedStops.length < 2) {
+    return adjustedStops;
+  }
+
+  const normalizedRangeStart = ((params.hueRangeStart % 360) + 360) % 360;
+  const normalizedRangeEnd = ((params.hueRangeEnd % 360) + 360) % 360;
+  const shouldAdjustStop = (stop: ColorCycleGradientStop): boolean => {
+    if (!params.hueRangeEnabled) {
+      return true;
+    }
+    const parsed = parseCssColor(stop.color, { r: 255, g: 255, b: 255, a: 255 });
+    const [hue] = rgbToHsl(parsed.r, parsed.g, parsed.b);
+    if (normalizedRangeStart <= normalizedRangeEnd) {
+      return hue >= normalizedRangeStart && hue <= normalizedRangeEnd;
+    }
+    return hue >= normalizedRangeStart || hue <= normalizedRangeEnd;
+  };
+
+  const colors = adjustedStops.map((stop) => {
+    const parsed = parseCssColor(stop.color, { r: 255, g: 255, b: 255, a: 255 });
+    return {
+      parsed,
+      oklab: OKLabConverter.rgbToOKLab(parsed),
+    };
+  });
+  const uniqueInkColors = Array.from(new Map(colors.map((color) => [
+    `${color.parsed.r},${color.parsed.g},${color.parsed.b}`,
+    color,
+  ])).values());
+  const center = uniqueInkColors.reduce(
+    (sum, color) => ({
+      L: sum.L + color.oklab.L / uniqueInkColors.length,
+      a: sum.a + color.oklab.a / uniqueInkColors.length,
+      b: sum.b + color.oklab.b / uniqueInkColors.length,
+    }),
+    { L: 0, a: 0, b: 0 },
+  );
+  const factor = Math.max(0, Math.min(2, 1 + params.contrast / 100));
+
+  return adjustedStops.map((stop, index) => {
+    if (!shouldAdjustStop(stops[index] ?? stop)) {
+      return stop;
+    }
+    const color = colors[index];
+    if (!color) {
+      return stop;
+    }
+    const rgb = OKLabConverter.oklabToRGB({
+      L: center.L + (color.oklab.L - center.L) * factor,
+      a: center.a + (color.oklab.a - center.a) * factor,
+      b: center.b + (color.oklab.b - center.b) * factor,
+    });
+    return {
+      ...stop,
+      color: colorToCss(rgb.r, rgb.g, rgb.b, color.parsed.a),
+    };
+  });
+};
 
 const buildAdjustedColorCycleData = (
   original: Layer['colorCycleData'],

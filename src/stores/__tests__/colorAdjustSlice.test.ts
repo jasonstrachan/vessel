@@ -590,6 +590,90 @@ describe('colorAdjustSlice preview performance path', () => {
     ]);
   });
 
+  it('adjusts contrast between inks around each color-cycle gradient center', () => {
+    const layer = createColorCycleRecolorLayerWithDefStore('cc-ink-contrast', [
+      { position: 0, color: 'rgb(32, 32, 32)' },
+      { position: 1, color: 'rgb(64, 64, 64)' },
+    ]);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      gradientDefStore: [
+        ...(layer.colorCycleData?.gradientDefStore ?? []),
+        {
+          id: 2,
+          kind: 'linear',
+          stops: [
+            { position: 0, color: 'rgb(192, 192, 192)' },
+            { position: 1, color: 'rgb(224, 224, 224)' },
+          ],
+          hash: 'light-gradient-def',
+          source: 'manual',
+          createdAtMs: 0,
+          slot: 1,
+        },
+      ],
+    };
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ contrast: 50 });
+    store.previewColorAdjust();
+
+    const definitions = useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore ?? [];
+    const darkValues = definitions[0]?.stops.map((stop) => parseCssColor(stop.color).r) ?? [];
+    const lightValues = definitions[1]?.stops.map((stop) => parseCssColor(stop.color).r) ?? [];
+
+    expect(darkValues[0]).toBeLessThan(32);
+    expect(darkValues[1]).toBeGreaterThan(64);
+    expect(lightValues[0]).toBeLessThan(192);
+    expect(lightValues[1]).toBeGreaterThan(224);
+    expect(Math.abs(((darkValues[0] ?? 0) + (darkValues[1] ?? 0)) / 2 - 48)).toBeLessThanOrEqual(1);
+    expect(Math.abs(((lightValues[0] ?? 0) + (lightValues[1] ?? 0)) / 2 - 208)).toBeLessThanOrEqual(1);
+  });
+
+  it('compresses color-cycle inks without applying fixed-midpoint pixel contrast', () => {
+    const layer = createColorCycleLayer('cc-ink-compression', [
+      { position: 0, color: 'rgb(32, 32, 32)' },
+      { position: 1, color: 'rgb(64, 64, 64)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ contrast: -50 });
+    store.previewColorAdjust();
+
+    const stops = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
+    const values = stops.map((stop) => parseCssColor(stop.color).r);
+
+    expect(values[0]).toBeGreaterThan(32);
+    expect(values[1]).toBeLessThan(64);
+    expect((values[1] ?? 0) - (values[0] ?? 0)).toBeLessThan(32);
+    expect(Math.abs(((values[0] ?? 0) + (values[1] ?? 0)) / 2 - 48)).toBeLessThanOrEqual(1);
+  });
+
+  it('does not weight a repeated cyclic endpoint as an extra color-cycle ink', () => {
+    const layer = createColorCycleLayer('cc-repeated-endpoint', [
+      { position: 0, color: 'rgb(32, 32, 32)' },
+      { position: 0.5, color: 'rgb(64, 64, 64)' },
+      { position: 1, color: 'rgb(32, 32, 32)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ contrast: -100 });
+    store.previewColorAdjust();
+
+    const stops = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
+    const values = stops.map((stop) => parseCssColor(stop.color).r);
+
+    expect(new Set(values).size).toBe(1);
+    expect(values[0]).toBeGreaterThanOrEqual(47);
+    expect(values[0]).toBeLessThanOrEqual(50);
+  });
+
   it('applies hue-range targeting to raster previews using the current selection bounds', () => {
     const base = new ImageData(2, 1);
     base.data.set([
