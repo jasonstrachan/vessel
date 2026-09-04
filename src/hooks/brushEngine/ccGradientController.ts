@@ -1,7 +1,7 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { Layer } from '@/types';
-import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { buildCcDitherRuntimePalette, resolveCcDitherInkMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops } from '@/utils/colorCycleGradientDefs';
 import {
   allocateNextColorCycleDefId,
@@ -96,7 +96,7 @@ const resolveRuntimeStopsForEdit = ({
   const runtimeStops = shouldUseDitherRuntime
     ? buildCcDitherRuntimePalette({
         baseStops,
-        bands: resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount,
+        bands: resolveCcDitherInkMode(brushSettings).pairBandCount,
         spread: brushSettings.ditherPaletteSpread,
         algorithm: brushSettings.ditherAlgorithm,
         useDitherRenderPalette: brushSettings.ccFlatCycleDither !== true,

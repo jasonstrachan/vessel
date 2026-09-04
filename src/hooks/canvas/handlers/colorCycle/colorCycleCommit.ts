@@ -31,6 +31,7 @@ import {
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import { resolveCcDitherInkColorCount } from '@/utils/colorCycle/ccDitherRenderPalette';
 import {
   allocateNextColorCycleDefId,
   EXHAUSTED_COLOR_CYCLE_DEF_ID,
@@ -790,7 +791,7 @@ export const commitColorCycleLayerStroke = async (
             region: strokeCaptureRoi,
             pathPadding: args.strokeCapturePadding + args.roiPadding,
             ditherPrimaryBuffer: brush.getSampledStrokeDitherPrimaryBuffer?.(targetLayerId),
-            ditherBandCount: args.brushSettings.gradientBands,
+            ditherBandCount: resolveCcDitherInkColorCount(args.brushSettings),
           });
           if (remappedSnapshot) {
             const didApplySampledStrokePhase = strokeFinalizeProbeTimeSync(

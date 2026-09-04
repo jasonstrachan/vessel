@@ -38,7 +38,12 @@ import {
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
-import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import {
+  buildCcDitherRuntimePalette,
+  resolveCcDitherBandMode,
+  resolveCcDitherInkColorCount,
+  resolveCcDitherInkMode,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
 import { resolveColorCycleGradientSource } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
 import { getPreviewGradientForActiveMark } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
@@ -410,7 +415,7 @@ const normalizePreparedPreviewStops = (
 
 const buildCcShapePreviewGradientCacheKey = ({
   effectiveStops,
-  gradientBands,
+  inkColors,
   ditherPaletteSpread,
   ditherAlgorithm,
   patternStyle,
@@ -427,7 +432,7 @@ const buildCcShapePreviewGradientCacheKey = ({
   fillBackground,
 }: {
   effectiveStops: StoredStop[];
-  gradientBands: number;
+  inkColors: number;
   ditherPaletteSpread?: number;
   ditherAlgorithm?: DitherAlgorithm;
   patternStyle?: PatternStyle;
@@ -446,7 +451,7 @@ const buildCcShapePreviewGradientCacheKey = ({
   const stopHash = hashStops(effectiveStops, 'linear');
   return [
     stopHash,
-    `bands:${Math.round(gradientBands) || 0}`,
+    `inks:${Math.round(inkColors) || 0}`,
     `spread:${Math.round(ditherPaletteSpread ?? 0)}`,
     `algo:${ditherAlgorithm ?? 'sierra-lite'}`,
     `pattern:${patternStyle ?? 'dots'}`,
@@ -465,7 +470,7 @@ const buildCcShapePreviewGradientCacheKey = ({
 const prepareCcShapePreviewGradient = ({
   effectiveStops,
   shouldDitherPreview,
-  gradientBands,
+  inkColors,
   ditherPaletteSpread,
   ditherAlgorithm,
   preserveSourceStops,
@@ -474,7 +479,7 @@ const prepareCcShapePreviewGradient = ({
 }: {
   effectiveStops: StoredStop[];
   shouldDitherPreview: boolean;
-  gradientBands: number;
+  inkColors: number;
   ditherPaletteSpread?: number;
   ditherAlgorithm?: DitherAlgorithm;
   preserveSourceStops: boolean;
@@ -484,7 +489,7 @@ const prepareCcShapePreviewGradient = ({
   const renderStops = shouldDitherPreview || !useDitherRenderPalette
     ? buildCcDitherRuntimePalette({
         baseStops: effectiveStops,
-        bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
+        bands: resolveCcDitherBandMode(inkColors).pairBandCount,
         spread: ditherPaletteSpread,
         algorithm: ditherAlgorithm,
         preserveSourceStops,
@@ -3147,7 +3152,7 @@ export const createShapeToolHandler = (
             const effectiveStops = stops ?? [];
             const preserveSourceStops =
               ccPreview?.source === 'sampled' &&
-              resolveCcDitherBandMode(brushNow.gradientBands ?? 16).pairBandCount <= 0;
+              resolveCcDitherInkMode(brushNow).pairBandCount <= 0;
             const foregroundDerivedKey = derivedSpec
               ? [
                   fgBaseColor,
@@ -3171,7 +3176,7 @@ export const createShapeToolHandler = (
                 basePixelSize)
               : basePixelSize;
             const pixelSize = Math.max(1, Math.round(pressurePixelSize || basePixelSize));
-            const levels = Math.max(1, Math.min(16, Math.round(brushNow.gradientBands ?? 16)));
+            const levels = resolveCcDitherInkColorCount(brushNow);
             const isClickLinePreview =
               isColorCycleGradientPreset &&
               tools.shapeMode &&
@@ -3298,7 +3303,7 @@ export const createShapeToolHandler = (
                 : (() => {
                     const preparedGradientKey = buildCcShapePreviewGradientCacheKey({
                       effectiveStops,
-                      gradientBands: brushNow.gradientBands ?? 16,
+                      inkColors: resolveCcDitherInkColorCount(brushNow),
                       ditherPaletteSpread: brushNow.ditherPaletteSpread,
                       ditherAlgorithm: brushNow.ditherAlgorithm,
                       patternStyle: brushNow.patternStyle,
@@ -3325,7 +3330,7 @@ export const createShapeToolHandler = (
                             // weave already encodes the dither texture.
                             shouldDitherPreview:
                               shouldDitherPreview,
-                            gradientBands: brushNow.gradientBands ?? 16,
+                            inkColors: resolveCcDitherInkColorCount(brushNow),
                             ditherPaletteSpread: brushNow.ditherPaletteSpread,
                             ditherAlgorithm: brushNow.ditherAlgorithm,
                             preserveSourceStops,

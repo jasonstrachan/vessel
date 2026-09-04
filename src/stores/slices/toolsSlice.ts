@@ -55,6 +55,10 @@ import { scaledBrushCache } from '@/utils/scaledBrushCache';
 import { adjustHueLightnessSaturation } from '@/utils/imageProcessing';
 import { debugLog } from '@/utils/debug';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
+import {
+  MAX_CC_DITHER_INK_COLORS,
+  resolveCcDitherInkColorCount,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
 import { sanitizeAuthoredBrushColorCycleSpeed } from '@/utils/colorCycleSpeed';
 import { createDefaultColorAdjustState } from '@/stores/slices/colorAdjustSlice';
 import {
@@ -72,7 +76,7 @@ type RecolorSamplingState = AppState['recolorSampling'];
 const initialBrushPreset = mosaicBrushPreset;
 const { settings: defaultPresetSettings } = applyBrushPreset(initialBrushPreset);
 const DITHER_BRUSH_IDS = ['dither-stroke', 'dither-shape'];
-const DITHER_ALWAYS_ON_BRUSH_IDS = [...DITHER_BRUSH_IDS, 'dither-grad', 'color-cycle-flat-dither'];
+const DITHER_ALWAYS_ON_BRUSH_IDS = [...DITHER_BRUSH_IDS, 'dither-grad'];
 const BRUSH_SPECIFIC_DITHER_PATTERN_IDS = ['dither-stroke', 'dither-shape', 'dither-grad'];
 
 const clampColorCycleLayerSpeedScale = (scale: unknown): number | null => {
@@ -289,6 +293,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   colorCycleFillMode: settings.colorCycleFillMode,
   ccGradientDrawingShape: settings.ccGradientDrawingShape,
   gradientBands: settings.gradientBands,
+  ccDitherInkColors: settings.ccDitherInkColors,
   gradientLength: settings.gradientLength,
   colorCycleBandSpacingPx: settings.colorCycleBandSpacingPx,
   ccGradientSource: settings.ccGradientSource,
@@ -615,6 +620,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     if (settings.colorCycleSpeed !== undefined) {
       settings.colorCycleSpeed = sanitizeAuthoredBrushColorCycleSpeed(settings.colorCycleSpeed);
     }
+    if (settings.ccDitherInkColors !== undefined) {
+      settings.ccDitherInkColors = resolveCcDitherInkColorCount(settings);
+    }
 
     let incomingCustomPercent: number | undefined;
     if (Object.prototype.hasOwnProperty.call(settings, 'customBrushSizePercent')) {
@@ -834,7 +842,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
          : null);
     const isCurrentColorCycleBrush = Boolean(currentBrushId && isColorCyclePresetId(currentBrushId));
 
-    // The dedicated dither brush should never disable dithering
+    // Dedicated regular dither brushes should never disable dithering.
     if (DITHER_ALWAYS_ON_BRUSH_IDS.includes(currentBrushId ?? '') && newSettings.ditherEnabled !== true) {
       newSettings = { ...newSettings, ditherEnabled: true };
     }
@@ -1140,6 +1148,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.gradientBands !== undefined) {
         settingsToSave.gradientBands = newSettings.gradientBands;
+      }
+      if (settings.ccDitherInkColors !== undefined) {
+        settingsToSave.ccDitherInkColors = newSettings.ccDitherInkColors;
+        if (isCcGradientPreset(currentBrushId)) {
+          settingsToSave.gradientBands = newSettings.gradientBands;
+        }
       }
       if (settings.gradientLength !== undefined) {
         settingsToSave.gradientLength = newSettings.gradientLength;
@@ -2099,7 +2113,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     }
 
-    // Keep dithering always enabled for the dedicated dither brush
+    // Keep dithering always enabled for dedicated regular dither brushes.
     if (DITHER_ALWAYS_ON_BRUSH_IDS.includes(preset.id)) {
       newBrushSettings.ditherEnabled = true;
     }
@@ -2861,6 +2875,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     set((state) => {
       const existingSettings = state.brushSpecificSettings[brushId] || {};
       const newSettings = { ...existingSettings, ...settings };
+      if (newSettings.ccDitherInkColors !== undefined) {
+        newSettings.ccDitherInkColors = resolveCcDitherInkColorCount(newSettings);
+      }
       sanitizeBrushSpecificDitherPatternSettings(brushId, newSettings);
       if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
         newSettings.colorCycleFlowMode = 'forward';
@@ -2883,6 +2900,22 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     const normalized = normalizePersistedBrushSettings({
       ...loadedSettings,
     }) as Partial<BrushSettings> & { colorCycleFlowForward?: boolean };
+
+    if (
+      brushId === 'color-cycle-gradient' &&
+      normalized.ccDitherInkColors === undefined &&
+      typeof normalized.gradientBands === 'number' &&
+      Number.isFinite(normalized.gradientBands)
+    ) {
+      normalized.ccDitherInkColors = Math.max(
+        1,
+        Math.min(MAX_CC_DITHER_INK_COLORS, Math.round(normalized.gradientBands)),
+      );
+      delete normalized.gradientBands;
+    }
+    if (normalized.ccDitherInkColors !== undefined) {
+      normalized.ccDitherInkColors = resolveCcDitherInkColorCount(normalized);
+    }
 
     delete (normalized as Partial<BrushSettings> & { ccGradientSamplePerShape?: unknown }).ccGradientSamplePerShape;
     sanitizeBrushSpecificDitherPatternSettings(brushId, normalized);

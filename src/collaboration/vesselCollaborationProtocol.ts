@@ -122,6 +122,7 @@ interface VesselCollaborationSetBrushOperation {
     pxlEdge?: boolean;
     colorCycleSpeed?: number;
     gradientBands?: number;
+    ccDitherInkColors?: number;
     ccFlatCycleDither?: boolean;
     ccFlatCycleBands?: number;
     colorCycleFillMode?: 'concentric' | 'linear' | 'stroke';
@@ -500,6 +501,7 @@ export interface VesselCollaborationResult {
       pxlEdge: boolean;
       colorCycleSpeed: number | null;
       gradientBands: number | null;
+      ccDitherInkColors: number | null;
       ccFlatCycleBands: number;
       colorCycleFillMode: string | null;
       ccGradientDrawingShape: string | null;
@@ -868,6 +870,7 @@ const readBrushSettings = (value: unknown) => {
     'pxlEdge',
     'colorCycleSpeed',
     'gradientBands',
+    'ccDitherInkColors',
     'ccFlatCycleDither',
     'ccFlatCycleBands',
     'colorCycleFillMode',
@@ -1057,6 +1060,14 @@ const readBrushSettings = (value: unknown) => {
       'settings.gradientBands',
       1,
       128,
+    );
+  }
+  if (value.ccDitherInkColors !== undefined) {
+    settings.ccDitherInkColors = requireIntegerInRange(
+      value.ccDitherInkColors,
+      'settings.ccDitherInkColors',
+      1,
+      16,
     );
   }
   if (value.ccFlatCycleBands !== undefined) {

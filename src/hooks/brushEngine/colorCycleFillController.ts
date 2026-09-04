@@ -3,6 +3,8 @@ import {
   type BrushSettings,
   type ColorCycleSampledMotion,
 } from '@/types';
+import { resolveCcDitherInkColorCount } from '@/utils/colorCycle/ccDitherRenderPalette';
+
 import { applyColorCycleBrushSettingsPatch } from './colorCycleBrushSettingsController';
 import type { ColorCycleSettingsPatchBrush } from './colorCycleBrushSettingsPatch';
 import type { GradientDitherOptions, Point2D } from './shapeTypes';
@@ -54,6 +56,7 @@ type SharedArgs<TBrush extends ColorCycleFillBrush> = {
     BrushSettings,
     | 'ditherEnabled'
     | 'gradientBands'
+    | 'ccDitherInkColors'
     | 'brushShape'
     | 'gridSnapEnabled'
     | 'gridSnapSize'
@@ -125,9 +128,7 @@ const resolveFillSettings = ({
       : brushSettings.spacing ?? defaultBandSpacing
   );
   const ditherLevels = wantDither
-    // Preserve the configured CC gradient resolution so playback does not
-    // visually collapse into a small number of animated color steps.
-    ? Math.max(1, Math.min(254, Math.round(brushSettings.gradientBands ?? 16)))
+    ? resolveCcDitherInkColorCount(brushSettings)
     : undefined;
   const ditherBackgroundFill = brushSettings.ditherGradBgFill ?? brushSettings.ditherBackgroundFill;
   const ditherFlatCycle = wantDither && brushSettings.ccFlatCycleDither === true;

@@ -1702,8 +1702,9 @@ export interface BrushSettings {
   autoSampleGradient?: boolean; // When true, sample up to 5 colors across stroke/shape from canvas
   autoSampleGradientRealtime?: boolean; // When true, continuously sample gradient while drawing (Color Cycle Gradient)
   
-  // Gradient bands/steps for both strokes and fills
-  gradientBands?: number; // 2-50 (number of color steps in gradients)
+  // Source-gradient bands/steps for both strokes and fills
+  gradientBands?: number; // 1-128 source-gradient resolution
+  ccDitherInkColors?: number; // 1-16 derived dither ink colors for CC Tonal Dither
   
   // Polygon settings
   polygonSides?: number; // 3-12 (number of sides for polygon)

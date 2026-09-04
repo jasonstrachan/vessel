@@ -4,6 +4,8 @@ import {
   buildCcDitherRenderPalette,
   buildCcDitherRuntimePalette,
   resolveCcDitherBandMode,
+  resolveCcDitherInkColorCount,
+  resolveCcDitherInkMode,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { resolveFlatInkSetForPosition } from '@/utils/colorCycle/ccFlatModePatterns';
 
@@ -18,6 +20,20 @@ describe('resolveCcDitherBandMode', () => {
       quantLevels: 2,
     });
     expect(resolveCcDitherBandMode(4)).toEqual({
+      pairBandCount: 3,
+      quantLevels: 4,
+    });
+  });
+});
+
+describe('CC dither ink settings', () => {
+  it('defaults and clamps the dedicated ink count independently of gradient bands', () => {
+    expect(resolveCcDitherInkColorCount({})).toBe(16);
+    expect(resolveCcDitherInkColorCount({ gradientBands: 64 })).toBe(64);
+    expect(resolveCcDitherInkColorCount({ ccDitherInkColors: 9 })).toBe(9);
+    expect(resolveCcDitherInkColorCount({ ccDitherInkColors: 99 })).toBe(16);
+    expect(resolveCcDitherInkColorCount({ ccDitherInkColors: 0 })).toBe(1);
+    expect(resolveCcDitherInkMode({ ccDitherInkColors: 4 })).toEqual({
       pairBandCount: 3,
       quantLevels: 4,
     });

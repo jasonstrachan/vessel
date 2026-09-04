@@ -200,7 +200,11 @@ jest.mock('@/components/ui/GradientEditor', () => ({
 
 jest.mock('@/presets/brushPresets', () => ({
   __esModule: true,
-  getPresetCapabilities: jest.fn(() => ({ components: [] })),
+  getPresetCapabilities: jest.fn((id?: string | null) => (
+    id?.startsWith('color-cycle-')
+      ? { canDither: true }
+      : { components: [] }
+  )),
   isCcGradientPreset: (id?: string | null) =>
     id === 'color-cycle-gradient' || id === 'color-cycle-flat-dither',
 }));
@@ -681,6 +685,27 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     });
 
     expect(useAppStore.getState().tools.brushSettings.ditherPatternDiversity).toBe(24);
+  });
+
+  it('turns stamp dithering off for the CC stroke brush family', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleStampDitherEnabled: true,
+        },
+      },
+    }));
+
+    render(<BrushControls />);
+    const toggle = document.getElementById('stamp-dither-color-cycle') as HTMLInputElement | null;
+    expect(toggle).toBeChecked();
+
+    fireEvent.click(toggle!);
+
+    expect(useAppStore.getState().tools.brushSettings.colorCycleStampDitherEnabled).toBe(false);
   });
 
   it('does not force stamp dither resolution back to 6 when enabling pressure-linked mode', async () => {
@@ -1346,7 +1371,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(document.getElementById('rotation-enabled-color-cycle')).toBeInTheDocument();
   });
 
-  it('shows and applies the CC gradient Colors slider when concentric dither is off', () => {
+  it('shows and applies the CC gradient Inks slider without changing gradient bands', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
@@ -1359,6 +1384,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
           colorCycleFillMode: 'concentric',
           ditherEnabled: false,
           gradientBands: 7,
+          ccDitherInkColors: 7,
         },
       },
       brushPresets: [{ id: 'color-cycle-gradient', name: 'CC Gradient' } as AppState['brushPresets'][number]],
@@ -1366,13 +1392,15 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     }));
 
     render(<BrushControls />);
-    const slider = screen.getByLabelText('CC Tonal Dither Colors');
+    expect(screen.getByText('Inks')).toBeInTheDocument();
+    const slider = screen.getByLabelText('CC Tonal Dither Ink Colors');
     expect(slider).toBeInTheDocument();
     expect(screen.queryByLabelText('Dither Pattern Diversity')).not.toBeInTheDocument();
 
     fireEvent.change(slider, { target: { value: '11' } });
 
-    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(11);
+    expect(useAppStore.getState().tools.brushSettings.ccDitherInkColors).toBe(11);
+    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(7);
   });
 
   it('shows ink spread inside the CC gradient dither controls', () => {
@@ -1464,7 +1492,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     });
   });
 
-  it('shows sampled Colors without tonal Colors in the CC Fixed Dither brush settings', () => {
+  it('shows and turns off dithering in the CC Fixed Dither brush settings', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
@@ -1488,7 +1516,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
 
     render(<BrushControls />);
 
-    expect(screen.queryByLabelText('CC Tonal Dither Colors')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('CC Tonal Dither Ink Colors')).not.toBeInTheDocument();
     const colorsSlider = screen.getByLabelText('CC Fixed Dither Sample Colors');
     expect(colorsSlider).toHaveValue('12');
     expect(screen.queryByText('Always on')).not.toBeInTheDocument();
@@ -1502,6 +1530,14 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     fireEvent.change(colorsSlider, { target: { value: '5' } });
 
     expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(5);
+
+    const ditherToggle = screen.getByText('Dither').parentElement?.querySelector('input');
+    expect(ditherToggle).toBeChecked();
+    fireEvent.click(ditherToggle!);
+
+    expect(useAppStore.getState().tools.brushSettings.ditherEnabled).toBe(false);
+    expect(screen.queryByLabelText('Ink Spread')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Flat Cycle Banding')).not.toBeInTheDocument();
   });
 
   it('hides sampled Colors outside Sample mode for CC Fixed Dither', () => {

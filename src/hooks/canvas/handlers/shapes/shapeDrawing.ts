@@ -81,7 +81,7 @@ import {
 import { SHAPE_PREVIEW_OPACITY } from '@/hooks/canvas/handlers/shapes/shapePreviewOpacity';
 import {
   buildCcDitherRuntimePalette,
-  resolveCcDitherBandMode,
+  resolveCcDitherInkMode,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { discardAbandonedSampledShapeTempPixels } from '@/hooks/canvas/handlers/shapes/sampledShapeTempSlotOwnership';
 import { sampleShapeGradientFromCanvases } from '@/workers/colorCycleFillClient';
@@ -310,7 +310,7 @@ const resolveCcDirectionPreviewStops = (state: AppState): PreviewGradientStop[] 
   const activeLayer = resolveCapturedShapeFinalizeLayer(state, state.activeLayerId ?? null);
   const activeSession = activeLayer?.id ? getActiveMarkGradientSession(activeLayer.id) : null;
   const brushSettings = state.tools.brushSettings;
-  const ditherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
+  const ditherMode = resolveCcDitherInkMode(brushSettings);
   // Flat-cycle's color ramp is smooth; the pair-band render palette would draw
   // alternating low/high stops as ripples, so preview the base gradient instead.
   const isDitherPreviewEnabled = Boolean(brushSettings.ditherEnabled);

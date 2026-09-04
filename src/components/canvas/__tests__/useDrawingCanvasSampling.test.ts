@@ -139,4 +139,34 @@ describe('useDrawingCanvasSampling', () => {
     imageData.data.set([68, 170, 102, 255], (1 * imageData.width + 1) * 4);
     expect(result.current.sampleColorAtPosition(1, 1)).toBe('#44aa66');
   });
+
+  it('samples persisted pixels from a hidden regular reference with a blank framebuffer', () => {
+    const referenceRaster = createCanvas('#123456');
+    const imageData = referenceRaster.getContext('2d')!.getImageData(0, 0, 2, 2);
+    const layer: Layer = {
+      id: 'regular-reference',
+      name: 'Regular Reference',
+      visible: false,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData,
+      framebuffer: createCanvas('rgba(0, 0, 0, 0)'),
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'normal',
+    };
+    const compositeCanvasRef = { current: createCanvas('#ffffff') };
+    const lastSampleRef = createLastSampleRef();
+
+    const { result } = renderHook(() => useDrawingCanvasSampling({
+      compositeCanvasRef,
+      lastSampleRef,
+      layers: [layer],
+      referenceLayerId: layer.id,
+      preferReferenceSampling: true,
+    }));
+
+    expect(result.current.sampleColorAtPosition(1, 1)).toBe('#123456');
+  });
 });

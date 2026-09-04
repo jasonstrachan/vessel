@@ -635,6 +635,7 @@ const readState = () => {
       pxlEdge: brush.pxlEdge === true,
       colorCycleSpeed: brush.colorCycleSpeed ?? null,
       gradientBands: brush.gradientBands ?? null,
+      ccDitherInkColors: brush.ccDitherInkColors ?? null,
       ccFlatCycleBands: brush.ccFlatCycleBands ?? 0,
       colorCycleFillMode: brush.colorCycleFillMode ?? null,
       ccGradientDrawingShape: brush.ccGradientDrawingShape ?? null,

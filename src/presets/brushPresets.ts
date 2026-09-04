@@ -20,12 +20,12 @@ export const BRUSH_PRESET_CAPABILITIES: Record<string, BrushCapabilities> = {
   'dither-stroke': { canDither: true, forceDither: true },
   'dither-shape': { canDither: true, forceDither: true },
   'dither-grad': { canDither: true, forceDither: true },
-  'checkered': { canDither: false },
-  'color-cycle-stroke': { canDither: false },
-  'color-cycle-shape': { canDither: false },
-  'color-cycle-triangle': { canDither: false },
-  'color-cycle-gradient': { canDither: false },
-  'color-cycle-flat-dither': { canDither: false, forceDither: true },
+  'checkered': { canDither: true },
+  'color-cycle-stroke': { canDither: true },
+  'color-cycle-shape': { canDither: true },
+  'color-cycle-triangle': { canDither: true },
+  'color-cycle-gradient': { canDither: true },
+  'color-cycle-flat-dither': { canDither: true },
   'shape-fill': { canDither: false },
 };
 
@@ -799,6 +799,7 @@ export const colorCycleGradientBrushPreset: BrushPreset = {
     colorCycleSpeed: DEFAULT_BRUSH_COLOR_CYCLE_SPEED,
     colorCycleFPS: 30,
     gradientBands: 64,
+    ccDitherInkColors: 16,
     colorCycleUseForegroundGradient: false,
     colorCycleFgLightness: 50,
     colorCycleFgVariance: 0,
@@ -849,9 +850,9 @@ export const colorCycleFlatDitherBrushComponents: BrushComponent[] = [
   }
 ];
 
-// Always-dithered CC gradient variant: the dither texture stays at a constant
-// 50/50 mix while the ink pair slides with the smooth gradient position, so
-// color cycling flows through a fixed pattern (like dither-off, but textured).
+// Fixed-pattern CC gradient variant: while dithering is enabled, the texture
+// stays at a constant 50/50 mix as the ink pair slides with the smooth gradient
+// position. Dithering remains user-toggleable like the other CC brushes.
 export const colorCycleFlatDitherArtworkProfile: BrushArtworkProfile = {
   schemaVersion: 1,
   markType: 'shape',

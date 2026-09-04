@@ -127,6 +127,7 @@ describe('tools slice', () => {
       colorCycleGradientSeamProfile: 'soft',
       velocityAnimationSpeedEnabled: true,
       fillResolution: 9,
+      ccDitherInkColors: 7,
       pressureLinkedFillResolution: true,
       pressureLinkedFillMaxResolution: 21,
     });
@@ -141,6 +142,7 @@ describe('tools slice', () => {
         colorCycleGradientSeamProfile: 'soft',
         velocityAnimationSpeedEnabled: true,
         fillResolution: 9,
+        ccDitherInkColors: 7,
         pressureLinkedFillResolution: true,
         pressureLinkedFillMaxResolution: 21,
       })

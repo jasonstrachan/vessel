@@ -12,7 +12,7 @@ import type { DeferredSaveWithStateArgs } from '@/hooks/canvas/handlers/colorCyc
 import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
 import { useAppStore } from '@/stores/useAppStore';
 import { ensureForegroundGradientSlot } from '@/utils/colorCycleGradients';
-import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { resolveCcDitherInkMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import {
   applyRuntimeToBrush,
   flushGradientApply,
@@ -321,7 +321,7 @@ const resolveShapeFinalizeDitherOptions = ({
   roi: DeferredSaveWithStateArgs['roi'] | undefined;
   skipPostRender: true;
 } => {
-  const ccDitherMode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
+  const ccDitherMode = resolveCcDitherInkMode(brushSettings);
   return {
     ditherPixelSize,
     ditherLevels: brushSettings.ditherEnabled ? ccDitherMode.quantLevels : undefined,
@@ -473,7 +473,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
       algorithm: initialSettings.ditherAlgorithm ?? null,
       levels: initialSettings.ditherEnabled
-        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        ? resolveCcDitherInkMode(initialSettings).quantLevels
         : null,
       colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
       incrementFinalizeCount: true,
@@ -500,7 +500,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
       algorithm: initialSettings.ditherAlgorithm ?? null,
       levels: initialSettings.ditherEnabled
-        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        ? resolveCcDitherInkMode(initialSettings).quantLevels
         : null,
       colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
     });
@@ -557,7 +557,7 @@ export const finalizeColorCycleShapeFillLinear = async (
       source: renderSession?.source ?? args.session?.source ?? postFillSettings.ccGradientSource ?? null,
       algorithm: postFillSettings.ditherAlgorithm ?? null,
       levels: postFillSettings.ditherEnabled
-        ? resolveCcDitherBandMode(postFillSettings.gradientBands ?? 16).quantLevels
+        ? resolveCcDitherInkMode(postFillSettings).quantLevels
         : null,
       colors: typeof postFillSettings.colors === 'number' ? postFillSettings.colors : null,
     });
@@ -601,7 +601,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
         algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
         levels: st.tools.brushSettings.ditherEnabled
-          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          ? resolveCcDitherInkMode(st.tools.brushSettings).quantLevels
           : null,
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
@@ -633,7 +633,7 @@ export const finalizeColorCycleShapeFillLinear = async (
         source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
         algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
         levels: st.tools.brushSettings.ditherEnabled
-          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          ? resolveCcDitherInkMode(st.tools.brushSettings).quantLevels
           : null,
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
@@ -778,7 +778,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
       algorithm: initialSettings.ditherAlgorithm ?? null,
       levels: initialSettings.ditherEnabled
-        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        ? resolveCcDitherInkMode(initialSettings).quantLevels
         : null,
       colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
       incrementFinalizeCount: true,
@@ -805,7 +805,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       source: args.session?.source ?? initialSettings.ccGradientSource ?? null,
       algorithm: initialSettings.ditherAlgorithm ?? null,
       levels: initialSettings.ditherEnabled
-        ? resolveCcDitherBandMode(initialSettings.gradientBands ?? 16).quantLevels
+        ? resolveCcDitherInkMode(initialSettings).quantLevels
         : null,
       colors: typeof initialSettings.colors === 'number' ? initialSettings.colors : null,
     });
@@ -861,7 +861,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
       source: renderSession?.source ?? args.session?.source ?? postFillSettings.ccGradientSource ?? null,
       algorithm: postFillSettings.ditherAlgorithm ?? null,
       levels: postFillSettings.ditherEnabled
-        ? resolveCcDitherBandMode(postFillSettings.gradientBands ?? 16).quantLevels
+        ? resolveCcDitherInkMode(postFillSettings).quantLevels
         : null,
       colors: typeof postFillSettings.colors === 'number' ? postFillSettings.colors : null,
     });
@@ -905,7 +905,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
         algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
         levels: st.tools.brushSettings.ditherEnabled
-          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          ? resolveCcDitherInkMode(st.tools.brushSettings).quantLevels
           : null,
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });
@@ -937,7 +937,7 @@ export const finalizeColorCycleShapeFillConcentric = async (
         source: renderSession?.source ?? args.session?.source ?? st.tools.brushSettings.ccGradientSource ?? null,
         algorithm: st.tools.brushSettings.ditherAlgorithm ?? null,
         levels: st.tools.brushSettings.ditherEnabled
-          ? resolveCcDitherBandMode(st.tools.brushSettings.gradientBands ?? 16).quantLevels
+          ? resolveCcDitherInkMode(st.tools.brushSettings).quantLevels
           : null,
         colors: typeof st.tools.brushSettings.colors === 'number' ? st.tools.brushSettings.colors : null,
       });

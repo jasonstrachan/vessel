@@ -81,6 +81,22 @@ describe('reference layer management', () => {
     expect(useAppStore.getState().colorPickerPreferReferenceLayer).toBe(true);
   });
 
+  it('keeps a hidden layer selected as the active sampling reference', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(createLayerInput('Layer 1'));
+    store.setReferenceLayer(layerId);
+
+    store.setLayersVisibility([layerId], false);
+
+    expect(useAppStore.getState().layers.find((layer) => layer.id === layerId)?.visible).toBe(false);
+    expect(useAppStore.getState().referenceLayerId).toBe(layerId);
+    expect(useAppStore.getState().project?.referenceSamplingSource).toEqual({
+      kind: 'layer',
+      layerId,
+    });
+    expect(useAppStore.getState().colorPickerPreferReferenceLayer).toBe(true);
+  });
+
   it('clears referenceLayerId when the referenced layer is removed', () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer(createLayerInput('Layer 1'));

@@ -704,7 +704,8 @@ describe('global brush persistence', () => {
     expect(active.pressureLinkedFillMaxResolution).toBe(19);
     expect(active.pressureDitherSmoosh).toBe(true);
     expect(active.pxlEdge).toBe(false);
-    expect(active.gradientBands).toBe(12);
+    expect(active.gradientBands).toBe(64);
+    expect(active.ccDitherInkColors).toBe(12);
     expect(active.ditherPatternDiversity).toBe(44);
     expect(active.ditherPaletteSpread).toBe(55);
     expect(active.ccSampledSoftSeamEnabled).toBe(false);
@@ -720,7 +721,7 @@ describe('global brush persistence', () => {
       pressureLinkedFillMaxResolution: 23,
       pressureDitherSmoosh: false,
       pxlEdge: true,
-      gradientBands: 14,
+      ccDitherInkColors: 14,
       ditherPatternDiversity: 66,
       ditherPaletteSpread: 77,
       ccSampledSoftSeamEnabled: true,
@@ -740,7 +741,8 @@ describe('global brush persistence', () => {
         pressureLinkedFillMaxResolution: 23,
         pressureDitherSmoosh: false,
         pxlEdge: true,
-        gradientBands: 14,
+        gradientBands: 64,
+        ccDitherInkColors: 14,
         ditherPatternDiversity: 66,
         ditherPaletteSpread: 77,
         ccSampledSoftSeamEnabled: true,
@@ -750,6 +752,33 @@ describe('global brush persistence', () => {
         colorCycleFillMode: 'linear',
         velocityAnimationSpeedEnabled: false,
       })
+    );
+  });
+
+  it('persists disabled dithering for CC Fixed Dither', async () => {
+    loadMock.mockReturnValue(null);
+
+    const {
+      colorCycleFlatDitherBrushPreset,
+      defaultBrushPreset,
+    } = await import('@/presets/brushPresets');
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const store = useAppStore.getState();
+
+    store.setBrushPreset(colorCycleFlatDitherBrushPreset);
+    expect(useAppStore.getState().tools.brushSettings.ditherEnabled).toBe(true);
+
+    useAppStore.getState().setBrushSettings({ ditherEnabled: false });
+    expect(useAppStore.getState().tools.brushSettings.ditherEnabled).toBe(false);
+
+    store.setBrushPreset(defaultBrushPreset);
+    useAppStore.getState().setBrushPreset(colorCycleFlatDitherBrushPreset);
+    expect(useAppStore.getState().tools.brushSettings.ditherEnabled).toBe(false);
+
+    jest.advanceTimersByTime(300);
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['color-cycle-flat-dither']).toEqual(
+      expect.objectContaining({ ditherEnabled: false }),
     );
   });
 

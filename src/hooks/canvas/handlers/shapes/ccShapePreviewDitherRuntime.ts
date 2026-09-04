@@ -9,7 +9,12 @@ import {
   createCcCustomTileThresholdResolver,
   type CcCustomTilePatternSettings,
 } from '@/utils/colorCycle/ccCustomTilePattern';
-import { buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import {
+  buildCcDitherRuntimePalette,
+  resolveCcDitherBandMode,
+  resolveCcDitherInkColorCount,
+  resolveCcDitherInkMode,
+} from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import {
   createPressureResolutionState,
@@ -615,7 +620,7 @@ const normalizePreparedPreviewStops = (
 
 const prepareCcShapePreviewGradient = ({
   effectiveStops,
-  gradientBands,
+  inkColors,
   ditherPaletteSpread,
   ditherAlgorithm,
   preserveSourceStops,
@@ -623,7 +628,7 @@ const prepareCcShapePreviewGradient = ({
   fillBackground,
 }: {
   effectiveStops: StoredStop[];
-  gradientBands: number;
+  inkColors: number;
   ditherPaletteSpread?: number;
   ditherAlgorithm?: DitherAlgorithm;
   preserveSourceStops: boolean;
@@ -633,7 +638,7 @@ const prepareCcShapePreviewGradient = ({
 }): PreparedPreviewGradient => {
   const renderStops = buildCcDitherRuntimePalette({
     baseStops: effectiveStops,
-    bands: resolveCcDitherBandMode(gradientBands).pairBandCount,
+    bands: resolveCcDitherBandMode(inkColors).pairBandCount,
     spread: ditherPaletteSpread,
     algorithm: ditherAlgorithm,
     preserveSourceStops,
@@ -1651,11 +1656,11 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         ditherGradPreviewState.ccSmoothedSampledStops = previewStops.map(stop => ({ ...stop }));
         const preparedGradient = prepareCcShapePreviewGradient({
           effectiveStops: previewStops,
-          gradientBands: sampledBrushSettings.gradientBands ?? 16,
+          inkColors: resolveCcDitherInkColorCount(sampledBrushSettings),
           ditherPaletteSpread: sampledBrushSettings.ditherPaletteSpread,
           ditherAlgorithm: sampledBrushSettings.ditherAlgorithm,
           preserveSourceStops:
-            resolveCcDitherBandMode(sampledBrushSettings.gradientBands ?? 16).pairBandCount <= 0,
+            resolveCcDitherInkMode(sampledBrushSettings).pairBandCount <= 0,
           useDitherRenderPalette: sampledBrushSettings.ccFlatCycleDither !== true,
           fillBackground:
             (sampledBrushSettings.ditherGradBgFill ??

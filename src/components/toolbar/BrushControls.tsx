@@ -1296,17 +1296,17 @@ const BrushControls = () => {
   const ccGradientColorsControl = isColorCycleGradientPreset && !isColorCycleFlatDitherPreset ? (
     <div className="flex items-center gap-2 mt-2">
       <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-        Colors
+        Inks
       </label>
       <ProgressSlider
-        value={activeSettings.gradientBands ?? 16}
+        value={activeSettings.ccDitherInkColors ?? 16}
         min={1}
         max={16}
         step={1}
         onChange={(value) =>
-          setActiveSettings({ gradientBands: Math.max(1, Math.round(value)) })
+          setActiveSettings({ ccDitherInkColors: Math.max(1, Math.round(value)) })
         }
-        aria-label="CC Tonal Dither Colors"
+        aria-label="CC Tonal Dither Ink Colors"
         className="flex-1"
       />
     </div>
@@ -1932,7 +1932,6 @@ const BrushControls = () => {
               onChange={setActiveSettings}
               canToggle
               forceOn={Boolean(capability.forceDither)}
-              hideToggle={isColorCycleFlatDitherPreset}
               isDitherPreset={isDitherPreset}
               showPxlEdgeToggle={isColorCycleGradientPreset}
               hideLostEdge

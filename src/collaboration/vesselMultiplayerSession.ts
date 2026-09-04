@@ -21,6 +21,7 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { RenderStaticCompositeOptions } from '@/stores/layers/layersSliceTypes';
 import type { BrushSettings, Layer } from '@/types';
+import { resolveCcDitherInkColorCount } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { PRESSURE_BASE_PERCENT, resolveBrushPressureRange } from '@/utils/pressureSettings';
@@ -798,6 +799,8 @@ export const executeVesselMultiplayerGesture = async (
         fillBrush.setActiveLayer?.(aiLayer.id);
         const directionStart = gesture.direction?.[0];
         const directionEnd = gesture.direction?.at(-1);
+        const isDitherEnabled = settings.ditherEnabled === true;
+        const isFlatCycleDitherEnabled = isDitherEnabled && settings.ccFlatCycleDither === true;
         await Promise.resolve(fillBrush.fillShapeDispatch({
           mode: gesture.direction ? 'linear' : 'concentric',
           vertices: gesture.points.map(({ x, y }) => ({ x, y })),
@@ -814,13 +817,17 @@ export const executeVesselMultiplayerGesture = async (
             spacing: settings.colorCycleBandSpacingPx ?? settings.spacing ?? 12,
             continuous: true,
             ccGradient: true,
-            ditherLevels: settings.gradientBands,
+            ditherLevels: isDitherEnabled
+              ? resolveCcDitherInkColorCount(settings)
+              : undefined,
             ditherPixelSize: settings.fillResolution,
             ditherPaletteSpread: settings.ditherPaletteSpread,
             ditherPatternDiversity: settings.ditherPatternDiversity,
             ditherBackgroundFill: settings.ditherGradBgFill ?? settings.ditherBackgroundFill,
-            ditherFlatCycle: settings.ccFlatCycleDither === true,
-            ditherFlatCycleBands: settings.ccFlatCycleBands,
+            ditherFlatCycle: isFlatCycleDitherEnabled,
+            ditherFlatCycleBands: isFlatCycleDitherEnabled
+              ? settings.ccFlatCycleBands
+              : undefined,
             lostEdge: settings.lostEdge,
           },
         }));

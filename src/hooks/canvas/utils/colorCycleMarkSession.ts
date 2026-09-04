@@ -6,7 +6,7 @@ import {
 } from '@/hooks/canvas/utils/colorCycleHelpers';
 import {
   buildCcDitherRuntimePalette,
-  resolveCcDitherBandMode,
+  resolveCcDitherInkMode,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import {
   ensureGradientDefForStops,
@@ -139,7 +139,7 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
 
 export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig => {
   const brushSettings = getAppStoreState().tools.brushSettings;
-  const mode = resolveCcDitherBandMode(brushSettings.gradientBands ?? 16);
+  const mode = resolveCcDitherInkMode(brushSettings);
   const config = {
     // Flat-cycle strokes write smooth indices, so their LUT must stay the base
     // gradient; the pair-band render palette would remap them into ripples.

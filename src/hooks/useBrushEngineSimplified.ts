@@ -1357,6 +1357,7 @@ export const useBrushEngineSimplified = () => {
   const fillColorCycleSettings = useMemo(() => ({
     ditherEnabled: tools.brushSettings.ditherEnabled,
     gradientBands: tools.brushSettings.gradientBands,
+    ccDitherInkColors: tools.brushSettings.ccDitherInkColors,
     brushShape: tools.brushSettings.brushShape,
     gridSnapEnabled: tools.brushSettings.gridSnapEnabled,
     gridSnapSize: tools.brushSettings.gridSnapSize,
@@ -1372,6 +1373,7 @@ export const useBrushEngineSimplified = () => {
   }), [
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.gradientBands,
+    tools.brushSettings.ccDitherInkColors,
     tools.brushSettings.brushShape,
     tools.brushSettings.gridSnapEnabled,
     tools.brushSettings.gridSnapSize,

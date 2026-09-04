@@ -7,7 +7,7 @@ import {
 import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { resolveCcDitherInkMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 
 export type ColorCycleGradientSourceBehavior = {
   source: GradientDefSource;
@@ -173,7 +173,7 @@ export const resolveColorCycleGradientRenderSession = ({
 
   const pairBandCount =
     session.ditherRenderConfig?.pairBandCount ??
-    resolveCcDitherBandMode(brushSettings.gradientBands ?? 16).pairBandCount;
+    resolveCcDitherInkMode(brushSettings).pairBandCount;
   const algorithm = session.ditherRenderConfig?.algorithm ?? brushSettings.ditherAlgorithm;
   const runtimeStops = resolveMarkSessionRuntimeStops(session, rawStops, {
     enabled: true,

@@ -520,4 +520,43 @@ describe('vesselMultiplayerSession', () => {
       skipBitmapDelta: true,
     }));
   });
+
+  it('does not send dither options for a multiplayer shape when dither is disabled', async () => {
+    const state = createState();
+    const fillShapeDispatch = jest.fn();
+    mockedGetColorCycleBrushManager.mockReturnValue({
+      getSettingsPatchBrush: jest.fn(() => ({})),
+      getStrokeLifecycleBrush: jest.fn(() => ({ endStroke: jest.fn() })),
+      getFillBrush: jest.fn(() => ({ fillShapeDispatch, endStroke: jest.fn() })),
+      getSurfaceBrush: jest.fn(() => ({ renderDirectToCanvas: jest.fn() })),
+      getCommitBrush: jest.fn(() => ({})),
+    } as unknown as ReturnType<typeof getColorCycleBrushManager>);
+    mockedGetAppStoreState.mockReturnValue(state);
+    mockedCommitColorCycleLayerStroke.mockResolvedValue({ deferredLayerCanvas: null });
+    await startVesselMultiplayerSession({ sessionId: 'portrait' });
+
+    await executeVesselMultiplayerGesture({
+      ...observationFence,
+      sessionId: 'portrait',
+      gestureId: 'shape-no-dither',
+      actor: 'ai',
+      kind: 'shape',
+      brushPresetId: 'color-cycle-flat-dither',
+      points: [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 20 }],
+      settings: { ditherEnabled: false },
+    }, {
+      compositeCanvasDirtyRef: { current: false },
+      rebuildStaticComposite: jest.fn(async () => true),
+      requestRedraw: jest.fn(),
+      scheduleHistoryCommit: jest.fn(async () => undefined),
+    });
+
+    expect(fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherLevels: undefined,
+        ditherFlatCycle: false,
+        ditherFlatCycleBands: undefined,
+      }),
+    }));
+  });
 });

@@ -275,6 +275,13 @@ export const resolveLayerSamplingCanvas = (
     return null;
   }
   if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
+    if (
+      layer.layerType === 'normal' &&
+      !layer.visible &&
+      isStructurallyValidImageData(layer.imageData)
+    ) {
+      return getSnapshotCanvas(layer.imageData);
+    }
     const framebuffer = layer.framebuffer ?? null;
     if (
       framebuffer &&

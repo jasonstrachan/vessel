@@ -1685,7 +1685,7 @@ describe('createVesselCollaborationExecutor', () => {
       ok: true,
       completedOperations: 5,
       state: {
-        currentBrushCapabilities: { canDither: false, forceDither: true },
+        currentBrushCapabilities: { canDither: true, forceDither: false },
         availableBrushPresets: [{
           id: 'color-cycle-flat-dither',
           artworkProfile: colorCycleFlatDitherArtworkProfile,

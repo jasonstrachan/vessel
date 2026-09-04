@@ -215,7 +215,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
 
     const keyA = __shapeToolTestUtils.buildCcShapePreviewGradientCacheKey({
       effectiveStops,
-      gradientBands: 8,
+      inkColors: 8,
       ditherPaletteSpread: 24,
       ditherAlgorithm: 'sierra-lite',
       patternStyle: 'dots',
@@ -225,7 +225,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     });
     const keyB = __shapeToolTestUtils.buildCcShapePreviewGradientCacheKey({
       effectiveStops,
-      gradientBands: 8,
+      inkColors: 8,
       ditherPaletteSpread: 24,
       ditherAlgorithm: 'sierra-lite',
       patternStyle: 'dots',
@@ -235,7 +235,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     });
     const keyC = __shapeToolTestUtils.buildCcShapePreviewGradientCacheKey({
       effectiveStops,
-      gradientBands: 12,
+      inkColors: 12,
       ditherPaletteSpread: 24,
       ditherAlgorithm: 'sierra-lite',
       patternStyle: 'dots',
@@ -250,7 +250,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     const prepared = __shapeToolTestUtils.prepareCcShapePreviewGradient({
       effectiveStops,
       shouldDitherPreview: false,
-      gradientBands: 8,
+      inkColors: 8,
       ditherPaletteSpread: 0,
       ditherAlgorithm: 'sierra-lite',
       preserveSourceStops: false,
@@ -272,7 +272,7 @@ describe('ShapeToolHandler – shape fill tool detection', () => {
     const prepared = __shapeToolTestUtils.prepareCcShapePreviewGradient({
       effectiveStops: sampledStops,
       shouldDitherPreview: false,
-      gradientBands: 8,
+      inkColors: 8,
       ditherPaletteSpread: 0,
       ditherAlgorithm: 'sierra-lite',
       preserveSourceStops: false,

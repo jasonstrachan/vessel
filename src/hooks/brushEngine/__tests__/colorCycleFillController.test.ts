@@ -69,7 +69,8 @@ describe('colorCycleFillController', () => {
       isCCGradientActiveLayer: true,
       brushSettings: {
         ditherEnabled: true,
-        gradientBands: 1,
+        gradientBands: 64,
+        ccDitherInkColors: 1,
         brushShape: BrushShape.COLOR_CYCLE_SHAPE,
         gridSnapEnabled: false,
         gridSnapSize: 8,
@@ -105,7 +106,8 @@ describe('colorCycleFillController', () => {
       isCCGradientActiveLayer: true,
       brushSettings: {
         ditherEnabled: true,
-        gradientBands: 5,
+        gradientBands: 64,
+        ccDitherInkColors: 5,
         brushShape: BrushShape.COLOR_CYCLE_SHAPE,
         gridSnapEnabled: false,
         gridSnapSize: 8,
@@ -129,7 +131,7 @@ describe('colorCycleFillController', () => {
     }));
   });
 
-  it('preserves high dither resolution for multi-band cc-gradient linear fills', async () => {
+  it('keeps source-gradient bands separate from dither inks for linear fills', async () => {
     const brush = createBrush();
 
     await fillColorCycleLinear({
@@ -141,6 +143,7 @@ describe('colorCycleFillController', () => {
       brushSettings: {
         ditherEnabled: true,
         gradientBands: 64,
+        ccDitherInkColors: 16,
         brushShape: BrushShape.COLOR_CYCLE_SHAPE,
         gridSnapEnabled: false,
         gridSnapSize: 8,
@@ -159,7 +162,7 @@ describe('colorCycleFillController', () => {
 
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
-        ditherLevels: 64,
+        ditherLevels: 16,
       }),
     }));
   });
@@ -235,7 +238,7 @@ describe('colorCycleFillController', () => {
     }));
   });
 
-  it('preserves high dither resolution for multi-band cc-gradient concentric fills', async () => {
+  it('keeps source-gradient bands separate from dither inks for concentric fills', async () => {
     const brush = createBrush();
 
     await fillColorCycleConcentric({
@@ -246,6 +249,7 @@ describe('colorCycleFillController', () => {
       brushSettings: {
         ditherEnabled: true,
         gradientBands: 64,
+        ccDitherInkColors: 16,
         brushShape: BrushShape.COLOR_CYCLE_SHAPE,
         gridSnapEnabled: false,
         gridSnapSize: 8,
@@ -264,7 +268,7 @@ describe('colorCycleFillController', () => {
 
     expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
-        ditherLevels: 64,
+        ditherLevels: 16,
       }),
     }));
   });
@@ -303,6 +307,45 @@ describe('colorCycleFillController', () => {
       options: expect.objectContaining({
         ditherFlatCycle: true,
         ditherFlatCycleBands: 7,
+      }),
+    }));
+  });
+
+  it('disables flat-cycle dither options when CC Fixed Dither is turned off', async () => {
+    const brush = createBrush();
+
+    await fillColorCycleLinear({
+      vertices: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }],
+      direction: { x: 1, y: 0 },
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
+      activeLayerId: 'layer-1',
+      isCCGradientActiveLayer: true,
+      brushSettings: {
+        ditherEnabled: false,
+        gradientBands: 64,
+        brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+        gridSnapEnabled: false,
+        gridSnapSize: 8,
+        colorCycleBandSpacingPx: 10,
+        spacing: 6,
+        lostEdge: 0,
+        ditherBackgroundFill: true,
+        ditherGradBgFill: true,
+        ccFlatCycleDither: true,
+        ccFlatCycleBands: 7,
+      },
+      defaultBandSpacing: 12,
+      clampColorCycleBandSpacing: (value) => value ?? 12,
+      requestGradientApply: jest.fn(),
+      flushGradientApply: jest.fn(),
+      renderBrushToLayerCanvas: jest.fn(),
+    });
+
+    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({
+        ditherLevels: undefined,
+        ditherFlatCycle: false,
+        ditherFlatCycleBands: undefined,
       }),
     }));
   });

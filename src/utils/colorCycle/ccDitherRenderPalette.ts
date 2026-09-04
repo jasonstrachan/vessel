@@ -428,6 +428,26 @@ export type CcDitherBandMode = {
   quantLevels: number;
 };
 
+export const DEFAULT_CC_DITHER_INK_COLORS = 16;
+export const MAX_CC_DITHER_INK_COLORS = 16;
+
+export const resolveCcDitherInkColorCount = (
+  settings: Pick<BrushSettings, 'ccDitherInkColors' | 'gradientBands'>,
+): number => {
+  const value = settings.ccDitherInkColors;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(1, Math.min(MAX_CC_DITHER_INK_COLORS, Math.round(value)));
+  }
+  const legacyBands = settings.gradientBands;
+  return typeof legacyBands === 'number' && Number.isFinite(legacyBands)
+    ? Math.max(1, Math.min(254, Math.round(legacyBands)))
+    : DEFAULT_CC_DITHER_INK_COLORS;
+};
+
+export const resolveCcDitherInkMode = (
+  settings: Pick<BrushSettings, 'ccDitherInkColors' | 'gradientBands'>,
+): CcDitherBandMode => resolveCcDitherBandMode(resolveCcDitherInkColorCount(settings));
+
 export const resolveCcDitherBandMode = (colors: number | undefined): CcDitherBandMode => {
   const clampedColors = Math.max(1, Math.floor(colors || 1));
   if (clampedColors <= 1) {
