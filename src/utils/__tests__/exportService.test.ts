@@ -184,6 +184,42 @@ describe('exportService', () => {
     expect(finish).toHaveBeenCalledTimes(1);
   });
 
+  it('finishes a GIF animation session when frame rendering throws', async () => {
+    const finish = jest.fn();
+    const frameProvider: FrameProvider = {
+      getDimensions: () => ({ width: 2, height: 2 }),
+      compositeToCanvas: () => {
+        throw new Error('render failed');
+      },
+      beginAnimationSession: () => ({
+        stepFrame: jest.fn(),
+        advanceFrame: jest.fn(),
+        finish,
+      }),
+    };
+
+    await expect(runExport({
+      kind: 'gif',
+      filenameBase: 'Failure',
+      scale: 1,
+      frameProvider,
+      gifencModule: createDeterministicGifencModule(),
+      options: {
+        fps: 12,
+        durationSeconds: 1,
+        repeat: 0,
+        autoFrames: false,
+        frameStep: 1,
+        ditherMethod: 'none',
+        ditherStrength: 1,
+        maxColors: 64,
+        autoColors: true,
+      },
+    }, jest.fn(), new AbortController().signal)).rejects.toThrow('render failed');
+
+    expect(finish).toHaveBeenCalledTimes(1);
+  });
+
   it('runs PNG export and returns a blob', async () => {
     const originalToBlob = HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob = function toBlob(callback) {

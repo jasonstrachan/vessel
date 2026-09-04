@@ -11,6 +11,10 @@ import {
   hasWarmableColorCycleRuntimeSource as hasWarmableRuntimeSource,
   isDocumentColdColorCycleLayer as isDocumentColdLayer,
 } from '@/stores/layers/layerColorCycleRuntimePolicy';
+import {
+  frameAtSequentialTime,
+  getSequentialFrameCursor,
+} from '@/runtime/playback/sequentialFrameCursor';
 import type {
   EnsureColorCycleLayerRuntimeTarget,
   LayersSlice,
@@ -349,10 +353,32 @@ export const createLayerActivationActions = ({
       };
     }
 
+    const nextSequentialRecord = layer?.layerType === 'sequential' && layer.sequentialData
+      ? (() => {
+          const fps = Number.isFinite(layer.sequentialData.fps)
+            ? Math.max(1, Math.round(layer.sequentialData.fps))
+            : 1;
+          const frameCount = Number.isFinite(layer.sequentialData.frameCount)
+            ? Math.max(1, Math.round(layer.sequentialData.frameCount))
+            : 1;
+          return {
+            ...state.sequentialRecord,
+            fps,
+            frameCount,
+            currentFrame: frameAtSequentialTime({
+              clipTimeMs: getSequentialFrameCursor().timeMs,
+              clipFps: fps,
+              clipFrameCount: frameCount,
+            }),
+            durationMs: Math.round((frameCount * 1000) / fps),
+          };
+        })()
+      : state.sequentialRecord;
     const result = {
       activeLayerId: id,
       selectedLayerIds: baseSelection,
       tools: nextTools,
+      sequentialRecord: nextSequentialRecord,
       layers: state.layers.map((candidate) => (
         candidate.id === state.activeLayerId &&
         candidate.id !== id &&

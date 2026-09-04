@@ -1,5 +1,6 @@
 import type { SequentialStrokeEvent } from '@/types';
 import type { FrameTileSet } from '@/lib/sequential/types';
+import { SequentialWorkerResultCache } from '@/lib/sequential/SequentialWorkerResultCache';
 export {
   buildSequentialWorkerEventsSignature,
   buildSequentialWorkerMaterializeKey,
@@ -22,21 +23,34 @@ type WorkerResponse = {
 };
 
 const pending = new Set<string>();
-const completed = new Map<string, FrameTileSet>();
+const completed = new SequentialWorkerResultCache();
+const syncOnlyKeys = new Set<string>();
 let worker: Worker | null = null;
 let nextRequestId = 1;
 let workerUnavailable = false;
+let workerFactoryOverride: (() => Worker) | null = null;
 
 const requestKeysById = new Map<number, string>();
 
+const dispatchWorkerFrameReady = (frameIndex: number): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent('vessel:sequentialFrameUpdate', {
+    detail: { frameIndex, advancedFrames: 0 },
+  }));
+};
+
 const getWorker = (): Worker | null => {
-  if (worker || workerUnavailable || typeof Worker === 'undefined') {
+  if (worker || workerUnavailable || (typeof Worker === 'undefined' && !workerFactoryOverride)) {
     return worker;
   }
   try {
-    worker = new Worker(new URL('./SequentialMaterializer.worker.ts', import.meta.url), {
-      type: 'module',
-    });
+    worker = workerFactoryOverride
+      ? workerFactoryOverride()
+      : new Worker(new URL('./SequentialMaterializer.worker.ts', import.meta.url), {
+          type: 'module',
+        });
     worker.addEventListener('message', (event: MessageEvent<WorkerResponse>) => {
       const key = requestKeysById.get(event.data.id);
       if (!key) {
@@ -44,7 +58,10 @@ const getWorker = (): Worker | null => {
       }
       requestKeysById.delete(event.data.id);
       pending.delete(key);
-      completed.set(key, event.data.tileSet);
+      if (!completed.set(key, event.data.tileSet)) {
+        syncOnlyKeys.add(key);
+      }
+      dispatchWorkerFrameReady(event.data.tileSet.frameIndex);
     });
     worker.addEventListener('error', () => {
       workerUnavailable = true;
@@ -61,12 +78,7 @@ const getWorker = (): Worker | null => {
 };
 
 export const consumeSequentialWorkerMaterializedFrame = (key: string): FrameTileSet | null => {
-  const tileSet = completed.get(key);
-  if (!tileSet) {
-    return null;
-  }
-  completed.delete(key);
-  return tileSet;
+  return completed.take(key);
 };
 
 export const requestSequentialWorkerMaterializedFrame = ({
@@ -81,13 +93,16 @@ export const requestSequentialWorkerMaterializedFrame = ({
   height: number;
   frameIndex: number;
   events: ReadonlyArray<SequentialStrokeEvent>;
-}): void => {
+}): boolean => {
+  if (syncOnlyKeys.delete(key)) {
+    return false;
+  }
   if (pending.has(key) || completed.has(key)) {
-    return;
+    return true;
   }
   const targetWorker = getWorker();
   if (!targetWorker) {
-    return;
+    return false;
   }
   const id = nextRequestId;
   nextRequestId += 1;
@@ -103,11 +118,13 @@ export const requestSequentialWorkerMaterializedFrame = ({
       eventsAreFrameScoped: true,
     },
   } satisfies WorkerRequest);
+  return true;
 };
 
 export const clearSequentialWorkerMaterializerBridge = (): void => {
   pending.clear();
   completed.clear();
+  syncOnlyKeys.clear();
   requestKeysById.clear();
 };
 
@@ -116,4 +133,11 @@ export const disposeSequentialWorkerMaterializerBridge = (): void => {
   worker?.terminate();
   worker = null;
   workerUnavailable = false;
+};
+
+export const __setSequentialWorkerFactoryForTests = (
+  factory: (() => Worker) | null,
+): void => {
+  disposeSequentialWorkerMaterializerBridge();
+  workerFactoryOverride = factory;
 };

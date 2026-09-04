@@ -124,7 +124,7 @@ export const createLayerCompositeDrawing = ({
       sortedLayers: Layer[],
       project: Project,
       manager: ColorCycleBrushManager | null,
-      frameIndex: number,
+      frameIndex: number | ((layer: Layer) => number),
       liveLayerOverlay?: {
         layerId: string;
         canvas: HTMLCanvasElement;
@@ -199,7 +199,7 @@ export const createLayerCompositeDrawing = ({
             layer,
             width: project.width,
             height: project.height,
-            frameIndex,
+            frameIndex: typeof frameIndex === 'function' ? frameIndex(layer) : frameIndex,
           });
           if (!source) return;
           try {

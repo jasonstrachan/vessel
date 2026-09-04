@@ -1,4 +1,6 @@
-# Sequential Burst/Gap Plan
+# Sequential Burst/Gap Contract
+
+Status: Implemented 2026-09-04
 
 ## Goal
 Replace ambiguous temporal smear behavior with explicit, predictable controls for:
@@ -13,7 +15,7 @@ Current behavior mixes several effects (smear, densification, frame bucketing), 
 
 A deterministic burst/gap cycle gives direct control over visible rhythm.
 
-## Proposed Model
+## Model
 1. Add sequential runtime controls:
 - `burstFrames` (int, min 1, max 32)
 - `gapFrames` (int, min 0, max 64)
@@ -30,9 +32,9 @@ A deterministic burst/gap cycle gives direct control over visible rhythm.
 
 ## UI
 In Animation panel:
-- Keep `Time-smear`
-- Add `Burst` slider
-- Add `Gap` slider
+- `Temporal spread` controls how many frame buckets receive existing stamps.
+- `Trail fade` controls alpha falloff across those buckets.
+- `Burst` and `Gap` are integer inputs.
 - Optional helper text: `Pattern: {burst} on / {gap} off`
 
 ## Defaults
@@ -50,4 +52,5 @@ This preserves existing behavior unless user intentionally adds gaps.
 ## Rollout Notes
 - Keep legacy projects safe via defaults
 - No migration needed if defaults are non-breaking
-- Consider adding export metadata for burst/gap in future if required by external playback tools
+- Burst/gap is resolved into immutable event frame indexes at capture time, so
+  export needs no extra playback metadata.

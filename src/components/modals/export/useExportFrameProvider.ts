@@ -1,10 +1,12 @@
 import { useMemo } from 'react';
 
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
-import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
+import {
+  beginSequentialExportTimeline,
+  setSequentialExportTime,
+} from '@/runtime/playback/sequentialFrameCursor';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import type { FrameProvider } from '@/utils/export/types';
 
@@ -27,47 +29,7 @@ export const useExportFrameProvider = ({
   },
   beginAnimationSession: ({ fps, kind }) => {
     const setSequentialExportFrame = (frame: number) => {
-      try {
-        const currentState = getAppStoreState() as {
-          sequentialRecord?: { frameCount?: number };
-        };
-        setSequentialFrameCursor({
-          nextFrame: frame,
-          nextFrameCount: currentState.sequentialRecord?.frameCount ?? 1,
-        });
-        const rawStore = useAppStore as unknown as {
-          setState?: (updater: (state: unknown) => unknown) => void;
-        };
-        if (typeof rawStore.setState === 'function') {
-          rawStore.setState((state: unknown) => {
-            const typedState = state as {
-              sequentialRecord?: { currentFrame?: number };
-            };
-            if (!typedState.sequentialRecord) {
-              return state;
-            }
-            return {
-              ...typedState,
-              sequentialRecord: {
-                ...typedState.sequentialRecord,
-                currentFrame: frame,
-              },
-            };
-          });
-          return;
-        }
-      } catch {
-        // Fall through to the public store action when the direct test seam is unavailable.
-      }
-
-      try {
-        const fallbackStore = getAppStoreState() as {
-          setSequentialFrame?: (nextFrame: number) => void;
-        };
-        fallbackStore.setSequentialFrame?.(frame);
-      } catch {
-        // Sequential playback is optional for non-sequential exports.
-      }
+      setSequentialExportTime((Math.max(0, frame) * 1000) / Math.max(1, fps));
     };
 
     const recolorManager = RecolorManager.getInstance();
@@ -79,14 +41,9 @@ export const useExportFrameProvider = ({
     }> = [];
     const initialStore = getAppStoreState() as {
       layers?: Layer[];
-      sequentialRecord?: { currentFrame?: number };
-      setSequentialFrame?: (frame: number) => void;
     };
-    const initialSequentialFrame = (
-      hasSequentialExportLayers(initialStore.layers)
-      && typeof initialStore.setSequentialFrame === 'function'
-    )
-      ? initialStore.sequentialRecord?.currentFrame ?? 0
+    const endSequentialExportTimeline = hasSequentialExportLayers(initialStore.layers)
+      ? beginSequentialExportTimeline()
       : null;
 
     if (kind !== 'estimate') {
@@ -138,7 +95,7 @@ export const useExportFrameProvider = ({
       totalFrames: number;
       useAbsolutePhase: boolean;
     }) => {
-      if (initialSequentialFrame !== null) {
+      if (endSequentialExportTimeline) {
         setSequentialExportFrame(frameIndex);
       }
 
@@ -186,9 +143,7 @@ export const useExportFrameProvider = ({
     };
 
     const finish = () => {
-      if (initialSequentialFrame !== null) {
-        setSequentialExportFrame(initialSequentialFrame);
-      }
+      endSequentialExportTimeline?.();
       if (kind === 'estimate') {
         return;
       }

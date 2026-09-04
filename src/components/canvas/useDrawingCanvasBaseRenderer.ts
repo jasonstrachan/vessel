@@ -29,7 +29,7 @@ import { drawSelectionLayer } from './drawingCanvasSelection';
 import { applyCanvasShapeClip, strokeCanvasShapeOutline } from '@/utils/canvasShape';
 import { isOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { debugLog, recordBreadcrumb } from '@/utils/debug';
-import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { hasVisibleAdjustmentLayers } from '@/stores/layers/adjustmentLayerCompositor';
 import { strokeFinalizeProbeMark } from '@/utils/strokeFinalizeProbe';
 
@@ -399,7 +399,9 @@ export const useDrawingCanvasBaseRenderer = ({
         && !adjustmentsVisible;
 
       if (splitCompositeRequested) {
-        const sequentialFrame = getSequentialRenderFrame(runtimeState);
+        const sequentialFrame = activeLayer?.layerType === 'sequential'
+          ? getSequentialLayerRenderFrame(runtimeState, activeLayer)
+          : 0;
         const sequentialFrameChanged =
           activeLayer?.layerType === 'sequential' &&
           sequentialFrame !== lastSplitCompositeSequentialFrameRef.current;

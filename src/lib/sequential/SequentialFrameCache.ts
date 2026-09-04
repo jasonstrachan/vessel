@@ -3,12 +3,15 @@ import type { FrameTileSet, SequentialFrameCacheStats } from '@/lib/sequential/t
 interface CacheEntry {
   tileSet: FrameTileSet;
   lastAccessTick: number;
+  bytes: number;
 }
 
 const keyFor = (layerId: string, frameIndex: number): string => `${layerId}:${frameIndex}`;
 
 export class SequentialFrameCache {
   private readonly maxEntries: number;
+
+  private readonly maxBytes: number;
 
   private readonly entries = new Map<string, CacheEntry>();
 
@@ -20,14 +23,17 @@ export class SequentialFrameCache {
 
   private accessTick = 0;
 
-  constructor(options?: { maxEntries?: number }) {
+  private bytes = 0;
+
+  constructor(options?: { maxEntries?: number; maxBytes?: number }) {
     this.maxEntries = Math.max(1, options?.maxEntries ?? 64);
+    this.maxBytes = Math.max(1, options?.maxBytes ?? 64 * 1024 * 1024);
   }
 
   get(layerId: string, frameIndex: number): FrameTileSet | null {
     const dirty = this.dirtyFramesByLayer.get(layerId);
     if (dirty?.has(frameIndex)) {
-      this.entries.delete(keyFor(layerId, frameIndex));
+      this.removeEntry(keyFor(layerId, frameIndex));
       this.misses += 1;
       return null;
     }
@@ -55,11 +61,15 @@ export class SequentialFrameCache {
 
   set(layerId: string, frameIndex: number, tileSet: FrameTileSet): void {
     const key = keyFor(layerId, frameIndex);
+    this.removeEntry(key);
     this.accessTick += 1;
+    const bytes = tileSet.tiles.reduce((total, tile) => total + tile.data.byteLength, 0);
     this.entries.set(key, {
       tileSet,
       lastAccessTick: this.accessTick,
+      bytes,
     });
+    this.bytes += bytes;
     this.markClean(layerId, frameIndex);
     this.evictIfNeeded();
   }
@@ -94,7 +104,7 @@ export class SequentialFrameCache {
     const prefix = `${layerId}:`;
     for (const key of Array.from(this.entries.keys())) {
       if (key.startsWith(prefix)) {
-        this.entries.delete(key);
+        this.removeEntry(key);
       }
     }
     this.dirtyFramesByLayer.delete(layerId);
@@ -102,6 +112,7 @@ export class SequentialFrameCache {
 
   clearAll(): void {
     this.entries.clear();
+    this.bytes = 0;
     this.dirtyFramesByLayer.clear();
     this.hits = 0;
     this.misses = 0;
@@ -115,6 +126,8 @@ export class SequentialFrameCache {
     });
     return {
       entries: this.entries.size,
+      bytes: this.bytes,
+      maxBytes: this.maxBytes,
       hits: this.hits,
       misses: this.misses,
       dirtyFrames,
@@ -133,17 +146,28 @@ export class SequentialFrameCache {
   }
 
   private evictIfNeeded(): void {
-    if (this.entries.size <= this.maxEntries) {
+    if (this.entries.size <= this.maxEntries && this.bytes <= this.maxBytes) {
       return;
     }
 
     const candidates = Array.from(this.entries.entries()).sort(
       (a, b) => a[1].lastAccessTick - b[1].lastAccessTick
     );
-    const overflowCount = this.entries.size - this.maxEntries;
-    for (let i = 0; i < overflowCount; i += 1) {
+    for (let i = 0; i < candidates.length; i += 1) {
+      if (this.entries.size <= this.maxEntries && this.bytes <= this.maxBytes) {
+        break;
+      }
       const [evictKey] = candidates[i];
-      this.entries.delete(evictKey);
+      this.removeEntry(evictKey);
     }
+  }
+
+  private removeEntry(key: string): void {
+    const existing = this.entries.get(key);
+    if (!existing) {
+      return;
+    }
+    this.bytes = Math.max(0, this.bytes - existing.bytes);
+    this.entries.delete(key);
   }
 }

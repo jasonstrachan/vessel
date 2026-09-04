@@ -117,6 +117,27 @@ describe('SequentialStrokeChunk', () => {
     ).toThrow('Unsupported sequential chunk version');
   });
 
+  it('reuses one normalized brush snapshot for events in the same stroke chunk', () => {
+    const sourceEvents = [
+      createEvent('event-1', 'stroke-a', 2, 100),
+      createEvent('event-2', 'stroke-a', 3, 120),
+    ];
+    const encoded = encodeSequentialEventsToChunks({
+      layerId: 'layer-seq',
+      fps: 12,
+      frameCount: 24,
+      events: sourceEvents,
+    });
+
+    const decoded = decodeSequentialChunksToEvents({
+      chunks: encoded.chunks,
+      brushSnapshots: encoded.brushSnapshots,
+    });
+
+    expect(decoded).toHaveLength(2);
+    expect(decoded[0].brush).toBe(decoded[1].brush);
+  });
+
   it('normalizes dither replay config when decoding chunked events', () => {
     const encoded = encodeSequentialEventsToChunks({
       layerId: 'layer-seq',

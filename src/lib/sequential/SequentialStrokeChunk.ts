@@ -370,6 +370,7 @@ const decodeChunkV1 = (
   if (!brush) {
     throw new Error(`Missing sequential brush snapshot: ${chunk.header.brushSnapshotId}`);
   }
+  const normalizedBrush = cloneBrushSnapshot(brush);
 
   const dXQ8_8 = decodeTypedArray(chunk.body.dXQ8_8, Int16Array);
   const dYQ8_8 = decodeTypedArray(chunk.body.dYQ8_8, Int16Array);
@@ -432,7 +433,7 @@ const decodeChunkV1 = (
       strokeId: chunk.header.strokeSessionId,
       timestampMs: eventTimestampMs[eventIndex] ?? 0,
       frameIndex: chunk.header.startFrameIndex + frameOffset,
-      brush: cloneBrushSnapshot(brush),
+      brush: normalizedBrush,
       stamps: eventStamps,
     });
     stampCursor += count;

@@ -271,6 +271,7 @@ import {
 } from '@/constants/colorCycle';
 import { loadWebglExportSettings, saveWebglExportSettings } from '@/utils/webglExportSettingsStorage';
 import { loadSequentialSettings, saveSequentialSettings } from '@/utils/sequentialSettingsStorage';
+import type { SequentialSettingsPayload } from '@/utils/sequentialSettingsStorage';
 import {
   setGradientApplyBrushGetter,
   setGradientApplyDocumentVersionGetter,
@@ -340,8 +341,14 @@ export interface AppState {
   setRecordFPS: SequentialRecordSlice['setRecordFPS'];
   setRecordFrameCount: SequentialRecordSlice['setRecordFrameCount'];
   setTimeSmear: SequentialRecordSlice['setTimeSmear'];
+  setTemporalSpreadFrames: SequentialRecordSlice['setTemporalSpreadFrames'];
+  setSequentialTrailFalloff: SequentialRecordSlice['setSequentialTrailFalloff'];
+  setSequentialBurstFrames: SequentialRecordSlice['setSequentialBurstFrames'];
+  setSequentialGapFrames: SequentialRecordSlice['setSequentialGapFrames'];
+  setSequentialRecordArmed: SequentialRecordSlice['setSequentialRecordArmed'];
   stepSequentialFrame: SequentialRecordSlice['stepSequentialFrame'];
   setSequentialFrame: SequentialRecordSlice['setSequentialFrame'];
+  publishSequentialFrame: SequentialRecordSlice['publishSequentialFrame'];
   setSequentialPointerDown: SequentialRecordSlice['setSequentialPointerDown'];
   setSequentialCaptureActive: SequentialRecordSlice['setSequentialCaptureActive'];
   recordSequentialRuntimeTick: SequentialRecordSlice['recordSequentialRuntimeTick'];
@@ -1284,6 +1291,18 @@ const hydrateSequentialSettings = (): void => {
   if (typeof payload.timeSmear === 'number') {
     useAppStore.getState().setTimeSmear(payload.timeSmear);
   }
+  if (typeof payload.temporalSpreadFrames === 'number') {
+    useAppStore.getState().setTemporalSpreadFrames(payload.temporalSpreadFrames);
+  }
+  if (typeof payload.trailFalloff === 'number') {
+    useAppStore.getState().setSequentialTrailFalloff(payload.trailFalloff);
+  }
+  if (typeof payload.burstFrames === 'number') {
+    useAppStore.getState().setSequentialBurstFrames(payload.burstFrames);
+  }
+  if (typeof payload.gapFrames === 'number') {
+    useAppStore.getState().setSequentialGapFrames(payload.gapFrames);
+  }
 };
 
 const subscribeToWebglExportSettingsPersistence = (): void => {
@@ -1329,7 +1348,7 @@ const subscribeToWebglExportSettingsPersistence = (): void => {
 };
 
 const subscribeToSequentialSettingsPersistence = (): void => {
-  let pendingPayload: { timeSmear: number } | null = null;
+  let pendingPayload: SequentialSettingsPayload | null = null;
   let debounceHandle: number | null = null;
 
   const flushPending = () => {
@@ -1342,7 +1361,9 @@ const subscribeToSequentialSettingsPersistence = (): void => {
     saveSequentialSettings(payload);
   };
 
-  const scheduleSave = (payload: { timeSmear: number }) => {
+  const scheduleSave = (
+    payload: SequentialSettingsPayload,
+  ) => {
     pendingPayload = payload;
     if (typeof window === 'undefined') {
       flushPending();
@@ -1355,12 +1376,24 @@ const subscribeToSequentialSettingsPersistence = (): void => {
   };
 
   storeSubscribeWithSelector(
-    (state) => state.sequentialRecord.timeSmear,
+    (state) => ({
+      timeSmear: state.sequentialRecord.timeSmear,
+      temporalSpreadFrames: state.sequentialRecord.temporalSpreadFrames,
+      trailFalloff: state.sequentialRecord.trailFalloff,
+      burstFrames: state.sequentialRecord.burstFrames,
+      gapFrames: state.sequentialRecord.gapFrames,
+    }),
     (next, prev) => {
-      if (next === prev) {
+      if (
+        next.timeSmear === prev.timeSmear &&
+        next.temporalSpreadFrames === prev.temporalSpreadFrames &&
+        next.trailFalloff === prev.trailFalloff &&
+        next.burstFrames === prev.burstFrames &&
+        next.gapFrames === prev.gapFrames
+      ) {
         return;
       }
-      scheduleSave({ timeSmear: next });
+      scheduleSave(next);
     }
   );
 

@@ -31,6 +31,8 @@ export interface SequentialLayerRendererDiagnostics {
   materializeMisses: number;
   workerHits: number;
   workerWarmRequests: number;
+  workerCurrentRequests: number;
+  workerDeferredFrames: number;
   signatureResets: number;
   eventTailResets: number;
   appendBatches: number;
@@ -79,6 +81,8 @@ const rendererDiagnostics: SequentialLayerRendererDiagnostics = {
   materializeMisses: 0,
   workerHits: 0,
   workerWarmRequests: 0,
+  workerCurrentRequests: 0,
+  workerDeferredFrames: 0,
   signatureResets: 0,
   eventTailResets: 0,
   appendBatches: 0,
@@ -206,6 +210,26 @@ const getPresentationCacheCanvas = (
   return entry.canvas;
 };
 
+const getLatestPresentationCanvas = (
+  runtime: LayerRuntime,
+): HTMLCanvasElement | OffscreenCanvas | null => {
+  let latest: PresentationCacheEntry | null = null;
+  for (const [frameIndex, entry] of runtime.presentationCache) {
+    if (runtime.stalePresentationFrames.has(frameIndex)) {
+      continue;
+    }
+    if (!latest || entry.lastAccessTick > latest.lastAccessTick) {
+      latest = entry;
+    }
+  }
+  if (!latest) {
+    return null;
+  }
+  runtime.presentationAccessTick += 1;
+  latest.lastAccessTick = runtime.presentationAccessTick;
+  return latest.canvas;
+};
+
 const setPresentationCacheCanvas = ({
   runtime,
   frameIndex,
@@ -281,7 +305,10 @@ const getOrCreateRuntime = (layerId: string): LayerRuntime => {
   const runtime: LayerRuntime = {
     layerId,
     eventLog: new SequentialEventLog(),
-    frameCache: new SequentialFrameCache({ maxEntries: 128 }),
+    frameCache: new SequentialFrameCache({
+      maxEntries: 128,
+      maxBytes: 64 * 1024 * 1024,
+    }),
     presentationCache: new Map(),
     stalePresentationFrames: new Set(),
     materializer: initialBackend.materializer,
@@ -819,6 +846,24 @@ export const getSequentialLayerRenderCanvas = ({
       rendererDiagnostics.workerHits += 1;
     }
     if (!tileSet) {
+      const previousCanvas = framePreviewEvents.length === 0
+        ? getLatestPresentationCanvas(runtime)
+        : null;
+      const workerAccepted = previousCanvas && isFeatureFlagEnabled('enableSequentialWorkerMaterialization')
+        ? requestSequentialWorkerMaterializedFrame({
+            key: workerKey,
+            width,
+            height,
+            frameIndex: sourceFrameIndex,
+            events: committedFrameEvents,
+          })
+        : false;
+      if (workerAccepted) {
+        rendererDiagnostics.workerCurrentRequests += 1;
+        rendererDiagnostics.workerDeferredFrames += 1;
+        publishRendererDiagnostics();
+        return previousCanvas;
+      }
       rendererDiagnostics.materializeMisses += 1;
       rendererDiagnostics.lastMaterializeEvents = committedFrameEvents.length;
       tileSet = runtime.materializer.materializeFrame({
@@ -970,6 +1015,8 @@ export const getSequentialLayerRenderCanvas = ({
 
 export const getSequentialLayerRendererStats = (): SequentialFrameCacheStats => {
   let entries = 0;
+  let bytes = 0;
+  let maxBytes = 0;
   let hits = 0;
   let misses = 0;
   let dirtyFrames = 0;
@@ -977,6 +1024,8 @@ export const getSequentialLayerRendererStats = (): SequentialFrameCacheStats => 
   layerRuntimes.forEach((runtime) => {
     const stats = runtime.frameCache.getStats();
     entries += stats.entries;
+    bytes += stats.bytes;
+    maxBytes += stats.maxBytes;
     hits += stats.hits;
     misses += stats.misses;
     dirtyFrames += stats.dirtyFrames;
@@ -984,6 +1033,8 @@ export const getSequentialLayerRendererStats = (): SequentialFrameCacheStats => 
 
   return {
     entries,
+    bytes,
+    maxBytes,
     hits,
     misses,
     dirtyFrames,
@@ -1001,6 +1052,8 @@ export const resetSequentialLayerRendererDiagnostics = (): void => {
   rendererDiagnostics.materializeMisses = 0;
   rendererDiagnostics.workerHits = 0;
   rendererDiagnostics.workerWarmRequests = 0;
+  rendererDiagnostics.workerCurrentRequests = 0;
+  rendererDiagnostics.workerDeferredFrames = 0;
   rendererDiagnostics.signatureResets = 0;
   rendererDiagnostics.eventTailResets = 0;
   rendererDiagnostics.appendBatches = 0;

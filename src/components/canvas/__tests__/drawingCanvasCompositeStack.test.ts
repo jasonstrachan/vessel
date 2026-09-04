@@ -98,6 +98,7 @@ describe('drawVisibleCompositeStack', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetSequentialLivePreviewFrame.mockReturnValue(null);
+    setSequentialFrameCursor({ nextFrame: 0, nextFrameCount: 1, nextFps: 12 });
   });
 
   it('draws static, color-cycle, and sequential segments in order with layer blend and opacity', () => {
@@ -110,6 +111,7 @@ describe('drawVisibleCompositeStack', () => {
       project: { width: 16, height: 16 },
       colorCyclePlayback: { desiredPlaying: false },
       layers: [],
+      activeLayerId: 'layer-seq',
       sequentialRecord: { currentFrame: 7 },
     });
     mockGetSequentialLayerRenderCanvas.mockReturnValue(seqCanvas);
@@ -642,6 +644,7 @@ describe('drawVisibleCompositeStack', () => {
     const livePreviewCanvas = document.createElement('canvas');
     const { ctx, drawCalls } = createRecordingContext();
     const drawNonActiveVisibleLayers = jest.fn();
+    setSequentialFrameCursor({ nextFrame: 4, nextFrameCount: 12, nextFps: 12 });
 
     mockGetState.mockReturnValue({
       project: { width: 16, height: 16 },

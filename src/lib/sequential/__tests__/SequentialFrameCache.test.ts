@@ -52,4 +52,17 @@ describe('SequentialFrameCache', () => {
     expect(stats.hits).toBe(1);
     expect(stats.misses).toBe(1);
   });
+
+  it('evicts least-recently-used frames to satisfy the byte budget', () => {
+    const cache = new SequentialFrameCache({ maxEntries: 10, maxBytes: 8 });
+    cache.set('layer-1', 0, createTileSet(0));
+    cache.set('layer-1', 1, createTileSet(1));
+    void cache.get('layer-1', 0);
+    cache.set('layer-1', 2, createTileSet(2));
+
+    expect(cache.get('layer-1', 1)).toBeNull();
+    expect(cache.get('layer-1', 0)).not.toBeNull();
+    expect(cache.get('layer-1', 2)).not.toBeNull();
+    expect(cache.getStats()).toMatchObject({ bytes: 8, maxBytes: 8, entries: 2 });
+  });
 });

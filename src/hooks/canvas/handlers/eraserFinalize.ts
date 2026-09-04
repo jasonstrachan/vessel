@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { CanvasSnapshot, Layer } from '@/types';
 import type { LayerHistoryPayload } from '@/history/helpers/layerHistory';
@@ -133,9 +134,7 @@ export const finalizeEraserStroke = async (
       return false;
     }
 
-    const frameCount = Math.max(1, Math.round(activeLayer.sequentialData.frameCount));
-    const frameIndex =
-      ((Math.round(store.sequentialRecord.currentFrame) % frameCount) + frameCount) % frameCount;
+    const frameIndex = getSequentialLayerRenderFrame(store, activeLayer);
     const beforeCanvas = getSequentialLayerRenderCanvas({
       layer: activeLayer,
       width: project.width,

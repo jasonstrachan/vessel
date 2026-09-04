@@ -14,6 +14,7 @@ import {
 import { realizeCompositeSegments } from '@/stores/layers/layerCompositeRenderer';
 import type { LayersSlice } from '@/stores/layers/layersSliceTypes';
 import type { AppState } from '@/stores/useAppStore';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { logError } from '@/utils/debug';
 
 type StoreSet = Parameters<StateCreator<AppState, [], [], AppState>>[0];
@@ -276,7 +277,7 @@ export const createLayerCompositeActions = ({
           sortedLayers,
           projectWithGroups,
           colorCycleBrushManager,
-          get().sequentialRecord.currentFrame,
+          (layer) => getSequentialLayerRenderFrame(get(), layer),
           options?.liveLayerOverlay,
         );
         const stats = getSequentialLayerRendererStats();
@@ -364,7 +365,7 @@ export const createLayerCompositeActions = ({
         sortedLayers,
         projectWithGroups,
         colorCycleBrushManager,
-        get().sequentialRecord.currentFrame,
+        (layer) => getSequentialLayerRenderFrame(get(), layer),
         options?.liveLayerOverlay,
       );
 

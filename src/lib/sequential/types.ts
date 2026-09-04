@@ -28,6 +28,8 @@ export interface FrameTilePatch {
 
 export interface SequentialFrameCacheStats {
   entries: number;
+  bytes: number;
+  maxBytes: number;
   hits: number;
   misses: number;
   dirtyFrames: number;

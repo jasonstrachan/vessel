@@ -26,6 +26,7 @@ export const createPlaybackRuntimeState = (state: AppState): PlaybackRuntimeStat
     : null;
   const capturing =
     activeLayer?.layerType === 'sequential' &&
+    state.sequentialRecord.recordArmed &&
     state.sequentialRecord.isPointerDown;
   const scrubbing = false;
 

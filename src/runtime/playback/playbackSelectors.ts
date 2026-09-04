@@ -83,9 +83,7 @@ export const selectGlobalAnimationActive = (state: AppState): boolean =>
   selectSequentialCaptureActive(state);
 
 export const selectPlaybackToggleUi = (state: AppState): PlaybackToggleUi => {
-  const action = selectSequentialCaptureActive(state)
-    ? 'pause'
-    : selectColorCyclePlaybackToggleAction(state);
+  const action = selectColorCyclePlaybackToggleAction(state);
   if (action === 'pause') {
     return PLAYBACK_TOGGLE_PAUSE;
   }

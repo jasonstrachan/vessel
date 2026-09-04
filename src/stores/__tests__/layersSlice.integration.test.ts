@@ -247,6 +247,7 @@ jest.mock('@/utils/projectIO', () => {
 
 // Import store after mocks are registered.
 import { useAppStore } from '@/stores/useAppStore';
+import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 
 const { restoreColorCycleBrushes } = jest.requireMock('@/utils/projectIO') as {
   restoreColorCycleBrushes: jest.Mock;
@@ -423,6 +424,31 @@ describe('layers slice integration', () => {
     expect(nextState.selectedLayerIds).toEqual([newLayerId]);
     expect(nextState.layers).toHaveLength(1);
     expect(nextState.layers[0].id).toBe(newLayerId);
+  });
+
+  it('maps shared transport time into the activated sequence layer settings', () => {
+    const store = useAppStore.getState();
+    const sequenceLayerId = store.addLayer({
+      ...createNormalLayerInput('Sequence'),
+      layerType: 'sequential',
+      sequentialData: {
+        fps: 24,
+        frameCount: 16,
+        durationMs: 667,
+        events: [],
+      },
+    });
+    store.setActiveLayer(null);
+    setSequentialFrameCursor({ nextFrame: 6, nextFrameCount: 12, nextFps: 12 });
+
+    useAppStore.getState().setActiveLayer(sequenceLayerId);
+
+    expect(useAppStore.getState().sequentialRecord).toEqual(expect.objectContaining({
+      fps: 24,
+      frameCount: 16,
+      currentFrame: 12,
+      durationMs: 667,
+    }));
   });
 
   it('normalizes project edits against the authoritative runtime layers', () => {

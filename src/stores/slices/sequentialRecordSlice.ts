@@ -13,6 +13,10 @@ const MAX_TIME_SMEAR = 160;
 const DEFAULT_RECORD_FPS = 12;
 const DEFAULT_RECORD_FRAME_COUNT = 24;
 const DEFAULT_TIME_SMEAR = 40;
+const DEFAULT_TEMPORAL_SPREAD_FRAMES = 1;
+const DEFAULT_TRAIL_FALLOFF = 0;
+const DEFAULT_BURST_FRAMES = 1;
+const DEFAULT_GAP_FRAMES = 0;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
@@ -42,9 +46,14 @@ export interface SequentialRecordState {
   fps: number;
   frameCount: number;
   timeSmear: number;
+  temporalSpreadFrames: number;
+  trailFalloff: number;
+  burstFrames: number;
+  gapFrames: number;
   currentFrame: number;
   durationMs: number;
   sessionStartMs: number | null;
+  recordArmed: boolean;
   isPointerDown: boolean;
   isCaptureActive: boolean;
   metrics: SequentialRuntimeMetrics;
@@ -53,10 +62,19 @@ export interface SequentialRecordState {
 export interface SequentialRecordSlice {
   sequentialRecord: SequentialRecordState;
   setRecordFPS: (fps: number) => void;
-  setRecordFrameCount: (frameCount: number) => void;
+  setRecordFrameCount: (
+    frameCount: number,
+    mode?: 'preserve' | 'trim' | 'retime',
+  ) => void;
   setTimeSmear: (timeSmear: number) => void;
+  setTemporalSpreadFrames: (frames: number) => void;
+  setSequentialTrailFalloff: (falloff: number) => void;
+  setSequentialBurstFrames: (frames: number) => void;
+  setSequentialGapFrames: (frames: number) => void;
+  setSequentialRecordArmed: (recordArmed: boolean) => void;
   stepSequentialFrame: (step?: number) => void;
   setSequentialFrame: (frame: number) => void;
+  publishSequentialFrame: (frame: number, frameCount?: number) => void;
   setSequentialPointerDown: (isPointerDown: boolean) => void;
   setSequentialCaptureActive: (isCaptureActive: boolean) => void;
   recordSequentialRuntimeTick: (tickMs: number) => void;
@@ -78,9 +96,14 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
     fps: DEFAULT_RECORD_FPS,
     frameCount: DEFAULT_RECORD_FRAME_COUNT,
     timeSmear: DEFAULT_TIME_SMEAR,
+    temporalSpreadFrames: DEFAULT_TEMPORAL_SPREAD_FRAMES,
+    trailFalloff: DEFAULT_TRAIL_FALLOFF,
+    burstFrames: DEFAULT_BURST_FRAMES,
+    gapFrames: DEFAULT_GAP_FRAMES,
     currentFrame: 0,
     durationMs: deriveDurationMs(DEFAULT_RECORD_FRAME_COUNT, DEFAULT_RECORD_FPS),
     sessionStartMs: null,
+    recordArmed: false,
     isPointerDown: false,
     isCaptureActive: false,
     metrics: createDefaultMetrics(),
@@ -126,7 +149,7 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
         },
       };
     }),
-  setRecordFrameCount: (frameCount) =>
+  setRecordFrameCount: (frameCount, mode = 'preserve') =>
     set((state) => {
       const nextFrameCount = Math.round(
         clamp(frameCount, MIN_RECORD_FRAME_COUNT, MAX_RECORD_FRAME_COUNT)
@@ -146,17 +169,30 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
         const activeLayer = state.layers[activeSequentialLayerIndex];
         const layerSequential = activeLayer.sequentialData!;
         const normalizedLayerFps = Math.max(MIN_RECORD_FPS, Math.round(layerSequential.fps));
-        const remappedEvents = layerSequential.events.map((event) => ({
-          ...event,
-          frameIndex: normalizeFrameIndex(event.frameIndex, nextFrameCount),
-        }));
+        const previousFrameCount = Math.max(
+          MIN_RECORD_FRAME_COUNT,
+          Math.round(layerSequential.frameCount),
+        );
+        const nextEvents = mode === 'trim'
+          ? layerSequential.events.filter((event) => event.frameIndex < nextFrameCount)
+          : mode === 'retime'
+            ? layerSequential.events.map((event) => {
+                const previousFrame = normalizeFrameIndex(event.frameIndex, previousFrameCount);
+                const frameIndex = previousFrameCount <= 1 || nextFrameCount <= 1
+                  ? 0
+                  : Math.round(
+                      (previousFrame / (previousFrameCount - 1)) * (nextFrameCount - 1),
+                    );
+                return frameIndex === event.frameIndex ? event : { ...event, frameIndex };
+              })
+            : layerSequential.events;
         const updatedLayer = {
           ...activeLayer,
           sequentialData: {
             ...layerSequential,
             frameCount: nextFrameCount,
             durationMs: deriveDurationMs(nextFrameCount, normalizedLayerFps),
-            events: remappedEvents,
+            events: nextEvents,
           },
         };
         nextLayers = [...state.layers];
@@ -185,6 +221,42 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
         },
       };
     }),
+  setTemporalSpreadFrames: (frames) =>
+    set((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        temporalSpreadFrames: Math.round(clamp(frames, 1, 32)),
+      },
+    })),
+  setSequentialTrailFalloff: (falloff) =>
+    set((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        trailFalloff: clamp(falloff, 0, 1),
+      },
+    })),
+  setSequentialBurstFrames: (frames) =>
+    set((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        burstFrames: Math.round(clamp(frames, 1, 32)),
+      },
+    })),
+  setSequentialGapFrames: (frames) =>
+    set((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        gapFrames: Math.round(clamp(frames, 0, 64)),
+      },
+    })),
+  setSequentialRecordArmed: (recordArmed) =>
+    set((state) => ({
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        recordArmed,
+        isCaptureActive: recordArmed ? state.sequentialRecord.isCaptureActive : false,
+      },
+    })),
   stepSequentialFrame: (step = 1) =>
     set((state) => {
       const currentFrame = normalizeFrameIndex(
@@ -194,6 +266,7 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
       setSequentialFrameCursor({
         nextFrame: currentFrame,
         nextFrameCount: state.sequentialRecord.frameCount,
+        nextFps: state.sequentialRecord.fps,
       });
       return {
         sequentialRecord: {
@@ -208,7 +281,24 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
       setSequentialFrameCursor({
         nextFrame: currentFrame,
         nextFrameCount: state.sequentialRecord.frameCount,
+        nextFps: state.sequentialRecord.fps,
       });
+      return {
+        sequentialRecord: {
+          ...state.sequentialRecord,
+          currentFrame,
+        },
+      };
+    }),
+  publishSequentialFrame: (frame, frameCount) =>
+    set((state) => {
+      const currentFrame = normalizeFrameIndex(
+        Math.round(frame),
+        frameCount ?? state.sequentialRecord.frameCount,
+      );
+      if (currentFrame === state.sequentialRecord.currentFrame) {
+        return state;
+      }
       return {
         sequentialRecord: {
           ...state.sequentialRecord,

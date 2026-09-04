@@ -8,7 +8,8 @@ import {
   getPlaybackRuntimeController,
 } from '@/runtime/playback/PlaybackRuntimeController';
 import {
-  advanceSequentialFrameCursor,
+  advanceSequentialTransport,
+  frameAtSequentialTime,
   getSequentialFrameCursor,
   resetSequentialFrameCursorFromState,
 } from '@/runtime/playback/sequentialFrameCursor';
@@ -35,7 +36,6 @@ const SEQUENTIAL_METRICS_SAMPLE_MS = 250;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_FLUSH_MS = 1000;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_MAX_FLUSH_MS = 4000;
 const SEQUENTIAL_CAPTURE_CHECKPOINT_MIN_PENDING_BYTES = 64 * 1024;
-const MAX_SEQUENTIAL_FRAME_CATCH_UP_STEPS = 3;
 const MAX_SEQUENTIAL_REALTIME_DELTA_MS = 1000;
 const SEQUENTIAL_FRAME_UI_PUBLISH_MS = 200;
 
@@ -50,6 +50,7 @@ const hasSequentialRuntimeState = (
     !!state.sequentialRecord &&
     Array.isArray(state.layers) &&
     typeof state.setSequentialCaptureActive === 'function' &&
+    typeof state.publishSequentialFrame === 'function' &&
     typeof state.recordSequentialRuntimeTick === 'function' &&
     typeof state.stepSequentialFrame === 'function'
   );
@@ -59,7 +60,6 @@ export const useSequentialAnimationRuntimeEffect = ({
   storeRef,
 }: UseSequentialAnimationRuntimeEffectOptions) => {
   const sequentialRecordModeEnabled = useFeatureFlag('enableSequentialRecordMode');
-  const accumMsRef = useRef(0);
   const lastMetricsSampleMsRef = useRef(-Infinity);
   const lastCheckpointFlushMsRef = useRef(-Infinity);
   const lastCaptureActiveRef = useRef(false);
@@ -78,7 +78,6 @@ export const useSequentialAnimationRuntimeEffect = ({
   useEffect(() => {
     const playbackController = getPlaybackRuntimeController();
     if (!sequentialRecordModeEnabled) {
-      accumMsRef.current = 0;
       flushBufferedSequentialEvents({ state: getAppStoreState() });
       noteSequentialCaptureActivity({ isActive: false });
       lastCaptureActiveRef.current = false;
@@ -92,7 +91,6 @@ export const useSequentialAnimationRuntimeEffect = ({
 
     const unsubscribe = useAppStore.subscribe((state) => {
       if (!hasSequentialRuntimeState(state)) {
-        accumMsRef.current = 0;
         return;
       }
       const captureActive = selectSequentialCaptureActive(state);
@@ -113,7 +111,6 @@ export const useSequentialAnimationRuntimeEffect = ({
       if (shouldRun) {
         playbackController.sync(state, 'sequential-store-sync');
       } else {
-        accumMsRef.current = 0;
         lastCheckpointFlushMsRef.current = -Infinity;
       }
     });
@@ -122,7 +119,6 @@ export const useSequentialAnimationRuntimeEffect = ({
     if (!hasSequentialRuntimeState(initialState)) {
       return () => {
         unsubscribe();
-        accumMsRef.current = 0;
         lastCheckpointFlushMsRef.current = -Infinity;
       };
     }
@@ -138,7 +134,6 @@ export const useSequentialAnimationRuntimeEffect = ({
 
     return () => {
       unsubscribe();
-      accumMsRef.current = 0;
       lastCheckpointFlushMsRef.current = -Infinity;
       flushBufferedSequentialEvents({ state: getAppStoreState() });
       noteSequentialCaptureActivity({ isActive: false });
@@ -158,14 +153,12 @@ export const useSequentialAnimationRuntimeEffect = ({
         const timestampMs = Number.isFinite(_timestampMs) ? _timestampMs : Date.now();
         const state = getAppStoreState() as Partial<AppState>;
         if (!hasSequentialRuntimeState(state)) {
-          accumMsRef.current = 0;
           return;
         }
         const playbackActive = selectSequentialPlaybackActive(state);
         const captureActiveNow = selectSequentialCaptureActive(state);
         const shouldAdvanceFrames = playbackActive || captureActiveNow;
         if (!shouldAdvanceFrames) {
-          accumMsRef.current = 0;
           lastCheckpointFlushMsRef.current = -Infinity;
           lastFrameUiPublishMsRef.current = -Infinity;
           flushBufferedSequentialEvents({ state });
@@ -183,48 +176,55 @@ export const useSequentialAnimationRuntimeEffect = ({
           typeof performance !== 'undefined' && typeof performance.now === 'function'
             ? performance.now()
             : Date.now();
-        const fps = Math.max(1, state.sequentialRecord.fps);
-        const frameDurationMs = 1000 / fps;
         const safeDeltaMs =
           deltaMs > MAX_SEQUENTIAL_REALTIME_DELTA_MS ? 0 : Math.max(0, deltaMs);
-        if (deltaMs > MAX_SEQUENTIAL_REALTIME_DELTA_MS) {
-          accumMsRef.current = 0;
-          resetSequentialFrameCursorFromState(state);
-        }
-
-        let advancedFrames = 0;
-        if (shouldAdvanceFrames) {
-          accumMsRef.current += safeDeltaMs;
-          if (accumMsRef.current >= frameDurationMs) {
-            const maxCatchUpSteps = captureActiveNow
-              ? 1
-              : MAX_SEQUENTIAL_FRAME_CATCH_UP_STEPS;
-            advancedFrames = Math.min(
-              maxCatchUpSteps,
-              Math.max(1, Math.floor(accumMsRef.current / frameDurationMs))
-            );
-            const cursor = advanceSequentialFrameCursor({
-              step: advancedFrames,
-              nextFrameCount: state.sequentialRecord.frameCount,
-              timestampMs,
-            });
-            const shouldPublishFrameToStore =
-              timestampMs - lastFrameUiPublishMsRef.current >= SEQUENTIAL_FRAME_UI_PUBLISH_MS ||
-              captureActiveNow;
-            if (
-              shouldPublishFrameToStore &&
-              state.sequentialRecord.currentFrame !== cursor.frame
-            ) {
-              state.setSequentialFrame(cursor.frame);
-              lastFrameUiPublishMsRef.current = timestampMs;
-            }
-            accumMsRef.current -= frameDurationMs * advancedFrames;
+        const activeSequentialLayer = state.layers.find(
+          (layer) => layer.id === state.activeLayerId && layer.layerType === 'sequential',
+        );
+        const sourceFps = activeSequentialLayer?.sequentialData?.fps ?? state.sequentialRecord.fps;
+        const sourceFrameCount =
+          activeSequentialLayer?.sequentialData?.frameCount ?? state.sequentialRecord.frameCount;
+        const previousCursor = getSequentialFrameCursor();
+        const cursor = advanceSequentialTransport({
+          deltaMs: safeDeltaMs,
+          sourceFps,
+          sourceFrameCount,
+          timestampMs,
+        });
+        const activeFrameChanged = cursor.frame !== previousCursor.frame;
+        const presentationFrameChanged = state.layers.some((layer) => {
+          if (
+            layer.layerType !== 'sequential' ||
+            !layer.sequentialData ||
+            (layer.visible === false && layer.id !== state.activeLayerId)
+          ) {
+            return false;
           }
+          return frameAtSequentialTime({
+            clipTimeMs: previousCursor.timeMs,
+            clipFps: layer.sequentialData.fps,
+            clipFrameCount: layer.sequentialData.frameCount,
+          }) !== frameAtSequentialTime({
+            clipTimeMs: cursor.timeMs,
+            clipFps: layer.sequentialData.fps,
+            clipFrameCount: layer.sequentialData.frameCount,
+          });
+        });
+        const shouldPublishFrameToStore =
+          activeFrameChanged && (
+            timestampMs - lastFrameUiPublishMsRef.current >= SEQUENTIAL_FRAME_UI_PUBLISH_MS ||
+            captureActiveNow
+          );
+        if (
+          shouldPublishFrameToStore &&
+          state.sequentialRecord.currentFrame !== cursor.frame
+        ) {
+          state.publishSequentialFrame(cursor.frame, sourceFrameCount);
+          lastFrameUiPublishMsRef.current = timestampMs;
         }
 
         const nextState = getAppStoreState() as Partial<AppState>;
         if (!hasSequentialRuntimeState(nextState)) {
-          accumMsRef.current = 0;
           return;
         }
         const captureActive = selectSequentialCaptureActive(nextState);
@@ -237,7 +237,7 @@ export const useSequentialAnimationRuntimeEffect = ({
         }
         noteSequentialCaptureActivity({ isActive: captureActive });
 
-        if (advancedFrames > 0) {
+        if (presentationFrameChanged) {
           try {
             if (captureActive && typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
@@ -247,7 +247,7 @@ export const useSequentialAnimationRuntimeEffect = ({
           }
           dispatchSequentialAnimationFrameUpdate({
             frameIndex: getSequentialFrameCursor().frame,
-            advancedFrames,
+            advancedFrames: activeFrameChanged ? 1 : 0,
           });
         }
 
@@ -271,10 +271,9 @@ export const useSequentialAnimationRuntimeEffect = ({
           typeof performance !== 'undefined' && typeof performance.now === 'function'
             ? performance.now()
             : Date.now();
-        nextState.recordSequentialRuntimeTick(Math.max(0, tickEnd - tickStart));
-
         if (timestampMs - lastMetricsSampleMsRef.current >= SEQUENTIAL_METRICS_SAMPLE_MS) {
           lastMetricsSampleMsRef.current = timestampMs;
+          nextState.recordSequentialRuntimeTick(Math.max(0, tickEnd - tickStart));
           const cacheStats = getSequentialLayerRendererStats();
           setSequentialFrameCacheSnapshot({
             entries: cacheStats.entries,
@@ -288,7 +287,6 @@ export const useSequentialAnimationRuntimeEffect = ({
           });
         }
       } catch (error) {
-        accumMsRef.current = 0;
         lastCheckpointFlushMsRef.current = -Infinity;
         logError('[useSequentialAnimationRuntimeEffect] runtime tick failed', error);
       }
@@ -296,7 +294,6 @@ export const useSequentialAnimationRuntimeEffect = ({
 
     return () => {
       unregister();
-      accumMsRef.current = 0;
       lastMetricsSampleMsRef.current = -Infinity;
       lastCheckpointFlushMsRef.current = -Infinity;
       lastFrameUiPublishMsRef.current = -Infinity;

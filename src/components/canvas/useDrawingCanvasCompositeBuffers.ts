@@ -17,7 +17,7 @@ import { getSequentialLivePreviewFrame } from '@/lib/sequential/SequentialLivePr
 import { getInterlaceElapsedSeconds } from '@/lib/interlace/interlaceClock';
 import { drawSierraLiteInterlace, type InterlaceRenderSource } from '@/lib/interlace/interlaceRenderer';
 import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
-import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { getLayerTransferCanvas, type LayerTransferCacheEntry } from './layerTransferCache';
 import {
   getColorCyclePresentationCanvas,
@@ -153,7 +153,6 @@ export const useDrawingCanvasCompositeBuffers = ({
     const activeLayer = activeLayerId ? sortedLayers.find((layer) => layer.id === activeLayerId) ?? null : null;
     const activeOrder = activeLayer ? activeLayer.order : Number.POSITIVE_INFINITY;
     const storeState = getAppStoreState() as AppState;
-    const sequentialFrameIndex = getSequentialRenderFrame(storeState);
     const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
     const groupById = new Map((storeState.layerGroups ?? []).map((group) => [group.id, group]));
     const interlaceLayersByGroupId = new Map<string, Layer[]>();
@@ -251,6 +250,7 @@ export const useDrawingCanvasCompositeBuffers = ({
           }
         }
       } else if (layer.layerType === 'sequential' && layer.sequentialData) {
+        const sequentialFrameIndex = getSequentialLayerRenderFrame(storeState, layer);
         const includePreviewEvents =
           Boolean(storeState.sequentialRecord?.isPointerDown) && storeState.activeLayerId === layer.id;
         const source = getSequentialLayerRenderCanvas({

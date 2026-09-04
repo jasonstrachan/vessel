@@ -87,6 +87,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
         frameCount: 4,
         timeSmear: 1,
         currentFrame: 0,
+        recordArmed: true,
         isPointerDown: true,
         isCaptureActive: false,
       },
@@ -122,7 +123,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
 
     const nextState = useAppStore.getState();
-    expect(nextState.sequentialRecord.currentFrame).toBe(1);
+    expect(nextState.sequentialRecord.currentFrame).toBe(2);
     expect(nextState.sequentialRecord.isCaptureActive).toBe(true);
     expect(nextState.sequentialRecord.metrics.tickCount).toBeGreaterThan(initialTickCount);
     expect(frameUpdateListener).toHaveBeenCalledTimes(1);
@@ -166,7 +167,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     const nextState = useAppStore.getState();
     expect(nextState.sequentialRecord.isCaptureActive).toBe(true);
     expect(nextState.sequentialRecord.metrics.tickCount).toBeGreaterThan(initialTickCount);
-    expect(nextState.sequentialRecord.currentFrame).toBe(1);
+    expect(nextState.sequentialRecord.currentFrame).toBe(2);
 
     act(() => {
       useAppStore.getState().setSequentialPointerDown(false);
@@ -174,7 +175,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
 
     const afterPointerUp = useAppStore.getState();
-    expect(afterPointerUp.sequentialRecord.currentFrame).toBe(1);
+    expect(afterPointerUp.sequentialRecord.currentFrame).toBe(2);
     expect(afterPointerUp.sequentialRecord.isCaptureActive).toBe(false);
 
     unmount();
@@ -270,7 +271,7 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     });
 
     const nextState = useAppStore.getState();
-    expect(nextState.sequentialRecord.currentFrame).toBe(1);
+    expect(nextState.sequentialRecord.currentFrame).toBe(2);
 
     unmount();
   });
@@ -312,6 +313,29 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(1);
 
     unmount();
+  });
+
+  it('does not request a canvas redraw before any visible sequence frame changes', () => {
+    const frameUpdateListener = jest.fn();
+    window.addEventListener('vessel:sequentialFrameUpdate', frameUpdateListener as EventListener);
+    const storeRef = { current: useAppStore.getState() as AppState };
+    const { unmount } = renderHook(() => {
+      storeRef.current = useAppStore.getState() as AppState;
+      useSequentialAnimationRuntimeEffect({ storeRef });
+    });
+
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1050);
+    });
+
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(0);
+    expect(frameUpdateListener).not.toHaveBeenCalled();
+
+    unmount();
+    window.removeEventListener('vessel:sequentialFrameUpdate', frameUpdateListener as EventListener);
   });
 
 });

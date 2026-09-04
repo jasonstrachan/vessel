@@ -31,6 +31,7 @@ import {
   sanitizeLayerGroups,
 } from '@/stores/layers/layerGroupService';
 import type { AppState } from '@/stores/useAppStore';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import type { Layer, Project } from '@/types';
 import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import { logError } from '@/utils/debug';
@@ -135,7 +136,6 @@ export const mergeLayersAction = (
       ),
     );
     const mergedGroupId = sourceGroupIds.length === 1 ? sourceGroupIds[0] : undefined;
-    const sequentialFrameIndex = state.sequentialRecord.currentFrame;
     const anchorOrder = (() => {
       const anchorId = uniqueIds[0];
       const anchorLayer = state.layers.find((layer) => layer.id === anchorId);
@@ -263,7 +263,7 @@ export const mergeLayersAction = (
           layer,
           width: projectWidth,
           height: projectHeight,
-          frameIndex: sequentialFrameIndex,
+          frameIndex: getSequentialLayerRenderFrame(state, layer),
         });
         if (sequentialCanvas) {
           try {

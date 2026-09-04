@@ -2,6 +2,7 @@ import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { Layer } from '@/types';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 
 export const seedOverlayFromActiveLayer = ({
   activeLayer,
@@ -23,7 +24,7 @@ export const seedOverlayFromActiveLayer = ({
         layer: activeLayer,
         width: project.width,
         height: project.height,
-        frameIndex: state.sequentialRecord.currentFrame,
+        frameIndex: getSequentialLayerRenderFrame(state, activeLayer),
         holdPreviousOnEmptyFrames: true,
       });
       if (source) {

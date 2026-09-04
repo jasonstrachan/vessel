@@ -16,7 +16,10 @@ import {
   MIN_CC_LAYER_SPEED_SCALE,
 } from '@/constants/colorCycle';
 import PlaybackSpeedControlsModule from '@/components/panels/PlaybackSpeedControlsModule';
-import SequentialControlsModule from '@/components/panels/SequentialControlsModule';
+import SequentialControlsModule, {
+  type SequentialFrameResizeMode,
+} from '@/components/panels/SequentialControlsModule';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import {
   resolveExplicitLayerColorCycleBaseSpeed,
   sanitizeColorCycleLayerSpeedMultiplier,
@@ -69,7 +72,11 @@ const AnimationControlsPanel: React.FC = () => {
   const playbackToggleRequestIdRef = React.useRef(0);
   const setRecordFPS = useAppStore((state) => state.setRecordFPS);
   const setRecordFrameCount = useAppStore((state) => state.setRecordFrameCount);
-  const setTimeSmear = useAppStore((state) => state.setTimeSmear);
+  const setSequentialRecordArmed = useAppStore((state) => state.setSequentialRecordArmed);
+  const setTemporalSpreadFrames = useAppStore((state) => state.setTemporalSpreadFrames);
+  const setSequentialTrailFalloff = useAppStore((state) => state.setSequentialTrailFalloff);
+  const setSequentialBurstFrames = useAppStore((state) => state.setSequentialBurstFrames);
+  const setSequentialGapFrames = useAppStore((state) => state.setSequentialGapFrames);
   const setPlaybackSpeedScale = useAppStore((state) => state.setPlaybackSpeedScale);
   const updateLayer = useAppStore((state) => state.updateLayer);
   const playbackSpeedScale = useAppStore(selectPlaybackSpeedScale);
@@ -79,6 +86,18 @@ const AnimationControlsPanel: React.FC = () => {
       return null;
     }
     return activeLayer;
+  });
+  const activeSequentialLayer = useAppStore((state) => {
+    const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+    return activeLayer?.layerType === 'sequential' && activeLayer.sequentialData
+      ? activeLayer
+      : null;
+  });
+  const activeSequentialFrame = useAppStore((state) => {
+    const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
+    return activeLayer?.layerType === 'sequential' && activeLayer.sequentialData
+      ? getSequentialLayerRenderFrame(state, activeLayer)
+      : state.sequentialRecord.currentFrame;
   });
   const playbackToggleUi = useAppStore(selectPlaybackToggleUi);
   const warmingColorCycleLayerCount = useAppStore(
@@ -146,23 +165,47 @@ const AnimationControlsPanel: React.FC = () => {
   );
 
   const handleFramesChange = React.useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    (
+      event: React.ChangeEvent<HTMLInputElement>,
+      mode: SequentialFrameResizeMode,
+    ) => {
+      if (event.target.value.trim() === '') {
+        return;
+      }
       const value = Number(event.target.value);
       if (Number.isFinite(value)) {
-        setRecordFrameCount(value);
+        setRecordFrameCount(value, mode);
       }
     },
     [setRecordFrameCount]
   );
 
-  const handleTimeSmearChange = React.useCallback(
+  const handleTemporalSpreadChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const value = Number(event.target.value);
-      if (Number.isFinite(value)) {
-        setTimeSmear(value);
-      }
+      setTemporalSpreadFrames(Number(event.target.value));
     },
-    [setTimeSmear]
+    [setTemporalSpreadFrames],
+  );
+
+  const handleTrailFalloffChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setSequentialTrailFalloff(Number(event.target.value));
+    },
+    [setSequentialTrailFalloff],
+  );
+
+  const handleBurstFramesChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setSequentialBurstFrames(Number(event.target.value));
+    },
+    [setSequentialBurstFrames],
+  );
+
+  const handleGapFramesChange = React.useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setSequentialGapFrames(Number(event.target.value));
+    },
+    [setSequentialGapFrames],
   );
 
   const handlePlaybackSpeedScaleChange = React.useCallback(
@@ -206,9 +249,12 @@ const AnimationControlsPanel: React.FC = () => {
     : null;
 
   const controlsDisabled = sequentialCaptureActive;
+  const sequenceFps = activeSequentialLayer?.sequentialData?.fps ?? sequentialRecord.fps;
+  const sequenceFrameCount =
+    activeSequentialLayer?.sequentialData?.frameCount ?? sequentialRecord.frameCount;
   const currentFrameDisplay = Math.min(
-    sequentialRecord.frameCount,
-    Math.max(1, Math.round(sequentialRecord.currentFrame) + 1)
+    sequenceFrameCount,
+    Math.max(1, Math.round(activeSequentialFrame) + 1),
   );
 
   return (
@@ -217,13 +263,30 @@ const AnimationControlsPanel: React.FC = () => {
         <SequentialControlsModule
           controlsDisabled={controlsDisabled}
           currentFrameDisplay={currentFrameDisplay}
-          frameCount={sequentialRecord.frameCount}
-          fps={sequentialRecord.fps}
+          frameCount={sequenceFrameCount}
+          fps={sequenceFps}
+          hasActiveSequentialLayer={Boolean(activeSequentialLayer)}
           isCaptureActive={sequentialCaptureActive}
-          timeSmear={sequentialRecord.timeSmear}
+          recordArmed={sequentialRecord.recordArmed === true}
+          temporalSpreadFrames={Number.isFinite(sequentialRecord.temporalSpreadFrames)
+            ? sequentialRecord.temporalSpreadFrames
+            : 1}
+          trailFalloff={Number.isFinite(sequentialRecord.trailFalloff)
+            ? sequentialRecord.trailFalloff
+            : 0}
+          burstFrames={Number.isFinite(sequentialRecord.burstFrames)
+            ? sequentialRecord.burstFrames
+            : 1}
+          gapFrames={Number.isFinite(sequentialRecord.gapFrames)
+            ? sequentialRecord.gapFrames
+            : 0}
           onFpsChange={handleFpsChange}
           onFramesChange={handleFramesChange}
-          onTimeSmearChange={handleTimeSmearChange}
+          onRecordArmedChange={setSequentialRecordArmed}
+          onTemporalSpreadChange={handleTemporalSpreadChange}
+          onTrailFalloffChange={handleTrailFalloffChange}
+          onBurstFramesChange={handleBurstFramesChange}
+          onGapFramesChange={handleGapFramesChange}
         />
 
         <PlaybackSpeedControlsModule

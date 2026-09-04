@@ -190,7 +190,14 @@ export const computeBestLoopSuggestion = ({
     .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode !== 'recolor')
     .map(() => brushCycleSpeed)
     .filter((speed) => Number.isFinite(speed) && speed > 0);
-  const speeds = [...recolorSpeeds, ...brushSpeeds];
+  const sequentialCycleRates = layers
+    .filter((layer) => layer.layerType === 'sequential' && !!layer.sequentialData)
+    .map((layer) => {
+      const clipFps = Math.max(1, Math.round(layer.sequentialData!.fps));
+      const clipFrameCount = Math.max(1, Math.round(layer.sequentialData!.frameCount));
+      return clipFps / clipFrameCount;
+    });
+  const speeds = [...recolorSpeeds, ...brushSpeeds, ...sequentialCycleRates];
 
   if (speeds.length === 0) {
     return { frames: targetFrames, success: false, duration: targetFrames / safeFps };

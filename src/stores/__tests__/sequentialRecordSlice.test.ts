@@ -167,7 +167,7 @@ describe('sequentialRecordSlice', () => {
     expect(layer?.sequentialData?.frameCount).toBe(4);
     expect(layer?.sequentialData?.fps).toBe(24);
     expect(layer?.sequentialData?.durationMs).toBe(Math.round((4 * 1000) / 24));
-    expect(layer?.sequentialData?.events[0]?.frameIndex).toBe(3);
+    expect(layer?.sequentialData?.events[0]?.frameIndex).toBe(11);
   });
 
   it('steps and sets sequential frame with wrap-around', () => {
@@ -182,11 +182,43 @@ describe('sequentialRecordSlice', () => {
     expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(3);
   });
 
+  it('supports explicit trim and retime frame resize policies', () => {
+    const baseLayer = createLayer('layer-seq-resize', 'sequential');
+    const baseEvents = [0, 6, 11].map((frameIndex) => ({
+      ...baseLayer.sequentialData!.events[0],
+      id: `event-${frameIndex}`,
+      frameIndex,
+    }));
+    baseLayer.sequentialData = {
+      ...baseLayer.sequentialData!,
+      frameCount: 12,
+      events: baseEvents,
+    };
+    useAppStore.setState({ layers: [baseLayer], activeLayerId: baseLayer.id });
+
+    useAppStore.getState().setRecordFrameCount(6, 'trim');
+    expect(
+      useAppStore.getState().layers[0].sequentialData?.events.map((event) => event.frameIndex),
+    ).toEqual([0]);
+
+    baseLayer.sequentialData = {
+      ...baseLayer.sequentialData!,
+      frameCount: 12,
+      events: baseEvents,
+    };
+    useAppStore.setState({ layers: [baseLayer], activeLayerId: baseLayer.id });
+    useAppStore.getState().setRecordFrameCount(6, 'retime');
+    expect(
+      useAppStore.getState().layers[0].sequentialData?.events.map((event) => event.frameIndex),
+    ).toEqual([0, 3, 5]);
+  });
+
   it('tracks pointer state and runtime metrics', () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1234);
     const store = useAppStore.getState();
     store.setSequentialPointerDown(true);
     expect(useAppStore.getState().sequentialRecord.isPointerDown).toBe(true);
-    expect(useAppStore.getState().sequentialRecord.sessionStartMs).not.toBeNull();
+    expect(useAppStore.getState().sequentialRecord.sessionStartMs).toBe(1234);
     useAppStore.getState().setSequentialCaptureActive(true);
     expect(useAppStore.getState().sequentialRecord.isCaptureActive).toBe(true);
 
@@ -201,6 +233,7 @@ describe('sequentialRecordSlice', () => {
     expect(metrics.tickCount).toBe(2);
     expect(metrics.lastTickMs).toBe(10);
     expect(metrics.avgTickMs).toBeCloseTo(8);
+    nowSpy.mockRestore();
   });
 
   it('does not emit store updates when frame cache stats are unchanged', () => {
@@ -249,6 +282,7 @@ describe('sequentialRecordSlice', () => {
     expect(selectSequentialCaptureActive(state)).toBe(false);
     expect(selectGlobalAnimationActive(state)).toBe(true);
 
+    state.setSequentialRecordArmed(true);
     state.setSequentialPointerDown(true);
     state = useAppStore.getState();
     expect(selectSequentialCaptureActive(state)).toBe(true);
@@ -279,6 +313,7 @@ describe('sequentialRecordSlice', () => {
       },
       sequentialRecord: {
         ...useAppStore.getState().sequentialRecord,
+        recordArmed: true,
         isPointerDown: true,
       },
     });
@@ -334,6 +369,7 @@ describe('sequentialRecordSlice', () => {
       },
       sequentialRecord: {
         ...useAppStore.getState().sequentialRecord,
+        recordArmed: true,
         isPointerDown: true,
       },
     });

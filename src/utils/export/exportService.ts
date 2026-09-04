@@ -289,62 +289,67 @@ const runGifExport = async (
     useAbsolutePhase: options.autoFrames
   });
 
-  for (let i = 0; i < totalFrames; i++) {
-    if (signal.aborted) break;
-    animationSession?.stepFrame({
-      frameIndex: i,
-      totalFrames,
-      useAbsolutePhase: options.autoFrames
-    });
+  let paletteSize = 0;
+  try {
+    for (let i = 0; i < totalFrames; i++) {
+      if (signal.aborted) break;
+      animationSession?.stepFrame({
+        frameIndex: i,
+        totalFrames,
+        useAbsolutePhase: options.autoFrames
+      });
 
-    const frame = renderFrameToScaled(frameProvider, targets);
-    frames.push(frame);
+      const frame = renderFrameToScaled(frameProvider, targets);
+      frames.push(frame);
 
-    const data = frame.data;
-    for (let p = 0; p < data.length; p += 4) {
-      const a = data[p + 3];
-      if (a <= ALPHA_THRESHOLD) {
-        usesTransparency = true;
-        continue;
+      const data = frame.data;
+      for (let p = 0; p < data.length; p += 4) {
+        const a = data[p + 3];
+        if (a <= ALPHA_THRESHOLD) {
+          usesTransparency = true;
+          continue;
+        }
+        usedRGB.add((data[p] << 16) | (data[p + 1] << 8) | data[p + 2]);
+        if (usedRGB.size > 512) {
+          // Avoid runaway memory; palette will be quantized later if needed.
+        }
       }
-      usedRGB.add((data[p] << 16) | (data[p + 1] << 8) | data[p + 2]);
-      if (usedRGB.size > 512) {
-        // Avoid runaway memory; palette will be quantized later if needed.
-      }
+
+      onProgress({ phase: 'analyze', percent: Math.round((((i + 1) / totalFrames) * 100) * 0.5) });
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.floor(1000 / effectiveFps))));
     }
 
-    onProgress({ phase: 'analyze', percent: Math.round((((i + 1) / totalFrames) * 100) * 0.5) });
-    await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.floor(1000 / effectiveFps))));
+    const paletteResult = sampleGifPalette(frames, options, usedRGB, usesTransparency);
+    const fixedPalette = paletteResult.palette;
+    paletteSize = paletteResult.paletteSize;
+    const transparentIndex = fixedPalette.findIndex((c) => (c.length >= 4 && c[3] === 0));
+
+    for (let i = 0; i < frames.length; i++) {
+      if (signal.aborted) break;
+      const frame = frames[i];
+      const index = applyGifPalette(
+        frame.data,
+        fixedPalette,
+        options.ditherMethod,
+        options.ditherStrength,
+        targets.scaledWidth,
+        targets.scaledHeight,
+        transparentIndex
+      );
+
+      gif.writeFrame(index, targets.scaledWidth, targets.scaledHeight, {
+        palette: toGifPalette(fixedPalette),
+        delay: Math.round(1000 / effectiveFps),
+        repeat: options.repeat,
+        transparentIndex: transparentIndex >= 0 ? transparentIndex : undefined,
+      });
+
+      onProgress({ phase: 'encode', percent: 50 + Math.round(((i + 1) / frames.length) * 50) });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  } finally {
+    animationSession?.finish?.();
   }
-
-  const { palette: fixedPalette, paletteSize } = sampleGifPalette(frames, options, usedRGB, usesTransparency);
-  const transparentIndex = fixedPalette.findIndex((c) => (c.length >= 4 && c[3] === 0));
-
-  for (let i = 0; i < frames.length; i++) {
-    if (signal.aborted) break;
-    const frame = frames[i];
-    const index = applyGifPalette(
-      frame.data,
-      fixedPalette,
-      options.ditherMethod,
-      options.ditherStrength,
-      targets.scaledWidth,
-      targets.scaledHeight,
-      transparentIndex
-    );
-
-    gif.writeFrame(index, targets.scaledWidth, targets.scaledHeight, {
-      palette: toGifPalette(fixedPalette),
-      delay: Math.round(1000 / effectiveFps),
-      repeat: options.repeat,
-      transparentIndex: transparentIndex >= 0 ? transparentIndex : undefined,
-    });
-
-    onProgress({ phase: 'encode', percent: 50 + Math.round(((i + 1) / frames.length) * 50) });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-
-  animationSession?.finish?.();
 
   gif.finish();
   const bytes = gif.bytes();

@@ -242,6 +242,7 @@ describe('plugin sequential workflow parity', () => {
           durationMs: 1000,
           currentFrame: 1,
           timeSmear: 1,
+          recordArmed: true,
         },
         history: {
           ...state.history,

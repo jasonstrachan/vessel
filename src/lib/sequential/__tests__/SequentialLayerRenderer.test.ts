@@ -7,6 +7,8 @@ import {
   getSequentialLayerRendererStats,
 } from '@/lib/sequential/SequentialLayerRenderer';
 import { SequentialCpuMaterializer } from '@/lib/sequential/materializer/SequentialCpuMaterializer';
+import { __setSequentialWorkerFactoryForTests } from '@/lib/sequential/SequentialWorkerMaterializerBridge';
+import * as sequentialWorkerBridge from '@/lib/sequential/SequentialWorkerMaterializerBridge';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const createEvent = (
@@ -182,6 +184,76 @@ describe('SequentialLayerRenderer', () => {
       expect(materializeFrameSpy.mock.calls.length).toBe(callsAfterFirst);
     } finally {
       materializeFrameSpy.mockRestore();
+    }
+  });
+
+  it('keeps the previous presentation while the worker materializes a current-frame miss', () => {
+    __setSequentialWorkerFactoryForTests(() => ({} as Worker));
+    setFeatureFlag('enableSequentialWorkerMaterialization', true);
+    clearSequentialLayerRendererAll();
+
+    const layer = createLayer([
+      createEvent('f0', 0, '#ff0000'),
+      createEvent('f1', 1, '#00ff00'),
+    ]);
+    const frame1TileSet = new SequentialCpuMaterializer({ tileSize: 128 }).materializeFrame({
+      width: 16,
+      height: 16,
+      frameIndex: 1,
+      events: [layer.sequentialData!.events[1]],
+      eventsAreFrameScoped: true,
+    });
+    const frameReady = jest.fn();
+    window.addEventListener('vessel:sequentialFrameUpdate', frameReady);
+    const materializeFrameSpy = jest.spyOn(
+      SequentialCpuMaterializer.prototype,
+      'materializeFrame',
+    );
+
+    try {
+      const frame0 = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex: 0,
+      });
+      expect(frame0).not.toBeNull();
+      const callsAfterFirstFrame = materializeFrameSpy.mock.calls.length;
+
+      const deferredFrame1 = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex: 1,
+      });
+      expect(getSequentialLayerRendererDiagnostics()).toEqual(expect.objectContaining({
+        workerCurrentRequests: 1,
+        workerDeferredFrames: 1,
+      }));
+      expect(deferredFrame1).toBe(frame0);
+      expect(materializeFrameSpy.mock.calls.length).toBe(callsAfterFirstFrame);
+
+      (sequentialWorkerBridge as typeof sequentialWorkerBridge & {
+        __completeSequentialWorkerFrameForTests: (tileSet: typeof frame1TileSet) => void;
+      }).__completeSequentialWorkerFrameForTests(frame1TileSet);
+      expect(frameReady).toHaveBeenCalledTimes(1);
+
+      const frame1 = getSequentialLayerRenderCanvas({
+        layer,
+        width: 16,
+        height: 16,
+        frameIndex: 1,
+      });
+      expect(frame1).not.toBe(frame0);
+      const pixel = readCenterPixel(frame1!);
+      expect(pixel[1]).toBeGreaterThan(pixel[0]);
+      expect(getSequentialLayerRendererDiagnostics().workerHits).toBe(1);
+    } finally {
+      materializeFrameSpy.mockRestore();
+      window.removeEventListener('vessel:sequentialFrameUpdate', frameReady);
+      setFeatureFlag('enableSequentialWorkerMaterialization', false);
+      clearSequentialLayerRendererAll();
+      __setSequentialWorkerFactoryForTests(null);
     }
   });
 

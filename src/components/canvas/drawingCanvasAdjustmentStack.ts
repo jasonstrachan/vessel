@@ -4,7 +4,7 @@ import {
   type InterlaceRenderSource,
 } from '@/lib/interlace/interlaceRenderer';
 import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
-import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import {
   createAdjustmentLayerCompositeCache,
   renderAdjustmentAwareLayerStack,
@@ -123,7 +123,7 @@ export const drawAdjustmentCompositeStack = ({
         layer,
         width: project?.width ?? renderRect.width,
         height: project?.height ?? renderRect.height,
-        frameIndex: getSequentialRenderFrame(storeState),
+        frameIndex: getSequentialLayerRenderFrame(storeState, layer),
         holdPreviousOnEmptyFrames: shouldHoldPreviousSequentialFrame,
       }) as CanvasImageSource | null;
     } else if (layer.framebuffer) {

@@ -28,6 +28,9 @@ const budgets = [
   { path: 'src/utils/export/webglExporter.ts', max: 600, status: 'blocking' },
   { path: 'src/hooks/canvas/handlers/pointerHandlers.ts', max: 900, status: 'blocking' },
   { path: 'src/hooks/canvas/handlers/shapes/ShapeToolHandler.ts', max: 900, status: 'blocking' },
+  { path: 'src/hooks/canvas/handlers/sequential/sequentialCapture.ts', max: 1250, status: 'blocking' },
+  { path: 'src/lib/sequential/SequentialLayerRenderer.ts', max: 1100, status: 'blocking' },
+  { path: 'src/lib/sequential/materializer/SequentialCpuMaterializer.ts', max: 2600, status: 'blocking' },
 ];
 
 const countLines = (filePath) => {

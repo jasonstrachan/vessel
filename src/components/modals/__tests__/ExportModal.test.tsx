@@ -4,6 +4,11 @@ import { render, screen, fireEvent, act, waitFor, within } from '@testing-librar
 
 import { registerGobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
 import { registerGobletTester } from '@/utils/export/goblet/gobletTesterRegistry';
+import {
+  getSequentialLayerRenderFrame,
+  setSequentialFrameCursor,
+} from '@/runtime/playback/sequentialFrameCursor';
+import type { AppState } from '@/stores/useAppStore';
 
 import { ExportModal } from '../ExportModal';
 
@@ -291,7 +296,7 @@ describe('ExportModal', () => {
     expect(request.options.fps).toBe(24);
   });
 
-  it('drives sequential frame index during animation sessions and restores on finish', async () => {
+  it('drives an isolated sequential export timeline and restores on finish', async () => {
     (store as any).layers = [{
       ...store.layers[0],
       id: 'seq-1',
@@ -305,6 +310,7 @@ describe('ExportModal', () => {
     }] as any;
     (store as any).activeLayerId = 'seq-1';
     (store as any).sequentialRecord.currentFrame = 2;
+    setSequentialFrameCursor({ nextFrame: 2, nextFrameCount: 12, nextFps: 12 });
 
     render(<ExportModal isOpen onClose={jest.fn()} />);
     fireEvent.click(screen.getByText('GIF'));
@@ -332,10 +338,12 @@ describe('ExportModal', () => {
       useAbsolutePhase: true,
     });
     session.stepFrame({ frameIndex: 7, totalFrames: 24, useAbsolutePhase: true });
-    expect(store.setSequentialFrame).toHaveBeenCalledWith(7);
+    const sequenceLayer = store.layers[0] as Parameters<typeof getSequentialLayerRenderFrame>[1];
+    expect(getSequentialLayerRenderFrame(store as unknown as AppState, sequenceLayer)).toBe(7);
+    expect(store.setSequentialFrame).not.toHaveBeenCalled();
 
     session.finish?.();
-    expect(store.setSequentialFrame).toHaveBeenLastCalledWith(2);
+    expect(getSequentialLayerRenderFrame(store as unknown as AppState, sequenceLayer)).toBe(2);
   });
 
   it('keeps file controls available for sequential exports without duplicating alignment editing', () => {

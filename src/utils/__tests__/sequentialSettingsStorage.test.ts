@@ -23,6 +23,22 @@ describe('sequentialSettingsStorage', () => {
     expect(loadSequentialSettings()).toEqual({ timeSmear: 160 });
   });
 
+  it('saves and loads bounded temporal controls', () => {
+    saveSequentialSettings({
+      temporalSpreadFrames: 99,
+      trailFalloff: -1,
+      burstFrames: 4.4,
+      gapFrames: 3.6,
+    });
+
+    expect(loadSequentialSettings()).toEqual({
+      temporalSpreadFrames: 32,
+      trailFalloff: 0,
+      burstFrames: 4,
+      gapFrames: 4,
+    });
+  });
+
   it('returns null for invalid payloads', () => {
     window.localStorage.setItem('vessel:sequential-settings', JSON.stringify({ timeSmear: 'oops' }));
     expect(loadSequentialSettings()).toBeNull();

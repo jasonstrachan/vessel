@@ -9,7 +9,7 @@ import { selectSequentialPlaybackActive, type AppState } from '@/stores/useAppSt
 import {
   getSequentialLayerRenderCanvas,
 } from '@/lib/sequential/SequentialLayerRenderer';
-import { getSequentialRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { getInterlaceElapsedSeconds } from '@/lib/interlace/interlaceClock';
 import { drawSierraLiteInterlace, type InterlaceRenderSource } from '@/lib/interlace/interlaceRenderer';
 import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
@@ -47,7 +47,6 @@ export const useDrawingCanvasLayerRendering = ({
     const sortedLayers = [...layers].sort((a, b) => a.order - b.order);
     const activeId = activeLayerId;
     const storeState = getAppStoreState() as AppState;
-    const sequentialFrameIndex = getSequentialRenderFrame(storeState);
     const shouldHoldPreviousSequentialFrame = !selectSequentialPlaybackActive(storeState);
     const groupById = new Map((storeState.layerGroups ?? []).map((group) => [group.id, group]));
     const activeGroupId = sortedLayers.find((layer) => layer.id === activeId)?.groupId;
@@ -152,6 +151,7 @@ export const useDrawingCanvasLayerRendering = ({
           }
         }
       } else if (layer.layerType === 'sequential' && layer.sequentialData) {
+        const sequentialFrameIndex = getSequentialLayerRenderFrame(storeState, layer);
         const source = getSequentialLayerRenderCanvas({
           layer,
           width: project.width,

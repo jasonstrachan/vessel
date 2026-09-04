@@ -1,5 +1,6 @@
 import { debugWarn } from '@/utils/debug';
 import type { StateCreator } from 'zustand';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import type { Layer, Rectangle } from '@/types';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { selectionSnapshotFromValues } from '@/history/selectionState';
@@ -1844,9 +1845,7 @@ export const createSelectionSlice = ({
         }
 
         const beforeSequentialData = cloneSequentialLayerData(activeLayer.sequentialData);
-        const frameCount = Math.max(1, Math.round(activeLayer.sequentialData.frameCount));
-        const frameIndex =
-          ((Math.round(state.sequentialRecord.currentFrame) % frameCount) + frameCount) % frameCount;
+        const frameIndex = getSequentialLayerRenderFrame(state, activeLayer);
         const timestampMs = Date.now();
         const strokeId = `seq-delete-${timestampMs}`;
         const event = buildSequentialDestinationOutEvent({
