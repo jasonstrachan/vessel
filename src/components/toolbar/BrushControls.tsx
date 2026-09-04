@@ -1312,6 +1312,28 @@ const BrushControls = () => {
     </div>
   ) : null;
 
+  const ccFixedDitherSampleColorsControl =
+    isColorCycleFlatDitherPreset && isGradientSampleMode ? (
+      <div className="flex items-center gap-2 mt-2">
+        <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+          Colors
+        </label>
+        <ProgressSlider
+          value={Math.max(2, Math.min(16, Math.round(activeSettings.gradientBands ?? 16)))}
+          min={2}
+          max={16}
+          step={1}
+          onChange={(value) =>
+            setActiveSettings({
+              gradientBands: Math.max(2, Math.min(16, Math.round(value))),
+            })
+          }
+          aria-label="CC Fixed Dither Sample Colors"
+          className="flex-1"
+        />
+      </div>
+    ) : null;
+
   const renderBrushGradientEditor = React.useCallback((options?: { syncBands?: boolean }) => (
     <>
       <div className="mb-2">
@@ -1904,6 +1926,7 @@ const BrushControls = () => {
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && (
           <>
             {ccGradientColorsControl}
+            {ccFixedDitherSampleColorsControl}
             <DitherControls
               settings={activeSettings}
               onChange={setActiveSettings}

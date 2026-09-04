@@ -1464,7 +1464,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     });
   });
 
-  it('hides Colors while showing gradient contrast in the CC Fixed Dither brush settings', () => {
+  it('shows sampled Colors without tonal Colors in the CC Fixed Dither brush settings', () => {
     useAppStore.setState((state) => ({
       ...state,
       tools: {
@@ -1479,6 +1479,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
           ccFlatCycleDither: true,
           ccFlatCycleBands: 7,
           ccGradientRangeContrast: 100,
+          gradientBands: 12,
         },
       },
       brushPresets: [{ id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['brushPresets'][number]],
@@ -1488,6 +1489,8 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     render(<BrushControls />);
 
     expect(screen.queryByLabelText('CC Tonal Dither Colors')).not.toBeInTheDocument();
+    const colorsSlider = screen.getByLabelText('CC Fixed Dither Sample Colors');
+    expect(colorsSlider).toHaveValue('12');
     expect(screen.queryByText('Always on')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
     expect(screen.getByLabelText('Ink Spread')).toBeInTheDocument();
@@ -1495,6 +1498,34 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(screen.getByText('Seam')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Hard' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Soft' })).toBeInTheDocument();
+
+    fireEvent.change(colorsSlider, { target: { value: '5' } });
+
+    expect(useAppStore.getState().tools.brushSettings.gradientBands).toBe(5);
+  });
+
+  it('hides sampled Colors outside Sample mode for CC Fixed Dither', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        ccGradientSource: 'manual',
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+          customBrushColorCycle: false,
+          customBrushColorCycleMode: 'tip',
+          ditherEnabled: true,
+          ccFlatCycleDither: true,
+        },
+      },
+      brushPresets: [{ id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['brushPresets'][number]],
+      currentBrushPreset: { id: 'color-cycle-flat-dither', name: 'CC Flat Dither' } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.queryByLabelText('CC Fixed Dither Sample Colors')).not.toBeInTheDocument();
   });
 
   it('updates dither pattern diversity from the CC gradient controls', () => {
