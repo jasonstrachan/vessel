@@ -103,6 +103,16 @@ const extractMask = (
   return mask;
 };
 
+const createEmptyMask = (
+  width: number,
+  height: number,
+): { width: number; height: number; alpha: Uint8ClampedArray; version: number } => ({
+  width,
+  height,
+  alpha: new Uint8ClampedArray(width * height),
+  version: 0,
+});
+
 const extractRoiPatch = (
   source: Uint8Array | Uint8ClampedArray,
   width: number,
@@ -305,11 +315,15 @@ export const createColorCycleEraseMaskPatchDelta = async (
     return null;
   }
 
-  const forwardMask = extractMask(options.forwardState, options.layerId);
-  const backwardMask = extractMask(options.backwardState, options.layerId);
-  if (!forwardMask || !backwardMask) {
+  const capturedForwardMask = extractMask(options.forwardState, options.layerId);
+  const capturedBackwardMask = extractMask(options.backwardState, options.layerId);
+  if (!capturedForwardMask && !capturedBackwardMask) {
     return null;
   }
+  // A missing mask and an allocated transparent mask are the same visual state.
+  // Normalizing the missing side keeps a first erase operation undoable.
+  const forwardMask = capturedForwardMask ?? createEmptyMask(width, height);
+  const backwardMask = capturedBackwardMask ?? createEmptyMask(width, height);
 
   const forwardPatchBytes = extractRoiPatch(forwardMask.alpha, forwardMask.width, forwardMask.height, roi);
   const backwardPatchBytes = extractRoiPatch(backwardMask.alpha, backwardMask.width, backwardMask.height, roi);

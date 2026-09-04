@@ -280,7 +280,6 @@ import type {
 } from '../utils/types';
 import { BrushShape, type BrushSettings } from '../../../types';
 import { snapPointToAngle } from '../../../utils/angleSnap';
-import { floodFill } from '../../../utils/floodFill';
 import { detectWacomIssues, testWacomPressure } from '../../../utils/detectWacom';
 import {
   generateContourLines,
@@ -296,9 +295,6 @@ import {
 import { getPresetStops } from '../../../utils/gradientPresets';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
 import { logContourFillDebug } from './utils/logContourFillDebug';
-import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
-import { commitLayerHistory, cloneLayerImageData } from '@/history/helpers/layerHistory';
-import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import { createSelectionRuntime } from '@/canvas/runtime/SelectionRuntime';
 import { CURSOR_FALLBACK_CROSSHAIR } from './utils/cursorFallbacks';
 import { resolveSpacePanCursor } from './utils/spacePanCursor';
@@ -308,11 +304,8 @@ import {
   resolveColorCycleRasterAnchor,
   shouldPixelAlignBrush,
 } from '@/hooks/canvas/utils/strokeRasterPolicy';
-import {
-  fillRasterWithinSelection,
-  resolveSelectionRasterScope,
-} from '@/stores/helpers/selectionRoi';
 import { applyMagicWandSelection } from './magicWandSelection';
+import { runFillToolPointerDown } from './fillTool';
 
 type VerticalSpacingMapperConfig = {
   centroid: { x: number; y: number };
@@ -516,7 +509,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     clearSelection,
     setCurrentOffscreenCanvas,
     compositeLayersToCanvas,
-    updateLayer,
     setIsDraggingFloatingPaste,
     floatingPasteDragStart,
     floatingPasteOriginalPos,
@@ -2980,168 +2972,13 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
       // Handle fill tool
       if (tools.currentTool === 'fill') {
-        // Block fill on CC layers
-        const compat = checkLayerBrushCompatibility();
-        if (!compat.ok) {
-          deps.feedback?.(compat.message);
-          return;
-        }
-        // Get the active layer
-        const activeLayer = layers.find(l => l.id === activeLayerId);
-        if (!activeLayer) return;
-
-        // Get the proper canvas dimensions from the project
-        const canvasWidth = project?.width || 1920;
-        const canvasHeight = project?.height || 1080;
-
-        // Get or create properly-sized image data
-        let currentImageData: ImageData | null = null;
-
-        if (activeLayer.framebuffer) {
-          const fb = activeLayer.framebuffer;
-
-          // Check if framebuffer needs resizing (it might be a 1x1 placeholder)
-          if (fb.width !== canvasWidth || fb.height !== canvasHeight) {
-            // Resize the framebuffer to match project dimensions
-            fb.width = canvasWidth;
-            fb.height = canvasHeight;
-          }
-
-          const ctx = fb.getContext('2d', { willReadFrequently: true });
-          if (ctx && 'getImageData' in ctx) {
-            currentImageData = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
-          }
-        }
-
-        // Fall back to imageData if available
-        if (!currentImageData && activeLayer.imageData) {
-          currentImageData = activeLayer.imageData;
-        }
-
-        // If still no image data, create a new blank one
-        if (!currentImageData) {
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = canvasWidth;
-          tempCanvas.height = canvasHeight;
-          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
-          if (tempCtx) {
-            currentImageData = tempCtx.createImageData(canvasWidth, canvasHeight);
-          } else {
-            return;
-          }
-        }
-
-        const beforeImage = cloneLayerImageData(currentImageData);
-        const workingImageData = cloneLayerImageData(currentImageData);
-        if (!beforeImage || !workingImageData) {
-          return;
-        }
-        const beforeColorState =
-          activeLayer.layerType === 'color-cycle'
-            ? captureColorCycleBrushState(activeLayer.id)
-            : null;
-
-        const shouldErase = tools.fillSettings.eraseInstead;
-        const fillColor = shouldErase
-          ? { r: 0, g: 0, b: 0, a: 0 }
-          : (() => {
-              const palette = getDynamicDeps().palette;
-              const activeFillColor =
-                palette.activeSlot === 'background'
-                  ? palette.backgroundColor
-                  : palette.foregroundColor;
-              const { r, g, b } = hexToRgb(cssColorToHex(activeFillColor ?? '#000000'));
-              return { r, g, b, a: 255 };
-            })();
-
-        const selectionScope = resolveSelectionRasterScope({
-          selectionStart,
-          selectionEnd,
-          selectionMask,
-          selectionMaskBounds,
-        }, workingImageData.width, workingImageData.height);
-        let nextImageData: ImageData;
-        let fillBounds: { x: number; y: number; width: number; height: number } | null;
-
-        if (selectionScope.bounds) {
-          nextImageData = workingImageData;
-          fillBounds = fillRasterWithinSelection(
-            nextImageData,
-            selectionScope.bounds,
-            fillColor,
-            selectionScope.selectionMask,
-            selectionScope.selectionMaskBounds
-          );
-        } else {
-          const fillResult = floodFill(
-            workingImageData,
-            Math.floor(worldPos.x),
-            Math.floor(worldPos.y),
-            fillColor,
-            {
-              threshold: tools.fillSettings.threshold,
-              contiguous: tools.fillSettings.contiguous
-            }
-          );
-          nextImageData = fillResult.imageData;
-          fillBounds = fillResult.bounds;
-        }
-
-        if (!fillBounds) {
-          return;
-        }
-
-        // Update the layer's framebuffer with the constrained filled image data
-        if (activeLayer.framebuffer) {
-          const fb = activeLayer.framebuffer;
-          const ctx = fb.getContext('2d', { willReadFrequently: true });
-          if (ctx && 'putImageData' in ctx) {
-            ctx.putImageData(nextImageData, 0, 0);
-          }
-        }
-
-        // Also update the imageData if it exists
-        if (activeLayerId) {
-          updateLayer(
-            activeLayerId,
-            { imageData: nextImageData },
-            { dirtyRects: [fillBounds] },
-          );
-        }
-
-        // Trigger canvas composite update
-        compositeCanvasDirtyRef.current = true;
-        requestAnimationFrame(() => {
-          if (compositeCanvasRef.current && project) {
-            compositeLayersToCanvas(compositeCanvasRef.current);
-            setCurrentOffscreenCanvas(compositeCanvasRef.current);
-            compositeCanvasDirtyRef.current = false;
-
-            const canvasEl = canvasRef.current;
-            const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
-            if (ctx) {
-              deps.draw(ctx, deps.viewTransformRef.current);
-            }
-          }
+        runFillToolPointerDown({
+          deps,
+          dynamic: getDynamicDeps(),
+          worldPos,
         });
-
-        const historyCommit = commitLayerHistory({
-          layerId: activeLayer.id,
-          beforeImage,
-          beforeColorState,
-          actionType: 'fill',
-          description: shouldErase ? 'Flood erase' : 'Flood fill',
-          tool: shouldErase ? 'eraser-fill' : 'fill',
-          bitmapRoi: fillBounds,
-        }).catch((error) => {
-          if (process.env.NODE_ENV !== 'production') {
-            debugWarn('raw-console', '[history] Failed to record flood fill history', error);
-          }
-        });
-        trackPendingHistoryCommit(historyCommit);
-
-      return;
-    }
+        return;
+      }
 
     if (tools.currentTool === 'custom' && tools.customBrushCapture?.mode === 'freehand') {
       startFreehandCapture(event.pointerId, worldPos);

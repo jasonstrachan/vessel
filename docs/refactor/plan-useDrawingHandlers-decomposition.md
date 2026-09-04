@@ -3429,3 +3429,10 @@ src/hooks/canvas/
     - `src/components/canvas/__tests__/DrawingCanvas.accessibility.test.tsx`
     - `src/hooks/canvas/handlers/shapes/__tests__/ShapeToolHandler.flush.test.tsx`
     - `src/hooks/canvas/handlers/__tests__/pointerHandlers.main.test.ts`
+- 2026-09-04: paint-bucket handler extraction and Color Cycle support.
+  - Added `src/hooks/canvas/handlers/fillTool.ts` to own normal raster Fill,
+    Color Cycle canonical indexed Fill, and persistent erase-mask Fill Erase.
+  - Reduced `src/hooks/canvas/handlers/pointerHandlersRuntime.ts` from 5,074
+    to 4,911 lines; it now only routes Fill pointer-down events.
+  - Added targeted tests for contiguous visible-presentation masks, canonical
+    CC buffer writes, erase-mask healing, and additive Fill Erase behavior.

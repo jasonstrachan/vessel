@@ -154,6 +154,41 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
     ]);
   });
 
+  it('treats a missing pre-erase mask as a transparent mask', async () => {
+    const width = 4;
+    const height = 4;
+    const layerId = 'layer-cc-mask';
+    const forwardAlpha = new Array(width * height).fill(0);
+    forwardAlpha[5] = 255;
+    const backwardState = makeState(
+      layerId,
+      width,
+      height,
+      new Array(width * height).fill(0),
+      0,
+    );
+    delete backwardState?.layers[0]?.eraseMaskSnapshot;
+
+    const delta = await createColorCycleEraseMaskPatchDelta({
+      layerId,
+      width,
+      height,
+      roi: { x: 0, y: 0, width, height },
+      forwardState: makeState(layerId, width, height, forwardAlpha, 1),
+      backwardState,
+    });
+
+    expect(delta).not.toBeNull();
+    const mask = useAppStore.getState().layers[0]?.colorCycleData?.eraseMask as HTMLCanvasElement;
+
+    await replayDeltaForTest(delta!, 'forward');
+    expect(readMaskAlpha(mask, 1, 1)).toBe(255);
+
+    await replayDeltaForTest(delta!, 'backward');
+    expect(readMaskAlpha(mask, 1, 1)).toBe(0);
+    expect(useAppStore.getState().layers[0]?.colorCycleData?.eraseMaskVersion).toBe(0);
+  });
+
   it.each([
     ['forward', 1],
     ['backward', 2],

@@ -65,6 +65,15 @@ CC Gradient Click Line completion remains outside the orchestration shells:
 - `DrawingCanvas.tsx` and `DrawingCanvasViewport.tsx` only forward the native
   `dblclick` event.
 
+Paint-bucket execution remains outside pointer orchestration:
+
+- `src/hooks/canvas/handlers/fillTool.ts` owns normal raster Fill plus Color
+  Cycle canonical Fill and erase-mask Fill Erase behavior.
+- `src/hooks/canvas/handlers/pointerHandlersRuntime.ts` only routes the
+  pointer-down event into that handler. Its existing hard-budget exception is
+  tracked by `docs/refactor/plan-useDrawingHandlers-decomposition.md`; this
+  extraction reduced it from 5,074 to 4,911 lines.
+
 ## Refactor Trigger Rules
 - Third-concern rule: if a file now owns 3+ independent concerns, extract before merge.
 - Repeated helper rule: if a helper pattern appears 3 times, extract.
