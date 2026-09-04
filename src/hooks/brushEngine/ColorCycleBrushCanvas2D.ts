@@ -620,6 +620,7 @@ export class ColorCycleBrushCanvas2D {
   readonly getColorCycleLayerDocument = this.layerDocumentApi.getColorCycleLayerDocument;
   readonly rebaseColorCycleLayerDocument = this.layerDocumentApi.rebaseColorCycleLayerDocument;
   readonly removeColorCycleLayerDocument = this.layerDocumentApi.removeColorCycleLayerDocument;
+  readonly setLayerColorCycleMeta = this.layerDocumentApi.setLayerMeta;
   readonly getLayerId = this.layerDocumentApi.getLayerId;
   readonly setIsolated = this.layerDocumentApi.setIsolated;
 

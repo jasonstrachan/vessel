@@ -204,7 +204,7 @@ import type {
   CropState,
   Rectangle,
   ColorAdjustState,
-  ColorAdjustParams,
+  ColorAdjustToolParams,
   PaletteState,
   ReferenceAsset,
   ReferenceSamplingSource,
@@ -480,7 +480,7 @@ export interface AppState {
   // Color Adjust Tool
   colorAdjust: ColorAdjustState;
   startColorAdjustSession: () => void;
-  updateColorAdjustParams: (params: Partial<ColorAdjustParams>) => void;
+  updateColorAdjustParams: (params: Partial<ColorAdjustToolParams>) => void;
   previewColorAdjust: () => void;
   applyColorAdjust: () => Promise<void>;
   cancelColorAdjust: () => void;

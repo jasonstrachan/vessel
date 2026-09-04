@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 
-import type { ColorAdjustParams, ColorAdjustState, Layer, Rectangle } from '@/types';
+import type { ColorAdjustState, ColorAdjustToolParams, Layer, Rectangle } from '@/types';
 import { debugWarn } from '@/utils/debug';
 import {
   blitImageDataWithinSelection,
@@ -27,6 +27,7 @@ import {
   applyColorCycleBrushLayerSnapshotToRuntime,
   buildColorCycleRuntimePaintSnapshot,
   canApplyColorCycleBrushLayerSnapshotToRuntime,
+  createColorCycleBrushPersistenceLayerMetaFromLayerData,
   colorCycleRuntimePaintSnapshotToBrushSnapshot,
   readColorCycleBrushLayerSnapshotFromRuntime,
   type ColorCycleBrushLayerSnapshotRuntimeReader,
@@ -82,12 +83,13 @@ const resolveLayerDirtyRect = (
   return width > 0 && height > 0 ? { x: 0, y: 0, width, height } : null;
 };
 
-const hasColorAdjustments = (params: ColorAdjustParams): boolean =>
+const hasColorAdjustments = (params: ColorAdjustToolParams): boolean =>
   params.hue !== 0 ||
   params.saturation !== 0 ||
   params.vibrance !== 0 ||
   params.lightness !== 0 ||
   params.contrast !== 0 ||
+  (params.ccInkContrast ?? 0) !== 0 ||
   params.red !== 0 ||
   params.green !== 0 ||
   params.blue !== 0;
@@ -281,7 +283,7 @@ const colorToCss = (r: number, g: number, b: number, a: number): string => {
 
 const applyColorAdjustmentsToColor = (
   color: string,
-  params: ColorAdjustParams
+  params: ColorAdjustToolParams
 ): string => {
   const parsed = parseCssColor(color, { r: 255, g: 255, b: 255, a: 255 });
   const pixel = new ImageData(1, 1);
@@ -300,17 +302,15 @@ const applyColorAdjustmentsToColor = (
 
 const applyColorAdjustmentsToGradient = (
   stops: ColorCycleGradientStop[],
-  params: ColorAdjustParams
+  params: ColorAdjustToolParams
 ): ColorCycleGradientStop[] => {
   const adjustedStops = stops.map((stop) => ({
     ...stop,
-    color: applyColorAdjustmentsToColor(stop.color, {
-      ...params,
-      contrast: 0,
-    }),
+    color: applyColorAdjustmentsToColor(stop.color, params),
   }));
+  const ccInkContrast = params.ccInkContrast ?? 0;
 
-  if (params.contrast === 0 || adjustedStops.length < 2) {
+  if (ccInkContrast === 0 || adjustedStops.length < 2) {
     return adjustedStops;
   }
 
@@ -347,7 +347,7 @@ const applyColorAdjustmentsToGradient = (
     }),
     { L: 0, a: 0, b: 0 },
   );
-  const factor = Math.max(0, Math.min(2, 1 + params.contrast / 100));
+  const factor = Math.max(0, Math.min(2, 1 + ccInkContrast / 100));
 
   return adjustedStops.map((stop, index) => {
     if (!shouldAdjustStop(stops[index] ?? stop)) {
@@ -371,7 +371,7 @@ const applyColorAdjustmentsToGradient = (
 
 const buildAdjustedColorCycleData = (
   original: Layer['colorCycleData'],
-  params: ColorAdjustParams
+  params: ColorAdjustToolParams
 ): Layer['colorCycleData'] => {
   if (!original) {
     return original;
@@ -459,9 +459,16 @@ const replaceColorCycleLayerData = (
   }
 };
 
-const refreshColorCycleGradientDefRuntime = (layerId: string): void => {
+const refreshColorCycleGradientDefRuntime = (
+  layerId: string,
+  colorCycleData: Layer['colorCycleData'] | null,
+): void => {
   try {
     const brush = getColorCycleBrushManager().getGradientApplyBrush(layerId);
+    brush?.setLayerColorCycleMeta?.(
+      layerId,
+      createColorCycleBrushPersistenceLayerMetaFromLayerData(colorCycleData),
+    );
     brush?.syncGradientDefRuntime?.(layerId);
   } catch {
     // noop: shape-bound defs can fall back to next full render if runtime is unavailable
@@ -578,7 +585,7 @@ const previewSelectedColorCycleRegion = (
   layer: Layer,
   originalData: NonNullable<Layer['colorCycleData']>,
   originalSnapshot: ColorCycleRuntimeSnapshot,
-  params: ColorAdjustParams,
+  params: ColorAdjustToolParams,
   selectionScope: ReturnType<typeof resolveSelectionRasterScope>
 ): boolean => {
   if (layer.layerType !== 'color-cycle' || !state.project) {
@@ -812,7 +819,7 @@ const previewSelectedColorCycleRegion = (
   }, [selectionBounds]);
 
   requestGradientApply(layer.id, 'color-adjust-preview-selection');
-  refreshColorCycleGradientDefRuntime(layer.id);
+  refreshColorCycleGradientDefRuntime(layer.id, refreshedColorCycleData);
   rerenderColorCycleLayerSurface(get, layer.id, [selectionBounds]);
   set({ layersNeedRecomposition: true });
   return true;
@@ -919,12 +926,13 @@ const scheduleColorAdjustPreview = (getState: () => AppState): void => {
   });
 };
 
-export const defaultColorAdjustParams: ColorAdjustParams = {
+export const defaultColorAdjustParams: ColorAdjustToolParams = {
   hue: 0,
   saturation: 0,
   vibrance: 0,
   lightness: 0,
   contrast: 0,
+  ccInkContrast: 0,
   red: 0,
   green: 0,
   blue: 0,
@@ -983,7 +991,7 @@ const previewColorCycleLayerAdjustments = ({
   set: Parameters<StateCreator<AppState, [], [], ColorAdjustSlice>>[0];
   get: () => AppState;
   layer: Layer;
-  params: ColorAdjustParams;
+  params: ColorAdjustToolParams;
 }): void => {
   const originalColorCycleData = colorAdjustOriginalColorCycleDataByLayerId.get(layer.id);
   if (!originalColorCycleData || layer.layerType !== 'color-cycle') {
@@ -1041,7 +1049,7 @@ const previewColorCycleLayerAdjustments = ({
     }
   } else {
     requestGradientApply(layer.id, 'color-adjust-preview');
-    refreshColorCycleGradientDefRuntime(layer.id);
+    refreshColorCycleGradientDefRuntime(layer.id, nextColorCycleData);
     rerenderColorCycleLayerSurface(get, layer.id, dirtyRects);
   }
 
@@ -1058,7 +1066,7 @@ const previewRasterLayerAdjustments = ({
   state: AppState;
   layer: Layer;
   layerId: string;
-  params: ColorAdjustParams;
+  params: ColorAdjustToolParams;
   markLayersNeedRecomposition: () => void;
 }): void => {
   const originalImageData = colorAdjustOriginalImageDataByLayerId.get(layer.id);
@@ -1174,7 +1182,7 @@ const restoreColorCycleLayerAdjustments = ({
     }
   } else {
     requestGradientApply(layer.id, 'color-adjust-cancel');
-    refreshColorCycleGradientDefRuntime(layer.id);
+    refreshColorCycleGradientDefRuntime(layer.id, restoredData);
     rerenderColorCycleLayerSurface(get, layer.id, dirtyRects);
   }
   set({ layersNeedRecomposition: true });
@@ -1339,7 +1347,7 @@ const refreshColorAdjustSessionState = (
 export interface ColorAdjustSlice {
   colorAdjust: ColorAdjustState;
   startColorAdjustSession: () => void;
-  updateColorAdjustParams: (params: Partial<ColorAdjustParams>) => void;
+  updateColorAdjustParams: (params: Partial<ColorAdjustToolParams>) => void;
   previewColorAdjust: () => void;
   applyColorAdjust: () => Promise<void>;
   cancelColorAdjust: () => void;

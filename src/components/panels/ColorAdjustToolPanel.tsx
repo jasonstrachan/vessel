@@ -6,15 +6,18 @@ import { useAppStore } from '@/stores/useAppStore';
 import ProgressSlider from '@/components/ui/ProgressSlider';
 import CustomSwitch from '@/components/ui/CustomSwitch';
 import HueRangeStrip from '@/components/ui/HueRangeStrip';
-import type { ColorAdjustParams, Tool } from '@/types';
+import type { ColorAdjustToolParams, Tool } from '@/types';
 import { useToolSwitcher } from '@/utils/toolSwitch';
-import { resolveColorAdjustTargetLayerIds } from '@/stores/helpers/colorAdjustSession';
+import {
+  isEligibleColorAdjustLayer,
+  resolveColorAdjustTargetLayerIds,
+} from '@/stores/helpers/colorAdjustSession';
 import {
   selectColorAdjustEligibleTargetSummary,
   selectPreviousTool,
 } from '@/stores/selectors/toolsSelectors';
 
-type ParamKey = keyof ColorAdjustParams;
+type ParamKey = keyof ColorAdjustToolParams;
 type SliderParamKey = Exclude<ParamKey, 'hueRangeEnabled' | 'hueRangeStart' | 'hueRangeEnd'>;
 type RuntimePreparationStatus = 'idle' | 'preparing' | 'failed';
 
@@ -25,12 +28,21 @@ const SLIDER_CONFIG: Array<{
   max: number;
   step?: number;
   suffix?: string;
+  colorCycleOnly?: boolean;
 }> = [
   { key: 'hue', label: 'Hue', min: -180, max: 180, suffix: '°' },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100, suffix: '%' },
   { key: 'vibrance', label: 'Vibrance', min: -100, max: 100, suffix: '%' },
   { key: 'lightness', label: 'Lightness', min: -100, max: 100, suffix: '%' },
   { key: 'contrast', label: 'Contrast', min: -100, max: 100, suffix: '%' },
+  {
+    key: 'ccInkContrast',
+    label: 'CC Ink Contrast',
+    min: -100,
+    max: 100,
+    suffix: '%',
+    colorCycleOnly: true,
+  },
   { key: 'red', label: 'Red', min: -100, max: 100, suffix: '%' },
   { key: 'green', label: 'Green', min: -100, max: 100, suffix: '%' },
   { key: 'blue', label: 'Blue', min: -100, max: 100, suffix: '%' },
@@ -45,11 +57,18 @@ const ColorAdjustToolPanel: React.FC = () => {
   const startColorAdjustSession = useAppStore((state) => state.startColorAdjustSession);
   const ensureColorCycleLayerRuntime = useAppStore((state) => state.ensureColorCycleLayerRuntime);
   const activeLayerId = useAppStore((state) => state.activeLayerId);
-  const colorCycleTargetIds = useAppStore(useShallow((state) => (
+  const eligibleTargetLayerIds = useAppStore(useShallow((state) => (
     resolveColorAdjustTargetLayerIds(state.activeLayerId, state.selectedLayerIds)
       .filter((layerId) => (
-        state.layers.find((layer) => layer.id === layerId)?.layerType === 'color-cycle'
+        isEligibleColorAdjustLayer(state.layers.find((layer) => layer.id === layerId))
       ))
+  )));
+  const colorCycleTargetIds = useAppStore(useShallow((state) => (
+    resolveColorAdjustTargetLayerIds(state.activeLayerId, state.selectedLayerIds)
+      .filter((layerId) => {
+        const layer = state.layers.find((candidate) => candidate.id === layerId);
+        return layer?.layerType === 'color-cycle' && isEligibleColorAdjustLayer(layer);
+      })
   )));
   const previousTool = useAppStore(selectPreviousTool);
   const eligibleTargetSummary = useAppStore(useShallow(selectColorAdjustEligibleTargetSummary));
@@ -59,10 +78,12 @@ const ColorAdjustToolPanel: React.FC = () => {
   const hasValidLayer = eligibleTargetSummary.hasValidLayer;
   const layerName = eligibleTargetSummary.label;
   const targetCount = eligibleTargetSummary.count;
+  const sessionTargetsMatch = session.targetLayerIds.length === eligibleTargetLayerIds.length &&
+    session.targetLayerIds.every((layerId, index) => layerId === eligibleTargetLayerIds[index]);
 
   const handleSliderChange = useCallback(
     (key: ParamKey) => (value: number) => {
-      updateParams({ [key]: value } as Partial<ColorAdjustParams>);
+      updateParams({ [key]: value } as Partial<ColorAdjustToolParams>);
     },
     [updateParams]
   );
@@ -107,13 +128,24 @@ const ColorAdjustToolPanel: React.FC = () => {
   }, [resetColorAdjustParams]);
 
   const hasAdjustments = useMemo(() => {
-    const { hue, saturation, vibrance, lightness, contrast, red, green, blue } = session.params;
+    const {
+      hue,
+      saturation,
+      vibrance,
+      lightness,
+      contrast,
+      ccInkContrast,
+      red,
+      green,
+      blue,
+    } = session.params;
     return (
       hue !== 0 ||
       saturation !== 0 ||
       vibrance !== 0 ||
       lightness !== 0 ||
       contrast !== 0 ||
+      (ccInkContrast ?? 0) !== 0 ||
       red !== 0 ||
       green !== 0 ||
       blue !== 0
@@ -125,6 +157,12 @@ const ColorAdjustToolPanel: React.FC = () => {
     : (session.selectionBounds ? 'Selection' : 'Layer');
 
   useEffect(() => {
+    if (session.active && (!hasValidLayer || !sessionTargetsMatch)) {
+      cancelColorAdjust();
+      setRuntimePreparationStatus('idle');
+      return;
+    }
+
     if (session.active || !hasValidLayer) {
       setRuntimePreparationStatus('idle');
       return;
@@ -168,10 +206,12 @@ const ColorAdjustToolPanel: React.FC = () => {
     };
   }, [
     activeLayerId,
+    cancelColorAdjust,
     colorCycleTargetIds,
     ensureColorCycleLayerRuntime,
     hasValidLayer,
     session.active,
+    sessionTargetsMatch,
     startColorAdjustSession,
   ]);
 
@@ -232,13 +272,15 @@ const ColorAdjustToolPanel: React.FC = () => {
       </div>
 
       <div className="flex flex-col gap-3">
-        {SLIDER_CONFIG.map(({ key, label, min, max, step = 1 }) => (
+        {SLIDER_CONFIG.filter(({ colorCycleOnly }) => (
+          !colorCycleOnly || colorCycleTargetIds.length > 0
+        )).map(({ key, label, min, max, step = 1 }) => (
           <div key={key} className="flex items-center gap-3">
             <span className="w-20 text-xs uppercase tracking-wider text-[#9C9C9C]">
               {label}
             </span>
             <ProgressSlider
-              value={session.params[key]}
+              value={session.params[key] ?? 0}
               min={min}
               max={max}
               step={step}

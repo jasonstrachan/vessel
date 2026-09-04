@@ -292,6 +292,7 @@ const resetStore = () => {
         vibrance: 0,
         lightness: 0,
         contrast: 0,
+        ccInkContrast: 0,
         red: 0,
         green: 0,
         blue: 0,
@@ -590,6 +591,24 @@ describe('colorAdjustSlice preview performance path', () => {
     ]);
   });
 
+  it('keeps fixed-midpoint Contrast behavior for color-cycle gradient colors', () => {
+    const layer = createColorCycleLayer('cc-standard-contrast', [
+      { position: 0, color: 'rgb(32, 32, 32)' },
+      { position: 1, color: 'rgb(64, 64, 64)' },
+    ]);
+    installProjectWithLayer(layer);
+
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ contrast: -50 });
+    store.previewColorAdjust();
+
+    const stops = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
+    const values = stops.map((stop) => parseCssColor(stop.color).r);
+
+    expect(values).toEqual([96, 106]);
+  });
+
   it('adjusts contrast between inks around each color-cycle gradient center', () => {
     const layer = createColorCycleRecolorLayerWithDefStore('cc-ink-contrast', [
       { position: 0, color: 'rgb(32, 32, 32)' },
@@ -617,7 +636,7 @@ describe('colorAdjustSlice preview performance path', () => {
 
     const store = useAppStore.getState();
     store.startColorAdjustSession();
-    store.updateColorAdjustParams({ contrast: 50 });
+    store.updateColorAdjustParams({ ccInkContrast: 50 });
     store.previewColorAdjust();
 
     const definitions = useAppStore.getState().layers[0]?.colorCycleData?.gradientDefStore ?? [];
@@ -632,7 +651,7 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(Math.abs(((lightValues[0] ?? 0) + (lightValues[1] ?? 0)) / 2 - 208)).toBeLessThanOrEqual(1);
   });
 
-  it('compresses color-cycle inks without applying fixed-midpoint pixel contrast', () => {
+  it('compresses color-cycle inks independently of fixed-midpoint contrast', () => {
     const layer = createColorCycleLayer('cc-ink-compression', [
       { position: 0, color: 'rgb(32, 32, 32)' },
       { position: 1, color: 'rgb(64, 64, 64)' },
@@ -641,7 +660,7 @@ describe('colorAdjustSlice preview performance path', () => {
 
     const store = useAppStore.getState();
     store.startColorAdjustSession();
-    store.updateColorAdjustParams({ contrast: -50 });
+    store.updateColorAdjustParams({ ccInkContrast: -50 });
     store.previewColorAdjust();
 
     const stops = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
@@ -663,7 +682,7 @@ describe('colorAdjustSlice preview performance path', () => {
 
     const store = useAppStore.getState();
     store.startColorAdjustSession();
-    store.updateColorAdjustParams({ contrast: -100 });
+    store.updateColorAdjustParams({ ccInkContrast: -100 });
     store.previewColorAdjust();
 
     const stops = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
@@ -784,8 +803,10 @@ describe('colorAdjustSlice preview performance path', () => {
     };
     installProjectWithLayer(brushLayer);
 
+    const setLayerColorCycleMeta = jest.fn();
     const syncGradientDefRuntime = jest.fn();
     mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue({
+      setLayerColorCycleMeta,
       syncGradientDefRuntime,
     });
 
@@ -794,6 +815,21 @@ describe('colorAdjustSlice preview performance path', () => {
     store.updateColorAdjustParams({ saturation: -100 });
     store.previewColorAdjust();
 
+    expect(setLayerColorCycleMeta).toHaveBeenCalledWith(
+      'cc-def-runtime',
+      expect.objectContaining({
+        gradientDefStore: expect.any(Array),
+      }),
+    );
+    const runtimeMeta = setLayerColorCycleMeta.mock.calls[0]?.[1];
+    const adjustedStop = parseCssColor(
+      runtimeMeta?.gradientDefStore?.[0]?.stops[0]?.color ?? '#000000',
+    );
+    expect(adjustedStop.r).toBe(adjustedStop.g);
+    expect(adjustedStop.g).toBe(adjustedStop.b);
+    expect(setLayerColorCycleMeta.mock.invocationCallOrder[0]).toBeLessThan(
+      syncGradientDefRuntime.mock.invocationCallOrder[0],
+    );
     expect(syncGradientDefRuntime).toHaveBeenCalledWith('cc-def-runtime');
   });
 

@@ -488,6 +488,9 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       setActiveGradientSlot: typeof brush.setActiveGradientSlot === 'function'
         ? brush.setActiveGradientSlot.bind(brush)
         : undefined,
+      setLayerColorCycleMeta: typeof brush.setLayerColorCycleMeta === 'function'
+        ? brush.setLayerColorCycleMeta.bind(brush)
+        : undefined,
       syncGradientDefRuntime: typeof brush.syncGradientDefRuntime === 'function'
         ? brush.syncGradientDefRuntime.bind(brush)
         : undefined,

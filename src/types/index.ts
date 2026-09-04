@@ -1827,9 +1827,13 @@ export interface ColorAdjustParams {
   hueRangeEnd: number;   // 0 to 360 degrees
 }
 
+export interface ColorAdjustToolParams extends ColorAdjustParams {
+  ccInkContrast: number; // -100 to 100 percent delta around each CC gradient's perceptual center
+}
+
 export interface ColorAdjustState {
   active: boolean;
-  params: ColorAdjustParams;
+  params: ColorAdjustToolParams;
   originalImageData: ImageData | null;
   originalColorCycleGradient?: Array<{ position: number; color: string }> | null;
   targetLayerType?: Layer['layerType'] | null;

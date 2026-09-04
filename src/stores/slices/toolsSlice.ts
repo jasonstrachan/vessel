@@ -1842,12 +1842,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       });
     } catch {}
 
-    if (tool === COLOR_ADJUST_TOOL) {
-      const store = get();
-      if (!store.colorAdjust.active || toolChanged) {
-        store.startColorAdjustSession();
-      }
-    } else if (stateBeforeSwitch.tools.currentTool === COLOR_ADJUST_TOOL) {
+    if (tool !== COLOR_ADJUST_TOOL && stateBeforeSwitch.tools.currentTool === COLOR_ADJUST_TOOL) {
       const store = get();
       if (stateBeforeSwitch.colorAdjust?.active) {
         store.cancelColorAdjust();

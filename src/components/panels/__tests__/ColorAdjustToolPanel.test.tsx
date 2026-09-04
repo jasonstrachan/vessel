@@ -134,6 +134,8 @@ describe('ColorAdjustToolPanel', () => {
       expect(screen.getByText('2 Layers')).toBeInTheDocument();
     });
 
+    expect(screen.getByRole('slider', { name: 'Contrast adjustment' })).toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'CC Ink Contrast adjustment' })).not.toBeInTheDocument();
     expect(useAppStore.getState().colorAdjust.targetLayerIds).toEqual([layerA.id, layerB.id]);
     expect(
       consoleErrorSpy.mock.calls.some(([message]) =>
@@ -195,6 +197,8 @@ describe('ColorAdjustToolPanel', () => {
       expect(screen.getByText('CC Layer')).toBeInTheDocument();
       expect(screen.getByText('(Selection)')).toBeInTheDocument();
     });
+    expect(screen.getByRole('slider', { name: 'Contrast adjustment' })).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'CC Ink Contrast adjustment' })).toBeInTheDocument();
     expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
   });
 
@@ -235,8 +239,8 @@ describe('ColorAdjustToolPanel', () => {
             },
         tools: {
           ...state.tools,
-          currentTool: 'color-adjust',
-          previousTool: 'brush',
+          currentTool: 'brush',
+          previousTool: 'selection',
         },
         colorAdjust: {
           ...state.colorAdjust,
@@ -250,6 +254,9 @@ describe('ColorAdjustToolPanel', () => {
     });
 
     render(<BrushSettingsPanel />);
+    act(() => {
+      useAppStore.getState().setCurrentTool('color-adjust');
+    });
 
     await waitFor(() => {
       expect(screen.getByRole('status')).toHaveTextContent('Preparing Color Cycle data');
@@ -267,5 +274,77 @@ describe('ColorAdjustToolPanel', () => {
       expect(screen.getByRole('slider', { name: 'Saturation adjustment' })).toBeEnabled();
     });
     expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
+  });
+
+  it('restarts the session when the selected color-cycle layer changes', async () => {
+    const layerA = createColorCycleLayer('cc-layer-a', 'CC Layer A');
+    const layerB = createColorCycleLayer('cc-layer-b', 'CC Layer B');
+    const ensureColorCycleLayerRuntime = jest.fn(async () => true);
+    const originalCancelColorAdjust = useAppStore.getState().cancelColorAdjust;
+    const cancelColorAdjust = jest.fn(() => originalCancelColorAdjust());
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        ...state,
+        layers: [layerA, layerB],
+        activeLayerId: layerA.id,
+        selectedLayerIds: [layerA.id],
+        project: state.project
+          ? {
+              ...state.project,
+              width: 2,
+              height: 2,
+              layers: [layerA, layerB],
+            }
+          : {
+              id: 'test-project',
+              name: 'Test Project',
+              width: 2,
+              height: 2,
+              layers: [layerA, layerB],
+              backgroundColor: '#000000',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              customBrushes: [],
+              palette: state.palette,
+            },
+        tools: {
+          ...state.tools,
+          currentTool: 'brush',
+          previousTool: 'selection',
+        },
+        colorAdjust: {
+          ...state.colorAdjust,
+          active: false,
+          targetLayerId: null,
+          targetLayerIds: [],
+        },
+        ensureColorCycleLayerRuntime,
+        cancelColorAdjust,
+      }));
+    });
+
+    render(<BrushSettingsPanel />);
+    act(() => {
+      useAppStore.getState().setCurrentTool('color-adjust');
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().colorAdjust.targetLayerIds).toEqual([layerA.id]);
+    });
+
+    act(() => {
+      useAppStore.setState({
+        activeLayerId: layerB.id,
+        selectedLayerIds: [layerB.id],
+      });
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().colorAdjust.targetLayerIds).toEqual([layerB.id]);
+    });
+    expect(cancelColorAdjust).toHaveBeenCalledTimes(1);
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layerA.id, { target: 'active' });
+    expect(ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layerB.id, { target: 'active' });
   });
 });

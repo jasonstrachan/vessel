@@ -67,6 +67,7 @@ function createMockBrush() {
     setGradientSlotStops: jest.fn(),
     setGradientSlot: jest.fn(),
     setActiveGradientSlot: jest.fn(),
+    setLayerColorCycleMeta: jest.fn(),
     syncGradientDefRuntime: jest.fn(),
     bindGradientDefIdToSlot: jest.fn(),
     getSampledStrokeDitherPrimaryBuffer: jest.fn(() => new Uint8Array([1, 65])),
@@ -340,6 +341,7 @@ describe('colorCycleBrushManager integration', () => {
       'setActiveGradientSlot',
       'setGradientSlot',
       'setGradientSlotStops',
+      'setLayerColorCycleMeta',
       'syncGradientDefRuntime',
     ]);
     expect('getCanvas' in (gradientApplyBrush ?? {})).toBe(false);
@@ -347,10 +349,32 @@ describe('colorCycleBrushManager integration', () => {
 
     gradientApplyBrush?.commitCurrentStroke?.('layer-1');
     gradientApplyBrush?.setActiveGradientSlot?.('layer-1', 2);
+    gradientApplyBrush?.setLayerColorCycleMeta?.('layer-1', {
+      gradientDefStore: [{
+        id: 7,
+        kind: 'linear',
+        stops: [
+          { position: 0, color: '#ff0000' },
+          { position: 1, color: '#ffff00' },
+        ],
+        hash: 'adjusted-gradient',
+        source: 'manual',
+        createdAtMs: 1,
+      }],
+    });
     gradientApplyBrush?.syncGradientDefRuntime?.('layer-1');
 
     expect(brush.commitCurrentStroke).toHaveBeenCalledWith('layer-1');
     expect(brush.setActiveGradientSlot).toHaveBeenCalledWith('layer-1', 2);
+    expect(brush.setLayerColorCycleMeta).toHaveBeenCalledWith(
+      'layer-1',
+      expect.objectContaining({
+        gradientDefStore: [expect.objectContaining({
+          id: 7,
+          hash: 'adjusted-gradient',
+        })],
+      }),
+    );
     expect(brush.syncGradientDefRuntime).toHaveBeenCalledWith('layer-1');
   });
 

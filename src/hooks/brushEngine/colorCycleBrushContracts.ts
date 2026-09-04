@@ -1,4 +1,5 @@
 import type {
+  ColorCycleBrushPersistenceLayerMeta,
   ColorCycleLayerDirtyBatch,
   ColorCycleLayerDocument,
   ColorCycleLayerDocumentRead,
@@ -184,6 +185,10 @@ export type ColorCycleGradientApplyBrushContext = {
     seamProfile?: GradientSeamProfile,
   ) => void;
   setActiveGradientSlot?: (layerId: string, slot: number) => void;
+  setLayerColorCycleMeta?: (
+    layerId: string,
+    meta: ColorCycleBrushPersistenceLayerMeta | null,
+  ) => void;
   syncGradientDefRuntime?: (layerId: string) => void;
 };
 
@@ -291,6 +296,10 @@ export type ColorCycleBrushGradientControls = {
   setGradientSlot?(layerId: string, slot: number, stops: GradientStop[], seamProfile?: GradientSeamProfile): void;
   setActiveGradientSlot(layerId: string, slot: number): void;
   getActiveGradientSlot?(layerId?: string): number;
+  setLayerColorCycleMeta?(
+    layerId: string,
+    meta: ColorCycleBrushPersistenceLayerMeta | null,
+  ): void;
   syncGradientDefRuntime?(layerId: string): void;
   setPreserveGradientPhase?(enabled: boolean): void;
 };
