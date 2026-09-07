@@ -1678,6 +1678,10 @@ export interface BrushSettings {
   customBrushCcPhaseJitter?: number; // 0-1 amount used only by jittered mode
 
   // Color cycle brush settings
+  colorCyclePencilEnabled?: boolean;
+  colorCyclePencilSensitivity?: number;
+  colorCycleBristlesEnabled?: boolean;
+  colorCyclePickupEnabled?: boolean; // Carry visible paint from the active layer into the new CC mark
   colorCycleSpeed?: number; // 0-2.64 (brush animation speed)
   colorCycleLayerSpeedScale?: number; // Global playback multiplier for CC brush-mode layers
   colorCycleGradient?: Array<{ position: number; color: string; opacity?: number }>; // Gradient stops

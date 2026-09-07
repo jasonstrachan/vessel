@@ -1,3 +1,4 @@
+import { buildCcPickupStrokeStops, type CcColourPickup } from '@/utils/colorCycle/ccColourPickup';
 import type React from 'react';
 
 import { getAppStoreState } from '@/stores/appStoreAccess';
@@ -275,10 +276,25 @@ const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
 };
 
 export const buildSampledStops = (params: {
+  pickup?: CcColourPickup;
   sourcePts: Array<{ x: number; y: number }>;
   sampleColor: (x: number, y: number) => string;
   allowTiny: boolean;
 }): { stops: StoredStop[]; samples: Array<{ t01: number; rgba: [number, number, number, number] }>; sampleCount: number } | null => {
+  if (params.pickup) {
+    const sampled = params.pickup.sampleBase
+      ? buildSampledStops({ ...params, pickup: undefined })
+      : null;
+    return {
+      stops: buildCcPickupStrokeStops({
+        ...params.pickup,
+        baseStops: sampled?.stops ?? params.pickup.baseStops,
+      }, params.sourcePts),
+      samples: sampled?.samples ?? [],
+      sampleCount: sampled?.sampleCount ?? params.sourcePts.length,
+    };
+  }
+
   const deduped = dedupePolylineForSampling(params.sourcePts);
   if (deduped.length === 0) {
     logSampledPipeline('buildSampledStops empty', {
@@ -390,6 +406,7 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
   if (args.session.source === 'sampled' && args.session.markKind === 'stroke') {
     args.session.sampledStrokePoints = dedupePolylineForSampling(args.sourcePts)
       .map((point) => ({ x: point.x, y: point.y }));
+    if (args.session.colourPickup) args.session.sampledStrokeColorAt = args.sampleColor;
   }
   if (args.now - args.lastUpdateRef.current < CC_SAMPLED_THROTTLE_MS) {
     logSampledPipeline('updateCcSampledSession throttled', {
@@ -410,6 +427,7 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
   }
 
   const result = buildSampledStops({
+    pickup: args.session.colourPickup,
     sourcePts: args.sourcePts,
     sampleColor: args.sampleColor,
     allowTiny: Boolean(args.allowTiny),

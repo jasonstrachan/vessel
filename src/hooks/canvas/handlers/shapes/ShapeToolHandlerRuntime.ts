@@ -184,6 +184,7 @@ const isSampledCcShapePreview = (brushSettings: BrushSettings): boolean =>
   brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
   resolveColorCycleGradientSource({
     ccGradientSource: brushSettings.ccGradientSource,
+    colorCyclePickupEnabled: brushSettings.colorCyclePickupEnabled,
     useForegroundGradient: brushSettings.colorCycleUseForegroundGradient,
   }) === 'sampled';
 
@@ -3022,9 +3023,10 @@ export const createShapeToolHandler = (
       const isCCLinear = brushNow.colorCycleFillMode === 'linear';
       const isColorCycleGradientPreset = isCcGradientPreset(presetId);
       const shouldDitherPreview =
-        isCCShape &&
-        (isCCLinear || isColorCycleGradientPreset) &&
-        Boolean(brushNow.ditherEnabled);
+        isCCShape && (
+          ((isCCLinear || isColorCycleGradientPreset) && Boolean(brushNow.ditherEnabled)) ||
+          brushNow.colorCyclePickupEnabled === true
+        );
 
       if (!shouldDitherPreview) {
         if (drawingHandlers.ccShapePreviewCacheRef) {
@@ -3103,9 +3105,10 @@ export const createShapeToolHandler = (
           overlayCtx.lineWidth = 2 / viewTransformRef.current.scale;
           overlayCtx.globalAlpha = SHAPE_PREVIEW_OPACITY;
         } else if (tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) {
-          if (isColorCycleGradientPreset || isColorCycleGradientPreview) {
+          if (isColorCycleGradientPreset || isColorCycleGradientPreview || brushNow.colorCyclePickupEnabled) {
             const previewGradientSource = resolveColorCycleGradientSource({
               ccGradientSource: brushNow.ccGradientSource,
+              colorCyclePickupEnabled: brushNow.colorCyclePickupEnabled,
               useForegroundGradient: brushNow.colorCycleUseForegroundGradient,
             });
             const useForegroundDerived = previewGradientSource === 'fg';
@@ -3819,6 +3822,7 @@ export const createShapeToolHandler = (
     if (isCCShape) {
       const pointerUpGradientSource = resolveColorCycleGradientSource({
         ccGradientSource: liveBrushForUp.ccGradientSource,
+        colorCyclePickupEnabled: liveBrushForUp.colorCyclePickupEnabled,
         useForegroundGradient: liveBrushForUp.colorCycleUseForegroundGradient,
       });
       ccLog('shape: pointerup', {

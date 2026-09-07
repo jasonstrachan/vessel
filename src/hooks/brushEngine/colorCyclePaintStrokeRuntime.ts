@@ -1,3 +1,5 @@
+import { getCcPencilMask, resolveCcPencilPressure, type CcPencilMask } from './ccPencilPressure';
+import { createCcBristleWriter, getCcBristleBaseIndex } from './ccBristles';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
@@ -107,7 +109,11 @@ export function runColorCyclePaintStroke(
   const activeSlot = context.resolveActiveStrokeSlot(id, strokeData);
   strokeData.flow.activeSlot = activeSlot;
   const flowSlot = context.resolveFlowSlot(strokeData, activeSlot);
-  const useStampDither = context.isStampDitherEnabled();
+  const appState = getAppStoreState();
+  const pencilSettings = appState.tools.brushSettings;
+  const pencilEnabled = pencilSettings.colorCyclePencilEnabled === true;
+  const bristlesEnabled = pencilSettings.colorCycleBristlesEnabled === true;
+  const useStampDither = context.isStampDitherEnabled() && !pencilEnabled;
   const stampShape = context.getStampShape();
   const prevColorIndex = useStampDither
     ? context.computeColorBandIndex(strokeData)
@@ -126,7 +132,7 @@ export function runColorCyclePaintStroke(
     ? context.computeColorBandIndex(strokeData)
     : context.getNonDitherStrokeColorIndex(strokeData);
   const colorIndex = nextColorIndex;
-  const speedByte = useStampDither ? context.getWriteSpeedByte(strokeData) : 0;
+  const speedByte = useStampDither || bristlesEnabled ? context.getWriteSpeedByte(strokeData) : 0;
   if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
     (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
   }
@@ -134,8 +140,22 @@ export function runColorCyclePaintStroke(
     animator.setFlowMode(context.getFlowMode());
   } catch {}
 
-  const pressureSize = context.resolvePressureBrushSize(pressure);
-  const primaryIndex = colorIndex;
+  const pressureSize = pencilEnabled
+    ? Math.max(1, pencilSettings.size * (0.65 + 0.35 * resolveCcPencilPressure(pressure, pencilSettings.colorCyclePencilSensitivity)))
+    : context.resolvePressureBrushSize(pressure);
+  const pencilMask = pencilEnabled ? getCcPencilMask({
+    runtime: context.getStampDitherRuntime(),
+    config: context.createStampDitherConfig({
+      patterns: appState.project?.ccCustomTilePatterns,
+      seed: 0,
+      diversity: Math.max(0, Math.min(1, (pencilSettings.ditherPatternDiversity ?? 100) / 100)),
+    }),
+    pressure,
+    sensitivity: pencilSettings.colorCyclePencilSensitivity,
+  }) : undefined;
+  const primaryIndex = bristlesEnabled && !useStampDither
+    ? getCcBristleBaseIndex(strokeData.buffers.phase, colorIndex, !last)
+    : colorIndex;
 
   if (shouldLogNonDitherDebug(strokeData, useStampDither)) {
     debugLog('raw-console', '[cc-nodither-decision]', {
@@ -222,10 +242,11 @@ export function runColorCyclePaintStroke(
       primaryIndex,
       flowSlot,
       perf: context.getPerfStroke(),
+      pencilMask,
     });
   }
 
-  if (!useStampDither) {
+  if (!useStampDither || bristlesEnabled) {
     clearStrokeDefIdsForStamp({
       buffers: strokeData.buffers,
       width: canvasWidth,
@@ -235,6 +256,11 @@ export function runColorCyclePaintStroke(
       brushSize: pressureSize,
       flowSlot,
       shape: stampShape,
+      clearDefIds: !useStampDither,
+      isPaintPixel: pencilMask?.accepts,
+      onPaintPixel: bristlesEnabled
+        ? createCcBristleWriter(strokeData.buffers.phase, { x, y }, last, pressureSize)
+        : undefined,
     });
   }
 
@@ -417,6 +443,7 @@ type StandardStampOptions = {
   primaryIndex: number;
   flowSlot: number;
   perf: ReturnType<ColorCycleStrokePerfState['get']>;
+  pencilMask?: CcPencilMask;
 };
 
 function paintStandardStamp({
@@ -428,24 +455,25 @@ function paintStandardStamp({
   primaryIndex,
   flowSlot,
   perf,
+  pencilMask,
 }: StandardStampOptions): void {
   const stampStart = perf ? nowMs() : 0;
   if (strokeShape === 'triangle') {
-    animator.paintTriangle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintTriangle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   } else if (strokeShape === 'round') {
-    animator.paintCircle(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintCircle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   } else if (strokeShape === 'diamond') {
-    animator.paintDiamond(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintDiamond(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   } else if (strokeShape === 'diamond5') {
-    animator.paintDiamond5Pixelated(x, y, Math.max(1, Math.round(pressureSize / 5)), primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintDiamond5Pixelated(x, y, Math.max(1, Math.round(pressureSize / 5)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   } else if (strokeShape === 'diamond7') {
-    animator.paintDiamond7Pixelated(x, y, Math.max(1, Math.round(pressureSize / 7)), primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintDiamond7Pixelated(x, y, Math.max(1, Math.round(pressureSize / 7)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   } else if (strokeShape === 'diamond9') {
-    animator.paintDiamond9Pixelated(x, y, Math.max(1, Math.round(pressureSize / 9)), primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintDiamond9Pixelated(x, y, Math.max(1, Math.round(pressureSize / 9)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   } else if (strokeShape === 'checkered') {
-    animator.paintCheckeredPixelated(x, y, Math.max(1, Math.round(pressureSize / 4)), primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintCheckeredPixelated(x, y, Math.max(1, Math.round(pressureSize / 4)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   } else {
-    animator.paintSquare(x, y, pressureSize, primaryIndex, undefined, undefined, undefined, undefined, flowSlot);
+    animator.paintSquare(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
   }
   if (perf) {
     perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);

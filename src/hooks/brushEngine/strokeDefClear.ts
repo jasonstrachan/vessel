@@ -16,6 +16,9 @@ export type ClearStrokeDefIdsForStampArgs = {
   brushSize: number;
   flowSlot: number;
   shape: StampDitherShape;
+  onPaintPixel?: (index: number, x: number, y: number) => void;
+  clearDefIds?: boolean;
+  isPaintPixel?: (x: number, y: number) => boolean;
 };
 
 const DIAMOND_5_MASK: ReadonlyArray<number> = [
@@ -64,6 +67,9 @@ export const clearStrokeDefIdsForStamp = ({
   brushSize,
   flowSlot,
   shape,
+  onPaintPixel,
+  clearDefIds = true,
+  isPaintPixel,
 }: ClearStrokeDefIdsForStampArgs): void => {
   const { paint, gid, def } = buffers;
   if (!def || def.length === 0) {
@@ -75,9 +81,11 @@ export const clearStrokeDefIdsForStamp = ({
     if (px < 0 || px >= width || py < 0 || py >= height) {
       return;
     }
+    if (isPaintPixel && !isPaintPixel(px, py)) return;
     const idx = py * width + px;
-    if (def[idx] !== 0 && paint[idx] !== 0 && (gid[idx] & FLOW_SLOT_MASK) === slotMasked) {
-      def[idx] = 0;
+    if (paint[idx] !== 0 && (gid[idx] & FLOW_SLOT_MASK) === slotMasked) {
+      if (clearDefIds) def[idx] = 0;
+      onPaintPixel?.(idx, px, py);
     }
   };
 

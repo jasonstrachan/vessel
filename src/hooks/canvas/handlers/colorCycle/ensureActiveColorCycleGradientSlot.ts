@@ -1,3 +1,4 @@
+import { usesCcSampledGradient } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog, logError } from '@/utils/debug';
 import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
@@ -127,7 +128,7 @@ export const ensureActiveColorCycleGradientSlot = ({
   brush,
 }: EnsureActiveColorCycleGradientSlotArgs): void => {
   const brushSettings = state.tools.brushSettings;
-  const useSampledGradient = state.tools.ccGradientSource === 'sampled';
+  const useSampledGradient = usesCcSampledGradient(state.tools.brushSettings, state.tools.ccGradientSource);
   const useForegroundGradient = Boolean(brushSettings.colorCycleUseForegroundGradient);
   const {
     gradientDefs,

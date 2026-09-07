@@ -31,11 +31,13 @@ export type ColorCycleGradientRenderSession = Pick<
 export const resolveColorCycleGradientSource = ({
   ccGradientSource,
   useForegroundGradient,
+  colorCyclePickupEnabled,
 }: {
   ccGradientSource?: string | null;
+  colorCyclePickupEnabled?: boolean;
   useForegroundGradient?: boolean | null;
 }): GradientDefSource => {
-  if (ccGradientSource === 'sampled') {
+  if (colorCyclePickupEnabled || ccGradientSource === 'sampled') {
     return 'sampled';
   }
   if (ccGradientSource === 'fg' || useForegroundGradient) {
@@ -86,6 +88,7 @@ export const resolveColorCycleGradientSourceState = ({
 }): ColorCycleGradientSourceState => {
   const source = resolveColorCycleGradientSource({
     ccGradientSource,
+    colorCyclePickupEnabled: brushSettings.colorCyclePickupEnabled,
     useForegroundGradient: brushSettings.colorCycleUseForegroundGradient,
   });
   return {

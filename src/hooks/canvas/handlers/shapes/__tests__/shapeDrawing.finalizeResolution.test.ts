@@ -799,6 +799,29 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(prepared?.previewHash).toBeTruthy();
   });
 
+  it('uses the Sample source with pickup on an empty active layer', async () => {
+    storeState.tools.ccGradientSource = 'sampled';
+    storeState.tools.brushSettings.colorCyclePickupEnabled = true;
+    try {
+      const layer = storeState.layers[0];
+      beginMarkGradientSession({
+        layerId: layer.id, markKind: 'shape', gradientKind: 'linear', source: 'sampled',
+        stops: [{ position: 0, color: '#0000ff' }, { position: 1, color: '#0000ff' }],
+      });
+      const sampleHexAt = jest.fn((x: number) => x < 5 ? '#00ff00' : '#ff0000');
+      const prepared = await __TESTING__.prepareFinalSampledShapeSession({
+        layer, state: storeState,
+        shapePoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }],
+        deps: { sampleColorAt: jest.fn(), sampleHexAt, ccLog: jest.fn() },
+      });
+      expect(sampleHexAt).toHaveBeenCalled();
+      expect(prepared?.previewStopsStored?.map((stop) => stop.color)).toContain('#00ff00');
+      expect(prepared?.previewStopsStored?.map((stop) => stop.color)).not.toContain('#0000ff');
+    } finally {
+      storeState.tools.brushSettings.colorCyclePickupEnabled = false;
+    }
+  });
+
   it('preserves the live footprint representative when finalize falls back to cached preview stops', async () => {
     storeState.tools.ccGradientSource = 'sampled';
     const layer = storeState.layers[0];

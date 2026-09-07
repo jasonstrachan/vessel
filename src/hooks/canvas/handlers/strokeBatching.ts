@@ -1,3 +1,4 @@
+import { usesCcSampledGradient } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { PixelQueue } from '@/hooks/brushEngine/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
@@ -240,6 +241,7 @@ export const processBatchedStrokes = (
     const pointTimestampMs = Number.isFinite(timestampMs) ? (timestampMs as number) : performance.now();
     const shouldAutoSample =
       ccProcessFlags.isAny &&
+      !currentState.tools.brushSettings.colorCyclePickupEnabled &&
       (currentState.tools.brushSettings.autoSampleGradient ||
         currentState.tools.brushSettings.autoSampleGradientRealtime);
     if (shouldAutoSample) {
@@ -255,7 +257,7 @@ export const processBatchedStrokes = (
     }
     const shouldSampled =
       ccProcessFlags.isAny &&
-      currentState.tools.ccGradientSource === 'sampled';
+      usesCcSampledGradient(currentState.tools.brushSettings, currentState.tools.ccGradientSource);
     if (shouldSampled) {
       args.ccSampledPointsRef.current.push(worldPos);
       if (args.ccSampledPointsRef.current.length > 5000) {

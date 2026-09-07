@@ -97,6 +97,48 @@ describe('tools slice', () => {
     expect(useAppStore.getState().tools.brushSettings.autoSampleColor).toBe(true);
   });
 
+  it('persists pencil controls without changing the selected dither mode', () => {
+    const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;
+    const shape = brushPresets.find((preset) => preset.id === 'color-cycle-shape')!;
+    useAppStore.getState().setBrushPreset(stroke, true);
+    useAppStore.getState().setBrushSettings({ colorCycleStampDitherEnabled: true });
+    useAppStore.getState().setBrushSettings({ colorCyclePencilEnabled: true, colorCyclePencilSensitivity: 75, colorCycleStampDitherPixelSize: 4 });
+    expect(useAppStore.getState().tools.brushSettings.colorCycleStampDitherEnabled).toBe(true);
+    useAppStore.getState().setBrushPreset(shape, true);
+    useAppStore.getState().setBrushPreset(stroke, true);
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({ colorCyclePencilEnabled: true, colorCyclePencilSensitivity: 75, colorCycleStampDitherPixelSize: 4 });
+    useAppStore.getState().setBrushSettings({ colorCycleStampDitherEnabled: true });
+    expect(useAppStore.getState().tools.brushSettings.colorCyclePencilEnabled).toBe(true);
+  });
+
+  it('retains bristles when returning to the CC Stroke preset', () => {
+    const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;
+    const shape = brushPresets.find((preset) => preset.id === 'color-cycle-shape')!;
+    useAppStore.getState().setBrushPreset(stroke, true);
+    useAppStore.getState().setBrushSettings({ colorCycleBristlesEnabled: true });
+    useAppStore.getState().setBrushPreset(shape, true);
+    useAppStore.getState().setBrushPreset(stroke, true);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(true);
+  });
+
+  it('persists colour pickup independently for each CC preset without changing its source', () => {
+    const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;
+    const shape = brushPresets.find((preset) => preset.id === 'color-cycle-shape')!;
+    expect(stroke).toBeTruthy();
+    expect(shape).toBeTruthy();
+    useAppStore.getState().setBrushPreset(stroke, true);
+    const source = useAppStore.getState().tools.ccGradientSource;
+    useAppStore.getState().setBrushSettings({ colorCyclePickupEnabled: true });
+    expect(useAppStore.getState().tools.ccGradientSource).toBe(source);
+    useAppStore.getState().setBrushPreset(shape, true);
+    useAppStore.getState().setBrushSettings({ colorCyclePickupEnabled: false });
+    useAppStore.getState().setBrushPreset(stroke, true);
+    expect(useAppStore.getState().tools.brushSettings.colorCyclePickupEnabled).toBe(true);
+    expect(useAppStore.getState().brushSpecificSettings[stroke.id]?.colorCyclePickupEnabled).toBe(true);
+    useAppStore.getState().setBrushPreset(shape, true);
+    expect(useAppStore.getState().tools.brushSettings.colorCyclePickupEnabled).toBe(false);
+  });
+
   it('persists CC layer speed scale in brush settings overrides', () => {
     const store = useAppStore.getState();
     store.setBrushSettings({ colorCycleLayerSpeedScale: 0.6 });

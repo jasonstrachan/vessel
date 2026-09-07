@@ -1,3 +1,4 @@
+import { buildCcPickupShapeStops, usesCcSampledGradient } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { isCcGradientPreset } from '@/presets/brushPresets';
 import type React from 'react';
@@ -187,13 +188,14 @@ const resolveColorCycleFillMode = (
 const resolveFallbackMarkSource = (state: AppState): GradientDefSource => {
   return resolveColorCycleGradientSource({
     ccGradientSource: state.tools.ccGradientSource,
+    colorCyclePickupEnabled: state.tools.brushSettings.colorCyclePickupEnabled,
     useForegroundGradient: state.tools.brushSettings.colorCycleUseForegroundGradient,
   });
 };
 
 const isSampledCcShapeDrag = (state: AppState): boolean =>
   state.tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-  state.tools.ccGradientSource === 'sampled';
+  usesCcSampledGradient(state.tools.brushSettings, state.tools.ccGradientSource);
 
 const cloneShapePoints = (points: Array<{ x: number; y: number }>): ShapePoint[] =>
   points.map(({ x, y }) => ({ x, y }));
@@ -249,6 +251,7 @@ const updateSampledCcShapePreviewGradient = (
       layerId: state.activeLayerId,
       pointCount: sourcePoints.length,
       ccGradientSource: state.tools.ccGradientSource,
+    colorCyclePickupEnabled: state.tools.brushSettings.colorCyclePickupEnabled,
     });
   }
 };
@@ -574,9 +577,15 @@ const prepareFinalSampledShapeSession = async (params: {
   const referenceLayer = params.state.colorPickerPreferReferenceLayer && params.state.referenceLayerId
     ? params.state.layers.find((candidate) => candidate.id === params.state.referenceLayerId)
     : null;
-  let footprintStops: StoredStop[] | null = null;
+  const pickupSession = getActiveMarkGradientSession(params.layer.id);
+  const pickup = params.state.tools.brushSettings.colorCyclePickupEnabled
+    ? pickupSession?.colourPickup ?? { image: null, sampleBase: params.state.tools.ccGradientSource === 'sampled', baseStops: fallbackStops, brushSize: params.state.tools.brushSettings.size }
+    : undefined;
+  let footprintStops: StoredStop[] | null = pickup && !pickup.sampleBase
+    ? buildCcPickupShapeStops(pickup, params.shapePoints, params.direction, gradientKind)
+    : null;
   let footprintDominantColor: string | null = null;
-  if (params.state.currentOffscreenCanvas) {
+  if ((!pickup || pickup.sampleBase) && params.state.currentOffscreenCanvas) {
     try {
       const footprintResult = await sampleShapeGradientFromCanvases({
         compositeCanvas: params.state.currentOffscreenCanvas,
@@ -616,6 +625,12 @@ const prepareFinalSampledShapeSession = async (params: {
         sampleCount: sampledPreview?.sampleCount ?? 0,
         fallbackStops,
       });
+  if (pickup?.sampleBase) {
+    footprintStops = buildCcPickupShapeStops({
+      ...pickup,
+      baseStops: footprintStops ?? resolvedPreviewStops?.stops ?? pickup.baseStops,
+    }, params.shapePoints, params.direction, gradientKind);
+  }
   const previewStops: StoredStop[] | null = footprintStops
     ?? (resolvedPreviewStops && resolvedPreviewStops.stops.length >= 2
       ? resolvedPreviewStops.stops
@@ -1286,7 +1301,7 @@ export const startShapeDrawing = (
         const autoSampleEnabled =
           st.tools.brushSettings.autoSampleGradient ||
           st.tools.brushSettings.autoSampleGradientRealtime;
-        if (isCCShape && st.activeLayerId && !sampledSource) {
+        if (isCCShape && st.activeLayerId && (!sampledSource || st.tools.brushSettings.colorCyclePickupEnabled)) {
           const activeLayer = st.layers.find((layer) => layer.id === st.activeLayerId);
           if (activeLayer?.layerType === 'color-cycle') {
             const resolved = resolveColorCycleGradientSourceState({
@@ -1671,7 +1686,7 @@ export const finalizeShapeDrawing = async (
     polygonPointCount,
     source: liveBrushSettings.ccGradientSource ?? null,
   });
-  if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+  if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && usesCcSampledGradient(liveBrushSettings)) {
     recordSampledCcShapeBreadcrumb({
       event: 'finalize-begin',
       activeLayerId: deps.storeRef.current.activeLayerId ?? null,
@@ -2266,7 +2281,7 @@ export const finalizeShapeDrawing = async (
             kind: 'color-cycle',
             handled: true,
           });
-          if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+          if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && usesCcSampledGradient(liveBrushSettings)) {
             recordSampledCcShapeBreadcrumb({
               event: 'finalize-end',
               activeLayerId: deps.storeRef.current.activeLayerId ?? null,
@@ -2317,7 +2332,7 @@ export const finalizeShapeDrawing = async (
             kind: 'raster',
             handled: true,
           });
-          if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+          if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && usesCcSampledGradient(liveBrushSettings)) {
             recordSampledCcShapeBreadcrumb({
               event: 'finalize-end',
               activeLayerId: deps.storeRef.current.activeLayerId ?? null,
@@ -2337,7 +2352,7 @@ export const finalizeShapeDrawing = async (
           kind: 'fallback',
           handled: true,
         });
-        if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+        if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && usesCcSampledGradient(liveBrushSettings)) {
           recordSampledCcShapeBreadcrumb({
             event: 'finalize-end',
             activeLayerId: deps.storeRef.current.activeLayerId ?? null,
@@ -2373,7 +2388,7 @@ export const finalizeShapeDrawing = async (
           kind: 'fallback',
           handled: true,
         });
-        if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && liveBrushSettings.ccGradientSource === 'sampled') {
+        if (liveBrushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE && usesCcSampledGradient(liveBrushSettings)) {
           recordSampledCcShapeBreadcrumb({
             event: 'finalize-end',
             activeLayerId: deps.storeRef.current.activeLayerId ?? null,

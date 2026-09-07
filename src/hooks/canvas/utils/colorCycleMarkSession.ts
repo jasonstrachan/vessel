@@ -1,4 +1,7 @@
+import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
+import { type CcColourPickup } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import type { AppState } from '@/stores/useAppStore';
 import {
   cloneStops,
@@ -27,6 +30,7 @@ import {
 
 export type MarkGradientSession = {
   markId: string;
+  colourPickup?: CcColourPickup;
   layerId: string;
   markKind: 'stroke' | 'shape';
   gradientKind: 'linear' | 'concentric';
@@ -45,6 +49,7 @@ export type MarkGradientSession = {
   samples?: Array<{ t01: number; rgba: [number, number, number, number] }>;
   sampledRepresentativeColor?: string;
   sampledStrokePoints?: Array<{ x: number; y: number }>;
+  sampledStrokeColorAt?: (x: number, y: number) => string;
   ditherRenderConfig?: FrozenCcDitherRenderConfig;
 };
 
@@ -98,6 +103,21 @@ const nextMarkId = () => {
 };
 
 const finalizeSampledSession = (session: MarkGradientSession): void => {
+  // Pickup must include the complete path even when its last preview was throttled.
+  if (session.markKind === 'stroke' && session.colourPickup && session.sampledStrokePoints && session.sampledStrokeColorAt) {
+    const sampled = buildSampledStops({
+      pickup: session.colourPickup,
+      sourcePts: session.sampledStrokePoints,
+      sampleColor: session.sampledStrokeColorAt,
+      allowTiny: true,
+    });
+    if (sampled) {
+      session.previewStopsStored = sampled.stops;
+      session.previewHash = hashStops(sampled.stops, session.gradientKind);
+      session.samples = sampled.samples;
+    }
+    delete session.sampledStrokeColorAt;
+  }
   const fallbackStops =
     session.fallbackStopsStored?.length ? session.fallbackStopsStored : session.frozenStopsStored;
   const sampledStops =
@@ -232,21 +252,51 @@ export const beginMarkGradientSession = (params: {
   const seamProfile: GradientSeamProfile = normalizeGradientSeamProfile(
     state.tools.brushSettings.colorCycleGradientSeamProfile,
   );
-  const isRuntimePalette =
-    params.source === 'manual' &&
+  const hasSampledRuntimePalette =
+    (state.tools.brushSettings.colorCyclePickupEnabled
+      ? state.tools.ccGradientSource === 'manual'
+      : params.source === 'manual') &&
     state.tools.brushSettings.colorCycleGradientIsRuntimePalette === true;
-  const sampledMotion = isRuntimePalette
+  const isRuntimePalette = state.tools.brushSettings.colorCyclePickupEnabled === true ||
+    params.source === 'manual' && hasSampledRuntimePalette;
+  const sampledMotion = hasSampledRuntimePalette
     ? normalizeColorCycleSampledMotion(state.tools.brushSettings.colorCycleSampledMotion) ?? undefined
     : undefined;
   const frozenStops = cloneStops(params.stops);
   const ditherRenderConfig = captureFrozenCcDitherRenderConfig();
-  if (params.source === 'sampled') {
+  let colourPickup: CcColourPickup | undefined;
+  if (state.tools.brushSettings.colorCyclePickupEnabled === true) {
+    const sourceCanvas = resolveLayerSamplingCanvas(layer);
+    let image: ImageData | null = null;
+    if (sourceCanvas && typeof document !== 'undefined') {
+      const snapshot = document.createElement('canvas');
+      snapshot.width = sourceCanvas.width;
+      snapshot.height = sourceCanvas.height;
+      const ctx = snapshot.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        ctx.drawImage(sourceCanvas, 0, 0);
+        image = ctx.getImageData(0, 0, snapshot.width, snapshot.height);
+      }
+    }
+    colourPickup = {
+      image,
+      sampleBase: state.tools.ccGradientSource === 'sampled',
+      baseStops: resolveMarkSessionRuntimeStops({
+        source: params.source,
+        ditherRenderConfig,
+        isRuntimePalette: state.tools.brushSettings.colorCycleGradientIsRuntimePalette === true,
+      }, frozenStops),
+      brushSize: state.tools.brushSettings.size,
+    };
+  }
+  if (params.source === 'sampled' || colourPickup) {
     const session: MarkGradientSession = {
       markId: nextMarkId(),
+      colourPickup,
       layerId: params.layerId,
       markKind: params.markKind,
       gradientKind: params.gradientKind,
-      source: params.source,
+      source: 'sampled',
       seamProfile,
       isRuntimePalette,
       sampledMotion,
@@ -257,7 +307,7 @@ export const beginMarkGradientSession = (params: {
       speedCps: params.speedCps,
       previewStopsStored: null,
       previewHash: '',
-      fallbackStopsStored: [],
+      fallbackStopsStored: colourPickup ? cloneStops(colourPickup.baseStops) : [],
       samples: [],
       ditherRenderConfig,
     };
@@ -357,7 +407,7 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
       return {
         source: 'sampled',
         phase: session.binding ? 'final' : 'sampling',
-        stopsStored: applyCcGradientContrast(
+        stopsStored: session.colourPickup ? cloneStops(sampledStops) : applyCcGradientContrast(
           sampledStops,
           getAppStoreState().tools.brushSettings.ccGradientRangeContrast ??
             session.ditherRenderConfig?.rangeContrast,

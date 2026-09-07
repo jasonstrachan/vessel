@@ -359,7 +359,7 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
 });
 
 jest.mock('@/stores/useAppStore', () => {
-  const state = { layers: [] } as any;
+  const state = { layers: [], tools: { brushSettings: {} } } as any;
   const useAppStore = (selector?: (s: any) => unknown) => (selector ? selector(state) : state);
   useAppStore.getState = () => state;
   useAppStore.setState = jest.fn();

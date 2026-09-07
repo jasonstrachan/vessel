@@ -342,6 +342,32 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(animator.defPaletteSignaturesById?.get(2)).toContain('#111111');
   });
 
+  it.each([false, true])('persists authored speed with non-dither pickup enabled or disabled (%s)', (pickup) => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const previousSettings = state.tools.brushSettings;
+    state.tools.brushSettings = { colorCyclePickupEnabled: pickup };
+    try {
+      const layerId = 'pickup-speed-regression';
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(16, 16), { brushSize: 4, forceCanvas2D: true });
+      brush.setStampDitherEnabled(false);
+      brush.setSpeed(0.2);
+      brush.startStroke(layerId);
+      brush.paint(8, 8, layerId, 1);
+      brush.endStroke(layerId);
+      const snapshot = readBrushLayerSnapshot(brush, layerId)!;
+      const paint = new Uint8Array(snapshot.paintBuffer);
+      const speed = new Uint8Array(snapshot.speedBuffer!);
+      const paintedSpeeds = Array.from(speed).filter((_, index) => paint[index] > 0);
+      expect(paintedSpeeds.length).toBeGreaterThan(0);
+      expect(paintedSpeeds.every((value) => value > 0)).toBe(true);
+      expect(decodeColorCycleSpeedByte(paintedSpeeds[0])).toBeCloseTo(0.2, 2);
+      const serialized = readSerializedBrushState(brush).layers.find((layer) => layer.layerId === layerId);
+      expect(new Uint8Array(serialized!.strokeData!.speedBuffer!)).toEqual(speed);
+    } finally {
+      state.tools.brushSettings = previousSettings;
+    }
+  });
+
   it('updates indices on endStroke for sierra-lite stamp dither', () => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });

@@ -706,6 +706,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
     }
 
+    for (const key of ['colorCyclePencilSensitivity'] as const) {
+      if (settings[key] !== undefined) settings[key] = Math.max(0, Math.min(100, Number.isFinite(settings[key]) ? settings[key]! : 50));
+    }
     let newSettings = { ...currentSettings, ...settings };
     if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
       newSettings.colorCycleFlowMode = 'forward';
@@ -954,6 +957,15 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.pigmentLiftNoise !== undefined) {
         settingsToSave.pigmentLiftNoise = newSettings.pigmentLiftNoise;
+      }
+      for (const key of ['colorCyclePencilEnabled', 'colorCyclePencilSensitivity'] as const) {
+        if (settings[key] !== undefined) Object.assign(settingsToSave, { [key]: newSettings[key] });
+      }
+      if (settings.colorCycleBristlesEnabled !== undefined) {
+        settingsToSave.colorCycleBristlesEnabled = newSettings.colorCycleBristlesEnabled === true;
+      }
+      if (settings.colorCyclePickupEnabled !== undefined) {
+        settingsToSave.colorCyclePickupEnabled = newSettings.colorCyclePickupEnabled === true;
       }
       if (settings.lostEdge !== undefined) {
         settingsToSave.lostEdge = newSettings.lostEdge;

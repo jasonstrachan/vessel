@@ -1,3 +1,4 @@
+import { usesCcSampledGradient } from '@/utils/colorCycle/ccColourPickup';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
 
@@ -32,7 +33,7 @@ export const initializeStrokeSamplingState = ({
   const isCCStroke = ccFlags.isAny;
   const autoSampleOneShot = !!currentState.tools.brushSettings.autoSampleGradient;
   const autoSampleRealtime = !!currentState.tools.brushSettings.autoSampleGradientRealtime;
-  if (isCCStroke && (autoSampleOneShot || autoSampleRealtime)) {
+  if (isCCStroke && !currentState.tools.brushSettings.colorCyclePickupEnabled && (autoSampleOneShot || autoSampleRealtime)) {
     autoSamplePointsRef.current = [worldPos];
     autoSampleLastUpdateRef.current = 0;
     autoSampleForkRef.current = true;
@@ -44,7 +45,7 @@ export const initializeStrokeSamplingState = ({
 
   const isSampledStroke =
     ccFlags.isAny &&
-    currentState.tools.ccGradientSource === 'sampled';
+    usesCcSampledGradient(currentState.tools.brushSettings, currentState.tools.ccGradientSource);
   if (isSampledStroke) {
     ccSampledPointsRef.current = [worldPos];
     ccSampledLastUpdateRef.current = 0;

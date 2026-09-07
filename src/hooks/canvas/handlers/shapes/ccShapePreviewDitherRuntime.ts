@@ -1,3 +1,4 @@
+import { buildCcPickupShapeStops, type CcColourPickup } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { BrushSettings } from '@/types';
@@ -20,7 +21,8 @@ import {
   createPressureResolutionState,
   type PressureResolutionState,
 } from '@/utils/pressureResolution';
-import { fillCcGradientDither } from '@/utils/colorCycle/ccGradientDither';
+import { fillCcGradientDither, buildNonZeroWindingRowSpans } from '@/utils/colorCycle/ccGradientDither';
+import { computeFallbackLinearDirection } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeGeometry';
 import {
   applyCcSampledRangeContrast as applyCcGradientContrast,
 } from '@/utils/colorCycle/ccSampledRangeContrast';
@@ -354,7 +356,7 @@ export const createCcShapePreviewSampleNormalized = ({
   width: number;
   height: number;
 }): ((x: number, y: number) => number) => {
-  if (colorCycleFillMode === 'concentric') {
+  if (colorCycleFillMode === 'concentric' || colorCycleFillMode === 'circular') {
     const edges = new Array(localVertices.length);
     for (let i = 0; i < localVertices.length; i += 1) {
       const v1 = localVertices[i];
@@ -833,6 +835,9 @@ const drawCachedCcPreview = ({
 
 type SampledCcPreviewRequest = {
   replayKey: string;
+  colourPickup?: CcColourPickup;
+  pickupMarkId?: string;
+  pickupLayerId?: string;
   previewGeometry: PreparedCcPreviewGeometry;
   sampleSourcePoints: Array<{ x: number; y: number }>;
   brushSettings: BrushSettings;
@@ -1401,6 +1406,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     committedPolygon,
     pixelSize: previewRenderSettings.pixelSize,
   });
+  const activeLayerId = getAppStoreState().activeLayerId;
+  const pickupSession = activeLayerId && brushSettings.colorCyclePickupEnabled
+    ? getActiveMarkGradientSession(activeLayerId) : null;
   const replayKey = buildSampledPreviewRequestKey({
     points: previewGeometry.previewPolygon,
     brushSettings,
@@ -1410,7 +1418,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
     .map(point => `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`)
     .join(';')}|direction:${sampleDirection
       ? `${Math.round(sampleDirection.x * 1000) / 1000},${Math.round(sampleDirection.y * 1000) / 1000}`
-      : 'auto'}`;
+      : 'auto'}|pickup:${pickupSession?.markId ?? 'off'}|dither:${Boolean(brushSettings.ditherEnabled)}`;
   const cachedPreview = drawCachedCcPreview({
     overlayCtx,
     overlayCanvas,
@@ -1459,6 +1467,9 @@ export const runSampledCcDitherPreviewRuntime = (args: {
 
   ditherGradPreviewState.ccPendingSampledRequest = {
     replayKey,
+    colourPickup: pickupSession?.colourPickup,
+    pickupMarkId: pickupSession?.markId,
+    pickupLayerId: pickupSession?.layerId,
     previewGeometry,
     sampleSourcePoints: (sampleSourcePoints ?? previewGeometry.previewPolygon).map(point => ({ ...point })),
     brushSettings: { ...brushSettings },
@@ -1568,8 +1579,22 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         const referenceLayer = currentState.colorPickerPreferReferenceLayer && currentState.referenceLayerId
           ? currentState.layers.find((candidate) => candidate.id === currentState.referenceLayerId)
           : null;
-        let footprintResult = null;
-        if (currentState.currentOffscreenCanvas) {
+        const pickup = request.colourPickup;
+        if (sampledBrushSettings.colorCyclePickupEnabled && (
+          !pickup || !request.pickupLayerId ||
+          getActiveMarkGradientSession(request.pickupLayerId)?.markId !== request.pickupMarkId
+        )) continue;
+        const pickupStops = pickup && !pickup.sampleBase ? buildCcPickupShapeStops(
+          pickup, sampledGeometry.previewPolygon, sampledDirection ?? computeFallbackLinearDirection(sampledGeometry.previewPolygon),
+          sampledBrushSettings.colorCycleFillMode === 'concentric' || sampledBrushSettings.colorCycleFillMode === 'circular'
+            ? 'concentric' : 'linear',
+        ) : null;
+        let footprintResult: Awaited<ReturnType<typeof sampleShapeGradientFromCanvases>> = pickupStops ? {
+          stops: pickupStops,
+          dominantColor: pickupStops[0]?.color ?? '#000000',
+          stats: { sampledPixels: 0, uniqueColorBins: 0, outputColors: pickupStops.length, alphaWeight: 0 },
+        } : null;
+        if ((!pickup || pickup.sampleBase) && currentState.currentOffscreenCanvas) {
           try {
             footprintResult = await sampleShapeGradientFromCanvases({
               compositeCanvas: currentState.currentOffscreenCanvas,
@@ -1609,6 +1634,13 @@ export const runSampledCcDitherPreviewRuntime = (args: {
               sampleCount: sampledPreview?.sampleCount ?? 0,
               fallbackStops: request.fallbackStops,
             });
+        if (pickup?.sampleBase) {
+          resolvedSampledStops.stops = buildCcPickupShapeStops({
+            ...pickup, baseStops: resolvedSampledStops.stops,
+          }, sampledGeometry.previewPolygon, sampledDirection ?? computeFallbackLinearDirection(sampledGeometry.previewPolygon),
+          sampledBrushSettings.colorCycleFillMode === 'concentric' || sampledBrushSettings.colorCycleFillMode === 'circular'
+            ? 'concentric' : 'linear');
+        }
         ccLog('shape: sampled preview stops ready', {
           stopCount: resolvedSampledStops.stops.length,
           usedFallbackStops: resolvedSampledStops.usedFallbackStops,
@@ -1634,7 +1666,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           ),
           replayKey: request.replayKey,
         });
-        const effectiveStops = applyCcGradientContrast(
+        const effectiveStops = pickup ? resolvedSampledStops.stops : applyCcGradientContrast(
           resolvedSampledStops.stops,
           sampledBrushSettings.ccGradientRangeContrast,
           footprintResult?.dominantColor,
@@ -1649,7 +1681,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           seq: mySeq,
           pointCount: sampledGeometry.previewPolygon.length,
         });
-        const previewStops = smoothSampledPreviewStops({
+        const previewStops = pickup ? effectiveStops : smoothSampledPreviewStops({
           previousStops: ditherGradPreviewState.ccSmoothedSampledStops,
           targetStops: effectiveStops,
         });
@@ -1661,7 +1693,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           ditherAlgorithm: sampledBrushSettings.ditherAlgorithm,
           preserveSourceStops:
             resolveCcDitherInkMode(sampledBrushSettings).pairBandCount <= 0,
-          useDitherRenderPalette: sampledBrushSettings.ccFlatCycleDither !== true,
+          useDitherRenderPalette: !pickup && sampledBrushSettings.ccFlatCycleDither !== true,
           fillBackground:
             (sampledBrushSettings.ditherGradBgFill ??
               sampledBrushSettings.ditherBackgroundFill) !== false,
@@ -1794,7 +1826,34 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         let writeIndexCalls = 0;
         let positiveIndexWrites = 0;
         let skippedIndexWrites = 0;
-        await fillCcGradientDither({
+        const writePreviewIndex = (x: number, y: number, index: number) => {
+          writeIndexCalls += 1;
+          if (index <= 0) {
+            skippedIndexWrites += 1;
+            return;
+          }
+          positiveIndexWrites += 1;
+          const [r, g, b, a] = sampleGradient((index - 1) / 254);
+          const px = (y * renderW + x) * 4;
+          data[px] = Math.round(r);
+          data[px + 1] = Math.round(g);
+          data[px + 2] = Math.round(b);
+          data[px + 3] = Math.round(a);
+        };
+        if (pickup && !sampledBrushSettings.ditherEnabled) {
+          const rows = buildNonZeroWindingRowSpans({
+            vertices: renderVertices, minX: 0, minY: 0, maxX: renderW - 1, maxY: renderH - 1,
+          });
+          const bands = Math.max(2, sampledBrushSettings.gradientBands ?? 12);
+          for (let y = 0; y < rows.length; y += 1) {
+            await yieldIfNeeded(y);
+            for (const [startX, endX] of rows[y]) for (let x = startX; x <= endX; x += 1) {
+              const t = Math.max(0, Math.min(1, sampleNormalized(x + 0.5, y + 0.5)));
+              const band = Math.round(t * (bands - 1)) / (bands - 1);
+              writePreviewIndex(x, y, Math.round(band * 254) + 1);
+            }
+          }
+        } else await fillCcGradientDither({
           vertices: renderVertices,
           minX: 0,
           minY: 0,
@@ -1826,21 +1885,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           flatCycleBands: sampledBrushSettings.ccFlatCycleBands,
           yieldIfNeeded,
           sampleNormalized,
-          writeIndex: (x, y, index) => {
-            writeIndexCalls += 1;
-            if (index <= 0) {
-              skippedIndexWrites += 1;
-              return;
-            }
-            positiveIndexWrites += 1;
-            const t = (index - 1) / 254;
-            const [r, g, b, a] = sampleGradient(t);
-            const px = (y * renderW + x) * 4;
-            data[px] = Math.round(r);
-            data[px + 1] = Math.round(g);
-            data[px + 2] = Math.round(b);
-            data[px + 3] = Math.round(a);
-          },
+          writeIndex: writePreviewIndex,
         });
         const pixelSummary = summarizePreviewPixels(data);
         ccLog('shape: sampled preview fill end', {

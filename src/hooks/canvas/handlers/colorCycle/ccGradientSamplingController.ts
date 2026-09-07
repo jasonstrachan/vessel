@@ -1,3 +1,4 @@
+import { usesCcSampledGradient } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
@@ -86,7 +87,7 @@ export const updateCcSampledGradientController = (
   if (!session) {
     const currentState = deps.storeRef.current;
     const layer = currentState.layers.find((entry) => entry.id === targetLayerId);
-    if (layer?.layerType === 'color-cycle' && currentState.tools.ccGradientSource === 'sampled') {
+    if (layer?.layerType === 'color-cycle' && usesCcSampledGradient(currentState.tools.brushSettings, currentState.tools.ccGradientSource)) {
       const resolved = resolveColorCycleGradientSourceState({
         layer,
         brushSettings: currentState.tools.brushSettings,

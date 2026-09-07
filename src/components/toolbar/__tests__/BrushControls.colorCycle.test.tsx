@@ -467,6 +467,55 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     jest.restoreAllMocks();
   });
 
+  it('uses shared Res without a separate Grain control when Pencil Pressure is selected', () => {
+    const previous = useAppStore.getState().tools;
+    useAppStore.setState({ tools: { ...previous, brushSettings: {
+      ...previous.brushSettings, brushShape: 'color_cycle' as BrushSettings['brushShape'], colorCyclePencilEnabled: false,
+      colorCycleStampDitherEnabled: false, ditherAlgorithm: 'bayer', colorCycleStampDitherPressureLinked: true,
+    } } });
+    const { unmount } = render(<BrushControls />);
+    const dropdownCount = screen.queryAllByRole('combobox').length;
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Pencil Pressure' }));
+    expect(useAppStore.getState().tools.brushSettings.colorCyclePencilEnabled).toBe(true);
+    expect(screen.getByRole('slider', { name: 'Pencil sensitivity' })).toBeInTheDocument();
+    expect(screen.queryByRole('slider', { name: 'Pencil grain' })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole('combobox').length).toBeGreaterThan(dropdownCount);
+    const resolution = screen.getByRole('slider', { name: 'Stamp Dither Resolution' });
+    expect(resolution).toBeEnabled();
+    fireEvent.change(resolution, { target: { value: '4' } });
+    expect(useAppStore.getState().tools.brushSettings.colorCycleStampDitherPixelSize).toBe(4);
+    unmount();useAppStore.setState({ tools: previous });
+  });
+
+  it('toggles bristle streaks for CC Stroke', () => {
+    const previous = useAppStore.getState().tools;
+    useAppStore.setState({ tools: { ...previous, brushSettings: {
+      ...previous.brushSettings, brushShape: 'color_cycle' as BrushSettings['brushShape'], colorCycleBristlesEnabled: false,
+    } } });
+    const { unmount } = render(<BrushControls />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Bristle streaks' }));
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(true);
+    unmount();
+    useAppStore.setState({ tools: previous });
+  });
+
+  it.each(['color_cycle', 'color_cycle_shape'] as const)('exposes colour pickup for %s without switching colour source', (brushShape) => {
+    const previous = useAppStore.getState().tools;
+    useAppStore.setState({ tools: { ...previous, ccGradientSource: 'manual', brushSettings: {
+      ...previous.brushSettings, brushShape: brushShape as BrushSettings['brushShape'], colorCyclePickupEnabled: false,
+    } } });
+    const { unmount } = render(<BrushControls />);
+    const toggle = screen.getByRole('checkbox', { name: 'Colour pickup' });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(useAppStore.getState().tools.brushSettings.colorCyclePickupEnabled).toBe(true);
+    expect(useAppStore.getState().tools.ccGradientSource).toBe('manual');
+    fireEvent.click(toggle);
+    expect(useAppStore.getState().tools.brushSettings.colorCyclePickupEnabled).toBe(false);
+    unmount();
+    useAppStore.setState({ tools: previous });
+  });
+
   it('keeps gradient editing out of brush controls while retaining stroke controls', () => {
     render(<BrushControls />);
 

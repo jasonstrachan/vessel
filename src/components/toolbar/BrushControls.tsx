@@ -2007,6 +2007,58 @@ const BrushControls = () => {
           </>
         )}
 
+        {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE) && (
+          <div className="mb-2 flex items-center gap-2">
+            <label htmlFor="cc-colour-pickup" className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}
+              title="Carry visible colour from existing paint on this layer into the new mark">
+              Pickup
+            </label>
+            <CustomSwitch id="cc-colour-pickup" aria-label="Colour pickup"
+              checked={activeSettings.colorCyclePickupEnabled === true}
+              onChange={(checked) => setActiveSettings({ colorCyclePickupEnabled: checked })}
+            />
+          </div>
+        )}
+
+        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
+          <div className="mb-2 flex items-center gap-2">
+            <label htmlFor="cc-bristles" className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}
+              title="Continuous strands following the stroke, each carrying a different part of the palette">
+              Bristles
+            </label>
+            <CustomSwitch id="cc-bristles" aria-label="Bristle streaks"
+              checked={activeSettings.colorCycleBristlesEnabled === true}
+              onChange={(checked) => setActiveSettings({ colorCycleBristlesEnabled: checked })}
+            />
+          </div>
+        )}
+
+        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label htmlFor="cc-pencil-pressure" className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}
+                title="Light pressure leaves grain; harder pressure fills more of the selected dither texture.">
+                Pencil
+              </label>
+              <CustomSwitch id="cc-pencil-pressure" aria-label="Pencil Pressure"
+                checked={activeSettings.colorCyclePencilEnabled === true}
+                onChange={(checked) => setActiveSettings({ colorCyclePencilEnabled: checked })}
+              />
+            </div>
+            {activeSettings.colorCyclePencilEnabled && (
+              <>
+                <div className="flex items-center gap-2 mt-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>Sensitivity</label>
+                  <NonCcSlider min={0} max={100} step={1} value={activeSettings.colorCyclePencilSensitivity ?? 50}
+                    onChange={(value) => setActiveSettings({ colorCyclePencilSensitivity: value })}
+                    aria-label="Pencil sensitivity" className="flex-1" />
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Animation + banding */}
 
         {showColorCycleBands && !useForegroundDerivedGradient && (
@@ -2048,7 +2100,7 @@ const BrushControls = () => {
                 }
               />
             </div>
-            {activeSettings.colorCycleStampDitherEnabled && (
+            {(activeSettings.colorCycleStampDitherEnabled || activeSettings.colorCyclePencilEnabled) && (
               <>
                 <div className="flex items-center gap-2 mt-2">
                   <div className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} />
@@ -2095,44 +2147,48 @@ const BrushControls = () => {
                         colorCycleStampDitherPixelSize: Math.max(1, Math.round(value))
                       })
                     }
-                    disabled={Boolean(activeSettings.colorCycleStampDitherPressureLinked)}
+                    disabled={!activeSettings.colorCyclePencilEnabled && Boolean(activeSettings.colorCycleStampDitherPressureLinked)}
                     aria-label="Stamp Dither Resolution"
                     className="flex-1"
                   />
                 </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    Pres Res
-                  </label>
-                  <CustomSwitch
-                    id="stamp-dither-pressure-linked-color-cycle"
-                    checked={Boolean(activeSettings.colorCycleStampDitherPressureLinked)}
-                    onChange={(checked) => {
-                      setActiveSettings({
-                        colorCycleStampDitherPressureLinked: checked,
-                      });
-                    }}
-                  />
-                </div>
-                <div className="flex items-center gap-2 mt-2">
-                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                    BG Fill
-                  </label>
-                  <CustomSwitch
-                    id="stamp-dither-clear-color-cycle"
-                    checked={
-                      typeof activeSettings.colorCycleStampDitherBgFill === 'boolean'
-                        ? activeSettings.colorCycleStampDitherBgFill
-                        : activeSettings.colorCycleStampDitherClears !== true
-                    }
-                    onChange={(checked) =>
-                      setActiveSettings({
-                        colorCycleStampDitherBgFill: checked,
-                        colorCycleStampDitherClears: !checked,
-                      })
-                    }
-                  />
-                </div>
+                {!activeSettings.colorCyclePencilEnabled && (
+                  <>
+                    <div className="flex items-center gap-2 mt-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        Pres Res
+                      </label>
+                      <CustomSwitch
+                        id="stamp-dither-pressure-linked-color-cycle"
+                        checked={Boolean(activeSettings.colorCycleStampDitherPressureLinked)}
+                        onChange={(checked) => {
+                          setActiveSettings({
+                            colorCycleStampDitherPressureLinked: checked,
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                        BG Fill
+                      </label>
+                      <CustomSwitch
+                        id="stamp-dither-clear-color-cycle"
+                        checked={
+                          typeof activeSettings.colorCycleStampDitherBgFill === 'boolean'
+                            ? activeSettings.colorCycleStampDitherBgFill
+                            : activeSettings.colorCycleStampDitherClears !== true
+                        }
+                        onChange={(checked) =>
+                          setActiveSettings({
+                            colorCycleStampDitherBgFill: checked,
+                            colorCycleStampDitherClears: !checked,
+                          })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
