@@ -30,7 +30,7 @@ export class ColorCycleCoreBrushSettingsState {
   private maxPressure = 200;
   private totalGradientSteps = 256;
   private stampShape: StampShape = 'square';
-  private preserveGradientPhaseOnChange = false;
+  private preserveGradientPhaseOnChange = true;
 
   constructor(options: { brushSize?: number } = {}) {
     this.brushSize = options.brushSize || 20;

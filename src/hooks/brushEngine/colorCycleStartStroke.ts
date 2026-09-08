@@ -125,12 +125,13 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
         context.bindStrokeBuffersToAnimator(strokeData, animator);
       } catch {}
     }
-    if (!context.stampDitherEnabled()) {
-      strokeData.lastPoint = null;
+    // Continue the authored gradient across strokes unless the caller supplies
+    // an explicit phase (for example, an auto-converted contour).
+    if (context.phaseOffsetUnits !== undefined) {
       strokeData.strokePhaseUnits = phaseOffsetUnits;
-      strokeData.stampCounter = phaseOffsetUnits;
-    } else if (context.phaseOffsetUnits !== undefined) {
-      strokeData.strokePhaseUnits = phaseOffsetUnits;
+      if (!context.stampDitherEnabled()) {
+        strokeData.stampCounter = phaseOffsetUnits;
+      }
     }
     strokeData.flow.activeSlot = context.resolveActiveStrokeSlot(id, strokeData);
     strokeData.flow.mode = context.flowMode();
@@ -150,12 +151,8 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
       );
     }
     if (context.clearBuffer && !context.isHistoryRestore()) {
-      const preservedStampCounter = context.stampDitherEnabled()
-        ? strokeData.stampCounter
-        : phaseOffsetUnits;
-      const preservedPhaseUnits = context.stampDitherEnabled()
-        ? strokeData.strokePhaseUnits
-        : phaseOffsetUnits;
+      const preservedStampCounter = strokeData.stampCounter;
+      const preservedPhaseUnits = strokeData.strokePhaseUnits;
       context.mutateLayerStrokeState({
         layerId: id,
         reason: 'brush-stroke-write',

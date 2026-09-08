@@ -12,7 +12,7 @@ describe('ColorCycleCoreBrushSettingsState', () => {
       minPressure: 1,
       maxPressure: 200,
       stampShape: 'square',
-      preserveGradientPhaseOnChange: false,
+      preserveGradientPhaseOnChange: true,
     });
   });
 

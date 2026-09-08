@@ -2794,10 +2794,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     expect(strokeState.strokePhaseUnits).toBe(0);
   });
 
-  it('resets non-dither authored phase for each new stroke', () => {
+  it.each([false, true])('continues non-dither authored phase across strokes with clearBuffer=%s', (clearBuffer) => {
     const canvas = makeCanvas(16, 16);
     const brush = new ColorCycleBrushCanvas2D(canvas, { forceCanvas2D: true });
-    const layerId = 'layer-non-dither-reset';
+    const layerId = 'layer-non-dither-continuation';
     brush.setBrushSize(1);
     brush.setStampShape('square');
 
@@ -2806,7 +2806,14 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     brush.paint(4, 2, layerId, 1);
     brush.endStroke(layerId);
 
-    brush.startStroke(layerId);
+    // Finalization freezes the stroke palette and can activate a new slot.
+    brush.setGradientSlotStops(layerId, 1, [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ]);
+    brush.setActiveGradientSlot(layerId, 1);
+
+    brush.startStroke(layerId, clearBuffer);
     brush.paint(8, 2, layerId, 1);
     brush.endStroke(layerId);
 
@@ -2818,13 +2825,13 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       stampCounter: number;
     }>(brush, layerId);
     if (!animator || !strokeState) {
-      throw new Error('Missing non-dither reset state');
+      throw new Error('Missing non-dither continuation state');
     }
 
     const data = animator.getIndexBuffers().data;
-    expect(data[8 + 2 * canvas.width]).toBe(1);
+    expect(data[8 + 2 * canvas.width]).toBe(3);
     expect(strokeState.strokePhaseUnits).toBe(0);
-    expect(strokeState.stampCounter).toBe(1);
+    expect(strokeState.stampCounter).toBe(3);
   });
 
   it('starts a non-dither stroke from an explicit phase offset', () => {
@@ -2833,6 +2840,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const layerId = 'layer-non-dither-phase-offset';
     brush.setBrushSize(1);
     brush.setStampShape('square');
+
+    brush.startStroke(layerId);
+    brush.paint(8, 2, layerId, 1);
+    brush.endStroke(layerId);
 
     brush.startStroke(layerId, false, 96);
     brush.paint(2, 2, layerId, 1);

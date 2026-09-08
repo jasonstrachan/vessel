@@ -37,6 +37,10 @@ attention, signal, time, or any boundary that should remain active.
 The default uses a square stamp around Size 20, Spacing 8, 30 FPS, and 12
 bands.
 
+FG Grad and Man Grad continue their colour progression across consecutive
+strokes, with or without Stamp Dither. Sample maps its gradient from beginning
+to end along each completed stroke. Starting a stroke does not restart playback.
+
 ## Collaboration profile
 
 Color Cycle Stroke is an available collaboration brush for genuinely linear
