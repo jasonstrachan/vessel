@@ -38,6 +38,8 @@ it('never calls the composite/reference sampler and finalizes the complete path 
   const pixels = new Uint8ClampedArray(200 * 40 * 4);
   for (let y = 0; y < 40; y += 1) for (let x = 40; x < 60; x += 1) pixels.set([255, 0, 0, 255], (y * 200 + x) * 4);
   session.colourPickup!.image = { width: 200, height: 40, data: pixels } as ImageData;
+  // Model the indices authored by the brush; this session test supplies no runtime brush.
+  session.colourPickup!.strokePaletteIndicesAt = (x) => [1 + Math.round(x)];
   const compositeSampler = jest.fn(() => '#00ff00');
   const lastUpdateRef = { current: 0 };
   updateCcSampledSession({ session, sourcePts: [{ x: 0, y: 20 }], sampleColor: compositeSampler, now: 200, lastUpdateRef, allowTiny: true });

@@ -9,6 +9,7 @@ export type CcColourPickup = {
   sampleBase?: boolean;
   baseStops: StoredStop[];
   brushSize: number;
+  strokePaletteIndicesAt?: (x: number, y: number) => readonly number[];
 };
 
 export const usesCcSampledGradient = (
@@ -28,6 +29,7 @@ const mixSamples = (
   pickup: CcColourPickup,
   samples: Rgba[],
   distance: number,
+  paletteIndices?: Array<readonly number[]>,
 ): StoredStop[] => {
   if (!samples.some((sample) => sample[3] > 0)) return pickup.baseStops.map((stop) => ({ ...stop }));
   const base = pickup.baseStops.map((stop) => ({
@@ -41,17 +43,7 @@ const mixSamples = (
   const uptake = 1 - Math.exp(-Math.max(step, 1) / (size * 0.35));
   let amount = 0;
   const carried = [0, 0, 0];
-  return samples.map((sample, index) => {
-    const t = index / Math.max(1, samples.length - 1);
-    amount *= recovery;
-    const incoming = uptake * sample[3] / 255;
-    const nextAmount = Math.min(0.8, amount + incoming * (1 - amount));
-    for (let c = 0; c < 3; c += 1) {
-      carried[c] = nextAmount > 0
-        ? (carried[c] * amount + sample[c] * (nextAmount - amount)) / nextAmount
-        : 0;
-    }
-    amount = nextAmount;
+  const mixBase = (t: number, amount: number): StoredStop => {
     let hi = base.findIndex((stop) => stop.position >= t);
     if (hi < 0) hi = base.length - 1;
     const b = base[hi];
@@ -63,7 +55,32 @@ const mixSamples = (
     const alphaA = (a.opacity ?? 1) * a.rgba[3] / 255;
     const alphaB = (b.opacity ?? 1) * b.rgba[3] / 255;
     return { position: t, color: `rgb(${rgb.join(', ')})`, opacity: alphaA + (alphaB - alphaA) * f };
+  };
+  // Keep the complete palette and change only indices touched by this stroke.
+  // Repeated indices use the last pickup sample, matching the final paint write.
+  const indexedStops = paletteIndices
+    ? Array.from({ length: 255 }, (_, index) => mixBase(index / 254, 0))
+    : null;
+  const pathStops = samples.map((sample, index) => {
+    amount *= recovery;
+    const incoming = uptake * sample[3] / 255;
+    const nextAmount = Math.min(0.8, amount + incoming * (1 - amount));
+    for (let c = 0; c < 3; c += 1) {
+      carried[c] = nextAmount > 0
+        ? (carried[c] * amount + sample[c] * (nextAmount - amount)) / nextAmount
+        : 0;
+    }
+    amount = nextAmount;
+    if (indexedStops) {
+      for (const paletteIndex of paletteIndices?.[index] ?? []) {
+        if (Number.isInteger(paletteIndex) && paletteIndex >= 1 && paletteIndex <= 255) {
+          indexedStops[paletteIndex - 1] = mixBase((paletteIndex - 1) / 254, amount);
+        }
+      }
+    }
+    return mixBase(index / Math.max(1, samples.length - 1), amount);
   });
+  return indexedStops ?? pathStops;
 };
 
 export const buildCcPickupStrokeStops = (pickup: CcColourPickup, points: Point[]): StoredStop[] => {
@@ -76,6 +93,7 @@ export const buildCcPickupStrokeStops = (pickup: CcColourPickup, points: Point[]
   const total = lengths[lengths.length - 1];
   const count = Math.max(2, Math.min(256, Math.ceil(total / 2) + 1));
   const samples: Rgba[] = [];
+  const paletteIndices: Array<readonly number[]> | undefined = pickup.strokePaletteIndicesAt ? [] : undefined;
   let segment = 1;
   for (let i = 0; i < count; i += 1) {
     const distance = i * total / (count - 1);
@@ -86,6 +104,7 @@ export const buildCcPickupStrokeStops = (pickup: CcColourPickup, points: Point[]
     const t = span > 0 ? clamp01((distance - lengths[segment - 1]) / span) : 0;
     const x = a.x + (b.x - a.x) * t;
     const y = a.y + (b.y - a.y) * t;
+    paletteIndices?.push(pickup.strokePaletteIndicesAt?.(x, y) ?? []);
     const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
     const sample: Rgba = [0, 0, 0, 0];
     // Sample across the contact width, including paint crossed by the tip's sides.
@@ -99,7 +118,7 @@ export const buildCcPickupStrokeStops = (pickup: CcColourPickup, points: Point[]
     sample[3] /= 5;
     samples.push(sample);
   }
-  return mixSamples(pickup, samples, total);
+  return mixSamples(pickup, samples, total, paletteIndices);
 };
 
 export const buildCcPickupShapeStops = (

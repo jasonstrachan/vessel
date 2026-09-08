@@ -13,6 +13,32 @@ const red = (stops: ReturnType<typeof buildCcPickupStrokeStops>, t: number): num
 const polygon = [{ x: 0, y: 0 }, { x: 300, y: 0 }, { x: 300, y: 80 }, { x: 0, y: 80 }];
 
 describe('CC visible colour pickup', () => {
+  it('mixes pickup at retained palette indices, including dither companions, without moving the palette start', () => {
+    const pickup = makePickup(() => true);
+    pickup.strokePaletteIndicesAt = () => [128, 192];
+    const stops = buildCcPickupStrokeStops(pickup, [{ x: 0, y: 40 }, { x: 100, y: 40 }]);
+    expect(stops).toHaveLength(255);
+    expect(stops[0]).toMatchObject({ position: 0, color: 'rgb(0, 0, 255)' });
+    expect(parseCssColorToRgba(stops[127].color)[0]).toBeGreaterThan(100);
+    expect(parseCssColorToRgba(stops[191].color)[0]).toBeGreaterThan(100);
+    expect(stops[254]).toMatchObject({ position: 1, color: 'rgb(0, 0, 255)' });
+  });
+
+  it('keeps the base palette unchanged when retained-phase pickup crosses only transparency', () => {
+    const pickup = makePickup(() => false);
+    pickup.strokePaletteIndicesAt = () => [128];
+    expect(buildCcPickupStrokeStops(pickup, [{ x: 0, y: 40 }, { x: 100, y: 40 }])).toEqual(pickup.baseStops);
+  });
+
+  it('handles a retained stroke crossing the palette wrap without mixing untouched indices', () => {
+    const pickup = makePickup(() => true);
+    pickup.strokePaletteIndicesAt = (x) => x < 50 ? [255] : [1];
+    const stops = buildCcPickupStrokeStops(pickup, [{ x: 0, y: 40 }, { x: 100, y: 40 }]);
+    expect(parseCssColorToRgba(stops[254].color)[0]).toBeGreaterThan(100);
+    expect(parseCssColorToRgba(stops[0].color)[0]).toBeGreaterThan(100);
+    expect(stops[127].color).toBe('rgb(0, 0, 255)');
+  });
+
   it('leaves the original palette intact over transparency and outside the canvas', () => {
     const pickup = makePickup(() => false);
     expect(buildCcPickupStrokeStops(pickup, [{ x: -100, y: 40 }, { x: 300, y: 40 }])).toEqual(pickup.baseStops);

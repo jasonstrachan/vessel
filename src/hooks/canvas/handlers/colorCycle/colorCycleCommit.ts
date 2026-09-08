@@ -766,6 +766,7 @@ export const commitColorCycleLayerStroke = async (
 
       if (
         committedSession?.source === 'sampled' &&
+        !committedSession.colourPickup?.strokePaletteIndicesAt &&
         committedSession.markKind === 'stroke' &&
         committedSession.sampledStrokePoints &&
         committedSession.sampledStrokePoints.length >= 2 &&

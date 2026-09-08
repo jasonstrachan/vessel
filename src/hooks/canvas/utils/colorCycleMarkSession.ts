@@ -1,6 +1,10 @@
 import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
 import { type CcColourPickup } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { getColorCycleBrushStrokeStateForOwner } from '@/lib/colorCycle/document';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { resolveStampDitherSecondaryIndex } from '@/hooks/brushEngine/strokeStampDither';
 import { buildSampledStops } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import type { AppState } from '@/stores/useAppStore';
 import {
@@ -288,6 +292,22 @@ export const beginMarkGradientSession = (params: {
       }, frozenStops),
       brushSize: state.tools.brushSettings.size,
     };
+    if (params.markKind === 'stroke' && !colourPickup.sampleBase) {
+      colourPickup.strokePaletteIndicesAt = (x, y) => {
+        const width = state.project?.width ?? 0;
+        const height = state.project?.height ?? 0;
+        if (x < 0 || y < 0 || x >= width || y >= height) return [];
+        const brush = getColorCycleBrushManager().getCommitBrush(params.layerId);
+        if (!brush) return [];
+        const stroke = getColorCycleBrushStrokeStateForOwner(brush, params.layerId);
+        const index = Math.floor(y) * width + Math.floor(x);
+        if (!stroke?.buffers.paint[index] || stroke.buffers.gid[index] !== TEMP_SAMPLE_SLOT) return [];
+        const primary = brush.getSampledStrokeDitherPrimaryBuffer?.(params.layerId)?.[index];
+        return primary
+          ? [primary, resolveStampDitherSecondaryIndex(primary)]
+          : [stroke.buffers.paint[index]];
+      };
+    }
   }
   if (params.source === 'sampled' || colourPickup) {
     const session: MarkGradientSession = {

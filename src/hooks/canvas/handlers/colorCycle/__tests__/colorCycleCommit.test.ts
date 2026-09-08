@@ -598,9 +598,14 @@ describe('commitRasterOverlay', () => {
     getStateSpy.mockRestore();
   });
 
-  it.each(['hard', 'soft'] as const)(
-    'remaps sampled stroke phase and retains the %s seam through commit',
-    async (seamProfile) => {
+  it.each([
+    { seamProfile: 'hard' as const, retainedPickup: false },
+    { seamProfile: 'soft' as const, retainedPickup: false },
+    { seamProfile: 'hard' as const, retainedPickup: true },
+    { seamProfile: 'soft' as const, retainedPickup: true },
+  ])(
+    'commits $seamProfile stroke phase with retainedPickup=$retainedPickup',
+    async ({ seamProfile, retainedPickup }) => {
     const layer = createLayer();
     const canvas = document.createElement('canvas');
     canvas.width = 8;
@@ -640,6 +645,7 @@ describe('commitRasterOverlay', () => {
 
     (finalizeMarkGradientSession as jest.Mock).mockReturnValue({
       markId: 'mark-sampled',
+      colourPickup: retainedPickup ? { strokePaletteIndicesAt: () => [1] } : undefined,
       layerId: layer.id,
       markKind: 'stroke',
       gradientKind: 'linear',
@@ -697,16 +703,20 @@ describe('commitRasterOverlay', () => {
       ],
       seamProfile
     );
-    expect(applySnapshot).toHaveBeenCalledWith(
-      layer.id,
-      expect.objectContaining({ paintBuffer: expect.any(ArrayBuffer) }),
-      undefined,
-      'sampled-stroke-path-phase',
-      undefined,
-    );
-    const remappedPaint = new Uint8Array(applySnapshot.mock.calls[0]?.[1].paintBuffer);
-    expect(remappedPaint[3 * 8 + 2]).toBe(1);
-    expect(remappedPaint[3 * 8 + 3]).toBe(255);
+    if (retainedPickup) {
+      expect(applySnapshot).not.toHaveBeenCalled();
+    } else {
+      expect(applySnapshot).toHaveBeenCalledWith(
+        layer.id,
+        expect.objectContaining({ paintBuffer: expect.any(ArrayBuffer) }),
+        undefined,
+        'sampled-stroke-path-phase',
+        undefined,
+      );
+      const remappedPaint = new Uint8Array(applySnapshot.mock.calls[0]?.[1].paintBuffer);
+      expect(remappedPaint[3 * 8 + 2]).toBe(1);
+      expect(remappedPaint[3 * 8 + 3]).toBe(255);
+    }
     expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(
       layer.id,
       22,
