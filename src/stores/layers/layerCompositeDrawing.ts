@@ -22,6 +22,7 @@ import {
 } from '@/utils/layerOwnedProjectObjects';
 
 export interface LayerCompositeDrawingDeps {
+  getEffectiveColorCyclePlaying: () => boolean;
   createLayerTransferCanvas: (
     width: number,
     height: number,
@@ -32,6 +33,7 @@ export interface LayerCompositeDrawingDeps {
 }
 
 export const createLayerCompositeDrawing = ({
+  getEffectiveColorCyclePlaying,
   createLayerTransferCanvas,
   hasValidFramebuffer,
 }: LayerCompositeDrawingDeps) => {
@@ -158,7 +160,7 @@ export const createLayerCompositeDrawing = ({
           if (layer.colorCycleData.mode !== 'recolor') {
             const brush = brushManager?.getSurfaceBrush(layer.id);
             try {
-              if (layer.colorCycleData.isAnimating) brush?.updateAnimation?.();
+              if (getEffectiveColorCyclePlaying()) brush?.updateAnimation?.();
               brush?.renderDirectToCanvas?.(canvas, layer.id);
             } catch (error) {
               logError('[compose] Interlace CC advance/render failed', error);
@@ -219,7 +221,7 @@ export const createLayerCompositeDrawing = ({
             const brush = brushManager?.getSurfaceBrush(layer.id);
             if (brush) {
               try {
-                const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
+                const wantPlaying = getEffectiveColorCyclePlaying();
                 const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
                 if (wantPlaying && !isPlaying) brush.startAnimation?.();
                 else if (!wantPlaying && isPlaying) brush.stopAnimation?.();
@@ -358,7 +360,7 @@ export const createLayerCompositeDrawing = ({
           const brush = brushManager?.getSurfaceBrush(layer.id);
           if (brush) {
             try {
-              const wantPlaying = Boolean(layer.colorCycleData.isAnimating);
+              const wantPlaying = getEffectiveColorCyclePlaying();
               const isPlaying = typeof brush.isPlaying === 'function' ? brush.isPlaying() : false;
               if (wantPlaying && !isPlaying) {
                 brush.startAnimation?.();

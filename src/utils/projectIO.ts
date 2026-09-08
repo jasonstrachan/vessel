@@ -74,7 +74,8 @@ import {
   type ColorCycleBrushLayerSnapshotRuntimeWriter,
   type ColorCycleBrushSerializedStateRuntimeReader,
 } from '@/lib/colorCycle/document';
-import { normalizeColorCycleSpeedSource } from '@/lib/colorCycle/document/brushPersistenceAdapter';
+import type { ColorCycleLayerDocumentRead } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
+import { createColorCycleCanonicalBrushStateFromDocumentSnapshot, normalizeColorCycleSpeedSource } from '@/lib/colorCycle/document/brushPersistenceAdapter';
 import {
   restoreColorCycleBrushesWithDocumentHydration,
   type ColorCycleRestoreBrushFactory,
@@ -6185,14 +6186,37 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
     clearAudit?: boolean;
   } | undefined,
   expectedContent: ColorCycleCanonicalContentExpectation,
+  authoritativeDocumentRead?: ColorCycleLayerDocumentRead,
 ): Promise<ColorCycleRestoreMaterializationResult> => {
       const colorCycleData = layer.colorCycleData;
       if (!colorCycleData) {
         return { brush: null, materialized: false, reason: 'missing-color-cycle-data' };
       }
-      const savedBrushState = (
-        getSavedColorCycleBrushState(layer) ?? colorCycleData.brushState
-      ) as PersistedColorCycleBrushState | undefined;
+      const persistedBrushState = getSavedColorCycleBrushState(layer) ?? colorCycleData.brushState;
+      // Resident documents own paint, including deliberately empty layers. Keep
+      // saved brush settings as metadata, but never restore their older pixels.
+      const savedBrushState = (authoritativeDocumentRead
+        ? createColorCycleCanonicalBrushStateFromDocumentSnapshot({
+            layerId: layer.id,
+            snapshot: authoritativeDocumentRead.snapshot,
+            version: authoritativeDocumentRead.version,
+            existingBrushState: persistedBrushState,
+          })
+        : persistedBrushState) as PersistedColorCycleBrushState | undefined;
+      if (authoritativeDocumentRead && savedBrushState) {
+        // The restore/persisted-state contract uses base64 strings. The canonical
+        // adapter returns detached buffers; encode only this local projection.
+        for (const entry of savedBrushState.layers) {
+          if (entry.layerId !== layer.id || !entry.strokeData) continue;
+          // Stale animator payloads must not participate in dimension checks.
+          delete entry.animator;
+          const stroke = entry.strokeData as NonNullable<PersistenceBrushState['layers']>[number]['strokeData'];
+          for (const key of ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const) {
+            const value = stroke?.[key];
+            if (value && typeof value !== 'string') entry.strokeData[key] = arrayBufferToBase64(value);
+          }
+        }
+      }
       if (savedBrushState) {
         ccWarmRestoreDebug.log('brush-state-found', {
           layerId: layer.id,
@@ -6240,7 +6264,8 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             });
             colorCycleData.brushState = toFastPathMetadataBrushState(savedBrushState);
           }
-          const layerBaseSpeedCps = resolveLayerColorCycleBaseSpeed(colorCycleData) ?? 1;
+          const layerBaseSpeedCps = authoritativeDocumentRead?.snapshot.layerBaseSpeedCps
+            ?? resolveLayerColorCycleBaseSpeed(colorCycleData) ?? 1;
           // Normalize into detached runtime payloads. The persisted source must
           // remain untouched until materialization succeeds; on failure it is
           // still the authority paired with the rolled-back document bytes.
@@ -6288,7 +6313,7 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             const inferredHasContent = snapshot.strokeData?.hasContent === undefined
               ? hasCanonicalPaintMarker && hasPaintBytes
               : snapshot.strokeData.hasContent === true;
-            const animatorIndex = snapshot.animator
+            const animatorIndex = snapshot.animator && !authoritativeDocumentRead
               ? {
                   width: snapshot.animator.indexBuffer.width,
                   height: snapshot.animator.indexBuffer.height,
@@ -6368,7 +6393,9 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             return { brush: null, materialized: false, reason: 'missing-paint-buffer' };
           }
 
-          const restoredLayerMeta = createColorCycleBrushPersistenceLayerMetaFromLayerData(colorCycleData);
+          const restoredLayerMeta = authoritativeDocumentRead
+            ? authoritativeDocumentRead.snapshot
+            : createColorCycleBrushPersistenceLayerMetaFromLayerData(colorCycleData);
           if (restoredLayerMeta) {
             setColorCycleBrushPersistenceLayerMeta(colorCycleBrush, layer.id, restoredLayerMeta);
           }
@@ -6478,11 +6505,9 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
             ? toFastPathMetadataBrushState(savedBrushState)
             : savedBrushState;
 
-          if (colorCycleData.isAnimating) {
-            colorCycleBrush.setPlaying?.(true);
-          } else {
-            colorCycleBrush.setPlaying?.(false);
-          }
+          // Playback synchronization starts accepted runtimes from the global
+          // effective state; saved per-layer flags cannot start an import.
+          colorCycleBrush.setPlaying?.(false);
 
           flushGradientApply(layer.id);
           const materialized = materializeRestoredColorCycleSurface(
@@ -6582,10 +6607,8 @@ const restoreColorCycleLayerRuntimeForMaterialization = async (
         // Attach the brush to the layer
         colorCycleData.colorCycleBrush = colorCycleBrush as LegacyColorCycleBrushField;
 
-        // Start animation if it was animating
-        if (colorCycleData.isAnimating) {
-          colorCycleBrush.setPlaying?.(!savedState.animationState.isPaused);
-        }
+        // Playback synchronization owns start/resume after materialization.
+        colorCycleBrush.setPlaying?.(false);
 
         if (typeof colorCycleBrush.markLayerHasExternalBase === 'function') {
           try {

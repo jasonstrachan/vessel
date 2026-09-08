@@ -1,3 +1,4 @@
+import type { ColorCycleLayerDocumentRead } from './ColorCycleLayerDocument';
 import {
   classifyColorCycleCanonicalContent,
   type ColorCycleCanonicalContentExpectation,
@@ -95,6 +96,7 @@ export type RestoreColorCycleBrushesHydrationDependencies = {
       clearAudit?: boolean;
     } | undefined,
     expectedContent: ColorCycleCanonicalContentExpectation,
+    authoritativeDocumentRead?: ColorCycleLayerDocumentRead,
   ) => Promise<ColorCycleRestoreMaterializationResult>;
   describeBufferForDebug: (buffer: unknown) => { bytes: number; nonZeroSample: number } | null;
   isPrimaryColorCyclePayloadFailure: (reason: string) => boolean;
@@ -225,7 +227,14 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
 
     if (shouldDefer) {
       let canDefer = true;
-      if (dependencies.getLazyColorCycleArchiveRuntime(layer)) {
+      const residentDocument = manager.getDocument(layer.id);
+      const residentState = residentDocument?.residency === 'resident'
+        ? residentDocument.read().snapshot
+        : undefined;
+      if (residentState && classifyColorCycleCanonicalContent(residentState).kind !== 'invalid') {
+        // Empty is valid authored content. Deferring a renderer cannot replace it
+        // with an older archive or embedded brush snapshot.
+      } else if (dependencies.getLazyColorCycleArchiveRuntime(layer)) {
         ensureLayerDocumentResidency(layer, 'cold-archive-ref');
       } else {
         // Renderer residency is separate from document residency. Legacy files
@@ -310,9 +319,6 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
     const existingWarmupDocumentContent = existingWarmupDocumentRead
       ? classifyColorCycleCanonicalContent(existingWarmupDocumentRead.snapshot)
       : null;
-    const persistedWarmupContent = warmupDocumentState.ok
-      ? classifyColorCycleCanonicalContent(warmupDocumentState.state)
-      : null;
     if (existingWarmupDocumentRead) {
       dependencies.debug.log('canonical-warmup-existing-document-read', {
         layerId: layer.id,
@@ -320,21 +326,15 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
         hasPaintBuffer: Boolean(existingWarmupDocumentRead.snapshot.paintBuffer),
       });
     }
-    const authoritativeWarmupState = (
+    const residentWarmupRead = (
       existingWarmupDocument?.residency === 'resident' &&
       existingWarmupDocumentRead &&
-      (
-        existingWarmupDocumentContent?.kind === 'populated' ||
-        (
-          existingWarmupDocumentContent?.kind === 'empty' &&
-          persistedWarmupContent?.kind !== 'populated'
-        )
-      )
+      existingWarmupDocumentContent?.kind !== 'invalid'
     )
-      ? existingWarmupDocumentRead.snapshot
-      : warmupDocumentState.ok
-        ? warmupDocumentState.state
-        : null;
+      ? existingWarmupDocumentRead
+      : undefined;
+    const authoritativeWarmupState = residentWarmupRead?.snapshot
+      ?? (warmupDocumentState.ok ? warmupDocumentState.state : null);
     const expectedContent = authoritativeWarmupState
       ? classifyColorCycleCanonicalContent(authoritativeWarmupState)
       : {
@@ -444,13 +444,14 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
       layer,
       createColorCycleBrushForRestore,
       canSeedFromPersistedBuffers,
-      hadLazyArchiveRuntime
+      hadLazyArchiveRuntime || residentWarmupRead
         ? {
             preserveVersion: true,
             clearAudit: false,
           }
         : undefined,
       expectedContent,
+      residentWarmupRead,
     );
     if (!restored.brush) {
       if (canonicalDocument && authoritativeWarmupState) {

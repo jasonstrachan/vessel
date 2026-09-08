@@ -48,6 +48,7 @@ describe('layerCompositeDrawing multiplayer overlay', () => {
   } as Project;
 
   const createSubject = () => createLayerCompositeDrawing({
+    getEffectiveColorCyclePlaying: () => false,
     createLayerTransferCanvas: jest.fn(() => null),
     hasValidFramebuffer: (framebuffer): framebuffer is HTMLCanvasElement | OffscreenCanvas => (
       Boolean(framebuffer)

@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import type { PersistedColorCycleBrushState } from '@/lib/colorCycle/persistence';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
@@ -4172,6 +4173,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([64, 96, 128, 192]);
 
     const persistedBrushState = restoredLayer.colorCycleData?.brushState;
+    const persistedBeforeWarmup = JSON.stringify(persistedBrushState);
     getColorCycleBrushManager().discardRuntimeRetainingDocument(restoredLayer.id);
     delete restoredLayer.colorCycleData?.colorCycleBrush;
     if (restoredLayer.colorCycleData) {
@@ -4188,7 +4190,8 @@ describe('projectIO serialize/deserialize layering', () => {
     );
     expect(rewarmedLayer.colorCycleData?.repairStatus).toBeUndefined();
     expect(rewarmedLayer.colorCycleData?.runtimeHydrationState).toBe('active');
-    expect(rewarmedLayer.colorCycleData?.brushState).toBe(persistedBrushState);
+    expect(rewarmedLayer.colorCycleData?.brushState).not.toBe(persistedBrushState);
+    expect(JSON.stringify(persistedBrushState)).toBe(persistedBeforeWarmup);
     expect(Array.from(new Uint8Array(rewarmedSnapshot?.flowBuffer ?? new ArrayBuffer(0))))
       .toEqual([5, 6, 7, 8]);
     expect(Array.from(new Uint8Array(rewarmedSnapshot?.phaseBuffer ?? new ArrayBuffer(0))))
@@ -6832,7 +6835,7 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(hasVisiblePixel).toBe(false);
   });
 
-  it('restores explicit cleared brushState snapshots without failing runtime verification', async () => {
+  it.each([false, true])('restores cleared documents with stale saved paint=%s without failing runtime verification', async (staleSavedPaint) => {
     disposeColorCycleBrushManager();
     const layerId = 'layer-cc-explicit-cleared-brush-state';
     const projectPayload = {
@@ -6890,7 +6893,34 @@ describe('projectIO serialize/deserialize layering', () => {
     };
 
     const restored = await deserializeProjectWithReport(JSON.stringify(projectPayload));
-    const [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    let [restoredLayer] = await restoreColorCycleBrushes(restored.project.layers);
+    if (staleSavedPaint) {
+      const manager = getColorCycleBrushManager();
+      const document = manager.getDocument(layerId)!;
+      document.replaceBaseline({
+        ...document.read().snapshot,
+        paintBuffer: new Uint8Array(4).buffer,
+        hasContent: false,
+      }, { version: 7 });
+      const saved = restoredLayer.colorCycleData!.brushState as PersistedColorCycleBrushState;
+      restoredLayer.colorCycleData!.brushState = {
+        ...saved,
+        layers: saved.layers!.map(entry => ({
+          ...entry,
+          strokeData: { ...entry.strokeData, hasContent: true, paintBuffer: new Uint8Array(4).fill(1).buffer },
+          animator: {
+            indexBuffer: { width: 2, height: 2, data: 'invalid-base64!' },
+            gradient: { gradientStops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#00ff00' }] },
+          },
+        })),
+      };
+      manager.discardRuntimeRetainingDocument(layerId);
+      restoredLayer.colorCycleData!.colorCycleBrush = undefined;
+      restoredLayer.colorCycleData!.runtimeHydrationState = 'cold';
+      restoredLayer.colorCycleData!.deferredRuntimeRestore = true;
+      restoredLayer.colorCycleData!.isAnimating = true;
+      [restoredLayer] = await restoreColorCycleBrushes([restoredLayer]);
+    }
     const brush = restoredLayer.colorCycleData?.colorCycleBrush as
       | { getLayerSnapshot?: (id: string) => { hasContent?: boolean; paintBuffer?: ArrayBuffer } | undefined }
       | undefined;
@@ -6903,10 +6933,11 @@ describe('projectIO serialize/deserialize layering', () => {
     expect(restoredLayer.colorCycleData?.repairStatus).toBeUndefined();
     expect(brush).toBeDefined();
     expect(runtime?.brush).toBe(brush);
-    expect(documentRead?.version).toBe(0);
+    expect(documentRead?.version).toBe(staleSavedPaint ? 7 : 0);
+    expect(manager.getSurfaceBrush(layerId)?.isPlaying?.()).toBe(false);
     expect(documentRead?.snapshot.layerId).toBe(layerId);
     expect(documentRead?.snapshot.hasContent).toBe(false);
-    expect(runtime?.document.getAuditLog()).toEqual([]);
+    if (!staleSavedPaint) expect(runtime?.document.getAuditLog()).toEqual([]);
     expect(snapshot?.hasContent).toBe(false);
     expect(Array.from(new Uint8Array(snapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([0, 0, 0, 0]);
     disposeColorCycleBrushManager();

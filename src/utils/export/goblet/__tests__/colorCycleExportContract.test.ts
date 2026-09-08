@@ -1,7 +1,6 @@
 import { buildGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadBuilder';
 import { resolveGobletColorCycleExportSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import {
-  captureGobletColorCyclePersistenceSnapshot,
   serializeColorCycleDataFromResolvedLayer,
 } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { validateGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadValidation';
@@ -444,66 +443,22 @@ describe('Goblet color-cycle export contract boundaries', () => {
     expect(JSON.stringify(payload)).not.toContain('Local Threshold');
   });
 
-  it('removes the complete image-tile configuration from Goblet persistence snapshots', () => {
+  it.each(['image-tile', 'dots'])('exports authored paint for %s patterns without runtime recapture', async (patternStyle) => {
     const runtime = createDocumentBackedLiveRuntime({
       stampDitherEnabled: true,
       stampDitherAlgorithm: 'pattern',
-      stampDitherPatternStyle: 'image-tile',
-      stampDitherPatternTileId: 'local-threshold',
-      stampDitherPatternTileScale: 2,
-      stampDitherPatternTileInvert: true,
-      stampDitherPatternTileThreshold: 0.42,
-      stampDitherPatternTileOffsetX: 7,
-      stampDitherPatternTileOffsetY: 9,
+      stampDitherPatternStyle: patternStyle,
+      stampDitherPatternTileId: patternStyle === 'image-tile' ? 'local-threshold' : undefined,
     });
-    const snapshot = captureGobletColorCyclePersistenceSnapshot(
-      createLayer({
-        colorCycleBrush: runtime as never,
-      }),
-      project,
+    const payload = await serializeColorCycleDataFromResolvedLayer(
+      createLayer({ colorCycleBrush: runtime as never }), project,
     );
-
-    expect(snapshot.ok).toBe(true);
-    if (!snapshot.ok) {
-      throw new Error(snapshot.reason);
-    }
-    expect(snapshot.brushState.stampDitherPatternStyle).toBeUndefined();
-    expect(snapshot.brushState.stampDitherPatternTileId).toBeUndefined();
-    expect(snapshot.brushState.stampDitherPatternTileScale).toBeUndefined();
-    expect(snapshot.brushState.stampDitherPatternTileInvert).toBeUndefined();
-    expect(snapshot.brushState.stampDitherPatternTileThreshold).toBeUndefined();
-    expect(snapshot.brushState.stampDitherPatternTileOffsetX).toBeUndefined();
-    expect(snapshot.brushState.stampDitherPatternTileOffsetY).toBeUndefined();
-  });
-
-  it('preserves built-in pattern settings in Goblet persistence snapshots', () => {
-    const snapshot = captureGobletColorCyclePersistenceSnapshot(
-      createLayer({
-        colorCycleBrush: createDocumentBackedLiveRuntime({
-          stampDitherEnabled: true,
-          stampDitherAlgorithm: 'pattern',
-          stampDitherPatternStyle: 'dots',
-          stampDitherPatternTileScale: 2,
-          stampDitherPatternTileInvert: true,
-          stampDitherPatternTileThreshold: 0.42,
-          stampDitherPatternTileOffsetX: 7,
-          stampDitherPatternTileOffsetY: 9,
-        }) as never,
-      }),
-      project,
-    );
-
-    expect(snapshot.ok).toBe(true);
-    if (!snapshot.ok) {
-      throw new Error(snapshot.reason);
-    }
-    expect(snapshot.brushState.stampDitherPatternStyle).toBe('dots');
-    expect(snapshot.brushState.stampDitherPatternTileId).toBeUndefined();
-    expect(snapshot.brushState.stampDitherPatternTileScale).toBe(2);
-    expect(snapshot.brushState.stampDitherPatternTileInvert).toBe(true);
-    expect(snapshot.brushState.stampDitherPatternTileThreshold).toBe(0.42);
-    expect(snapshot.brushState.stampDitherPatternTileOffsetX).toBe(7);
-    expect(snapshot.brushState.stampDitherPatternTileOffsetY).toBe(9);
+    expect(payload?.colorCycle?.brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
+    expect(payload?.colorCycle?.brushState?.gradientDefIdBuffer).toEqual([1, 1, 1, 1]);
+    expect(payload?.colorCycle?.brushState?.flowBuffer).toEqual([1, 1, 1, 1]);
+    expect(payload?.colorCycle?.brushState?.phaseBuffer).toEqual([0, 64, 128, 192]);
+    expect(JSON.stringify(payload)).not.toContain('local-threshold');
+    expect(runtime.serialize).not.toHaveBeenCalled();
   });
 
   it('omits missing local-library pattern references from portable Goblet brush metadata', async () => {

@@ -164,7 +164,12 @@ describe('restoreColorCycleBrushesWithDocumentHydration', () => {
     );
   });
 
-  it('does not let an empty resident registry document override persisted canonical buffers', async () => {
+  it.each([
+    { residency: 'resident' as const, defer: false },
+    { residency: 'resident' as const, defer: true },
+    { residency: 'cold-archive-ref' as const, defer: false },
+    { residency: 'cold-archive-ref' as const, defer: true },
+  ])('respects $residency document ownership with defer=$defer when saved paint is populated', async ({ residency, defer }) => {
     const manager = createColorCycleBrushManager();
     const layer = createColorCycleLayer();
     const strokeData = (layer.colorCycleData?.brushState as PersistedColorCycleBrushState)
@@ -180,7 +185,7 @@ describe('restoreColorCycleBrushesWithDocumentHydration', () => {
       strokeData.flowBuffer = encode(strokeData.flowBuffer as ArrayBuffer);
       strokeData.phaseBuffer = encode(strokeData.phaseBuffer as ArrayBuffer);
     }
-    manager.ensureDocument(layer.id, 2, 2, { residency: 'resident' });
+    manager.ensureDocument(layer.id, 2, 2, { residency });
     const restoreLayerRuntimeForMaterialization = jest.fn().mockResolvedValue({
       brush: {},
       materialized: true,
@@ -191,7 +196,7 @@ describe('restoreColorCycleBrushesWithDocumentHydration', () => {
       [layer],
       { activeLayerId: layer.id, colorCycleBrushManager: manager },
       {
-        shouldDeferColorCycleRuntimeRestore: () => false,
+        shouldDeferColorCycleRuntimeRestore: () => defer,
         getLazyColorCycleArchiveRuntime: () => undefined,
         hydrateLazyColorCycleArchiveRuntime: jest.fn().mockResolvedValue(undefined),
         commitLazyColorCycleArchiveRuntimeHydration: jest.fn(),
@@ -207,18 +212,21 @@ describe('restoreColorCycleBrushesWithDocumentHydration', () => {
       },
     );
 
-    expect(restoreLayerRuntimeForMaterialization).toHaveBeenCalledWith(
-      layer,
-      expect.any(Function),
-      expect.any(Function),
-      undefined,
-      { kind: 'populated' },
+    if (defer) {
+      expect(restoreLayerRuntimeForMaterialization).not.toHaveBeenCalled();
+    } else {
+      expect(restoreLayerRuntimeForMaterialization).toHaveBeenCalledWith(
+        layer, expect.any(Function), expect.any(Function),
+        residency === 'resident' ? { preserveVersion: true, clearAudit: false } : undefined,
+        { kind: residency === 'resident' ? 'empty' : 'populated' },
+        residency === 'resident' ? expect.objectContaining({ version: 0 }) : undefined,
+      );
+    }
+    expect(Array.from(new Uint8Array(manager.getDocument(layer.id)!.read().snapshot.paintBuffer!))).toEqual(
+      residency === 'resident' ? [0, 0, 0, 0] : [1, 0, 0, 0],
     );
-    expect(manager.getDocument(layer.id)?.read().snapshot.paintBuffer).toEqual(
-      new Uint8Array([1, 0, 0, 0]).buffer,
-    );
-    expect(layer.colorCycleData?.runtimeHydrationState).toBe('active');
-    expect(layer.colorCycleData?.deferredRuntimeRestore).toBe(false);
+    expect(layer.colorCycleData?.runtimeHydrationState).toBe(defer ? 'cold' : 'active');
+    expect(layer.colorCycleData?.deferredRuntimeRestore).toBe(defer);
   });
 
   it('keeps a lazy archive retryable when runtime restore transiently reports missing paint', async () => {

@@ -14,6 +14,7 @@ import {
 import { realizeCompositeSegments } from '@/stores/layers/layerCompositeRenderer';
 import type { LayersSlice } from '@/stores/layers/layersSliceTypes';
 import type { AppState } from '@/stores/useAppStore';
+import { selectEffectiveColorCyclePlaying } from '@/runtime/playback/playbackSelectors';
 import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { logError } from '@/utils/debug';
 
@@ -59,6 +60,7 @@ export const createLayerCompositeActions = ({
     drawAllLayersInOrder,
     drawColorCycleLayers,
   } = createLayerCompositeDrawing({
+    getEffectiveColorCyclePlaying: () => selectEffectiveColorCyclePlaying(get()),
     createLayerTransferCanvas,
     hasValidFramebuffer,
   });

@@ -1,3 +1,4 @@
+import { selectEffectiveColorCyclePlaying } from '@/runtime/playback/playbackSelectors';
 import { debugLog } from '@/utils/debug';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { AppState } from '@/stores/useAppStore';
@@ -63,9 +64,7 @@ export const colorCyclePlaybackParticipant: PlaybackParticipant = {
     }
 
     const manager = getColorCycleBrushManager();
-    const playbackActive =
-      state.colorCyclePlayback?.desiredPlaying === true &&
-      (state.colorCyclePlayback?.suspendDepth ?? 0) === 0;
+    const playbackActive = selectEffectiveColorCyclePlaying(state);
     let shouldRequestStart = false;
 
     for (const layer of layers) {
