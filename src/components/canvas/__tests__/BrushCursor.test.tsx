@@ -351,7 +351,7 @@ describe('BrushCursor', () => {
     }
   });
 
-  it('uses pressure-adjusted cursor size only while drawing', () => {
+  it.each([25, 50, 75, 100, 150, 200])('previews the %i%% pressure maximum on hover and lift', (maxPercent) => {
     const ref = React.createRef<{
       setPosition: (
         x: number,
@@ -366,24 +366,69 @@ describe('BrushCursor', () => {
         descriptor={{
           kind: 'shape',
           shape: BrushShape.SQUARE,
-          pixelSize: 20,
+          pixelSize: 80,
           pressureSizing: {
-            minPercent: 50,
-            maxPercent: 150,
+            minPercent: 10,
+            maxPercent,
           },
         }}
-        zoom={1}
+        zoom={2}
         visible
       />
     );
 
-    context.rect.mockClear();
-    ref.current?.setPosition(110, 70, { pressure: 1, isDrawing: true });
-    expect(context.rect).toHaveBeenCalledWith(85.5, 35.5, 29, 29);
+    const maxScreenSize = 80 * maxPercent / 100 * 2;
+    const expectMaximumOutline = () => {
+      expect(context.rect).toHaveBeenCalledWith(
+        100 - maxScreenSize / 2 + 0.5,
+        50 - maxScreenSize / 2 + 0.5,
+        maxScreenSize - 1,
+        maxScreenSize - 1,
+      );
+    };
 
     context.rect.mockClear();
-    ref.current?.setPosition(110, 70, { pressure: 1, isDrawing: false });
-    expect(context.rect).toHaveBeenCalledWith(90.5, 40.5, 19, 19);
+    ref.current?.setPosition(110, 70);
+    expectMaximumOutline();
+
+    context.rect.mockClear();
+    ref.current?.setPosition(110, 70, { pressure: 0.1, isDrawing: true });
+    expect(context.rect).toHaveBeenCalledWith(92.5, 42.5, 15, 15);
+
+    context.rect.mockClear();
+    ref.current?.setPosition(110, 70, { pressure: 1, isDrawing: true });
+    expectMaximumOutline();
+
+    context.rect.mockClear();
+    ref.current?.setPosition(110, 70, { pressure: 0, isDrawing: false });
+    expectMaximumOutline();
+  });
+
+  it('refreshes a hovering cursor when pressure settings change or are disabled', () => {
+    const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
+    const descriptor = { kind: 'shape' as const, shape: BrushShape.SQUARE, pixelSize: 80 };
+    const { rerender } = render(
+      <BrushCursor ref={ref} descriptor={descriptor} zoom={1} visible />
+    );
+    ref.current?.setPosition(110, 70);
+
+    for (const maxPercent of [50, 25, 150]) {
+      context.rect.mockClear();
+      rerender(
+        <BrushCursor
+          ref={ref}
+          descriptor={{ ...descriptor, pressureSizing: { minPercent: 10, maxPercent } }}
+          zoom={1}
+          visible
+        />
+      );
+      const size = 80 * maxPercent / 100;
+      expect(context.rect).toHaveBeenCalledWith(100 - size / 2 + 0.5, 50 - size / 2 + 0.5, size - 1, size - 1);
+    }
+
+    context.rect.mockClear();
+    rerender(<BrushCursor ref={ref} descriptor={descriptor} zoom={1} visible />);
+    expect(context.rect).toHaveBeenCalledWith(60.5, 10.5, 79, 79);
   });
 
   it('rotates a stroke footprint from pointer direction', () => {

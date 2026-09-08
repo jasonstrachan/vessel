@@ -73,7 +73,7 @@ const getEffectivePixelSize = (
   pressure: number,
   isDrawing: boolean
 ): number => {
-  if (!isDrawing || !descriptor.pressureSizing) {
+  if (!descriptor.pressureSizing) {
     return descriptor.pixelSize;
   }
   const sizing = resolvePressureSizing(descriptor.pixelSize, {
@@ -81,7 +81,8 @@ const getEffectivePixelSize = (
     minPercent: descriptor.pressureSizing.minPercent,
     maxPercent: descriptor.pressureSizing.maxPercent,
   });
-  return Math.max(1, Math.round(sizing.sample(pressure) * 2));
+  const radius = isDrawing ? sizing.sample(pressure) : sizing.maxRadius;
+  return Math.max(1, Math.round(radius * 2));
 };
 
 const getCursorScreenDimensions = (
