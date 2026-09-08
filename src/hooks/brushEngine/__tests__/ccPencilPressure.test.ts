@@ -16,20 +16,23 @@ it('increases coverage with pressure while preserving the selected ordered textu
   expect(count(mask(0))).toBe(0);
   expect(count(heavy)).toBe(128 * 128);
   expect(light.tile.every((v, i) => v === 0 || medium.tile[i] === 1)).toBe(true);
+  expect(resolveCcPencilPressure(0.5)).toBeCloseTo(0.308, 3);
+  expect(resolveCcPencilPressure(0.2)).toBeCloseTo(0.065, 3);
+  expect(resolveCcPencilPressure(1)).toBe(1);
   expect(resolveCcPencilPressure(0.5, 100)).toBeGreaterThan(resolveCcPencilPressure(0.5, 0));
 });
 
 it.each(['sierra-lite', 'bayer', 'pattern'] as const)('uses the existing %s texture at half coverage', (algorithm) => {
   const runtime = createStampDitherRuntime();
   const selected = { ...config, algorithm, patternStyle: 'dots' as const };
-  const mask = getCcPencilMask({ runtime, config: selected, pressure: 0.5, sensitivity: 75 });
+  const mask = getCcPencilMask({ runtime, config: selected, pressure: 0.5, sensitivity: 85 });
   const texture = getStampDitherTile(runtime, STAMP_DITHER_FLAT_BUCKET, 1, 128, algorithm, 'dots');
   expect(mask.tile).toEqual(Uint8Array.from(texture, (v) => algorithm === 'pattern' ? Number(v !== 0) : Number(v <= 128)));
 });
 
 it('changes grain with the selection and respects custom image tile thresholds', () => {
   const runtime = createStampDitherRuntime();
-  const options = { runtime, pressure: 0.5, sensitivity: 75 };
+  const options = { runtime, pressure: 0.5, sensitivity: 85 };
   const horizontal = getCcPencilMask({ ...options, config: { ...config, algorithm: 'pattern', patternStyle: 'image-tile', imageTileThresholdResolver: (_, y) => y % 8 / 8 } });
   const vertical = getCcPencilMask({ ...options, config: { ...config, algorithm: 'pattern', patternStyle: 'image-tile', imageTileThresholdResolver: (x) => x % 8 / 8 } });
   expect(horizontal.tile).not.toEqual(vertical.tile);
@@ -84,4 +87,26 @@ it('supports the shared Res maximum without reseeding cells between stamps', () 
   expect(getCcPencilMask(options)).toBe(mask);
   expect(mask.accepts(0, 0)).toBe(mask.accepts(63, 63));
   expect(mask.accepts(64, 0)).toBe(mask.accepts(127, 63));
+});
+
+it.each([0, 0.5, 1])('keeps Sierra Lite pores nested across pressure levels at variety %s', (diversity) => {
+  const runtime = createStampDitherRuntime();
+  const selected = { ...config, algorithm: 'sierra-lite' as const, diversity };
+  const buffer = new IndexBuffer(128, 128);
+  buffer.setPalette(Array.from({ length: 32 }, () => '#1166aa'));
+  let previous = getCcPencilMask({ runtime, config: selected, pressure: 0 });
+  const levels = new Set<number>();
+  for (let step = 0; step <= 100; step += 1) {
+    const mask = getCcPencilMask({ runtime, config: selected, pressure: step / 100 });
+    expect(previous.tile.every((value, index) => !value || mask.tile[index])).toBe(true);
+    levels.add(count(mask));
+    if (step >= 20 && step <= 40) {
+      buffer.paintSquareWithIndex(64, 64, 128, 10, mask.tile, mask.size, false);
+    }
+    previous = mask;
+  }
+  expect(levels.size).toBeGreaterThanOrEqual(60);
+  const light = getCcPencilMask({ runtime, config: selected, pressure: 0.4 });
+  expect(buffer.getDirectData().every((value, index) => Number(value > 0) === light.tile[index])).toBe(true);
+  expect(count(light) / light.tile.length).toBeCloseTo(0.21, 1);
 });

@@ -105,6 +105,8 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     () => context.getStrokeData(id),
     { layerId: id }
   );
+  // Finalize the path that authored the pixels, not the retained Dither toggle.
+  const useStampDither = context.stampDitherEnabled() && !strokeData?.pencilPressureStroke;
   const perf = strokeFinalizeProbeTimeSync(
     'endColorCycleStroke:getPerfStroke',
     () => context.getPerfStroke(),
@@ -171,7 +173,7 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     strokeData.skipStampDitherFinalize = false;
   }
 
-  if (strokeData && context.stampDitherEnabled() && !skipStampFinalize) {
+  if (strokeData && useStampDither && !skipStampFinalize) {
     const algo = context.stampDitherAlgorithm() ?? 'sierra-lite';
     const finalizeStart = perf ? nowMs() : 0;
     const activeSlot = context.resolveActiveStrokeSlot(id, strokeData);
@@ -239,7 +241,7 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
   }
 
   if (strokeData) {
-    if (context.stampDitherEnabled()) {
+    if (useStampDither) {
       try {
         strokeFinalizeProbeTimeSync(
           'endColorCycleStroke:bindStampDitherBuffersToAnimator',
@@ -248,7 +250,7 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
         );
       } catch {}
     }
-    if (!context.stampDitherEnabled() && context.enableNonDitherPlaybackSpeed(strokeData)) {
+    if (!useStampDither && context.enableNonDitherPlaybackSpeed(strokeData)) {
       try {
         strokeFinalizeProbeTimeSync(
           'endColorCycleStroke:setNonDitherIndexBuffer',

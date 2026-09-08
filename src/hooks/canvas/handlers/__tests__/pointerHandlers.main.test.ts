@@ -2313,6 +2313,39 @@ describe('pointerHandlers main flows', () => {
     expect(firstCall?.[1]).toBeCloseTo(0.18, 3);
   });
 
+  it('uses variable mouse pressure when only Pencil is enabled', () => {
+    const { deps, dynamicDepsRef } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          pressureEnabled: false,
+          pressureLinkedFillResolution: false,
+          colorCycleStampDitherPressureLinked: false,
+          colorCyclePencilEnabled: true,
+        },
+      },
+    });
+    deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+    deps.isMouseDownRef.current = true;
+    deps.snapStrokeStartRef!.current = { x: 0, y: 0 } as any;
+    deps.snapLastBrushSampleRef!.current = { x: 0, y: 0 } as any;
+    dynamicDepsRef.current.tools = deps.tools;
+
+    const handlers = createPointerHandlers(deps);
+
+    handlers.handlePointerMove(makePointerEvent({
+      pointerType: 'mouse',
+      pressure: 0.18,
+      clientX: 24,
+      clientY: 26,
+      nativeEvent: { getCoalescedEvents: () => [] as unknown as PointerEvent[] } as any,
+    }));
+
+    const firstCall = (deps.drawingHandlers.continueDrawing as jest.Mock).mock.calls[0];
+    expect(firstCall?.[1]).toBeCloseTo(0.18, 3);
+  });
+
   it('ends pan and restores cursor on pointer up', () => {
     const { deps } = createDeps();
     (deps.pan.panState as any).isPanning = true;

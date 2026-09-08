@@ -105,13 +105,15 @@ export function runColorCyclePaintStroke(
   const targetLayerId = layerId || context.getActiveLayerId() || 'default';
   const { id, animator, strokeData } = context.prepareStrokeContext(targetLayerId);
 
-  context.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
   const activeSlot = context.resolveActiveStrokeSlot(id, strokeData);
   strokeData.flow.activeSlot = activeSlot;
   const flowSlot = context.resolveFlowSlot(strokeData, activeSlot);
   const appState = getAppStoreState();
   const pencilSettings = appState.tools.brushSettings;
   const pencilEnabled = pencilSettings.colorCyclePencilEnabled === true;
+  // A Pencil stroke moves as one mark; pointer velocity must not split its playback speeds.
+  if (!pencilEnabled) context.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
+  strokeData.pencilPressureStroke = pencilEnabled;
   const bristlesEnabled = pencilSettings.colorCycleBristlesEnabled === true;
   const useStampDither = context.isStampDitherEnabled() && !pencilEnabled;
   const stampShape = context.getStampShape();
@@ -132,7 +134,7 @@ export function runColorCyclePaintStroke(
     ? context.computeColorBandIndex(strokeData)
     : context.getNonDitherStrokeColorIndex(strokeData);
   const colorIndex = nextColorIndex;
-  const speedByte = useStampDither || bristlesEnabled ? context.getWriteSpeedByte(strokeData) : 0;
+  const speedByte = useStampDither || bristlesEnabled || pencilEnabled ? context.getWriteSpeedByte(strokeData) : 0;
   if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
     (animator as { setStrokeSpeedByte: (value: number) => void }).setStrokeSpeedByte(speedByte);
   }

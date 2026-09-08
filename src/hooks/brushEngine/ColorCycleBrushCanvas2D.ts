@@ -559,12 +559,11 @@ export class ColorCycleBrushCanvas2D {
   readonly getColorCycleDerivedSurface = (layerId: string) => this.presentationApi.getAnimator(layerId) ?? null;
   readonly getRenderDiagnostics = (layerId: string) => this.presentationApi.getRenderDiagnostics(layerId);
   readonly getSampledStrokeDitherPrimaryBuffer = (layerId: string): Uint8Array | null => {
-    if (!this.settingsApi.isStampDitherEnabled()) {
+    const strokeData = this.layerDocumentApi.getStrokeState(layerId);
+    if (!this.settingsApi.isStampDitherEnabled() || strokeData?.pencilPressureStroke) {
       return null;
     }
-    return this.layerDocumentApi.getStrokeState(layerId)
-      ?.stampDither
-      ?.stampDitherPrimaryBuffer ?? null;
+    return strokeData?.stampDither?.stampDitherPrimaryBuffer ?? null;
   };
   readonly startAnimation = this.presentationApi.startAnimation;
   readonly stopAnimation = this.presentationApi.stopAnimation;

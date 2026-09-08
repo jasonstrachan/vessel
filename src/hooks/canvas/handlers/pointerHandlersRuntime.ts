@@ -903,6 +903,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     rawPressure?: number;
     pointerType?: string;
     pressureEnabled: boolean;
+    colorCyclePencilEnabled?: boolean;
     pressureLinkedFillResolution?: boolean;
     colorCycleStampDitherPressureLinked?: boolean;
     shiftKey?: boolean;
@@ -913,6 +914,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       rawPressure,
       pointerType,
       pressureEnabled,
+      colorCyclePencilEnabled = false,
       pressureLinkedFillResolution = false,
       colorCycleStampDitherPressureLinked = false,
       shiftKey = false,
@@ -924,6 +926,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       const raw = Number.isFinite(rawPressure) ? Math.max(0, Math.min(1, rawPressure as number)) : null;
       const pressureFeaturesEnabled =
         pressureEnabled ||
+        colorCyclePencilEnabled ||
         pressureLinkedFillResolution ||
         colorCycleStampDitherPressureLinked;
       if (pressureEnabled && shiftKey) return 0.1;
@@ -2493,6 +2496,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       rawPressure,
       pointerType: event.pointerType,
       pressureEnabled: tools.brushSettings.pressureEnabled,
+      colorCyclePencilEnabled: tools.brushSettings.colorCyclePencilEnabled,
       pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
       colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
       shiftKey: event.shiftKey,
@@ -3270,6 +3274,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       rawPressure,
       pointerType: event.pointerType,
       pressureEnabled: tools.brushSettings.pressureEnabled,
+      colorCyclePencilEnabled: tools.brushSettings.colorCyclePencilEnabled,
       pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
       colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
       shiftKey: event.shiftKey,
@@ -3550,6 +3555,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             rawPressure: coalescedEvent.pressure,
             pointerType: event.pointerType,
             pressureEnabled: tools.brushSettings.pressureEnabled,
+            colorCyclePencilEnabled: tools.brushSettings.colorCyclePencilEnabled,
             pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
             colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
             shiftKey: coalescedEvent.shiftKey,
@@ -4321,6 +4327,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       rawPressure: rawPressureOnPointerUp,
       pointerType: event.pointerType,
       pressureEnabled: tools.brushSettings.pressureEnabled,
+      colorCyclePencilEnabled: tools.brushSettings.colorCyclePencilEnabled,
       pressureLinkedFillResolution: tools.brushSettings.pressureLinkedFillResolution,
       colorCycleStampDitherPressureLinked: tools.brushSettings.colorCycleStampDitherPressureLinked,
       shiftKey: event.shiftKey,

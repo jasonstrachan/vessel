@@ -58,6 +58,7 @@ export type LayerStrokeState = {
   strokeSpeedByte: number;
   lastPoint: Vec2 | null;
   skipStampDitherFinalize?: boolean;
+  pencilPressureStroke?: boolean;
   buffers: {
     paint: Uint8Array;
     gid: Uint8Array;

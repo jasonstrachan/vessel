@@ -177,6 +177,7 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
       strokeData.stampCounter = preservedStampCounter;
       strokeData.strokePhaseUnits = preservedPhaseUnits;
     }
+    strokeData.pencilPressureStroke = false;
     strokeData.strokeCounter = strokeCounter;
     strokeData.strokeCycleSpeed = strokeStartSpeed;
     strokeData.strokeSpeedByte = speedByte;

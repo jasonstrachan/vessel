@@ -1,3 +1,4 @@
+import { remapSampledStrokePaintPhase } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { finalizeColorCycleShapeFillLinear } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
@@ -363,6 +364,67 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       expect(decodeColorCycleSpeedByte(paintedSpeeds[0])).toBeCloseTo(0.2, 2);
       const serialized = readSerializedBrushState(brush).layers.find((layer) => layer.layerId === layerId);
       expect(new Uint8Array(serialized!.strokeData!.speedBuffer!)).toEqual(speed);
+    } finally {
+      state.tools.brushSettings = previousSettings;
+    }
+  });
+
+  it.each([false, true])('persists Pencil playback speed with Dither toggle %s', (dither) => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const previousSettings = state.tools.brushSettings;
+    state.tools.brushSettings = { size: 4, colorCyclePencilEnabled: true, colorCyclePencilSensitivity: 50 };
+    try {
+      const layerId = 'pickup-speed-regression';
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(16, 16), { brushSize: 4, forceCanvas2D: true });
+      brush.setStampDitherEnabled(dither);
+      brush.setSpeed(0.2);
+      brush.startStroke(layerId);
+      brush.paint(8, 8, layerId, 0.5);
+      brush.endStroke(layerId);
+      const snapshot = readBrushLayerSnapshot(brush, layerId)!;
+      const paint = new Uint8Array(snapshot.paintBuffer);
+      const speed = new Uint8Array(snapshot.speedBuffer!);
+      const paintedSpeeds = Array.from(speed).filter((_, index) => paint[index] > 0);
+      expect(paintedSpeeds.length).toBeGreaterThan(0);
+      expect(paintedSpeeds.every((value) => value > 0)).toBe(true);
+      expect(decodeColorCycleSpeedByte(paintedSpeeds[0])).toBeCloseTo(0.2, 2);
+      const serialized = readSerializedBrushState(brush).layers.find((layer) => layer.layerId === layerId);
+      expect(new Uint8Array(serialized!.strokeData!.speedBuffer!)).toEqual(speed);
+    } finally {
+      state.tools.brushSettings = previousSettings;
+    }
+  });
+
+  it('remaps a long sampled Pencil stroke as one continuous path with Dither retained', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const previousSettings = state.tools.brushSettings;
+    state.tools.brushSettings = { size: 4, colorCyclePencilEnabled: true };
+    try {
+      const layerId = 'pencil-path';
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(520, 16), { brushSize: 4, forceCanvas2D: true });
+      brush.setStampDitherEnabled(true);
+      brush.startStroke(layerId);
+      for (let x = 4; x <= 510; x += 1) brush.paint(x, 8, layerId, 1, 0, x % 30 < 15 ? 0 : 3);
+      brush.endStroke(layerId);
+      const snapshot = readBrushLayerSnapshot(brush, layerId)!;
+      const remapped = remapSampledStrokePaintPhase({
+        snapshot, width: 520, height: 16, points: [{ x: 4, y: 8 }, { x: 510, y: 8 }],
+        targetSlot: 0, pathPadding: 4,
+        ditherPrimaryBuffer: brush.getSampledStrokeDitherPrimaryBuffer(layerId),
+      });
+      expect(remapped).not.toBeNull();
+      const paint = new Uint8Array(remapped!.paintBuffer);
+      const speeds = new Uint8Array(remapped!.speedBuffer!);
+      expect(new Set(Array.from(speeds).filter((_, index) => paint[index] > 0)).size).toBe(1);
+      const row = Array.from(paint.slice(8 * 520 + 4, 8 * 520 + 511));
+      expect(row.every((value, index) => index === 0 || value >= row[index - 1])).toBe(true);
+      expect(row[0]).toBe(1);
+      expect(row[row.length - 1]).toBe(255);
+      state.tools.brushSettings = { size: 4, colorCyclePencilEnabled: false };
+      brush.startStroke(layerId);
+      brush.paint(8, 8, layerId, 1);
+      brush.endStroke(layerId);
+      expect(brush.getSampledStrokeDitherPrimaryBuffer(layerId)).not.toBeNull();
     } finally {
       state.tools.brushSettings = previousSettings;
     }

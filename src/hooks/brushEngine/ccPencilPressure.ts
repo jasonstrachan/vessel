@@ -1,13 +1,40 @@
 import { getErrorDiffusionKernel, isErrorDiffusionAlgorithm, type StampDitherConfig } from './strokeStampDither/coverage';
 import { getImageTileResolverCacheKey, type StampDitherRuntime } from './strokeStampDither/runtime';
-import { getStampDitherTile, resolveStampDitherBaseSize, STAMP_DITHER_BUCKETS, STAMP_DITHER_FLAT_BUCKET } from './strokeStampDither/tile';
+import { getStampDitherTile, hashStampDitherCellNoise, resolveStampDitherBaseSize, STAMP_DITHER_BUCKETS, STAMP_DITHER_FLAT_BUCKET } from './strokeStampDither/tile';
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 
 export const resolveCcPencilPressure = (pressure: number, sensitivity = 50): number =>
-  Math.pow(clamp01(Number.isFinite(pressure) ? pressure : 0.5), 2.5 - 2 * clamp01(sensitivity / 100));
+  Math.pow(clamp01(Number.isFinite(pressure) ? pressure : 0.5), (270 - 200 * clamp01(sensitivity / 100)) / 100);
 
 export type CcPencilMask = { tile: Uint8Array; size: number; accepts: (x: number, y: number) => boolean };
+// A fixed Sierra Lite half-tone supplies the paper structure. Rank each half
+// independently so pressure reveals nested pores without reseeding the paper.
+const sierraGrainCache = new WeakMap<StampDitherRuntime['imageTileResolverIds'], Map<string, Float32Array>>();
+const getSierraGrain = (runtime: StampDitherRuntime, size: number, diversity?: number): Float32Array => {
+  let grains = sierraGrainCache.get(runtime.imageTileResolverIds);
+  if (!grains) {
+    grains = new Map();
+    sierraGrainCache.set(runtime.imageTileResolverIds, grains);
+  }
+  const key = `${size}|${diversity}`;
+  const cached = grains.get(key);
+  if (cached) return cached;
+  const texture = getStampDitherTile(runtime, STAMP_DITHER_FLAT_BUCKET, 1, size, 'sierra-lite', 'dots', undefined, diversity);
+  const grain = new Float32Array(texture.length);
+  const ranks = Array.from({ length: texture.length }, (_, index) => index);
+  const noise = Float32Array.from(ranks, (index) => hashStampDitherCellNoise(0, index % size, Math.floor(index / size)));
+  ranks.sort((a, b) => texture[a] - texture[b] || noise[a] - noise[b] || a - b);
+  const split = ranks.findIndex((index) => texture[index] !== 0);
+  for (let rank = 0; rank < ranks.length; rank += 1) {
+    grain[ranks[rank]] = rank < split
+      ? 0.5 * (rank + 0.5) / split
+      : 0.5 + 0.5 * (rank - split + 0.5) / (ranks.length - split);
+  }
+  if (grains.size >= 16) grains.delete(grains.keys().next().value!);
+  grains.set(key, grain);
+  return grain;
+};
 const cache = new WeakMap<StampDitherRuntime['imageTileResolverIds'], Map<string, CcPencilMask>>();
 
 export const getCcPencilMask = ({
@@ -35,7 +62,9 @@ export const getCcPencilMask = ({
   let base: Uint8Array;
   if (level === 0 || level === STAMP_DITHER_BUCKETS - 1) {
     base = new Uint8Array(baseSize * baseSize).fill(level === 0 ? 0 : 1);
-  } else if (isErrorDiffusionAlgorithm(config.algorithm) && config.algorithm !== 'sierra-lite') {
+  } else if (config.algorithm === 'sierra-lite') {
+    base = Uint8Array.from(getSierraGrain(runtime, baseSize, config.diversity), (value) => Number(value < coverage));
+  } else if (isErrorDiffusionAlgorithm(config.algorithm)) {
     // Use the selected diffusion kernel, rather than the stamp preview's noise fallback.
     const kernel = getErrorDiffusionKernel(config.algorithm);
     const values = new Float32Array(baseSize * baseSize).fill(coverage);
