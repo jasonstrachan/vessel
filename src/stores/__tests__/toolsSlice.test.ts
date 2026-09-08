@@ -115,10 +115,11 @@ describe('tools slice', () => {
     const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;
     const shape = brushPresets.find((preset) => preset.id === 'color-cycle-shape')!;
     useAppStore.getState().setBrushPreset(stroke, true);
-    useAppStore.getState().setBrushSettings({ colorCycleBristlesEnabled: true });
+    useAppStore.getState().setBrushSettings({ colorCycleBristlesEnabled: true, colorCycleBristleWidth: 1.5 });
     useAppStore.getState().setBrushPreset(shape, true);
     useAppStore.getState().setBrushPreset(stroke, true);
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(true);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristleWidth).toBe(1.5);
   });
 
   it('persists colour pickup independently for each CC preset without changing its source', () => {

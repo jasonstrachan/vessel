@@ -964,6 +964,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleBristlesEnabled !== undefined) {
         settingsToSave.colorCycleBristlesEnabled = newSettings.colorCycleBristlesEnabled === true;
       }
+      if (settings.colorCycleBristleWidth !== undefined) {
+        settingsToSave.colorCycleBristleWidth = newSettings.colorCycleBristleWidth;
+      }
       if (settings.colorCyclePickupEnabled !== undefined) {
         settingsToSave.colorCyclePickupEnabled = newSettings.colorCyclePickupEnabled === true;
       }

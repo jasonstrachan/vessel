@@ -261,7 +261,7 @@ export function runColorCyclePaintStroke(
       clearDefIds: !useStampDither,
       isPaintPixel: pencilMask?.accepts,
       onPaintPixel: bristlesEnabled
-        ? createCcBristleWriter(strokeData.buffers.phase, { x, y }, last, pressureSize)
+        ? createCcBristleWriter(strokeData.buffers.phase, { x, y }, last, pencilSettings.colorCycleBristleWidth)
         : undefined,
     });
   }

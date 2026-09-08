@@ -542,32 +542,24 @@ describe('webglExporter bundle contracts', () => {
         y: 0,
         height: 16,
         palette: MACINTOSH_SYSTEM_1_UI_SHAPE_PALETTE,
-        trackTop: [0, 0, 0, 255],
-        trackBottom: [255, 255, 255, 255],
       },
       {
         theme: 'macintosh-system-7' as const,
         y: 20,
         height: 16,
         palette: MACINTOSH_SYSTEM_7_UI_SHAPE_PALETTE,
-        trackTop: [0, 0, 0, 255],
-        trackBottom: [0, 0, 0, 255],
       },
       {
         theme: 'windows-3.1' as const,
         y: 40,
         height: 17,
         palette: WINDOWS_31_UI_SHAPE_PALETTE,
-        trackTop: [223, 223, 223, 255],
-        trackBottom: [223, 223, 223, 255],
       },
       {
         theme: 'windows-95' as const,
         y: 61,
         height: 16,
         palette: WINDOWS_95_UI_SHAPE_PALETTE,
-        trackTop: [192, 192, 192, 255],
-        trackBottom: [255, 255, 255, 255],
       },
     ];
     project.uiShapes = themes.map(({ theme, y, height, palette }) => ({
@@ -631,11 +623,14 @@ describe('webglExporter bundle contracts', () => {
       const center = Math.floor((height - 1) / 2);
       const start = center - Math.floor(radius / 2);
       const rightButtonX = 64 - height;
-      const palettePixels = Object.values(palette).map((color) => {
+      const inkPairs = resolveUiShapeSierraLiteInkPairs(palette);
+      const palettePixels = Object.values(inkPairs).flatMap(({ lowColor, highColor }) => (
+        [lowColor, highColor]
+      )).map((color) => {
         const packed = Number.parseInt(color.slice(1), 16);
         return [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255, 255];
       });
-      const textPair = resolveUiShapeSierraLiteInkPairs(palette).text;
+      const textPair = inkPairs.text;
       const textPixels = [textPair.lowColor, textPair.highColor].map((color) => {
         const packed = Number.parseInt(color.slice(1), 16);
         return [(packed >> 16) & 255, (packed >> 8) & 255, packed & 255, 255];

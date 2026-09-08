@@ -1681,6 +1681,7 @@ export interface BrushSettings {
   colorCyclePencilEnabled?: boolean;
   colorCyclePencilSensitivity?: number;
   colorCycleBristlesEnabled?: boolean;
+  colorCycleBristleWidth?: number; // Canvas pixels, 0.5-8; defaults to 1 when enabled
   colorCyclePickupEnabled?: boolean; // Carry visible paint from the active layer into the new CC mark
   colorCycleSpeed?: number; // 0-2.64 (brush animation speed)
   colorCycleLayerSpeedScale?: number; // Global playback multiplier for CC brush-mode layers

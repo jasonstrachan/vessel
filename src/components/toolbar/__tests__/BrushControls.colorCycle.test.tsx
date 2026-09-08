@@ -487,14 +487,18 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     unmount();useAppStore.setState({ tools: previous });
   });
 
-  it('toggles bristle streaks for CC Stroke', () => {
+  it('sets bristle width and turns bristles off at zero for CC Stroke', () => {
     const previous = useAppStore.getState().tools;
     useAppStore.setState({ tools: { ...previous, brushSettings: {
       ...previous.brushSettings, brushShape: 'color_cycle' as BrushSettings['brushShape'], colorCycleBristlesEnabled: false,
     } } });
     const { unmount } = render(<BrushControls />);
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Bristle streaks' }));
+    fireEvent.change(screen.getByRole('slider', { name: 'Bristle Width' }), { target: { value: '1.5' } });
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(true);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristleWidth).toBe(1.5);
+    fireEvent.change(screen.getByRole('slider', { name: 'Bristle Width' }), { target: { value: '0' } });
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(false);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristleWidth).toBe(1.5);
     unmount();
     useAppStore.setState({ tools: previous });
   });

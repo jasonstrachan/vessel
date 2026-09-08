@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { runInNewContext } from 'node:vm';
+
 import { generateBrushThumbnail } from '@/utils/brushThumbnailGenerator';
 import { BrushShape } from '@/types';
 
@@ -13,10 +15,11 @@ describe('brushThumbnailGenerator', () => {
   } as any;
 
   it('returns empty string when document is undefined', () => {
-    const original = (global as any).document;
-    delete (global as any).document;
-    expect(generateBrushThumbnail(basePreset)).toBe('data:image/png;base64,');
-    (global as any).document = original;
+    // Evaluate the SSR guard without JSDOM's non-configurable document global.
+    const result = runInNewContext(`(${generateBrushThumbnail.toString()})(preset)`, {
+      preset: basePreset,
+    });
+    expect(result).toBe('');
   });
 
   it('returns fallback data URL when context is unavailable', () => {

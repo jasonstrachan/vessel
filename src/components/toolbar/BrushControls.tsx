@@ -2023,13 +2023,19 @@ const BrushControls = () => {
 
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
           <div className="mb-2 flex items-center gap-2">
-            <label htmlFor="cc-bristles" className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}
-              title="Continuous strands following the stroke, each carrying a different part of the palette">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}
+              title="Bristle width in canvas pixels. Set to 0 to turn bristles off.">
               Bristles
             </label>
-            <CustomSwitch id="cc-bristles" aria-label="Bristle streaks"
-              checked={activeSettings.colorCycleBristlesEnabled === true}
-              onChange={(checked) => setActiveSettings({ colorCycleBristlesEnabled: checked })}
+            <NonCcSlider aria-label="Bristle Width"
+              min={0} max={8} step={0.5}
+              value={activeSettings.colorCycleBristlesEnabled ? (activeSettings.colorCycleBristleWidth ?? 1) : 0}
+              onChange={(value) => setActiveSettings({
+                colorCycleBristlesEnabled: value > 0,
+                ...(value > 0 ? { colorCycleBristleWidth: value } : {}),
+              })}
+              formatValue={(value) => value === 0 ? 'Off' : `${value} px`}
+              className="flex-1"
             />
           </div>
         )}
