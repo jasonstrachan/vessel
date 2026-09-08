@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { BrushShape, type BrushSettings } from '@/types';
 import { resolvePressureSizing } from '@/utils/pressureSizing';
+import { resolveCcPencilSize } from '@/hooks/brushEngine/ccPencilPressure';
 import { getSelectionMaskContourPath } from '@/utils/selectionMaskContourPath';
 
 import type { BrushCursorDescriptor } from './useDrawingCanvasCursorModel';
@@ -73,6 +74,13 @@ const getEffectivePixelSize = (
   pressure: number,
   isDrawing: boolean
 ): number => {
+  if (descriptor.pencilSizing) {
+    return resolveCcPencilSize(
+      descriptor.pixelSize,
+      isDrawing ? pressure : 1,
+      descriptor.pencilSizing.sensitivity,
+    );
+  }
   if (!descriptor.pressureSizing) {
     return descriptor.pixelSize;
   }

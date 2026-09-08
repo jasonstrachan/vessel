@@ -404,6 +404,43 @@ describe('BrushCursor', () => {
     expectMaximumOutline();
   });
 
+  it('uses the Pencil footprint instead of the ordinary pressure range', () => {
+    const ref = React.createRef<{
+      setPosition: (x: number, y: number, sample?: { pressure: number; isDrawing: boolean }) => void;
+    }>();
+    render(
+      <BrushCursor
+        ref={ref}
+        descriptor={{
+          kind: 'shape',
+          shape: BrushShape.COLOR_CYCLE,
+          tipShape: 'square',
+          pixelSize: 80,
+          pencilSizing: { sensitivity: 12 },
+          pressureSizing: { minPercent: 50, maxPercent: 300 },
+        }}
+        zoom={1}
+        visible
+      />
+    );
+    for (const sample of [
+      { pressure: 0, isDrawing: false, expectedSize: 80 },
+      { pressure: 0, isDrawing: true, expectedSize: 52 },
+      { pressure: 0.5, isDrawing: true, expectedSize: 57.08890381062109 },
+      { pressure: 1, isDrawing: true, expectedSize: 80 },
+      { pressure: 0, isDrawing: false, expectedSize: 80 },
+    ]) {
+      context.rect.mockClear();
+      ref.current?.setPosition(110, 70, sample);
+      expect(context.rect).toHaveBeenCalledWith(
+        100 - sample.expectedSize / 2,
+        50 - sample.expectedSize / 2,
+        sample.expectedSize,
+        sample.expectedSize,
+      );
+    }
+  });
+
   it('refreshes a hovering cursor when pressure settings change or are disabled', () => {
     const ref = React.createRef<{ setPosition: (x: number, y: number) => void }>();
     const descriptor = { kind: 'shape' as const, shape: BrushShape.SQUARE, pixelSize: 80 };

@@ -9,6 +9,7 @@ type BrushCursorDynamics = {
   initialRotationRadians?: number;
   pixelWidth?: number;
   pixelHeight?: number;
+  pencilSizing?: { sensitivity?: number };
   pressureSizing?: {
     minPercent: number;
     maxPercent: number;
@@ -55,6 +56,8 @@ interface UseDrawingCanvasCursorModelOptions {
       pressureEnabled?: boolean;
       minPressure?: number;
       maxPressure?: number;
+      colorCyclePencilEnabled?: boolean;
+      colorCyclePencilSensitivity?: number;
       colorCycleFillMode?: BrushSettings['colorCycleFillMode'];
       ditherStrokeTipShape?: BrushSettings['ditherStrokeTipShape'];
       colorCycleStampShape?: BrushSettings['colorCycleStampShape'];
@@ -108,6 +111,10 @@ export const useDrawingCanvasCursorModel = ({
     const isColorCycleStroke =
       configuredBrushShape === BrushShape.COLOR_CYCLE ||
       configuredBrushShape === BrushShape.COLOR_CYCLE_TRIANGLE;
+    const pencilEnabled =
+      tools.currentTool === 'brush' &&
+      isColorCycleStroke &&
+      tools.brushSettings.colorCyclePencilEnabled === true;
     const ditherTipShape = tools.brushSettings.ditherStrokeTipShape ?? 'round';
     const ditherTipRendersRotation =
       configuredBrushShape !== BrushShape.PIXEL_DITHER ||
@@ -133,7 +140,9 @@ export const useDrawingCanvasCursorModel = ({
       pressureRange.enabled;
     const cursorDescriptor: BrushCursorDescriptor = {
       ...baseDescriptor,
-      ...(pressureEnabled
+      ...(pencilEnabled
+        ? { pencilSizing: { sensitivity: tools.brushSettings.colorCyclePencilSensitivity } }
+        : pressureEnabled
         ? {
             pressureSizing: {
               minPercent: pressureRange.minPercent,

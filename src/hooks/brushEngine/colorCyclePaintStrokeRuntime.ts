@@ -1,4 +1,4 @@
-import { getCcPencilMask, resolveCcPencilPressure, type CcPencilMask } from './ccPencilPressure';
+import { getCcPencilMask, resolveCcPencilSize, type CcPencilMask } from './ccPencilPressure';
 import { createCcBristleWriter, getCcBristleBaseIndex } from './ccBristles';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
@@ -143,7 +143,7 @@ export function runColorCyclePaintStroke(
   } catch {}
 
   const pressureSize = pencilEnabled
-    ? Math.max(1, pencilSettings.size * (0.65 + 0.35 * resolveCcPencilPressure(pressure, pencilSettings.colorCyclePencilSensitivity)))
+    ? resolveCcPencilSize(pencilSettings.size, pressure, pencilSettings.colorCyclePencilSensitivity)
     : context.resolvePressureBrushSize(pressure);
   const pencilMask = pencilEnabled ? getCcPencilMask({
     runtime: context.getStampDitherRuntime(),

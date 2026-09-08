@@ -5,6 +5,33 @@ import { useDrawingCanvasCursorModel } from '../useDrawingCanvasCursorModel';
 describe('useDrawingCanvasCursorModel', () => {
   const isSpacePressedRef = { current: false };
 
+  it.each([true, false])('uses Pencil sizing independently of the pressure toggle (%s)', (pressureEnabled) => {
+    const { result } = renderHook(() => useDrawingCanvasCursorModel({
+      tools: {
+        currentTool: 'brush',
+        brushSettings: {
+          brushShape: BrushShape.COLOR_CYCLE,
+          size: 80,
+          antialiasing: false,
+          rotationEnabled: false,
+          pressureEnabled,
+          minPressure: 50,
+          maxPressure: 300,
+          colorCyclePencilEnabled: true,
+          colorCyclePencilSensitivity: 12,
+        },
+        eraserSettings: { size: 10 },
+      },
+      globalBrushSize: 80,
+      showBrushCursor: true,
+      panIsPanning: false,
+      isSpacePressedRef,
+      cursorStyle: 'none',
+    }));
+    expect(result.current.cursorDescriptor.pencilSizing).toEqual({ sensitivity: 12 });
+    expect(result.current.cursorDescriptor.pressureSizing).toBeUndefined();
+  });
+
   it('returns a shape descriptor for standard brushes', () => {
     const { result } = renderHook(() =>
       useDrawingCanvasCursorModel({

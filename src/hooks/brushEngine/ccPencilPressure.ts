@@ -7,6 +7,9 @@ const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
 export const resolveCcPencilPressure = (pressure: number, sensitivity = 50): number =>
   Math.pow(clamp01(Number.isFinite(pressure) ? pressure : 0.5), (270 - 200 * clamp01(sensitivity / 100)) / 100);
 
+export const resolveCcPencilSize = (size: number, pressure: number, sensitivity = 50): number =>
+  Math.max(1, size * (0.65 + 0.35 * resolveCcPencilPressure(pressure, sensitivity)));
+
 export type CcPencilMask = { tile: Uint8Array; size: number; accepts: (x: number, y: number) => boolean };
 // A fixed Sierra Lite half-tone supplies the paper structure. Rank each half
 // independently so pressure reveals nested pores without reseeding the paper.
