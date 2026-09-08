@@ -1,3 +1,4 @@
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document';
 import {
   prepareBrushSpeedExport,
   scaleEncodedSpeedBuffer,
@@ -283,6 +284,17 @@ describe('Goblet slot speed export', () => {
     const layer = createLayer({
       gradientDefStore: createGradientDefStore(1.0),
       colorCycleBrush: {
+        getColorCycleLayerDocument: () => new ColorCycleLayerDocument({
+          layerId: 'cc-layer', width: 2, height: 2,
+          paintBuffer: Uint8Array.from(brushState.indexBuffer as number[]).buffer,
+          gradientIdBuffer: Uint8Array.from(brushState.gradientIdBuffer as number[]).buffer,
+          gradientDefIdBuffer: Uint16Array.from(brushState.gradientDefIdBuffer as number[]).buffer,
+          speedBuffer: Uint8Array.from(brushState.speedBuffer as number[]).buffer,
+          flowBuffer: Uint8Array.from(brushState.flowBuffer as number[]).buffer,
+          phaseBuffer: Uint8Array.from(brushState.phaseBuffer as number[]).buffer,
+          hasContent: true,
+          sources: { brushStateSnapshot: false, topLevelBuffers: false, legacyStateRefs: false },
+        }),
         serialize: () => ({
           layers: [{
             layerId: 'cc-layer',
@@ -311,7 +323,7 @@ describe('Goblet slot speed export', () => {
       layer,
       createProject(),
       undefined,
-      { resolvedSource: 'live-runtime', layerSpeedScale: 2 },
+      { layerSpeedScale: 2 },
     );
 
     expect(payload?.colorCycle?.speedMode).toBe('slot');
@@ -325,6 +337,18 @@ describe('Goblet slot speed export', () => {
     const layer = createLayer({
       layerBaseSpeedCps: 2,
       colorCycleBrush: {
+        getColorCycleLayerDocument: () => new ColorCycleLayerDocument({
+          layerId: 'cc-layer', width: 2, height: 2,
+          paintBuffer: Uint8Array.from(brushState.indexBuffer as number[]).buffer,
+          gradientIdBuffer: Uint8Array.from(brushState.gradientIdBuffer as number[]).buffer,
+          gradientDefIdBuffer: Uint16Array.from(brushState.gradientDefIdBuffer as number[]).buffer,
+          speedBuffer: Uint8Array.from(brushState.speedBuffer as number[]).buffer,
+          flowBuffer: Uint8Array.from(brushState.flowBuffer as number[]).buffer,
+          phaseBuffer: Uint8Array.from(brushState.phaseBuffer as number[]).buffer,
+          layerBaseSpeedCps: 2,
+          hasContent: true,
+          sources: { brushStateSnapshot: false, topLevelBuffers: false, legacyStateRefs: false },
+        }),
         serialize: () => ({
           layers: [{
             layerId: 'cc-layer',
@@ -353,7 +377,7 @@ describe('Goblet slot speed export', () => {
       layer,
       createProject(),
       undefined,
-      { resolvedSource: 'live-runtime', toolSpeed: 0.1 },
+      { toolSpeed: 0.1 },
     );
 
     expect(payload?.colorCycle?.layerBaseSpeedCps).toBeCloseTo(0.2, 5);

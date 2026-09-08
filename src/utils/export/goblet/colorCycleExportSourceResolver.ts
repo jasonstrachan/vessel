@@ -1,26 +1,27 @@
 import type { Layer, Project } from '@/types';
 import {
+  ColorCycleLayerDocument,
+  normalizeColorCycleLayerDocumentState,
   cloneColorCycleSerializedBrushLayerSnapshotBuffers,
   createColorCycleCanonicalBrushStateFromDocumentSnapshot,
   getColorCycleLegacyLayerBuffers,
+  deleteLegacyColorCycleTopLevelBuffers,
+  type ColorCycleLayerDocumentRead,
   type ColorCycleLayerDocumentSnapshot,
   type ColorCycleLegacyLayerBuffers,
 } from '@/lib/colorCycle/document';
 import {
   resolveGobletColorCycleDocument,
-  resolveGobletColorCycleLiveBrush,
 } from '@/utils/export/goblet/colorCycleLiveBrushResolver';
 import { resolvePersistedColorCycleExportEligibility } from '@/utils/export/goblet/colorCycleExportSourceEligibility';
 import type { GobletColorCyclePayloadDiagnostic } from '@/utils/export/goblet/colorCyclePayloadValidation';
 import { hydrateColorCycleArchiveRuntimeSnapshotForExport } from '@/utils/projectIO';
 
-// Boundary: source ordering only. Do not validate final payload buffer lengths here;
-// persisted and live availability must come from the shared source helpers.
+// Resolve one document read. Archive compatibility is normalized here, before
+// serialization; runtime projections are never an alternate source of paint.
+export type GobletColorCycleDocumentRead = Pick<ColorCycleLayerDocumentRead, 'snapshot' | 'version'>;
 export type GobletColorCyclePayloadBuildSource =
   | 'document'
-  | 'hydrated-archive-document-state'
-  | 'persisted-brush-state'
-  | 'live-runtime'
   | 'recolor-runtime';
 
 export type GobletColorCycleExportSourceResult =
@@ -29,6 +30,7 @@ export type GobletColorCycleExportSourceResult =
       layerId: string;
       source: GobletColorCyclePayloadBuildSource;
       layer: Layer;
+      documentRead?: GobletColorCycleDocumentRead;
       diagnostics: GobletColorCyclePayloadDiagnostic[];
     }
   | {
@@ -82,8 +84,10 @@ const cloneLayerFromDocumentSnapshot = (
   layer: Layer,
   snapshot: ColorCycleLayerDocumentSnapshot,
   version: number,
+  preservePersistedMetadata = false,
 ): Layer => {
   const cloned = cloneGobletExportLayer(layer);
+  deleteLegacyColorCycleTopLevelBuffers(cloned.colorCycleData);
   const existingBrushState = cloned.colorCycleData?.brushState && typeof cloned.colorCycleData.brushState === 'object'
     ? cloned.colorCycleData.brushState as Record<string, unknown>
     : {};
@@ -115,7 +119,7 @@ const cloneLayerFromDocumentSnapshot = (
           activeGradientId: snapshot.activeGradientId,
           layerBaseSpeedCps: snapshot.layerBaseSpeedCps,
           flowMode: snapshot.flowMode,
-          brushState: createColorCycleCanonicalBrushStateFromDocumentSnapshot({
+          brushState: preservePersistedMetadata ? cloned.colorCycleData.brushState : createColorCycleCanonicalBrushStateFromDocumentSnapshot({
             layerId: layer.id,
             snapshot,
             version,
@@ -130,7 +134,6 @@ export const resolveGobletColorCycleExportSource = async (
   layer: Layer,
   project: Project,
 ): Promise<GobletColorCycleExportSourceResult> => {
-  void project;
   if (layer.layerType !== 'color-cycle' || !layer.colorCycleData) {
     return {
       ok: false,
@@ -163,6 +166,7 @@ export const resolveGobletColorCycleExportSource = async (
       layerId: layer.id,
       source: 'document',
       layer: cloneLayerFromDocumentSnapshot(layer, snapshot, version),
+      documentRead: { snapshot, version },
       diagnostics: [{
         code: 'document-source-selected',
         severity: 'info',
@@ -172,59 +176,47 @@ export const resolveGobletColorCycleExportSource = async (
     };
   }
 
-  if (layer.colorCycleData.deferredRuntimeRestore || layer.colorCycleData.runtimeHydrationState === 'cold') {
-    try {
-      const hydratedLayer = await hydrateColorCycleArchiveRuntimeSnapshotForExport(layer);
-      if (resolvePersistedColorCycleExportEligibility(hydratedLayer).ok) {
+  // Cold layers hydrate into an export-local document without warming the editor
+  // or changing its active layer. A failed hydration must not use stale mirrors.
+  let persistedLayer = layer;
+  const isCold = layer.colorCycleData.deferredRuntimeRestore || layer.colorCycleData.runtimeHydrationState === 'cold';
+  try {
+    if (isCold) {
+      persistedLayer = await hydrateColorCycleArchiveRuntimeSnapshotForExport(layer);
+    }
+    const eligibility = resolvePersistedColorCycleExportEligibility(persistedLayer);
+    if (eligibility.ok) {
+      const normalized = normalizeColorCycleLayerDocumentState(persistedLayer, {
+        fallbackWidth: persistedLayer.framebuffer?.width ?? project.width,
+        fallbackHeight: persistedLayer.framebuffer?.height ?? project.height,
+        decodeSerializedBrushStateBuffers: true,
+      });
+      if (normalized.ok) {
+        const documentRead = new ColorCycleLayerDocument(normalized.state).read();
         return {
           ok: true,
           layerId: layer.id,
-          source: 'hydrated-archive-document-state',
-          layer: cloneGobletExportLayer(hydratedLayer),
+          source: 'document',
+          documentRead,
+          // Retain archived speed-source metadata: legacy effective speeds must
+          // not be relabelled as newly authored speeds during normalization.
+          layer: cloneLayerFromDocumentSnapshot(persistedLayer, documentRead.snapshot, documentRead.version, true),
           diagnostics: [{
-            code: 'hydrated-archive-document-state-selected',
+            code: 'archive-document-hydrated',
             severity: 'info',
-            message: 'Selected hydrated color-cycle archive state for Goblet export.',
+            message: 'Normalized persisted color-cycle data into an export-local document.',
+            documentVersion: documentRead.version,
           }],
         };
       }
-    } catch (error) {
-      diagnostics.push({
-        code: 'hydrated-archive-document-state-rejected',
-        severity: 'warning',
-        message: error instanceof Error
-          ? error.message
-          : 'Color-cycle archive hydration failed during Goblet export.',
-      });
+      diagnostics.push({ code: 'archive-document-rejected', severity: 'error', message: normalized.reason });
     }
-  }
-
-  if (resolvePersistedColorCycleExportEligibility(layer).ok) {
-    return {
-      ok: true,
-      layerId: layer.id,
-      source: 'persisted-brush-state',
-      layer: cloneGobletExportLayer(layer),
-      diagnostics: [{
-        code: 'persisted-brush-state-selected',
-        severity: 'info',
-        message: 'Selected persisted color-cycle brush state for Goblet export.',
-      }],
-    };
-  }
-
-  if (resolveGobletColorCycleLiveBrush(layer)) {
-    return {
-      ok: true,
-      layerId: layer.id,
-      source: 'live-runtime',
-      layer: cloneGobletExportLayer(layer),
-      diagnostics: [{
-        code: 'live-runtime-source-selected',
-        severity: 'info',
-        message: 'Selected live color-cycle runtime for Goblet export.',
-      }],
-    };
+  } catch (error) {
+    diagnostics.push({
+      code: 'archive-document-rejected',
+      severity: 'error',
+      message: error instanceof Error ? error.message : 'Color-cycle document hydration failed.',
+    });
   }
 
   return {

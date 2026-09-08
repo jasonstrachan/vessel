@@ -1,5 +1,6 @@
 import { restoreColorCycleBrushesWithDocumentHydration } from '@/lib/colorCycle/document/hydration';
-import type { PersistedColorCycleBrushState } from '@/lib/colorCycle/persistence';
+import { captureColorCyclePersistenceSnapshot, type PersistedColorCycleBrushState } from '@/lib/colorCycle/persistence';
+import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import {
   createColorCycleBrushManager,
   disposeColorCycleBrushManager,
@@ -63,6 +64,57 @@ const createColorCycleLayer = (): Layer => {
 describe('restoreColorCycleBrushesWithDocumentHydration', () => {
   afterEach(() => {
     disposeColorCycleBrushManager();
+  });
+
+  it.each([undefined, 2] as const)('retains embedded paint and speed source %s while deferring the renderer', async (speedSourceVersion) => {
+    const manager = createColorCycleBrushManager();
+    const layer = createColorCycleLayer();
+    layer.colorCycleData!.layerBaseSpeedCps = 2;
+    const source = layer.colorCycleData!.brushState as PersistedColorCycleBrushState;
+    const stroke = source.layers![0].strokeData!;
+    const speedByte = encodeColorCycleSpeedByte(0.4);
+    stroke.speedBuffer = new Uint8Array(4).fill(speedByte).buffer;
+    stroke.speedSourceVersion = speedSourceVersion;
+    if (speedSourceVersion === undefined) {
+      for (const key of ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const) {
+        stroke[key] = btoa(String.fromCharCode(...new Uint8Array(stroke[key] as ArrayBuffer)));
+      }
+    }
+    const restoreLayerRuntimeForMaterialization = jest.fn();
+
+    await restoreColorCycleBrushesWithDocumentHydration([layer], {
+      lazy: true,
+      activeLayerId: 'another-layer',
+      colorCycleBrushManager: manager,
+    }, {
+      shouldDeferColorCycleRuntimeRestore: () => true,
+      getLazyColorCycleArchiveRuntime: () => undefined,
+      hydrateLazyColorCycleArchiveRuntime: jest.fn(),
+      commitLazyColorCycleArchiveRuntimeHydration: jest.fn(),
+      getSavedColorCycleBrushState: (candidate) => candidate.colorCycleData?.brushState as PersistedColorCycleBrushState,
+      serializeRuntimeBrushState: () => undefined,
+      restoreLayerRuntimeForMaterialization,
+      describeBufferForDebug: () => null,
+      isPrimaryColorCyclePayloadFailure: () => false,
+      withColorCycleDiagnosticNotes: (notes, extra = []) => [...notes, ...extra],
+      debug: { log: jest.fn(), warn: jest.fn() },
+    });
+
+    const document = manager.getDocument(layer.id);
+    expect(Array.from(new Uint8Array(document!.read().snapshot.paintBuffer!))).toEqual([1, 0, 0, 0]);
+    const expectedSpeed = speedSourceVersion === 2 ? speedByte : encodeColorCycleSpeedByte(decodeColorCycleSpeedByte(speedByte) / 2);
+    expect(Array.from(new Uint8Array(document!.read().snapshot.speedBuffer!))).toEqual(new Array(4).fill(expectedSpeed));
+    const saved = captureColorCyclePersistenceSnapshot(layer, {
+      mode: 'canonical-save', projectWidth: 2, projectHeight: 2, requirePaint: true, document,
+    });
+    expect(saved.ok).toBe(true);
+    if (saved.ok) {
+      expect(Array.from(new Uint8Array(saved.documentState.paintBuffer as ArrayBuffer))).toEqual([1, 0, 0, 0]);
+    }
+    expect(document?.residency).toBe('resident');
+    expect(layer.colorCycleData?.runtimeHydrationState).toBe('cold');
+    expect(manager.getBrush(layer.id)).toBeUndefined();
+    expect(restoreLayerRuntimeForMaterialization).not.toHaveBeenCalled();
   });
 
   it('logs document versions for hydration diagnostics and runtime restore completion', async () => {

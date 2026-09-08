@@ -127,7 +127,96 @@ describe('resolveGobletColorCycleExportSource', () => {
     jest.restoreAllMocks();
   });
 
-  it('exports persisted brush state when no document has been warmed and does not mutate the source layer', async () => {
+  it('does not let stale legacy buffers override the pinned document during payload serialization', async () => {
+    const layer = createLayer({
+      colorCycleBrush: {
+        getColorCycleLayerDocument: () => ({
+          read: () => ({ snapshot: createDocumentSnapshot(), version: 12 }),
+        }),
+      } as never,
+    });
+    layer.colorCycleData = attachLegacyColorCycleTopLevelBuffers(layer.colorCycleData!, {
+      gradientIdBuffer: new Uint8Array([99]).buffer,
+      gradientDefIdBuffer: new Uint16Array([99]).buffer,
+    });
+
+    const payload = await buildGobletColorCyclePayload(layer, project, {
+      serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
+    });
+
+    expect(payload.ok).toBe(true);
+    if (payload.ok) {
+      expect(payload.payload.colorCycle?.brushState?.indexBuffer).toEqual([5, 6, 7, 8]);
+      expect(payload.payload.colorCycle?.brushState?.gradientDefIdBuffer).toEqual([1, 1, 1, 1]);
+    }
+  });
+
+  it('reads the document once even when the runtime changes before serialization', async () => {
+    const read = jest.fn(() => ({ snapshot: createDocumentSnapshot(), version: 12 }));
+    const serialize = jest.fn(() => { throw new Error('Unexpected runtime recapture'); });
+    const layer = createLayer({
+      colorCycleBrush: { getColorCycleLayerDocument: () => ({ read }), serialize } as never,
+    });
+    const payload = await buildGobletColorCyclePayload(layer, project, {
+      serializeResolvedLayer: (resolvedLayer, resolvedProject, warning, options) => {
+        read.mockImplementation(() => { throw new Error('Document was read twice'); });
+        return serializeColorCycleDataFromResolvedLayer(resolvedLayer, resolvedProject, warning, options);
+      },
+    });
+
+    expect(payload.ok).toBe(true);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(serialize).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to persisted mirrors after cold archive hydration fails', async () => {
+    const layer = createLayer({
+      runtimeHydrationState: 'cold',
+      deferredRuntimeRestore: true,
+      brushState: {
+        canonicalPaint: true,
+        schemaVersion: 1,
+        layers: [{ layerId: 'cc-layer', strokeData: createCompleteStrokeData() }],
+      },
+    });
+    jest.spyOn(projectIO, 'hydrateColorCycleArchiveRuntimeSnapshotForExport')
+      .mockRejectedValue(new Error('Archive checksum mismatch'));
+
+    const result = await resolveGobletColorCycleExportSource(layer, project);
+
+    expectMissingDocument(result);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: 'archive-document-rejected',
+      message: 'Archive checksum mismatch',
+    }));
+  });
+
+  it('requires the pinned read when the serializer is called with an explicit document source', async () => {
+    await expect(serializeColorCycleDataFromResolvedLayer(createLayer(), project, undefined, {
+      resolvedSource: 'document',
+    })).rejects.toThrow('missing pinned color-cycle document');
+  });
+
+  it('uses the pinned content marker rather than a stale layer marker during validation', async () => {
+    const snapshot = {
+      ...createDocumentSnapshot(),
+      paintBuffer: new Uint8Array(4).buffer,
+      hasContent: false,
+    };
+    const payload = await buildGobletColorCyclePayload(createLayer({
+      hasContent: true,
+      colorCycleBrush: {
+        getColorCycleLayerDocument: () => ({ read: () => ({ snapshot, version: 13 }) }),
+      } as never,
+    }), project, { serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer });
+
+    expect(payload.ok).toBe(true);
+    if (payload.ok) {
+      expect(payload.payload.colorCycle?.isAnimating).toBe(false);
+    }
+  });
+
+  it('hydrates persisted brush state into a document when no runtime has been warmed and does not mutate the source layer', async () => {
     const strokeData = createCompleteStrokeData();
     const layer = createLayer({
       colorCycleBrush: { serialize: jest.fn() } as never,
@@ -147,7 +236,7 @@ describe('resolveGobletColorCycleExportSource', () => {
     const result = await resolveGobletColorCycleExportSource(layer, project);
 
     expect(result.ok).toBe(true);
-    expect(result.ok ? result.source : undefined).toBe('persisted-brush-state');
+    expect(result.ok ? result.source : undefined).toBe('document');
     expect(JSON.stringify(layer, (_key, value) => (
       value instanceof ArrayBuffer ? Array.from(new Uint8Array(value)) : value
     ))).toBe(before);
@@ -158,7 +247,7 @@ describe('resolveGobletColorCycleExportSource', () => {
 
     expect(payload.ok).toBe(true);
     if (payload.ok) {
-      expect(payload.source).toBe('persisted-brush-state');
+      expect(payload.source).toBe('document');
       expect(payload.payload.colorCycle?.brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
     }
   });
@@ -303,7 +392,7 @@ describe('resolveGobletColorCycleExportSource', () => {
     expect(payload.ok ? undefined : payload.reason).toBe('missing-color-cycle-document');
   });
 
-  it('exports warm persisted archive state without requiring a document', async () => {
+  it('normalizes warm persisted archive state into a document', async () => {
     const layer = createLayer({
       runtimeHydrationState: 'warm',
       brushState: {
@@ -319,7 +408,7 @@ describe('resolveGobletColorCycleExportSource', () => {
     const result = await resolveGobletColorCycleExportSource(layer, project);
 
     expect(result.ok).toBe(true);
-    expect(result.ok ? result.source : undefined).toBe('persisted-brush-state');
+    expect(result.ok ? result.source : undefined).toBe('document');
 
     const payload = await buildGobletColorCyclePayload(layer, project, {
       serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
@@ -327,12 +416,12 @@ describe('resolveGobletColorCycleExportSource', () => {
 
     expect(payload.ok).toBe(true);
     if (payload.ok) {
-      expect(payload.source).toBe('persisted-brush-state');
+      expect(payload.source).toBe('document');
       expect(payload.payload.colorCycle?.brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
     }
   });
 
-  it('exports defaultable persisted brush state without a document', async () => {
+  it('completes defaultable motion buffers during document hydration', async () => {
     const layer = createLayer({
       brushSpeed: 0.5,
       brushState: {
@@ -348,7 +437,7 @@ describe('resolveGobletColorCycleExportSource', () => {
     const source = await resolveGobletColorCycleExportSource(layer, project);
 
     expect(source.ok).toBe(true);
-    expect(source.ok ? source.source : undefined).toBe('persisted-brush-state');
+    expect(source.ok ? source.source : undefined).toBe('document');
 
     const payload = await buildGobletColorCyclePayload(layer, project, {
       serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
@@ -356,14 +445,14 @@ describe('resolveGobletColorCycleExportSource', () => {
 
     expect(payload.ok).toBe(true);
     if (payload.ok) {
-      expect(payload.source).toBe('persisted-brush-state');
+      expect(payload.source).toBe('document');
       expect(payload.payload.colorCycle?.brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
       expect(payload.payload.colorCycle?.brushState?.flowBuffer).toBeDefined();
       expect(payload.payload.colorCycle?.brushState?.phaseBuffer).toBeDefined();
     }
   });
 
-  it('exports cold archive state through export-local hydration before live runtime fallback', async () => {
+  it('exports cold archive state through export-local document hydration', async () => {
     const liveRuntime = { serialize: jest.fn() };
     const layer = createLayer({
       runtimeHydrationState: 'cold',
@@ -387,7 +476,7 @@ describe('resolveGobletColorCycleExportSource', () => {
     const result = await resolveGobletColorCycleExportSource(layer, project);
 
     expect(result.ok).toBe(true);
-    expect(result.ok ? result.source : undefined).toBe('hydrated-archive-document-state');
+    expect(result.ok ? result.source : undefined).toBe('document');
     expect(projectIO.hydrateColorCycleArchiveRuntimeSnapshotForExport).toHaveBeenCalledWith(layer);
     expect(liveRuntime.serialize).not.toHaveBeenCalled();
 
@@ -397,7 +486,7 @@ describe('resolveGobletColorCycleExportSource', () => {
 
     expect(payload.ok).toBe(true);
     if (payload.ok) {
-      expect(payload.source).toBe('hydrated-archive-document-state');
+      expect(payload.source).toBe('document');
       expect(payload.payload.colorCycle?.brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
     }
   });

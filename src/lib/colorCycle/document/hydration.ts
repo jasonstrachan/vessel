@@ -25,6 +25,7 @@ import { hasRecoverableColorCycleRuntimeSource } from './resolveColorCycleRuntim
 import { readLegacyColorCycleTopLevelBuffers } from './legacyTopLevelBuffers';
 import {
   canApplyColorCycleBrushLayerSnapshotToRuntime,
+  normalizeColorCycleSpeedSource,
   type ColorCycleBrushLayerSnapshotRuntimeWriter,
   type ColorCycleBrushSerializedStateRuntimeWriter,
 } from './brushPersistenceAdapter';
@@ -223,13 +224,50 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
     });
 
     if (shouldDefer) {
-      layer.colorCycleData = setColorCycleHydrationState(layer.colorCycleData, 'cold');
-      ensureLayerDocumentResidency(layer, 'cold-archive-ref');
-      dependencies.debug.log('deferred-cold', {
-        layerId: layer.id,
-        reason: 'shouldDeferColorCycleRuntimeRestore',
-      });
-      continue;
+      let canDefer = true;
+      if (dependencies.getLazyColorCycleArchiveRuntime(layer)) {
+        ensureLayerDocumentResidency(layer, 'cold-archive-ref');
+      } else {
+        // Renderer residency is separate from document residency. Legacy files
+        // already hold their paint in memory; an empty archive placeholder would
+        // replace that paint at the next canonical save or export.
+        const savedState = dependencies.getSavedColorCycleBrushState(layer)
+          ?? layer.colorCycleData.brushState as PersistenceBrushState | undefined;
+        const normalized = normalizeColorCycleLayerDocumentState({
+          ...layer,
+          colorCycleData: { ...layer.colorCycleData, brushState: savedState ?? layer.colorCycleData.brushState },
+        }, {
+          fallbackWidth: layer.framebuffer.width,
+          fallbackHeight: layer.framebuffer.height,
+          decodeSerializedBrushStateBuffers: true,
+        });
+        if (!normalized.ok || classifyColorCycleCanonicalContent(normalized.state).kind === 'invalid') {
+          // Let the existing import repair path diagnose missing/invalid paint.
+          canDefer = false;
+        } else {
+          const state = normalized.state;
+          const stroke = savedState?.layers?.find((entry) => entry.layerId === layer.id)?.strokeData;
+          const speed = normalizeColorCycleSpeedSource({
+            speedBuffer: state.speedBuffer,
+            speedSourceVersion: stroke?.speedBuffer ? stroke.speedSourceVersion : 2,
+            layerBaseSpeedCps: state.layerBaseSpeedCps ?? 1,
+          });
+          const document = manager.ensureDocument(layer.id, state.width, state.height, { residency: 'resident' });
+          document.replaceBaseline({ ...state, speedBuffer: speed.speedBuffer }, {
+            version: stroke?.strokeCounter ?? 0,
+            residency: 'resident',
+            archiveRefs: null,
+          });
+        }
+      }
+      if (canDefer) {
+        layer.colorCycleData = setColorCycleHydrationState(layer.colorCycleData, 'cold');
+        dependencies.debug.log('deferred-cold', {
+          layerId: layer.id,
+          reason: 'shouldDeferColorCycleRuntimeRestore',
+        });
+        continue;
+      }
     }
 
     const targetRuntimeState = options?.activeLayerId === layer.id ? 'active' : 'warm';

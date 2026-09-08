@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document';
 import { __TESTING__ } from '../webglExporter';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
@@ -19,6 +20,20 @@ const {
 } = __TESTING__;
 
 const encodeBytes = (values: number[]): string => Buffer.from(Uint8Array.from(values)).toString('base64');
+
+const createExportDocument = (layerId: string, paint = [1, 2, 3, 4], hasContent = paint.some(Boolean)) => new ColorCycleLayerDocument({
+  layerId,
+  width: 2,
+  height: 2,
+  paintBuffer: Uint8Array.from(paint).buffer,
+  gradientIdBuffer: new Uint8Array(4).buffer,
+  gradientDefIdBuffer: new Uint16Array(4).buffer,
+  speedBuffer: new Uint8Array(4).fill(128).buffer,
+  flowBuffer: new Uint8Array(4).fill(1).buffer,
+  phaseBuffer: new Uint8Array(4).buffer,
+  hasContent,
+  sources: { brushStateSnapshot: false, topLevelBuffers: false, legacyStateRefs: false },
+});
 
 describe('webglExporter helpers', () => {
   it('resolves first positive numeric candidate and clamps to >=1', () => {
@@ -411,6 +426,7 @@ describe('webglExporter helpers', () => {
           { position: 1, color: '#ffffff' },
         ],
         colorCycleBrush: {
+          getColorCycleLayerDocument: () => createExportDocument('layer-cc-readonly-export'),
           commitCurrentStroke,
           serialize: () => ({
             layers: [{
@@ -500,8 +516,8 @@ describe('webglExporter helpers', () => {
       ],
       expected: [9, 8, 7, 6],
     },
-  ])('exports Goblet brush data from runtime fallback payloads: $name', async ({ runtimeLayers, expected }) => {
-    const result = await serializeColorCycleData({
+  ])('rejects Goblet export from runtime fallback payloads: $name', async ({ runtimeLayers }) => {
+    await expect(serializeColorCycleData({
       id: 'layer-cc-fallback-export',
       name: 'Fallback Export',
       layerType: 'color-cycle',
@@ -531,9 +547,8 @@ describe('webglExporter helpers', () => {
     } as any, {
       width: 2,
       height: 2,
-    } as any);
+    } as any)).rejects.toThrow('missing-color-cycle-document');
 
-    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual(expected);
   });
 
   it('ignores stale all-erasing CC alpha masks during Goblet brush export', async () => {
@@ -564,6 +579,7 @@ describe('webglExporter helpers', () => {
           { position: 1, color: '#ffffff' },
         ],
         colorCycleBrush: {
+          getColorCycleLayerDocument: () => createExportDocument('layer-cc-stale-mask-export'),
           commitCurrentStroke: jest.fn(),
           serialize: () => ({
             layers: [{
@@ -594,70 +610,26 @@ describe('webglExporter helpers', () => {
     expect(result?.colorCycle?.alphaMask).toBeUndefined();
   });
 
-  it('preserves live brush animation and gradient metadata during canonical Goblet export', async () => {
-    const runtimeStops = [
-      { position: 0, color: '#112233' },
-      { position: 1, color: '#445566' },
-    ];
+  it('uses document gradient and motion data instead of stale animator metadata', async () => {
+    const stops = [{ position: 0, color: '#112233' }, { position: 1, color: '#445566' }];
+    const document = createExportDocument('metadata');
+    document.replaceBaseline({
+      ...document.read().snapshot,
+      slotPalettes: [{ slot: 0, stops }],
+      flowMode: 'reverse',
+      flowBuffer: new Uint8Array(4).fill(2).buffer,
+    });
+    const serialize = jest.fn(() => { throw new Error('Runtime paint must not be read'); });
     const result = await serializeColorCycleData({
-      id: 'layer-cc-live-metadata',
-      name: 'Live Metadata',
-      layerType: 'color-cycle',
-      visible: true,
-      opacity: 1,
-      blendMode: 'source-over',
-      imageData: null,
-      framebuffer: { width: 2, height: 2 },
+      id: 'metadata', layerType: 'color-cycle', framebuffer: { width: 2, height: 2 },
       colorCycleData: {
-        mode: 'brush',
-        hasContent: true,
-        canvasWidth: 2,
-        canvasHeight: 2,
-        brushSpeed: 0.15,
-        gradient: [
-          { position: 0, color: '#000000' },
-          { position: 1, color: '#ffffff' },
-        ],
-        colorCycleBrush: {
-          commitCurrentStroke: jest.fn(),
-          serialize: () => ({
-            layers: [{
-              layerId: 'layer-cc-live-metadata',
-              data: {
-                indexBuffer: {
-                  width: 2,
-                  height: 2,
-                  data: Uint8Array.from([1, 2, 3, 4]),
-                  gradientId: Uint8Array.from([0, 1, 1, 0]),
-                  palette: ['#112233', '#445566'],
-                },
-                gradient: {
-                  gradientStops: runtimeStops,
-                },
-                animation: {
-                  offset: 13,
-                  stats: {
-                    targetFPS: 17,
-                  },
-                },
-              },
-            }],
-            cycleSpeed: 0.75,
-            fps: 23,
-          }),
-        },
+        mode: 'brush', hasContent: true, gradient: stops,
+        colorCycleBrush: { getColorCycleLayerDocument: () => document, serialize },
       },
-    } as any, {
-      width: 2,
-      height: 2,
-    } as any);
-
-    expect(result?.colorCycle?.gradient).toEqual(runtimeStops);
-    expect(result?.colorCycle?.brushState?.gradientStops).toEqual(runtimeStops);
-    expect(result?.colorCycle?.brushState?.animationSpeed).toBe(0.75);
-    expect(result?.colorCycle?.brushState?.animationOffset).toBe(13);
-    expect(result?.colorCycle?.brushState?.targetFPS).toBe(17);
-    expect(result?.colorCycle?.brushState?.palette).toEqual(['#112233', '#445566']);
+    } as any, { width: 2, height: 2 } as any);
+    expect(result?.colorCycle?.brushState?.gradientStops).toEqual(stops);
+    expect(result?.colorCycle?.brushState?.flowBuffer).toEqual([2, 2, 2, 2]);
+    expect(serialize).not.toHaveBeenCalled();
   });
 
   it('falls back to saved canonical brush state when live Goblet runtime has no usable buffers', async () => {
@@ -748,8 +720,8 @@ describe('webglExporter helpers', () => {
     expect(result?.colorCycle?.brushState?.palette).toEqual(['#aa0000', '#00aa00']);
   });
 
-  it('exports Goblet brush data from direct runtime brush properties when canonical runtime capture has no buffers', async () => {
-    const result = await serializeColorCycleData({
+  it('rejects Goblet export from direct runtime brush properties when canonical runtime capture has no buffers', async () => {
+    await expect(serializeColorCycleData({
       id: 'layer-cc-runtime-direct',
       name: 'Runtime Direct',
       layerType: 'color-cycle',
@@ -790,15 +762,12 @@ describe('webglExporter helpers', () => {
     } as any, {
       width: 2,
       height: 2,
-    } as any);
+    } as any)).rejects.toThrow('missing-color-cycle-document');
 
-    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual([3, 4, 5, 6]);
-    expect(result?.colorCycle?.brushState?.gradientIdBuffer).toEqual([0, 1, 1, 0]);
-    expect(result?.colorCycle?.brushState?.speedBuffer).toEqual([7, 8, 9, 10]);
   });
 
-  it('exports Goblet brush data from runtime animator maps when canonical runtime capture has no buffers', async () => {
-    const result = await serializeColorCycleData({
+  it('rejects Goblet export from runtime animator maps when canonical runtime capture has no buffers', async () => {
+    await expect(serializeColorCycleData({
       id: 'layer-cc-runtime-animator',
       name: 'Runtime Animator',
       layerType: 'color-cycle',
@@ -854,13 +823,8 @@ describe('webglExporter helpers', () => {
     } as any, {
       width: 2,
       height: 2,
-    } as any);
+    } as any)).rejects.toThrow('missing-color-cycle-document');
 
-    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual([8, 7, 6, 5]);
-    expect(result?.colorCycle?.brushState?.gradientIdBuffer).toEqual([1, 1, 0, 0]);
-    expect(result?.colorCycle?.brushState?.speedBuffer).toEqual([11, 12, 13, 14]);
-    expect(result?.colorCycle?.brushState?.animationOffset).toBe(9);
-    expect(result?.colorCycle?.brushState?.targetFPS).toBe(15);
   });
 
   it.each([
@@ -882,7 +846,7 @@ describe('webglExporter helpers', () => {
           },
         }],
       },
-      reason: 'metadata-only-state',
+      reason: 'missing-color-cycle-document',
     },
     {
       name: 'unsupported top-level schema',
@@ -904,7 +868,7 @@ describe('webglExporter helpers', () => {
           },
         }],
       },
-      reason: 'invalid-schema-version',
+      reason: 'missing-color-cycle-document',
     },
     {
       name: 'unsupported per-layer schema',
@@ -927,7 +891,7 @@ describe('webglExporter helpers', () => {
           },
         }],
       },
-      reason: 'invalid-schema-version',
+      reason: 'missing-color-cycle-document',
     },
   ])('does not export unsafe saved canonical fallback when persisted brushState has $name', async ({ brushState, reason }) => {
     await expect(serializeColorCycleData({
@@ -1101,7 +1065,7 @@ describe('webglExporter helpers', () => {
       width: 2,
       height: 2,
     } as any)).rejects.toThrow(
-      'Goblet export blocked: color-cycle layer "Static Preview Only" is missing animated brush data (missing-paint-buffer).'
+      'Goblet export blocked: color-cycle layer "Static Preview Only" is missing animated brush data (missing-color-cycle-document).'
     );
   });
 
@@ -1128,6 +1092,7 @@ describe('webglExporter helpers', () => {
         gradient: gradientStops,
         canvas,
         colorCycleBrush: {
+          getColorCycleLayerDocument: () => createExportDocument('layer-cc-empty-brush', [0, 0, 0, 0]),
           serialize: () => ({
             layers: [{
               layerId: 'layer-cc-empty-brush',
@@ -1194,6 +1159,7 @@ describe('webglExporter helpers', () => {
           ]),
         },
         colorCycleBrush: {
+          getColorCycleLayerDocument: () => createExportDocument('layer-cc-erased-brush', [1, 2, 3, 4], false),
           serialize: () => ({
             layers: [{
               layerId: 'layer-cc-erased-brush',

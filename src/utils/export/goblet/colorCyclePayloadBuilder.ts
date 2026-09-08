@@ -1,6 +1,6 @@
 import type { Layer, Project } from '@/types';
 import type { ColorCycleSerializationResult } from '@/utils/export/goblet/gobletTypes';
-import type { GobletColorCyclePayloadBuildSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
+import type { GobletColorCycleDocumentRead, GobletColorCyclePayloadBuildSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import {
   resolveGobletColorCycleExportSource,
 } from '@/utils/export/goblet/colorCycleExportSourceResolver';
@@ -45,6 +45,7 @@ export type GobletColorCyclePayloadBuildOptions = {
       layerSpeedScale?: number;
       toolSpeed?: number | null;
       resolvedSource?: GobletColorCyclePayloadBuildSource;
+      documentRead?: GobletColorCycleDocumentRead;
     }
   ) => Promise<ColorCycleSerializationResult | undefined>;
 };
@@ -68,12 +69,13 @@ export const buildGobletColorCyclePayload = async (
       layerSpeedScale: options.layerSpeedScale,
       toolSpeed: options.toolSpeed,
       resolvedSource: source.source,
+      documentRead: source.documentRead,
     },
   );
 
   const validation = validateGobletColorCyclePayload(payload?.colorCycle, {
     layerId: layer.id,
-    hasContent: layer.colorCycleData?.hasContent,
+    hasContent: source.layer.colorCycleData?.hasContent,
   });
   const diagnostics = [
     ...source.diagnostics,

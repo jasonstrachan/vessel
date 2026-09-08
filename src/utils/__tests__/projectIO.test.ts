@@ -5462,6 +5462,8 @@ describe('projectIO serialize/deserialize layering', () => {
             strokeData: {
               hasContent: true,
               strokeCounter: 1,
+              paintBuffer: new Uint8Array(payloadSize).fill(1).buffer,
+              gradientDefIdBuffer: new Uint16Array(payloadSize).buffer,
               flowBuffer: Buffer.alloc(payloadSize).toString('base64'),
             },
           }],
@@ -5511,6 +5513,8 @@ describe('projectIO serialize/deserialize layering', () => {
             strokeData: {
               hasContent: true,
               strokeCounter: 1,
+              paintBuffer: new Uint8Array(payloadSize).fill(1).buffer,
+              gradientDefIdBuffer: new Uint16Array(payloadSize).buffer,
               flowBuffer: Buffer.alloc(payloadSize).toString('base64'),
             },
           }],
@@ -6625,6 +6629,8 @@ describe('projectIO serialize/deserialize layering', () => {
               strokeData: {
                 hasContent: true,
                 strokeCounter: 1,
+                paintBuffer: new Uint8Array(payloadSize).fill(1).buffer,
+                gradientDefIdBuffer: new Uint16Array(payloadSize).buffer,
                 flowBuffer: Buffer.alloc(payloadSize).toString('base64'),
               },
             }],

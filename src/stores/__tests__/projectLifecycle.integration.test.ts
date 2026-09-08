@@ -1130,7 +1130,7 @@ describe('project slice lifecycle flows', () => {
     expect(nextState.colorCyclePlayback.desiredPlaying).toBe(false);
   });
 
-  it('keeps heavy CC layers cold when import lacks canonical paint', async () => {
+  it('reports missing canonical paint for active and deferred heavy CC layers', async () => {
     const actualProjectIO = jest.requireActual('@/utils/projectIO') as typeof import('@/utils/projectIO');
     const restoreColorCycleBrushesMock = jest.requireMock('@/utils/projectIO').restoreColorCycleBrushes as jest.Mock;
     restoreColorCycleBrushesMock.mockImplementation(actualProjectIO.restoreColorCycleBrushes);
@@ -1207,11 +1207,19 @@ describe('project slice lifecycle flows', () => {
       }));
 
       expect(visibleColdLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
-      expect(visibleColdLayer?.colorCycleData?.deferredRuntimeRestore).toBe(true);
+      expect(visibleColdLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
+      expect(visibleColdLayer?.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+        ok: false,
+        reason: 'missing-paint-buffer',
+      }));
       expect(visibleColdLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
 
       expect(hiddenColdLayer?.colorCycleData?.runtimeHydrationState).toBe('cold');
-      expect(hiddenColdLayer?.colorCycleData?.deferredRuntimeRestore).toBe(true);
+      expect(hiddenColdLayer?.colorCycleData?.deferredRuntimeRestore).toBe(false);
+      expect(hiddenColdLayer?.colorCycleData?.repairStatus).toEqual(expect.objectContaining({
+        ok: false,
+        reason: 'missing-paint-buffer',
+      }));
       expect(hiddenColdLayer?.colorCycleData?.colorCycleBrush).toBeUndefined();
     } finally {
       restoreColorCycleBrushesMock.mockImplementation(async (layers: Layer[]) => layers);

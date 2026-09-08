@@ -1791,7 +1791,14 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       layer,
       createProject(layer),
       undefined,
-      { resolvedSource: 'live-runtime' }
+      {
+        resolvedSource: 'document',
+        documentRead: createDocumentReaderFromBrushState(
+          layer.id,
+          () => (layer.colorCycleData!.colorCycleBrush as unknown as { serialize: () => MockSerializedBrushState }).serialize(),
+          () => layer.colorCycleData!,
+        ).read(),
+      }
     );
 
     expect(result?.colorCycle?.brushState).toBeDefined();

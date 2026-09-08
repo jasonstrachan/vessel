@@ -134,7 +134,7 @@ describe('Goblet color-cycle export contract boundaries', () => {
     localDitherPatternRegistry.clear();
   });
 
-  it('selects canonical persisted source before direct live runtime when no document exists', async () => {
+  it('hydrates canonical persisted data into a document without reading runtime projections', async () => {
     const liveRuntime = createLiveRuntime();
     const result = await resolveGobletColorCycleExportSource(createLayer({
       colorCycleBrush: liveRuntime as never,
@@ -148,11 +148,11 @@ describe('Goblet color-cycle export contract boundaries', () => {
       },
     }), project);
 
-    expect(result.ok ? result.source : undefined).toBe('persisted-brush-state');
+    expect(result.ok ? result.source : undefined).toBe('document');
     expect(liveRuntime.serialize).not.toHaveBeenCalled();
   });
 
-  it('falls back to direct live runtime when persisted buffers are not canonical', async () => {
+  it('rejects direct live runtime when persisted buffers are not canonical', async () => {
     const liveRuntime = createLiveRuntime();
     const result = await resolveGobletColorCycleExportSource(createLayer({
       colorCycleBrush: liveRuntime as never,
@@ -164,19 +164,19 @@ describe('Goblet color-cycle export contract boundaries', () => {
       },
     }), project);
 
-    expect(result.ok ? result.source : undefined).toBe('live-runtime');
-    expect(liveRuntime.serialize).toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(liveRuntime.serialize).not.toHaveBeenCalled();
   });
 
-  it('falls back to direct live runtime for warm archive state without exportable persisted data', async () => {
+  it('rejects direct live runtime for warm archive state without exportable persisted data', async () => {
     const liveRuntime = createLiveRuntime();
     const result = await resolveGobletColorCycleExportSource(createLayer({
       runtimeHydrationState: 'warm',
       colorCycleBrush: liveRuntime as never,
     }), project);
 
-    expect(result.ok ? result.source : undefined).toBe('live-runtime');
-    expect(liveRuntime.serialize).toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(liveRuntime.serialize).not.toHaveBeenCalled();
   });
 
   it('rejects manager-backed live runtime through payload construction when no document exists', async () => {
@@ -288,8 +288,6 @@ describe('Goblet color-cycle export contract boundaries', () => {
     const payload = await serializeColorCycleDataFromResolvedLayer(
       layer,
       project,
-      undefined,
-      { resolvedSource: 'hydrated-archive-document-state' },
     );
 
     expect(payload).toBeDefined();
@@ -372,8 +370,6 @@ describe('Goblet color-cycle export contract boundaries', () => {
     const payload = await serializeColorCycleDataFromResolvedLayer(
       layer,
       project,
-      undefined,
-      { resolvedSource: 'hydrated-archive-document-state' },
     );
 
     expect(payload?.colorCycle?.speedMode).toBe('slot');
@@ -433,7 +429,7 @@ describe('Goblet color-cycle export contract boundaries', () => {
     });
     const payload = await serializeColorCycleDataFromResolvedLayer(
       createLayer({
-        colorCycleBrush: createLiveRuntime([1, 2, 3, 4], {
+        colorCycleBrush: createDocumentBackedLiveRuntime({
           stampDitherEnabled: true,
           stampDitherPatternStyle: 'image-tile',
           stampDitherPatternTileId: 'local-threshold',
@@ -513,7 +509,7 @@ describe('Goblet color-cycle export contract boundaries', () => {
   it('omits missing local-library pattern references from portable Goblet brush metadata', async () => {
     const payload = await serializeColorCycleDataFromResolvedLayer(
       createLayer({
-        colorCycleBrush: createLiveRuntime([1, 2, 3, 4], {
+        colorCycleBrush: createDocumentBackedLiveRuntime({
           stampDitherEnabled: true,
           stampDitherPatternStyle: 'image-tile',
           stampDitherPatternTileId: 'missing-local-threshold',
@@ -543,7 +539,7 @@ describe('Goblet color-cycle export contract boundaries', () => {
     } as Project;
     const payload = await serializeColorCycleDataFromResolvedLayer(
       createLayer({
-        colorCycleBrush: createLiveRuntime([1, 2, 3, 4], {
+        colorCycleBrush: createDocumentBackedLiveRuntime({
           stampDitherEnabled: true,
           stampDitherPatternStyle: 'image-tile',
           stampDitherPatternTileId: 'project-tile',

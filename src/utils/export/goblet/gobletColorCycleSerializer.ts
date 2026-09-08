@@ -1,3 +1,4 @@
+import { resolveGobletColorCycleExportSource, type GobletColorCycleDocumentRead, type GobletColorCyclePayloadBuildSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import { debugLog, debugWarn } from '@/utils/debug';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { normalizeGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
@@ -19,13 +20,10 @@ import {
   mapDocumentSnapshotToGobletBrushState,
   readColorCycleBrushSerializedStateFromRuntime,
   type ColorCycleBrushSerializedStateRuntimeReader,
+  type ColorCycleLayerDocumentSnapshot,
 } from '@/lib/colorCycle/document';
 import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
-import {
-  validatePersistenceDocumentState,
-} from '@/lib/colorCycle/persistence/colorCyclePersistenceValidation';
 import type {
-  ColorCycleBufferRef,
   ColorCycleLayerDocumentReader,
   ColorCyclePersistenceDocumentState,
   ColorCyclePersistenceSnapshot,
@@ -37,8 +35,6 @@ import {
   type ColorCycleSpeedSourceVersion,
 } from '@/lib/colorCycle/persistence/colorCyclePersistenceTypes';
 import {
-  hasPersistedColorCycleCanonicalMarkers,
-  hasSupportedPersistedColorCycleSchema,
   resolvePersistedColorCycleExportEligibility,
 } from '@/utils/export/goblet/colorCycleExportSourceEligibility';
 import {
@@ -1019,49 +1015,17 @@ const serializeRuntimeBrushStateForExport = (
   };
 };
 
-const canExportBufferRef = (value: ColorCycleBufferRef | undefined): boolean => (
-  value instanceof ArrayBuffer || (typeof value === 'string' && value.length > 0 && !value.startsWith('zip:'))
-);
-
-const persistenceDocumentStateToBrushState = (
+const documentSnapshotToBrushState = (
   layer: Layer,
-  state: ColorCyclePersistenceDocumentState,
+  state: ColorCycleLayerDocumentSnapshot,
   brushState?: PersistedColorCycleBrushState,
 ): WebGLSerializedBrushState | undefined => {
-  if (
-    !canExportBufferRef(state[COLOR_CYCLE_STROKE_PAINT_KEY]) ||
-    !canExportBufferRef(state.gradientIdBuffer) ||
-    !canExportBufferRef(state.gradientDefIdBuffer) ||
-    !canExportBufferRef(state.speedBuffer) ||
-    !canExportBufferRef(state.flowBuffer) ||
-    !canExportBufferRef(state.phaseBuffer)
-  ) {
-    return undefined;
-  }
-
-  const indexBuffer = decodePersistedNumericBuffer(state[COLOR_CYCLE_STROKE_PAINT_KEY]);
-  const gradientIdBuffer = decodePersistedNumericBuffer(state.gradientIdBuffer);
-  const gradientDefIdBuffer = decodePersistedDefIdBuffer(state.gradientDefIdBuffer);
-  const speedBuffer = decodePersistedNumericBuffer(state.speedBuffer);
-  const flowBuffer = decodePersistedNumericBuffer(state.flowBuffer);
-  const phaseBuffer = decodePersistedNumericBuffer(state.phaseBuffer);
-  if (
-    indexBuffer.length === 0 ||
-    gradientIdBuffer.length === 0 ||
-    gradientDefIdBuffer.length === 0 ||
-    speedBuffer.length === 0 ||
-    flowBuffer.length === 0 ||
-    phaseBuffer.length === 0
-  ) {
-    return undefined;
-  }
-
   const metadata = brushState as (PersistedColorCycleBrushState & ExportRuntimeBrushMetadata) | undefined;
   const layerMetadata = brushState?.layers?.find((entry) => entry.layerId === layer.id) as
     | (NonNullable<PersistedColorCycleBrushState['layers']>[number] & ExportRuntimeBrushMetadata)
     | undefined;
   const gradientStops = toSerializableGradientStops(
-    layerMetadata?.exportGradientStops ?? layerMetadata?.animator?.gradient?.gradientStops ?? state.slotPalettes?.[0]?.stops,
+    state.slotPalettes?.[0]?.stops ?? layerMetadata?.exportGradientStops ?? layerMetadata?.animator?.gradient?.gradientStops,
     layer.colorCycleData?.gradient ?? [],
   );
   const animationOffsetSource = layerMetadata?.exportAnimationOffset ?? layerMetadata?.animator?.animation?.offset;
@@ -1088,15 +1052,7 @@ const persistenceDocumentStateToBrushState = (
     ? toSerializablePaletteArray(paletteSource)
     : undefined;
 
-  return {
-    width: state.width,
-    height: state.height,
-    indexBuffer,
-    gradientIdBuffer,
-    gradientDefIdBuffer,
-    speedBuffer,
-    flowBuffer,
-    phaseBuffer,
+  return mapDocumentSnapshotToGobletBrushState(state, {
     gradientStops,
     palette: palette && palette.length > 0 ? palette : undefined,
     animationOffset,
@@ -1104,33 +1060,7 @@ const persistenceDocumentStateToBrushState = (
     targetFPS,
     alphaMode: 'opaque-indices',
     stampDitherEnabled,
-  };
-};
-
-const captureSavedGobletColorCycleDocumentState = (
-  layer: Layer,
-): ColorCyclePersistenceDocumentState | undefined => {
-  const brushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
-  const eligibility = resolvePersistedColorCycleExportEligibility(layer);
-  if (!hasPersistedColorCycleCanonicalMarkers(brushState, eligibility.layerSnapshot)) {
-    return undefined;
-  }
-  if (!hasSupportedPersistedColorCycleSchema(brushState, eligibility.layerSnapshot)) {
-    return undefined;
-  }
-
-  const result = normalizeColorCycleLayerDocumentState(layer, {
-    fallbackWidth: layer.colorCycleData?.canvasWidth ?? layer.imageData?.width ?? layer.framebuffer?.width,
-    fallbackHeight: layer.colorCycleData?.canvasHeight ?? layer.imageData?.height ?? layer.framebuffer?.height,
   });
-  if (!result.ok) {
-    return undefined;
-  }
-  const validation = validatePersistenceDocumentState(result.state, {
-    requirePaint: layer.colorCycleData?.mode !== 'recolor',
-    source: 'persisted-brush-state',
-  });
-  return validation.ok ? result.state : undefined;
 };
 
 export const captureGobletColorCyclePersistenceSnapshot = (
@@ -2976,16 +2906,6 @@ export const serializeBrushState = (layer: Layer): WebGLSerializedBrushState | u
   });
 };
 
-const serializeRuntimeBrushFallbackState = (layer: Layer): WebGLSerializedBrushState | undefined => {
-  const brush = resolveGobletColorCycleLiveBrush(layer);
-  return resolveGobletBrushStateFallback({
-    documentState: () => undefined,
-    brushProperties: () => extractBrushStateFromBrushProperties(brush, layer),
-    animator: () => extractBrushStateFromAnimator(brush, layer),
-    savedSnapshot: () => undefined,
-  });
-};
-
 const resolveColorCycleMaskImage = (layer: Layer): ImageData | undefined => {
   const data = layer.colorCycleData;
   if (!data) {
@@ -3456,83 +3376,41 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       forceSpeedBuffer?: boolean;
       layerSpeedScale?: number;
       toolSpeed?: number | null;
-      resolvedSource?: 'document' | 'hydrated-archive-document-state' | 'persisted-brush-state' | 'live-runtime' | 'recolor-runtime';
+      resolvedSource?: GobletColorCyclePayloadBuildSource;
+      documentRead?: GobletColorCycleDocumentRead;
   }
 ): Promise<ColorCycleSerializationResult | undefined> => {
+  // Direct callers use the same resolver as the payload builder. Once pinned,
+  // neither the manager nor legacy layer buffers are consulted again.
+  if (!options?.resolvedSource) {
+    const source = await resolveGobletColorCycleExportSource(layer, project);
+    if (!source.ok) {
+      throw new Error(`Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" is missing animated brush data (${source.reason}).`);
+    }
+    return serializeColorCycleDataFromResolvedLayer(source.layer, project, speedWarning, {
+      ...options,
+      resolvedSource: source.source,
+      documentRead: source.documentRead,
+    });
+  }
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
   }
 
   const layerSpeedScale = clampExportLayerSpeedScale(options?.layerSpeedScale);
-  const resolvedSource = options?.resolvedSource;
   let brushState: WebGLSerializedBrushState | undefined;
-  let exportSnapshot: ColorCyclePersistenceSnapshot | undefined;
   let exportDocumentState: ColorCyclePersistenceDocumentState | undefined;
   if (!data.recolorSettings) {
-    const canUseDocumentState = resolvedSource === 'document';
-    const canUseArchiveState = !resolvedSource || resolvedSource === 'hydrated-archive-document-state';
-    const canUsePersistedState = !resolvedSource || resolvedSource === 'persisted-brush-state';
-    const canUseDefaultableSavedSnapshot = canUsePersistedState || resolvedSource === 'hydrated-archive-document-state';
-    const canUseLiveRuntime = !resolvedSource || resolvedSource === 'live-runtime';
-    const shouldPreferHydratedArchiveState = canUseArchiveState && data.runtimeHydrationState === 'warm';
-    if (shouldPreferHydratedArchiveState) {
-      const savedDocumentState = captureSavedGobletColorCycleDocumentState(layer);
-      const persistedBrushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
-      const savedBrushState = savedDocumentState
-        ? persistenceDocumentStateToBrushState(layer, savedDocumentState, persistedBrushState)
-        : undefined;
-      if (savedBrushState) {
-        exportDocumentState = savedDocumentState;
-        brushState = savedBrushState;
-      }
+    if (!options.documentRead) {
+      throw new Error('Goblet export blocked: missing pinned color-cycle document.');
     }
-    if (!brushState && canUseDocumentState) {
-      const documentState = captureSavedGobletColorCycleDocumentState(layer);
-      const documentBrushState = extractBrushStateFromDocumentState(layer);
-      if (documentBrushState) {
-        exportDocumentState = documentState;
-        brushState = documentBrushState;
-      }
-    }
-    if (!brushState && (canUseArchiveState || canUsePersistedState)) {
-      exportSnapshot = captureGobletColorCyclePersistenceSnapshot(layer, project, {
-        includeRuntimeBrush: !options?.resolvedSource,
-      });
-      if (exportSnapshot.ok) {
-        exportDocumentState = exportSnapshot.documentState;
-        brushState = persistenceDocumentStateToBrushState(layer, exportDocumentState, exportSnapshot.brushState);
-      }
-    }
-    if (!brushState && canUsePersistedState) {
-      const savedDocumentState = captureSavedGobletColorCycleDocumentState(layer);
-      const persistedBrushState = layer.colorCycleData?.brushState as PersistedColorCycleBrushState | undefined;
-      const savedBrushState = savedDocumentState
-        ? persistenceDocumentStateToBrushState(layer, savedDocumentState, persistedBrushState)
-        : undefined;
-      if (savedBrushState) {
-        exportDocumentState = savedDocumentState;
-        brushState = savedBrushState;
-      }
-    }
-    if (!brushState && canUseDefaultableSavedSnapshot) {
-      brushState = extractBrushStateFromSavedSnapshot(layer);
-    }
-    if (!brushState && canUseLiveRuntime) {
-      const liveBrushState = resolveGobletColorCycleLiveBrush(layer)
-        ? serializeBrushState(layer)
-        : undefined;
-      brushState = liveBrushState ?? serializeRuntimeBrushFallbackState(layer);
-    }
-    if (!brushState) {
-      const failedSnapshot = exportSnapshot && !exportSnapshot.ok ? exportSnapshot : undefined;
-      debugWarn('raw-console', '[webglExporter] No validated canonical brush state could be extracted for layer', {
-        layerId: layer.id,
-        reason: failedSnapshot?.reason ?? 'unresolved-export-buffer-ref',
-        damageKind: failedSnapshot?.damageKind ?? null,
-        diagnostics: exportSnapshot?.diagnostics ?? [],
-      });
-    }
+    exportDocumentState = options.documentRead.snapshot;
+    brushState = documentSnapshotToBrushState(
+      layer,
+      options.documentRead.snapshot,
+      data.brushState as PersistedColorCycleBrushState | undefined,
+    );
   }
 
   const persistedBrushFailureReason = (() => {
@@ -3568,9 +3446,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       ?? persistedBrushFailureReason
       ?? (data.deferredRuntimeRestore || data.runtimeHydrationState === 'cold'
         ? 'cold-color-cycle-runtime'
-        : exportSnapshot?.ok === false
-          ? exportSnapshot.reason
-          : 'missing-brush-state');
+        : 'missing-brush-state');
     throw new Error(
       `Goblet export blocked: color-cycle layer "${layer.name ?? layer.id}" is missing animated brush data (${reason}).`
     );
@@ -3610,9 +3486,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   };
 
   let runtimeBrushState: BrushStateRuntimePayload | undefined;
-  const markerBrushState = exportSnapshot?.ok
-    ? exportSnapshot.brushState
-    : data.brushState as PersistedColorCycleBrushState | undefined;
+  const markerBrushState = data.brushState as PersistedColorCycleBrushState | undefined;
   const markerValue = markerBrushState?.layers
     ?.find((snapshot) => snapshot.layerId === layer.id)
     ?.strokeData?.speedSourceVersion;
@@ -3626,8 +3500,6 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     );
   }
   const speedSourceVersion: ColorCycleSpeedSourceVersion = (
-    resolvedSource === 'document' ||
-    resolvedSource === 'live-runtime' ||
     markerValue === AUTHORED_SPEED_SOURCE_VERSION
   )
     ? AUTHORED_SPEED_SOURCE_VERSION
