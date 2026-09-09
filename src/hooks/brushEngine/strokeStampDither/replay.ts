@@ -1,3 +1,4 @@
+import { recordIndexedAuthoringPixel } from '@/utils/indexedAuthoringObserver';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
@@ -220,6 +221,7 @@ export const recomposeStampDitherOverlay = (args: {
         algo === 'pattern'
           ? (tileEntry.tile[tIdx] === 1)
           : (tileEntry.tile[tIdx] <= coverageByte);
+      recordIndexedAuthoringPixel(data, idx, usePrimary || !bgFillOff);
       if (usePrimary) {
         data[idx] = p;
         gid[idx] = p === 0 ? 0 : flowSlot;
@@ -554,6 +556,7 @@ export const finalizeStampDither = (args: {
       if ((tagValue & 0xffff) === 0) continue;
       const usePrimary = choice[idx] === 1;
       const primaryIndex = primary[idx];
+      recordIndexedAuthoringPixel(data, idx, usePrimary || !bgFillOff);
       if (usePrimary) {
         data[idx] = primaryIndex;
         gid[idx] = primaryIndex === 0 ? 0 : flowSlot;

@@ -1,3 +1,4 @@
+import { bindIndexedAuthoringBuffer, hasIndexedAuthoringObserver, recordIndexedAuthoringPixel } from '@/utils/indexedAuthoringObserver';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { normalizeColorCycleSampledMotion } from '@/utils/colorCycleSampledMotion';
 import { debugLog, debugWarn, isDebugEnabled } from '@/utils/debug';
@@ -270,7 +271,7 @@ export async function runColorCycleLinearShapeFill(
 
   // GPU path (linear fill) when available
   try {
-    if (!continuous && lostEdge <= 0) {
+    if (!continuous && lostEdge <= 0 && !hasIndexedAuthoringObserver()) {
       if (context.isDitherEnabled() && context.isPerceptualDitherEnabled()) {
         throw new Error('Perceptual dither requires CPU fill');
       }
@@ -369,6 +370,7 @@ export async function runColorCycleLinearShapeFill(
     animator.markGradientSlotUsed(activeSlot);
   }
   const linearBuffer = directLinearHandle.data;
+  bindIndexedAuthoringBuffer(id, linearBuffer);
   const linearGradientId = directLinearHandle.gradientId;
   const linearSpeedData = directLinearHandle.speedData;
   const linearFlowData = directLinearHandle.flowData;
@@ -394,6 +396,7 @@ export async function runColorCycleLinearShapeFill(
     }
     const clamped = Math.max(0, Math.min(255, colorIndex | 0));
     const idx = y * linearBufferWidth + x;
+    recordIndexedAuthoringPixel(linearBuffer, idx);
     linearBuffer[idx] = clamped;
     context.markStrokeStateContentWritten(strokeData);
     linearGradientId[idx] = clamped === 0 ? 0 : flowSlot;

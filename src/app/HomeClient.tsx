@@ -3,6 +3,7 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import React, { useEffect, useState, useCallback } from 'react';
 import LeftToolbar from '@/components/LeftToolbar';
+import studioExtension from '@/extensions/studioExtension';
 import ColorPickerPanel from '@/components/panels/ColorPickerPanel';
 import LayersPanel from '@/components/panels/LayersPanel';
 import AlignmentPanel from '@/components/panels/AlignmentPanel';
@@ -43,6 +44,7 @@ const homeLog = devLog.scope('HOME');
 const isDevBuild = process.env.NODE_ENV !== 'production';
 
 export default function Home() {
+  const StudioToolSettings = studioExtension.ToolSettings;
   // Global mouse tracking removed - now handled directly in canvas
   // Use individual selectors to avoid unstable object references
   const toggleModal = useAppStore((state) => state.toggleModal);
@@ -202,7 +204,7 @@ export default function Home() {
   // Save/Open keyboard shortcuts are centralized in useComprehensiveKeyboard
 
   return (
-    <main className="w-screen h-screen bg-[#141514] text-[#D9D9D9] flex overflow-hidden">
+    <main className="w-screen h-screen bg-[#141514] text-[#D9D9D9] flex overflow-clip">
       <ConsoleSilencer />
       <ReferenceStudioBridge />
       
@@ -263,8 +265,8 @@ export default function Home() {
           <BrushLibraryPanel />
         </div>
         <div className="border-t w-full flex-shrink-0" />
-        <div className="flex-[1.35] min-h-0 overflow-hidden">
-          <BrushSettingsPanel />
+        <div className="flex-[1.35] min-h-0 overflow-hidden" data-tool-settings-region>
+          {StudioToolSettings ? <StudioToolSettings><BrushSettingsPanel /></StudioToolSettings> : <BrushSettingsPanel />}
         </div>
       </div>
       

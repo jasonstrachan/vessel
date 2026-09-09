@@ -482,6 +482,7 @@ export interface GobletDynamicFeatureObjectRequirement {
 }
 
 export interface WebGLExportMetadata {
+  extensions?: Record<string, unknown>;
   format: 'vessel-goblet' | 'vessel-goblet2';
   version: 1;
   exportedAt: string;

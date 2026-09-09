@@ -10,6 +10,8 @@ import type { BoundingBox } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHa
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { captureColorCycleCanvasSnapshot } from '@/utils/colorCycleCanvasSnapshot';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
+import { takeCanvasAuthoringContribution } from '@/utils/canvasAuthoringObserver';
+import { hasIndexedAuthoringObserver, takeIndexedAuthoringCoverage } from '@/utils/indexedAuthoringObserver';
 import {
   strokeFinalizeProbePoint,
   strokeFinalizeProbeTime,
@@ -111,7 +113,15 @@ export const scheduleHistoryCommit = ({
   logError,
   finalizeLane,
 }: ScheduleHistoryCommitOptions): Promise<void> => {
-  const nextPayload = materializeHistoryPayload(payload);
+  // Capture gesture-owned data before the queue yields to another pointer gesture.
+  const rasterContribution = takeCanvasAuthoringContribution(payload.layerId);
+  const nextPayload = materializeHistoryPayload({
+    ...payload,
+    rasterContribution: payload.rasterContribution ?? rasterContribution,
+    indexedCoverage: payload.indexedCoverage === undefined && hasIndexedAuthoringObserver()
+      ? (takeIndexedAuthoringCoverage(payload.layerId) ?? null)
+      : payload.indexedCoverage,
+  });
   const enqueuedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const probeMeta = {
     layerId: nextPayload.layerId,

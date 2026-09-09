@@ -1,4 +1,5 @@
 import type { BrushStrokeParams, CustomBrushStrokeData } from './BrushEngineFacade';
+import { observeCanvasProgress } from '@/utils/canvasAuthoringObserver';
 
 type StrokePoint = { x: number; y: number };
 
@@ -38,6 +39,7 @@ export const runDrawBrushEntry = ({
   runStrokeDrawCore: RunStrokeDrawCore;
 }): void => {
   beginStroke(to.x, to.y);
+  observeCanvasProgress(ctx, from, to);
 
   const deltaX = to.x - from.x;
   const deltaY = to.y - from.y;
@@ -82,6 +84,7 @@ export const runDrawStampEntry = ({
   runStrokeDrawCore: RunStrokeDrawCore;
 }): void => {
   beginStroke(x, y);
+  observeCanvasProgress(ctx, { x, y }, { x, y });
 
   runStrokeDrawCore({
     ctx,

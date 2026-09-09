@@ -1,4 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { getCanvasPresentationFrame } from '@/utils/canvasPresentationFrame';
 import { useCallback, useRef } from 'react';
 import type React from 'react';
 import { BrushShape } from '@/types';
@@ -312,6 +313,17 @@ export const useDrawingCanvasBaseRenderer = ({
       // Keep the direct compositor's background-first contract for overlay-only frames.
       // Delaying this paint changes layer blending and can hide underlying artwork.
       renderCanvasBackground(canvasBackgroundOptions);
+
+      const presentation = getCanvasPresentationFrame(project.id);
+      if (presentation) {
+        ctx.imageSmoothingEnabled = displayMode !== 'pixelated';
+        ctx.drawImage(presentation, 0, 0);
+        if (hasCanvasShape) ctx.restore();
+        ctx.restore();
+        ctx.restore();
+        strokeFinalizeProbeMark('baseRenderer:draw', 'end', probeMeta);
+        return;
+      }
 
       const activeLayer =
         activeLayerId != null ? layers.find((layer) => layer.id === activeLayerId) ?? null : null;

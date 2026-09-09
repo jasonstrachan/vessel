@@ -10,6 +10,7 @@ import type {
   HistoryCoalesceOptions,
   HistoryRehydrationTargets,
   PreparedHistoryDelta,
+  HistoryObservation,
 } from './actionTypes';
 import {
   HistoryReplayApplyError,
@@ -117,6 +118,26 @@ const DEFAULT_DOC_ID = 'default-document';
 const HISTORY_ENTRY_WARN_BYTES = 25 * 1024 * 1024;
 
 export class HistoryManager {
+  private readonly observers = new Set<(event: HistoryObservation) => void>();
+
+  subscribe(observer: (event: HistoryObservation) => void): () => void {
+    this.observers.add(observer);
+    return () => { this.observers.delete(observer); };
+  }
+
+  get hasObservers(): boolean { return this.observers.size > 0; }
+
+  private notify(kind: HistoryObservation['kind'], entry: HistoryEntry, data?: Record<string, unknown>): void {
+    if (this.observers.size === 0) return;
+    const snapshot = { ...entry, deltas: [...entry.deltas], transactionIds: [...(entry.transactionIds ?? [entry.id])] };
+    for (const observer of this.observers) {
+      try {
+        observer({ kind, entry: snapshot, data });
+      } catch (error) {
+        debugWarn('raw-console', '[history] Observer failed', error);
+      }
+    }
+  }
   private readonly undoStacks = new Map<string, HistoryEntry[]>();
   private readonly redoStacks = new Map<string, HistoryEntry[]>();
 
@@ -231,6 +252,7 @@ export class HistoryManager {
       undoStack.pop();
       redoStack.push(entry);
       this.hooks.onUndo?.(entry);
+      this.notify('undo', entry);
       return entry;
     } catch (error) {
       throw error;
@@ -252,6 +274,7 @@ export class HistoryManager {
       redoStack.pop();
       undoStack.push(entry);
       this.hooks.onRedo?.(entry);
+      this.notify('redo', entry);
       return entry;
     } catch (error) {
       throw error;
@@ -360,6 +383,7 @@ export class HistoryManager {
     );
     const entry: HistoryEntry = {
       id: txn.id,
+      transactionIds: [txn.id],
       action: txn.action,
       label,
       ts: timestamp,
@@ -380,9 +404,11 @@ export class HistoryManager {
       redoStack.length = 0;
     }
     if (coalesceOptions && this.tryCoalesce(stack, entry, coalesceOptions)) {
+      this.notify('commit', entry, txn.options?.observationData);
       return;
     }
     stack.push(entry);
+    this.notify('commit', entry, txn.options?.observationData);
     while (stack.length > this._maxEntries) {
       const removed = stack.shift();
       if (removed) {
@@ -612,6 +638,7 @@ export class HistoryManager {
     }
 
     prev.deltas.push(...entry.deltas);
+    prev.transactionIds = [...(prev.transactionIds ?? [prev.id]), ...(entry.transactionIds ?? [entry.id])];
     prev.ts = entry.ts;
     if (options.mergeLabel) {
       prev.label = entry.label;

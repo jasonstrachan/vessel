@@ -651,6 +651,8 @@ export type ReferenceSamplingSource =
   | { kind: 'asset'; assetId: string };
 
 export interface Project {
+  /** Versioned, serializable data owned by optional authoring extensions. */
+  extensionData?: Record<string, unknown>;
   id: string;
   name: string;
   width: number;

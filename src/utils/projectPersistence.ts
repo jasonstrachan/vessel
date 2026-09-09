@@ -95,6 +95,7 @@ export interface VesselProjectArchive {
     appVersion: string;
   };
   project: {
+    extensionData?: Record<string, unknown>;
     id: string;
     name: string;
     width: number;

@@ -461,6 +461,7 @@ export interface VesselProject {
     appVersion: string;
   };
   project: {
+    extensionData?: Project['extensionData'];
     id: string;
     name: string;
     width: number;
@@ -4592,6 +4593,7 @@ const buildSerializedProjectArtifacts = async (
       width: project.width,
       height: project.height,
       backgroundColor: project.backgroundColor,
+      extensionData: project.extensionData,
       layers: serializedLayers,
       layerGroups: project.layerGroups,
       customBrushes: serializedCustomBrushes,
@@ -5896,6 +5898,7 @@ export async function deserializeProjectWithReport(
     width: serializedProject.width,
     height: serializedProject.height,
     backgroundColor: serializedProject.backgroundColor,
+    extensionData: serializedProject.extensionData,
     layers,
     layerGroups: serializedProject.layerGroups ?? [],
     customBrushes,

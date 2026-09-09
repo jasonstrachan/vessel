@@ -1,3 +1,4 @@
+import { bindIndexedAuthoringBuffer } from '@/utils/indexedAuthoringObserver';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 
 import type { LayerStrokeState } from './colorCycleCanvas2DTypes';
@@ -54,5 +55,6 @@ export function prepareColorCycleStrokeContext(
   const activeSlot = strokeData.flow.activeSlot ?? context.getActiveSlot(id);
   strokeData.flow.activeSlot = activeSlot;
 
+  bindIndexedAuthoringBuffer(id, strokeData.buffers.paint);
   return { id, animator, strokeData };
 }

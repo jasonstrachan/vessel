@@ -1,3 +1,4 @@
+import { takeIndexedAuthoringCoverage } from '@/utils/indexedAuthoringObserver';
 import historyManager from '@/history/historyService';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
 import { createColorCycleEraseMaskPatchDelta } from '@/history/deltas/colorCycleEraseMaskPatchDelta';
@@ -151,6 +152,15 @@ export const inferFallbackRoiFromStateDiff = (
 };
 
 export interface LayerHistoryPayload {
+  actor?: 'human' | 'ai';
+  indexedCoverage?: Uint8Array | null;
+  rasterContribution?: {
+    revealOrder?: Uint8Array;
+    image: ImageData;
+    x: number;
+    y: number;
+    operation: 'source-over' | 'destination-out';
+  };
   layerId: string;
   beforeImage: ImageData | null;
   afterImage?: ImageData | null;
@@ -181,6 +191,9 @@ export interface LayerHistoryPayload {
 }
 
 export const commitLayerHistory = async ({
+  actor,
+  rasterContribution,
+  indexedCoverage,
   layerId,
   beforeImage,
   afterImage: afterImageOverride,
@@ -248,6 +261,7 @@ export const commitLayerHistory = async ({
     const meta: Record<string, unknown> = {
       layerId,
       tool,
+      ...(actor ? { actor } : {}),
     };
 
     if (coalesce) {
@@ -271,15 +285,20 @@ export const commitLayerHistory = async ({
         historyId,
         meta,
         undefined,
-        coalesce
-          ? {
+        {
+          observationData: historyManager.hasObservers ? {
+            rasterContribution,
+            indexedCoverage: indexedCoverage === undefined ? takeIndexedAuthoringCoverage(layerId) : indexedCoverage,
+            committedLayerData: { image: afterImage, colorCycle: afterColorState, roi: bitmapRoi },
+          } : undefined,
+          ...(coalesce ? {
               coalesce: {
                 key: coalesce.key,
                 maxIntervalMs: coalesce.maxIntervalMs,
                 mergeLabel: coalesce.mergeLabel,
               },
-            }
-          : undefined,
+            } : {}),
+        },
       ),
       probeMeta
     );

@@ -91,6 +91,8 @@ export const prepareHistoryDelta = (
 });
 
 export interface HistoryEntry {
+  /** Original accepted transactions retained when the undo UI coalesces entries. */
+  transactionIds?: readonly string[];
   id: string;
   action: HistoryActionId;
   label: string;
@@ -98,6 +100,12 @@ export interface HistoryEntry {
   docId: string;
   deltas: HistoryDelta[];
   meta?: Record<string, unknown>;
+}
+
+export interface HistoryObservation {
+  kind: 'commit' | 'undo' | 'redo';
+  entry: HistoryEntry;
+  data?: Record<string, unknown>;
 }
 
 export interface HistoryCoalesceOptions {
@@ -115,6 +123,8 @@ export interface HistoryCoalesceOptions {
 
 export interface ScopedTxnOptions {
   coalesce?: HistoryCoalesceOptions;
+  /** Delivered synchronously to commit observers; never retained in undo entries. */
+  observationData?: Record<string, unknown>;
 }
 
 export interface ScopedTxn {

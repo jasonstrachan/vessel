@@ -1,3 +1,4 @@
+import { recordIndexedAuthoringPixel } from '@/utils/indexedAuthoringObserver';
 /**
  * IndexBuffer - Efficient pixel art drawing using indexed colors
  * Instead of WebGL texture, uses ImageData with Uint8Array for pixel indices
@@ -114,6 +115,7 @@ export class IndexBuffer {
   }
 
   private writeData(index: number, value: number): void {
+    recordIndexedAuthoringPixel(this.data, index);
     const previous = this.data[index];
     if (previous === value) {
       return;

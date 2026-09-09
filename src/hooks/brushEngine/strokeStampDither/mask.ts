@@ -1,3 +1,4 @@
+import { recordIndexedAuthoringPixel, recordIndexedAuthoringRange } from '@/utils/indexedAuthoringObserver';
 import {
   ensureStampDitherBuffers,
   ensureStampDitherTag,
@@ -87,6 +88,7 @@ const writeStampDitherBgFillSpan = (
   tag.fill(tagValue, start, end);
 
   if (primaryIndex === 0) {
+    recordIndexedAuthoringRange(writer.data, start, end);
     writer.data.fill(0, start, end);
     writer.gradientId.fill(0, start, end);
     writer.speedData.fill(0, start, end);
@@ -108,6 +110,7 @@ const writeStampDitherBgFillSpan = (
   for (let idx = start; idx < end; idx += 1) {
     const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
     const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
+    recordIndexedAuthoringPixel(writer.data, idx);
     writer.data[idx] = usePrimary ? primaryIndex : secondaryIndex;
     writerLocalX += 1;
     if (writerLocalX === writer.tileClamp) writerLocalX = 0;
@@ -193,6 +196,7 @@ export const applyStampDitherMask = (
             const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
             const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
             const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+            recordIndexedAuthoringPixel(writer.data, idx);
             writer.data[idx] = nextIndex;
             writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
             writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
@@ -337,6 +341,7 @@ export const applyStampDitherMask = (
           const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
           const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
           const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+          recordIndexedAuthoringPixel(writer.data, idx);
           writer.data[idx] = nextIndex;
           writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
           writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
@@ -390,6 +395,7 @@ export const applyStampDitherMask = (
           const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
           const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
           const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+          recordIndexedAuthoringPixel(writer.data, idx);
           writer.data[idx] = nextIndex;
           writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
           writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
@@ -442,6 +448,7 @@ export const applyStampDitherMask = (
           const t = writer.tile[writerTileRow + writerLocalX] ?? 0;
           const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
           const nextIndex = usePrimary ? primaryIndex : resolveStampDitherSecondaryIndex(primaryIndex);
+          recordIndexedAuthoringPixel(writer.data, idx);
           writer.data[idx] = nextIndex;
           writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
           writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;

@@ -1,3 +1,4 @@
+import { bindIndexedAuthoringBuffer, hasIndexedAuthoringObserver, recordIndexedAuthoringPixel } from '@/utils/indexedAuthoringObserver';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { normalizeColorCycleSampledMotion } from '@/utils/colorCycleSampledMotion';
 import { debugLog, debugWarn, isDebugEnabled } from '@/utils/debug';
@@ -203,7 +204,7 @@ export async function runColorCycleConcentricShapeFill(
     ccGradient && context.isDitherEnabled() && options?.ditherFlatCycle === true;
   if (!context.isPerceptualDitherEnabled() && !flatCycleDither) {
     try {
-      const tryGPU = lostEdge <= 0;
+      const tryGPU = lostEdge <= 0 && !hasIndexedAuthoringObserver();
       const ditherStrengthGpu = context.isDitherEnabled() ? context.getDitherStrength() : 0;
       const ditherPixelSizeGpu = context.isDitherEnabled() ? Math.max(1, context.getDitherPixelSize()) : 1;
       const runtimeMax = animator.getGLFillMaxVerts() || 256;
@@ -307,6 +308,7 @@ export async function runColorCycleConcentricShapeFill(
     animator.markGradientSlotUsed(activeSlot);
   }
   const concentricBuffer = directConcentricHandle.data;
+  bindIndexedAuthoringBuffer(id, concentricBuffer);
   const concentricGradientId = directConcentricHandle.gradientId;
   const concentricSpeedData = directConcentricHandle.speedData;
   const concentricFlowData = directConcentricHandle.flowData;
@@ -332,6 +334,7 @@ export async function runColorCycleConcentricShapeFill(
     }
     const clamped = Math.max(0, Math.min(255, colorIndex | 0));
     const idx = y * concentricWidth + x;
+    recordIndexedAuthoringPixel(concentricBuffer, idx);
     concentricBuffer[idx] = clamped;
     context.markStrokeStateContentWritten(strokeData);
     concentricGradientId[idx] = clamped === 0 ? 0 : flowSlot;
@@ -361,6 +364,7 @@ export async function runColorCycleConcentricShapeFill(
         const destX = bbox.minX + col;
         if (destX < 0 || destX >= concentricWidth) continue;
         const destIndex = destRowOffset + destX;
+        recordIndexedAuthoringPixel(concentricBuffer, destIndex);
         concentricBuffer[destIndex] = value;
         concentricGradientId[destIndex] = value === 0 ? 0 : flowSlot;
         concentricSpeedData[destIndex] = value === 0 ? 0 : speedByte;

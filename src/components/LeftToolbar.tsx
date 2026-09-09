@@ -12,6 +12,7 @@ import { openReferenceStudioWindow } from '@/referenceStudio/referenceStudioChan
 import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
 import { showAppFeedback } from '@/utils/appFeedback';
+import studioExtension from '@/extensions/studioExtension';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
 type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'interlace' | 'multiplayer' | 'reference-studio';
@@ -41,6 +42,7 @@ const getMultiplayerLabel = (
 };
 
 const LeftToolbar = () => {
+  const StudioToolbarItems = studioExtension.ToolbarItems;
   // Force refresh - toolbar black background fix
   const {
     tools: toolState,
@@ -255,6 +257,7 @@ const LeftToolbar = () => {
 
             return (
               <React.Fragment key={tool.id}>
+                {tool.id === 'export' && StudioToolbarItems && <StudioToolbarItems />}
                 <div
                   className="relative mx-auto mb-1 h-10 w-[44px] flex-shrink-0"
                   onMouseEnter={() => scheduleTooltip(tool.id)}

@@ -18,6 +18,7 @@ import type { CCBrushSettingsPatch } from '@/hooks/brushEngine/colorCycleBrushCo
 import type { ColorCycleDirtyRect } from '@/lib/colorCycle/document';
 import { brushPresets } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { observeCanvasAuthoring } from '@/utils/canvasAuthoringObserver';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { RenderStaticCompositeOptions } from '@/stores/layers/layersSliceTypes';
 import type { BrushSettings, Layer } from '@/types';
@@ -491,6 +492,7 @@ const executeNormalMultiplayerStroke = async (
   const context = framebuffer.getContext('2d', { willReadFrequently: true });
   if (!context) throw new Error('The AI normal-layer canvas is unavailable');
   context.imageSmoothingEnabled = settings.antialiasing !== false;
+  const observation = observeCanvasAuthoring(context, { layerId: layer.id, operation: 'source-over' });
   const strokePoints = interpolateVesselMultiplayerStrokePoints(gesture.points);
   const dirtyPadding = Math.max(2, Math.ceil((settings.size ?? 1) / 2) + 2);
   const historyRoi = pointBounds(strokePoints, dirtyPadding, project);
@@ -527,7 +529,7 @@ const executeNormalMultiplayerStroke = async (
     for (let index = 0; index < strokePoints.length && !signal.aborted; index += 1) {
       const point = strokePoints[index];
       const previous = strokePoints[Math.max(0, index - 1)];
-      brushEngine.renderBrushStroke(context, {
+      brushEngine.renderBrushStroke(observation.context, {
         from: { x: previous.x, y: previous.y },
         to: { x: point.x, y: point.y },
         pressure: point.pressure ?? 1,
@@ -550,7 +552,8 @@ const executeNormalMultiplayerStroke = async (
     detachExternalAbort();
     try {
       if (authoredPointCount > 0) {
-        brushEngine.finalizeStroke(context);
+        brushEngine.finalizeStroke(observation.context);
+        observation.finish();
         const finalDirtyPoints = strokePoints.slice(
           Math.max(0, presentedPointCount - 1),
           authoredPointCount,
@@ -566,6 +569,7 @@ const executeNormalMultiplayerStroke = async (
         );
         getAppStoreState().updateLayer(layer.id, { framebuffer, imageData: null });
         await runtime.scheduleHistoryCommit({
+          actor: 'ai',
           layerId: layer.id,
           beforeImage,
           afterImage,
@@ -580,6 +584,7 @@ const executeNormalMultiplayerStroke = async (
         await presentAiLayer(runtime, layer);
       }
     } finally {
+      if (authoredPointCount === 0) observation.finish(true);
       brushEngine.resetStroke();
       activeGestureAbortController = null;
       const lastPoint = strokePoints[Math.max(0, authoredPointCount - 1)];
@@ -661,6 +666,7 @@ const commitAiMark = async ({
     throw new Error('The canonical Vessel history queue is unavailable');
   }
   await runtime.scheduleHistoryCommit({
+    actor: 'ai',
     layerId: layer.id,
     beforeImage: null,
     beforeColorState,

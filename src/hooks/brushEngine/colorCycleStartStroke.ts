@@ -1,3 +1,4 @@
+import { beginIndexedAuthoring } from '@/utils/indexedAuthoringObserver';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
@@ -82,6 +83,7 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
   }
 
   const id = context.layerId || context.activeLayerId || 'default';
+  beginIndexedAuthoring(id);
   context.setActiveLayerId(id);
   context.setIsDrawing(true);
   const strokeCounter = context.incrementStrokeCounter();

@@ -38,6 +38,8 @@ export interface StudioClipboardActionContext {
 
 export interface VesselStudioExtension {
   brushPresets: readonly BrushPreset[];
+  ToolbarItems?: React.ComponentType;
+  ToolSettings?: React.ComponentType<React.PropsWithChildren>;
   BrushControls?: React.ComponentType;
   BrushSettingsControls?: React.ComponentType;
   CanvasOverlay?: React.ComponentType<StudioCanvasOverlayProps>;

@@ -1,3 +1,4 @@
+import { recordIndexedAuthoringPixel } from '@/utils/indexedAuthoringObserver';
 import { debugWarn } from '@/utils/debug';
 import { applySierraLiteLostEdgeMask } from '@/utils/ditherAlgorithms';
 import { resolveLostEdgeTileSize } from '@/utils/ditherConstants';
@@ -112,6 +113,7 @@ export const applyLostEdgeFromWrittenMask = (options: {
       const keepIndex = (row + keepOffsetY) * keepWidth + col + keepOffsetX;
       if (keep[keepIndex] >= 128) continue;
       const dst = dstRow + col;
+      recordIndexedAuthoringPixel(paint, dst, false);
       paint[dst] = prevIdx[p];
       gid[dst] = prevGid[p];
       spd[dst] = prevSpd[p];
@@ -141,6 +143,7 @@ export const applyLostEdgeFromWrittenMask = (options: {
           (def && prevDef && def[dst] !== (prevDef[p] ?? 0))
         ) {
           violations.push({ x: bbox.minX + col, y });
+          recordIndexedAuthoringPixel(paint, dst, false);
           paint[dst] = prevIdx[p];
           gid[dst] = prevGid[p];
           spd[dst] = prevSpd[p];

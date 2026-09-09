@@ -10,6 +10,7 @@ import {
 } from './strategies/CCMaskEraseStrategy';
 import type { EraseStrategy } from './strategies/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
+import { observeCanvasAuthoring, type CanvasAuthoringObservation } from '@/utils/canvasAuthoringObserver';
 
 export type CanvasPoint = { x: number; y: number };
 
@@ -52,16 +53,18 @@ export class EraserTool implements StrokeTool {
   private stampSource: BrushStampSource | null;
   private activeContext: CanvasRenderingContext2D | null = null;
   private isActive = false;
+  private observation: CanvasAuthoringObservation | null = null;
 
   constructor(layer: Layer, options: EraserToolOptions, deps: EraserToolDeps) {
     this.layer = layer;
     this.options = options;
     this.deps = deps;
     const isColorCycleLayer = layer.layerType === 'color-cycle';
+    if (!isColorCycleLayer) this.observation = observeCanvasAuthoring(deps.overlayCtx, { layerId: layer.id, operation: 'destination-out' });
     this.stampSource = isColorCycleLayer ? null : deps.createStampSource();
     this.strategy = isColorCycleLayer
       ? new CCMaskEraseStrategy(deps.maskManager, layer.id, deps.getBrushSettings, deps.overlayCtx)
-      : new RasterEraseStrategy(deps.overlayCtx);
+      : new RasterEraseStrategy(this.observation?.context ?? deps.overlayCtx);
   }
 
   begin(point: CanvasPoint, pressure = 1): void {
@@ -91,18 +94,19 @@ export class EraserTool implements StrokeTool {
     this.recordROI(lastPoint, point);
   }
 
-  end(): void {
+  end(cancelled = false): void {
     if (!this.isActive) {
       return;
     }
-    this.strategy.end();
+    this.strategy.end(cancelled);
     this.stampSource?.end();
+    this.observation?.finish(cancelled);
     this.isActive = false;
     this.activeContext = null;
   }
 
   cancel(): void {
-    this.end();
+    this.end(true);
   }
 
   getROI(): ROI | null {

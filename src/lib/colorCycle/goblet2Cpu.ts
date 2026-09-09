@@ -106,7 +106,7 @@ const samplePaletteTable = (
 
 export const renderBrushFrame = (params: {
   indexBuffer: Uint8Array;
-  gradientIdBuffer: Uint8Array;
+  gradientIdBuffer: Uint8Array | Uint16Array;
   speedBuffer: Uint8Array;
   flowBuffer?: Uint8Array | null;
   phaseBuffer?: Uint8Array | null;

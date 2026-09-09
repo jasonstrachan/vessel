@@ -6,6 +6,7 @@ import { BrushShape, type Layer } from '@/types';
 import { applyPressureCurve } from '@/utils/pressureCurve';
 
 import type { EraseStrategy } from './types';
+import { observeCanvasAuthoring, type CanvasAuthoringObservation } from '@/utils/canvasAuthoringObserver';
 
 type CanvasPoint = { x: number; y: number };
 
@@ -38,6 +39,7 @@ export const resolveCCMaskEraserStampSize = (
 };
 
 export class CCMaskEraseStrategy implements EraseStrategy {
+  private observation: CanvasAuthoringObservation | null = null;
   private ctx: CanvasRenderingContext2D | null = null;
   private overlayCtx: CanvasRenderingContext2D | null = null;
   private readonly stampCanvasCache = new WeakMap<ImageData, HTMLCanvasElement>();
@@ -57,7 +59,8 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     if (!ctx) {
       return null;
     }
-    this.ctx = ctx;
+    this.observation = observeCanvasAuthoring(ctx, { layerId: this.layerId, operation: 'destination-out' });
+    this.ctx = this.observation.context;
     this.ctx.save();
     try {
       this.ctx.imageSmoothingEnabled = false;
@@ -100,11 +103,13 @@ export class CCMaskEraseStrategy implements EraseStrategy {
     }
   }
 
-  end(): void {
+  end(cancelled = false): void {
     if (!this.ctx) {
       return;
     }
     this.ctx.restore();
+    this.observation?.finish(cancelled);
+    this.observation = null;
     this.maskManager.bumpVersion(this.layerId);
     this.ctx = null;
     if (this.overlayCtx) {

@@ -14,5 +14,5 @@ export interface EraseStrategy {
     pressure: number,
     stampSource: BrushStampSource | null
   ): void;
-  end(): void;
+  end(cancelled?: boolean): void;
 }

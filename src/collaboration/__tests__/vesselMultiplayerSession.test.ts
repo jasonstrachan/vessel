@@ -270,6 +270,7 @@ describe('vesselMultiplayerSession', () => {
     expect(scheduleHistoryCommit).toHaveBeenCalledWith(expect.objectContaining({
       layerId: 'ai-layer',
       description: 'AI multiplayer stroke',
+      actor: 'ai',
       beforeColorState: null,
       afterColorState: null,
       bitmapRoi: { x: 2, y: 2, width: 26, height: 21 },
@@ -517,6 +518,7 @@ describe('vesselMultiplayerSession', () => {
     expect(scheduleHistoryCommit).toHaveBeenCalledWith(expect.objectContaining({
       layerId: 'ai-layer',
       description: 'AI multiplayer shape',
+      actor: 'ai',
       skipBitmapDelta: true,
     }));
   });

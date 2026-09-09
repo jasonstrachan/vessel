@@ -1,5 +1,7 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { takeCanvasProgress } from '@/utils/canvasAuthoringObserver';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
+import historyManager from '@/history/historyService';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import {
   applyColorCycleBrushLayerSnapshotToRuntime,
@@ -356,7 +358,19 @@ export const commitRasterOverlay = async (
     return;
   }
 
+  const contributionImage = historyManager.hasObservers && !overlaySeededFromLayer && options.overlayCanvas
+    ? options.overlayCanvas.getContext('2d')?.getImageData(commitRoi.x, commitRoi.y, commitRoi.width, commitRoi.height)
+    : undefined;
   const payload: LayerHistoryPayload = {
+    ...(contributionImage && options.overlayCanvas ? {
+      rasterContribution: {
+        image: contributionImage,
+        revealOrder: takeCanvasProgress(options.overlayCanvas, contributionImage, commitRoi.x, commitRoi.y),
+        x: commitRoi.x,
+        y: commitRoi.y,
+        operation: 'source-over' as const,
+      },
+    } : {}),
     layerId: options.layer.id,
     beforeImage: options.beforeImage,
     beforeColorState: options.beforeColorState,
