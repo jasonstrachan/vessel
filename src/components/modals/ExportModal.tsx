@@ -44,6 +44,7 @@ import { buildGobletExportSnapshotRequest } from '@/utils/export/goblet/gobletSn
 import type { ExportProgress } from '@/utils/export/types';
 import type { DitherMethod } from '@/utils/gifDither';
 import { createDefaultExportLayout } from '@/utils/layoutDefaults';
+import studioExtension from '@/extensions/studioExtension';
 
 interface ExportModalProps {
   isOpen: boolean;
@@ -798,81 +799,84 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             onTest={(tester, artifact) => { void testGoblet(tester, artifact); }}
           />
         ) : (
-          <ExportSetupView
-            isExporting={isExporting}
-            exportKind={exportKind}
-            scale={scale}
-            scaleOptions={scaleOptions}
-            filenameBase={filenameBase}
-            png={{ includeBackground: pngIncludeBackground, quality: pngQuality }}
-            gif={{
-              fps: gifFps,
-              duration: gifDuration,
-              repeat: gifRepeat,
-              autoFrames: gifAutoFrames,
-              ditherMethod: gifDitherMethod,
-              ditherStrength: gifDitherStrength,
-              frameStep: gifFrameStep,
-              maxColors: gifMaxColors,
-              autoColors: gifAutoColors,
-            }}
-            video={{
-              fps: videoFps,
-              duration: videoDuration,
-              autoFrames: videoAutoFrames,
-              mime: videoMime,
-              bitrate: videoBitrate,
-              compressionPercent: bitrateToCompressionPercent(videoBitrate),
-            }}
-            goblet={{
-              settings: resolvedWebglSettings,
-              viewportPreset: webglViewportPreset,
-              designScalePercent: webglDesignScalePercent,
-              fps: webglFps,
-              duration: webglDuration,
-              autoFrames: webglAutoFrames,
-              visibleLayerCount,
-              hiddenLayerCount,
-              participatingLayerCount,
-              projectBackgroundColor: project?.backgroundColor,
-            }}
-            onExportKindChange={setExportKind}
-            onScaleChange={setScale}
-            onPngChange={(patch) => {
-              if (typeof patch.includeBackground === 'boolean') {
-                setPngIncludeBackground(patch.includeBackground);
-              }
-              if (typeof patch.quality === 'number') {
-                setPngQuality(patch.quality);
-              }
-            }}
-            onGifChange={(patch) => {
-              if (typeof patch.fps === 'number') setGifFps(patch.fps);
-              if (typeof patch.duration === 'number') setGifDuration(patch.duration);
-              if (typeof patch.repeat === 'number') setGifRepeat(patch.repeat);
-              if (typeof patch.autoFrames === 'boolean') setGifAutoFrames(patch.autoFrames);
-              if (patch.ditherMethod) setGifDitherMethod(patch.ditherMethod);
-              if (typeof patch.ditherStrength === 'number') setGifDitherStrength(patch.ditherStrength);
-              if (patch.frameStep) setGifFrameStep(patch.frameStep);
-              if (patch.maxColors) setGifMaxColors(patch.maxColors);
-              if (typeof patch.autoColors === 'boolean') setGifAutoColors(patch.autoColors);
-            }}
-            onVideoChange={(patch) => {
-              if (typeof patch.fps === 'number') setVideoFps(patch.fps);
-              if (typeof patch.duration === 'number') setVideoDuration(patch.duration);
-              if (typeof patch.autoFrames === 'boolean') setVideoAutoFrames(patch.autoFrames);
-              if (patch.mime) setVideoMime(patch.mime);
-              if (typeof patch.bitrate === 'number') setVideoBitrate(patch.bitrate);
-            }}
-            onGobletAnimationChange={(patch) => {
-              if (typeof patch.fps === 'number') setWebglFps(patch.fps);
-              if (typeof patch.duration === 'number') setWebglDuration(patch.duration);
-              if (typeof patch.autoFrames === 'boolean') setWebglAutoFrames(patch.autoFrames);
-            }}
-            onGobletSettingsChange={updateWebglExportSettings}
-            onClose={closeExportModal}
-            onExport={() => { void handleExport(); }}
-          />
+          <>
+            {exportKind === 'webgl' && studioExtension.ExportControls && <studioExtension.ExportControls />}
+            <ExportSetupView
+              isExporting={isExporting}
+              exportKind={exportKind}
+              scale={scale}
+              scaleOptions={scaleOptions}
+              filenameBase={filenameBase}
+              png={{ includeBackground: pngIncludeBackground, quality: pngQuality }}
+              gif={{
+                fps: gifFps,
+                duration: gifDuration,
+                repeat: gifRepeat,
+                autoFrames: gifAutoFrames,
+                ditherMethod: gifDitherMethod,
+                ditherStrength: gifDitherStrength,
+                frameStep: gifFrameStep,
+                maxColors: gifMaxColors,
+                autoColors: gifAutoColors,
+              }}
+              video={{
+                fps: videoFps,
+                duration: videoDuration,
+                autoFrames: videoAutoFrames,
+                mime: videoMime,
+                bitrate: videoBitrate,
+                compressionPercent: bitrateToCompressionPercent(videoBitrate),
+              }}
+              goblet={{
+                settings: resolvedWebglSettings,
+                viewportPreset: webglViewportPreset,
+                designScalePercent: webglDesignScalePercent,
+                fps: webglFps,
+                duration: webglDuration,
+                autoFrames: webglAutoFrames,
+                visibleLayerCount,
+                hiddenLayerCount,
+                participatingLayerCount,
+                projectBackgroundColor: project?.backgroundColor,
+              }}
+              onExportKindChange={setExportKind}
+              onScaleChange={setScale}
+              onPngChange={(patch) => {
+                if (typeof patch.includeBackground === 'boolean') {
+                  setPngIncludeBackground(patch.includeBackground);
+                }
+                if (typeof patch.quality === 'number') {
+                  setPngQuality(patch.quality);
+                }
+              }}
+              onGifChange={(patch) => {
+                if (typeof patch.fps === 'number') setGifFps(patch.fps);
+                if (typeof patch.duration === 'number') setGifDuration(patch.duration);
+                if (typeof patch.repeat === 'number') setGifRepeat(patch.repeat);
+                if (typeof patch.autoFrames === 'boolean') setGifAutoFrames(patch.autoFrames);
+                if (patch.ditherMethod) setGifDitherMethod(patch.ditherMethod);
+                if (typeof patch.ditherStrength === 'number') setGifDitherStrength(patch.ditherStrength);
+                if (patch.frameStep) setGifFrameStep(patch.frameStep);
+                if (patch.maxColors) setGifMaxColors(patch.maxColors);
+                if (typeof patch.autoColors === 'boolean') setGifAutoColors(patch.autoColors);
+              }}
+              onVideoChange={(patch) => {
+                if (typeof patch.fps === 'number') setVideoFps(patch.fps);
+                if (typeof patch.duration === 'number') setVideoDuration(patch.duration);
+                if (typeof patch.autoFrames === 'boolean') setVideoAutoFrames(patch.autoFrames);
+                if (patch.mime) setVideoMime(patch.mime);
+                if (typeof patch.bitrate === 'number') setVideoBitrate(patch.bitrate);
+              }}
+              onGobletAnimationChange={(patch) => {
+                if (typeof patch.fps === 'number') setWebglFps(patch.fps);
+                if (typeof patch.duration === 'number') setWebglDuration(patch.duration);
+                if (typeof patch.autoFrames === 'boolean') setWebglAutoFrames(patch.autoFrames);
+              }}
+              onGobletSettingsChange={updateWebglExportSettings}
+              onClose={closeExportModal}
+              onExport={() => { void handleExport(); }}
+            />
+          </>
         )}
       </div>
     </div>

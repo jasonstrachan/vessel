@@ -40,6 +40,7 @@ export interface VesselStudioExtension {
   brushPresets: readonly BrushPreset[];
   ToolbarItems?: React.ComponentType;
   ToolSettings?: React.ComponentType<React.PropsWithChildren>;
+  ExportControls?: React.ComponentType;
   BrushControls?: React.ComponentType;
   BrushSettingsControls?: React.ComponentType;
   CanvasOverlay?: React.ComponentType<StudioCanvasOverlayProps>;
