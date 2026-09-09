@@ -1,4 +1,5 @@
 import type { GradientStop } from '@/lib/GradientPalette';
+import type { StudioStrokePaintMask } from '@/extensions/studioExtensionTypes';
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type {
@@ -59,6 +60,8 @@ export type LayerStrokeState = {
   lastPoint: Vec2 | null;
   skipStampDitherFinalize?: boolean;
   pencilPressureStroke?: boolean;
+  /** Ephemeral authoring constraint, never serialized into artwork/playback state. */
+  paintMask?: StudioStrokePaintMask | null;
   buffers: {
     paint: Uint8Array;
     gid: Uint8Array;

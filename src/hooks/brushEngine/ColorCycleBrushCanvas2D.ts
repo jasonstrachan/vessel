@@ -299,6 +299,7 @@ export class ColorCycleBrushCanvas2D {
     assertStrokeHandleSize: (handle, label) => this.strokeCoordinatorApi.assertStrokeHandleSize(handle, label),
     enableNonDitherPlaybackSpeed: (strokeData) => enableColorCycleNonDitherPlaybackSpeed({
       strokeData,
+      width: this.lifecycleApi.getCanvasWidth(),
       speedByte: this.strokeCoordinatorApi.getWriteSpeedByte(strokeData),
     }),
     refreshStrokeContent: (strokeData) => this.layerDocumentApi.refreshStrokeContent(strokeData),
@@ -537,6 +538,7 @@ export class ColorCycleBrushCanvas2D {
   readonly fillShapeDispatch = this.shapeFillApi.fillShapeDispatch;
 
   readonly startStroke = this.strokeApi.startStroke;
+  readonly getStrokePaintMask = (layerId: string) => this.layerDocumentApi.getStrokeState(layerId)?.paintMask ?? null;
   readonly endStroke = this.strokeApi.endStroke;
   readonly finalizeCurrentStroke = this.strokeApi.finalizeCurrentStroke;
 

@@ -1,4 +1,5 @@
 import { beginIndexedAuthoring } from '@/utils/indexedAuthoringObserver';
+import { createColorCycleStrokePaintMask } from './colorCycleStrokePaintMask';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
@@ -112,6 +113,7 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
     strokeData.contentIsOptimistic = true;
   }
   if (strokeData) {
+    strokeData.paintMask = createColorCycleStrokePaintMask();
     const expected = context.width() * context.height();
     if (strokeData.buffers.paint.length === expected) {
       try {

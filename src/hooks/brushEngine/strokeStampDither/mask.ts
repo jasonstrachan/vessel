@@ -81,7 +81,21 @@ const writeStampDitherBgFillSpan = (
   endX: number,
   y: number,
   primaryIndex: number,
+  acceptsPixel?: (x: number, y: number) => boolean,
 ) => {
+  if (acceptsPixel) {
+    let runStart = startX;
+    while (runStart <= endX) {
+      while (runStart <= endX && !acceptsPixel(runStart, y)) runStart += 1;
+      let runEnd = runStart;
+      while (runEnd <= endX && acceptsPixel(runEnd, y)) runEnd += 1;
+      if (runEnd > runStart) {
+        writeStampDitherBgFillSpan(writer, primary, tag, tagValue, rowOffset, runStart, runEnd - 1, y, primaryIndex);
+      }
+      runStart = runEnd + 1;
+    }
+    return;
+  }
   const start = rowOffset + startX;
   const end = rowOffset + endX + 1;
   primary.fill(primaryIndex, start, end);
@@ -129,6 +143,7 @@ export const applyStampDitherMask = (
   stampSeq: number,
   bgFill: boolean,
   bgFillWriter?: StampDitherBgFillWriter,
+  acceptsPixel?: (x: number, y: number) => boolean,
 ): { minX: number; minY: number; maxX: number; maxY: number } => {
   ensureStampDitherBuffers(strokeData, width, height);
   ensureStampDitherTag(strokeData, width, height);
@@ -182,6 +197,12 @@ export const applyStampDitherMask = (
         ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
         : 0;
       for (let px = minX; px <= maxX; px++) {
+        if (acceptsPixel && !acceptsPixel(px, py)) {
+          if (writer) {
+            writerLocalX = (writerLocalX + 1) % writer.tileClamp;
+          }
+          continue;
+        }
         const sampleX = px + 0.5;
         const sampleY = py + 0.5;
         const b1 = sign(sampleX, sampleY, topX, topY, leftX, leftY) <= 0;
@@ -241,6 +262,7 @@ export const applyStampDitherMask = (
           spanMaxX,
           py,
           primaryIndex,
+          acceptsPixel,
         );
       }
       updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -248,6 +270,9 @@ export const applyStampDitherMask = (
     }
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
+        if (acceptsPixel && !acceptsPixel(px, py)) {
+          continue;
+        }
         const dx = px + 0.5 - x;
         const dy = py + 0.5 - y;
         if (dx * dx + dy * dy > radiusSq) continue;
@@ -285,6 +310,7 @@ export const applyStampDitherMask = (
           spanMaxX,
           py,
           primaryIndex,
+          acceptsPixel,
         );
       }
       updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -292,6 +318,9 @@ export const applyStampDitherMask = (
     }
     for (let py = minY; py <= maxY; py++) {
       for (let px = minX; px <= maxX; px++) {
+        if (acceptsPixel && !acceptsPixel(px, py)) {
+          continue;
+        }
         const dx = Math.abs(px + 0.5 - x);
         const dy = Math.abs(py + 0.5 - y);
         if (dx + dy > radius) continue;
@@ -324,6 +353,12 @@ export const applyStampDitherMask = (
         ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
         : 0;
       for (let px = minX; px <= maxX; px++) {
+        if (acceptsPixel && !acceptsPixel(px, py)) {
+          if (writer) {
+            writerLocalX = (writerLocalX + 1) % writer.tileClamp;
+          }
+          continue;
+        }
         const localX = px - originX;
         const cellX = Math.max(0, Math.min(4, Math.floor(localX / pixelScale)));
         if (DIAMOND_5_MASK[cellY * 5 + cellX] === 0) {
@@ -378,6 +413,12 @@ export const applyStampDitherMask = (
         ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
         : 0;
       for (let px = minX; px <= maxX; px++) {
+        if (acceptsPixel && !acceptsPixel(px, py)) {
+          if (writer) {
+            writerLocalX = (writerLocalX + 1) % writer.tileClamp;
+          }
+          continue;
+        }
         const localX = px - originX;
         const cellX = Math.max(0, Math.min(gridSize - 1, Math.floor(localX / pixelScale)));
         if (mask[cellY * gridSize + cellX] === 0) {
@@ -431,6 +472,12 @@ export const applyStampDitherMask = (
         ? ((minX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp
         : 0;
       for (let px = minX; px <= maxX; px++) {
+        if (acceptsPixel && !acceptsPixel(px, py)) {
+          if (writer) {
+            writerLocalX = (writerLocalX + 1) % writer.tileClamp;
+          }
+          continue;
+        }
         const localX = px - originX;
         const cellX = Math.max(0, Math.min(gridSize - 1, Math.floor(localX / pixelScale)));
         if (CHECKERED_4_MASK[cellY * gridSize + cellX] === 0) {
@@ -481,6 +528,7 @@ export const applyStampDitherMask = (
         maxX,
         py,
         primaryIndex,
+        acceptsPixel,
       );
     }
     updateStampDitherBounds(strokeData, width, height, minX, minY, maxX, maxY);
@@ -488,6 +536,7 @@ export const applyStampDitherMask = (
   }
   for (let py = minY; py <= maxY; py++) {
     for (let px = minX; px <= maxX; px++) {
+      if (acceptsPixel && !acceptsPixel(px, py)) continue;
       const idx = py * width + px;
       if (captureBase) captureIfNeeded(idx);
       primary[idx] = primaryIndex;

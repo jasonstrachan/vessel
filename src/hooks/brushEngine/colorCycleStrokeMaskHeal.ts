@@ -19,6 +19,7 @@ type ColorCycleStrokeMaskHealerOptions = {
   layerId: string;
   healColorCycleEraseMask?: (layerId: string, paintMask: ColorCyclePaintMask) => void;
   resolveStampTargetSize: (pressure: number) => number;
+  acceptsPixel?: (x: number, y: number) => boolean;
 };
 
 export const createColorCycleStrokeMaskHealer = ({
@@ -26,6 +27,7 @@ export const createColorCycleStrokeMaskHealer = ({
   layerId,
   healColorCycleEraseMask,
   resolveStampTargetSize,
+  acceptsPixel,
 }: ColorCycleStrokeMaskHealerOptions): {
   markPaintedStamp: (stamp: PaintedColorCycleStamp) => void;
   healPaintedEraseMask: () => void;
@@ -61,6 +63,7 @@ export const createColorCycleStrokeMaskHealer = ({
     const height = maxY - minY + 1;
     const data = new Uint8Array(width * height);
     const markPixel = (x: number, y: number): void => {
+      if (acceptsPixel && !acceptsPixel(x, y)) return;
       if (x < minX || x > maxX || y < minY || y > maxY) {
         return;
       }

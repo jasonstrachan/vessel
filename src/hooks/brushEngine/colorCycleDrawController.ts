@@ -34,6 +34,7 @@ export type ColorCycleDrawBrush =
   & ColorCycleSettingsPatchBrush
   & ColorCycleStrokeRoutingBrush
   & {
+    getStrokePaintMask?: (layerId: string) => import('@/extensions/studioExtensionTypes').StudioStrokePaintMask | null;
     getCanvas: () => HTMLCanvasElement;
     renderDirectToCanvas: (canvas: HTMLCanvasElement, layerId: string) => void;
     setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
@@ -265,6 +266,7 @@ export const drawColorCycleStroke = ({
       layerId,
       healColorCycleEraseMask,
       resolveStampTargetSize,
+      acceptsPixel: (x, y) => colorCycleBrush.getStrokePaintMask?.(layerId)?.acceptsPixel(x, y) ?? true,
     });
     const markPaintBounds = (paintX: number, paintY: number): void => {
       markPaintedStamp({

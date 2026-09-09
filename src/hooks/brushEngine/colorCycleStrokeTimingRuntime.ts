@@ -17,6 +17,8 @@ export function refreshColorCycleShapeFillWriteSpeed(params: {
   if (!strokeData) {
     return;
   }
+  // Shape authoring starts its own write scope, independent of the preceding stroke.
+  strokeData.paintMask = null;
   strokeData.strokeCounter = params.strokeCounter;
   strokeData.strokeCycleSpeed = params.resolvedSpeed;
   strokeData.strokeSpeedByte = encodeColorCycleSpeedByte(params.resolvedSpeed);
@@ -235,6 +237,7 @@ export function advanceColorCycleStrokePhase(params: {
 export function enableColorCycleNonDitherPlaybackSpeed(params: {
   strokeData: LayerStrokeState;
   speedByte: number;
+  width: number;
 }): boolean {
   const paint = params.strokeData.buffers.paint;
   const spd = params.strokeData.buffers.spd;
@@ -242,8 +245,10 @@ export function enableColorCycleNonDitherPlaybackSpeed(params: {
     return false;
   }
 
+  const acceptsPixel = params.strokeData.paintMask?.acceptsPixel;
   let changed = false;
   for (let i = 0; i < paint.length; i += 1) {
+    if (acceptsPixel && !acceptsPixel(i % params.width, Math.floor(i / params.width))) continue;
     const nextSpeed = paint[i] === 0
       ? 0
       : (spd[i] > 0 ? spd[i] : params.speedByte);

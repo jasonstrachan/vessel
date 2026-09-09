@@ -44,6 +44,12 @@ export interface VesselStudioExtension {
   ExportControls?: React.ComponentType;
   BrushControls?: React.ComponentType;
   BrushSettingsControls?: React.ComponentType;
+  /** Snapshot at stroke start; coordinates are integer canvas pixels, sampled at their centres. */
+  createColorCycleStrokePaintMask?: (context: {
+    currentTool: Tool;
+    presetId: string | null;
+    brushSettings: BrushSettings;
+  }) => StudioStrokePaintMask | null;
   CanvasOverlay?: React.ComponentType<StudioCanvasOverlayProps>;
   resolveBracketShortcut?: (
     context: StudioBracketShortcutContext,
@@ -65,4 +71,8 @@ export interface VesselStudioExtension {
     template: string,
     context: { metadata: WebGLExportMetadata },
   ) => string;
+}
+
+export interface StudioStrokePaintMask {
+  readonly acceptsPixel: (x: number, y: number) => boolean;
 }

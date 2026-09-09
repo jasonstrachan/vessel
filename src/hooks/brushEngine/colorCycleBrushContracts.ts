@@ -305,6 +305,7 @@ export type ColorCycleBrushGradientControls = {
 };
 
 export type ColorCycleBrushPaintControls = {
+  getStrokePaintMask?(layerId: string): import('@/extensions/studioExtensionTypes').StudioStrokePaintMask | null;
   paint(...args: unknown[]): unknown;
   paintCustomStamp?(...args: unknown[]): unknown;
   fillShapeDispatch?(...args: unknown[]): unknown;

@@ -113,6 +113,7 @@ export function bindColorCycleGradientDefIdToSlot(
   const strokeData = context.ensureStrokeState(layerId);
   const bindingResult = bindColorCycleCommittedGradientDefToSlot({
     buffers: strokeData.buffers,
+    acceptsPixel: strokeData.paintMask?.acceptsPixel,
     canvasWidth: context.getCanvasWidth(),
     canvasHeight: context.getCanvasHeight(),
     defId,

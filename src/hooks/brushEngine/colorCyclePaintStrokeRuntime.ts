@@ -1,3 +1,4 @@
+import { createColorCycleStrokePaintMask, createColorCycleStampPaintMask } from './colorCycleStrokePaintMask';
 import { getCcPencilMask, resolveCcPencilSize, type CcPencilMask } from './ccPencilPressure';
 import { createCcBristleWriter, getCcBristleBaseIndex } from './ccBristles';
 import { getAppStoreState } from '@/stores/appStoreAccess';
@@ -110,6 +111,7 @@ export function runColorCyclePaintStroke(
   const flowSlot = context.resolveFlowSlot(strokeData, activeSlot);
   const appState = getAppStoreState();
   const pencilSettings = appState.tools.brushSettings;
+  if (strokeData.paintMask === undefined) strokeData.paintMask = createColorCycleStrokePaintMask();
   const pencilEnabled = pencilSettings.colorCyclePencilEnabled === true;
   // A Pencil stroke moves as one mark; pointer velocity must not split its playback speeds.
   if (!pencilEnabled) context.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
@@ -155,6 +157,9 @@ export function runColorCyclePaintStroke(
     pressure,
     sensitivity: pencilSettings.colorCyclePencilSensitivity,
   }) : undefined;
+  const writeMask = !useStampDither && strokeData.paintMask
+    ? createColorCycleStampPaintMask(strokeData.paintMask, x, y, pressureSize, pencilMask)
+    : pencilMask;
   const primaryIndex = bristlesEnabled && !useStampDither
     ? getCcBristleBaseIndex(strokeData.buffers.phase, colorIndex, !last)
     : colorIndex;
@@ -244,7 +249,7 @@ export function runColorCyclePaintStroke(
       primaryIndex,
       flowSlot,
       perf: context.getPerfStroke(),
-      pencilMask,
+      pencilMask: writeMask,
     });
   }
 
@@ -259,7 +264,7 @@ export function runColorCyclePaintStroke(
       flowSlot,
       shape: stampShape,
       clearDefIds: !useStampDither,
-      isPaintPixel: pencilMask?.accepts,
+      isPaintPixel: useStampDither ? strokeData.paintMask?.acceptsPixel : writeMask?.accepts,
       onPaintPixel: bristlesEnabled
         ? createCcBristleWriter(strokeData.buffers.phase, { x, y }, last, pencilSettings.colorCycleBristleWidth)
         : undefined,
@@ -363,6 +368,7 @@ function paintStampDither(
   let lastBounds: { minX: number; minY: number; maxX: number; maxY: number } | undefined;
   applyStampDitherStamp({
     animator,
+    acceptsPixel: strokeData.paintMask?.acceptsPixel,
     state: stampDitherState,
     config,
     runtime: context.getStampDitherRuntime(),
@@ -445,7 +451,7 @@ type StandardStampOptions = {
   primaryIndex: number;
   flowSlot: number;
   perf: ReturnType<ColorCycleStrokePerfState['get']>;
-  pencilMask?: CcPencilMask;
+  pencilMask?: CcPencilMask & { originX?: number; originY?: number };
 };
 
 function paintStandardStamp({
@@ -461,21 +467,21 @@ function paintStandardStamp({
 }: StandardStampOptions): void {
   const stampStart = perf ? nowMs() : 0;
   if (strokeShape === 'triangle') {
-    animator.paintTriangle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintTriangle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else if (strokeShape === 'round') {
-    animator.paintCircle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintCircle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else if (strokeShape === 'diamond') {
-    animator.paintDiamond(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintDiamond(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else if (strokeShape === 'diamond5') {
-    animator.paintDiamond5Pixelated(x, y, Math.max(1, Math.round(pressureSize / 5)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintDiamond5Pixelated(x, y, Math.max(1, Math.round(pressureSize / 5)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else if (strokeShape === 'diamond7') {
-    animator.paintDiamond7Pixelated(x, y, Math.max(1, Math.round(pressureSize / 7)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintDiamond7Pixelated(x, y, Math.max(1, Math.round(pressureSize / 7)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else if (strokeShape === 'diamond9') {
-    animator.paintDiamond9Pixelated(x, y, Math.max(1, Math.round(pressureSize / 9)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintDiamond9Pixelated(x, y, Math.max(1, Math.round(pressureSize / 9)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else if (strokeShape === 'checkered') {
-    animator.paintCheckeredPixelated(x, y, Math.max(1, Math.round(pressureSize / 4)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintCheckeredPixelated(x, y, Math.max(1, Math.round(pressureSize / 4)), primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else {
-    animator.paintSquare(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, 0, 0);
+    animator.paintSquare(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   }
   if (perf) {
     perf.durations.stampTotalMs += Math.max(0, nowMs() - stampStart);

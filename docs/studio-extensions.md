@@ -24,6 +24,19 @@ Normal development and public static exports resolve the no-op extension. A
 static export refuses studio mode, and `npm run verify:public-patterns` rejects
 tracked studio content or a release attempted with `VESSEL_STUDIO=1`.
 
+## Stroke paint masks
+
+`createColorCycleStrokePaintMask` optionally snapshots an extension's settings
+at the start of a native CC stroke. Its `acceptsPixel(x, y)` predicate receives
+integer canvas pixel coordinates, independent of viewport transforms. Return
+`null` to retain ordinary painting. The predicate must be pure and retain its
+captured settings for the entire stroke.
+
+Rejected pixels are excluded from native stamp writes, dither coverage and
+recomposition, metadata updates, speed finalization, and erase-mask healing.
+The mask is ephemeral: save/load, history and exported playback consume the
+resulting canonical pixels, without requiring extension calculations.
+
 ## Persistent local studio
 
 The normal private studio runs as a loopback-only macOS LaunchAgent at

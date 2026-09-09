@@ -903,6 +903,7 @@ export type BindColorCycleCommittedGradientDefToSlotOptions = {
   bbox?: { minX: number; minY: number; width: number; height: number };
   previewSlot?: number | null;
   trackPreviewLeak?: boolean;
+  acceptsPixel?: (x: number, y: number) => boolean;
 };
 
 export type BindColorCycleCommittedGradientDefToSlotResult = {
@@ -1765,6 +1766,7 @@ export const bindColorCycleCommittedGradientDefToSlot = ({
   bbox,
   previewSlot,
   trackPreviewLeak = false,
+  acceptsPixel,
 }: BindColorCycleCommittedGradientDefToSlotOptions): BindColorCycleCommittedGradientDefToSlotResult => {
   const expected = canvasWidth * canvasHeight;
   if (buffers.def.length !== expected) {
@@ -1791,6 +1793,7 @@ export const bindColorCycleCommittedGradientDefToSlot = ({
   for (let y = minY; y <= maxY; y += 1) {
     const row = y * canvasWidth;
     for (let x = minX; x <= maxX; x += 1) {
+      if (acceptsPixel && !acceptsPixel(x, y)) continue;
       const index = row + x;
       if (buffers.paint[index] === 0) {
         buffers.def[index] = 0;

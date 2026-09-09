@@ -238,6 +238,7 @@ export const applyStampDitherStamp = (args: {
   width: number;
   height: number;
   isAnimating: boolean;
+  acceptsPixel?: (x: number, y: number) => boolean;
   onScheduleRecompose?: (tileScale: number) => void;
   perf?: {
     onMask?: (ms: number, bounds: { minX: number; minY: number; maxX: number; maxY: number }) => void;
@@ -381,7 +382,8 @@ export const applyStampDitherStamp = (args: {
     primaryIndex,
     stampSeq,
     config.bgFill,
-    fusedWriter
+    fusedWriter,
+    args.acceptsPixel,
   );
   const maskMs = Math.max(0, nowMs() - maskStart);
   if (stampBounds) {
