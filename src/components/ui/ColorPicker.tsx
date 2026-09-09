@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState } from "react";
+import React, { useRef, useEffect, useCallback, useState, useMemo } from "react";
 
 import Input from "./Input";
 
@@ -32,22 +32,24 @@ const getGridIndex = (percentage: number, cellCount: number): number => clamp(
   cellCount - 1,
 );
 
-const getCanvasPoint = (
-  canvas: HTMLCanvasElement,
+const getPickerPoint = (
+  surface: HTMLDivElement,
   clientX: number,
   clientY: number,
+  width: number,
+  height: number,
 ): { x: number; y: number } => {
-  const rect = canvas.getBoundingClientRect();
+  const rect = surface.getBoundingClientRect();
   const left = Number.isFinite(rect.left) ? rect.left : 0;
   const top = Number.isFinite(rect.top) ? rect.top : 0;
   const safeClientX = Number.isFinite(clientX) ? clientX : left;
   const safeClientY = Number.isFinite(clientY) ? clientY : top;
-  const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
-  const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+  const scaleX = rect.width > 0 ? width / rect.width : 1;
+  const scaleY = rect.height > 0 ? height / rect.height : 1;
 
   return {
-    x: clamp((safeClientX - left) * scaleX, 0, canvas.width - 1),
-    y: clamp((safeClientY - top) * scaleY, 0, canvas.height - 1),
+    x: clamp((safeClientX - left) * scaleX, 0, width - 1),
+    y: clamp((safeClientY - top) * scaleY, 0, height - 1),
   };
 };
 
@@ -130,8 +132,8 @@ export default function ColorPicker({
   showHexInput = false,
   allowTransparent = false,
 }: ColorPickerProps) {
-  const svCanvasRef = useRef<HTMLCanvasElement>(null);
-  const hueCanvasRef = useRef<HTMLCanvasElement>(null);
+  const svSurfaceRef = useRef<HTMLDivElement>(null);
+  const hueSurfaceRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPointerDown, setIsPointerDown] = useState(false);
   const [isDraggingHue, setIsDraggingHue] = useState(false);
@@ -150,76 +152,17 @@ export default function ColorPicker({
   const rafRef = useRef<number | null>(null);
   const lastAppliedHsvRef = useRef<HSV>(hexToHsv(safeHex));
 
-  const drawSVCanvas = useCallback(
-    (hue: number) => {
-      const canvas = svCanvasRef.current;
-      if (!canvas) return;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      const width = canvas.width;
-      const height = canvas.height;
-      const cellWidth = width / GRID_COLS;
-      const cellHeight = height / GRID_ROWS;
-
-      for (let row = 0; row < GRID_ROWS; row++) {
-        const y0 = Math.round(row * cellHeight);
-        const y1 = Math.round((row + 1) * cellHeight);
-        const gridY = row * cellHeight;
-
-        for (let col = 0; col < GRID_COLS; col++) {
-          const x0 = Math.round(col * cellWidth);
-          const x1 = Math.round((col + 1) * cellWidth);
-          const gridX = col * cellWidth;
-
-          let hex;
-          if (col === 0 && row === 0) {
-            hex = "#ffffff";
-          } else if (col === GRID_COLS - 1 && row === GRID_ROWS - 1) {
-            hex = "#000000";
-          } else {
-            const s = (gridX / width) * 100;
-            const v = ((height - gridY) / height) * 100;
-            hex = hsvToHex(hue, s, v);
-          }
-
-          ctx.fillStyle = hex;
-          ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-        }
-      }
-
-    },
-    [],
-  );
-
-  const drawHueCanvas = useCallback(() => {
-    const canvas = hueCanvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, "#ff0000");
-    gradient.addColorStop(1 / 6, "#ffff00");
-    gradient.addColorStop(2 / 6, "#00ff00");
-    gradient.addColorStop(3 / 6, "#00ffff");
-    gradient.addColorStop(4 / 6, "#0000ff");
-    gradient.addColorStop(5 / 6, "#ff00ff");
-    gradient.addColorStop(1, "#ff0000");
-
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Draw selection indicator
-    const y = (currentHsv.h / 360) * canvas.height;
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, y - 2, canvas.width, 4);
-    ctx.fillStyle = "#000";
-    ctx.fillRect(2, y - 1, canvas.width - 4, 2);
-
-  }, [currentHsv.h]);
+  // Page elements keep the picker visible even when drawing contexts are unavailable.
+  const cells = useMemo(() => Array.from({ length: GRID_COLS * GRID_ROWS }, (_, index) => {
+    const row = Math.floor(index / GRID_COLS);
+    const col = index % GRID_COLS;
+    const color = index === 0
+      ? '#ffffff'
+      : index === GRID_COLS * GRID_ROWS - 1
+        ? '#000000'
+        : hsvToHex(currentHsv.h, (col / GRID_COLS) * 100, ((GRID_ROWS - row) / GRID_ROWS) * 100);
+    return <span key={index} style={{ backgroundColor: color }} />;
+  }), [currentHsv.h]);
 
   useEffect(() => {
     const raw = typeof color === "string" ? color.trim() : "";
@@ -277,11 +220,6 @@ export default function ColorPicker({
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
   }, []);
-
-  useEffect(() => {
-    drawSVCanvas(currentHsv.h);
-    drawHueCanvas();
-  }, [drawSVCanvas, drawHueCanvas, currentHsv.h, svSize]);
 
   const applyHsvUpdate = useCallback(
     (newHsv: HSV) => {
@@ -449,17 +387,17 @@ export default function ColorPicker({
 
   const handleSVPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      const canvas = svCanvasRef.current;
-      if (!canvas) return;
+      const surface = svSurfaceRef.current;
+      if (!surface) return;
 
-      canvas.setPointerCapture(e.pointerId);
+      surface.setPointerCapture(e.pointerId);
       setIsPointerDown(true);
       onInteractionStart?.();
 
-      const { x, y } = getCanvasPoint(canvas, e.clientX, e.clientY);
+      const { x, y } = getPickerPoint(surface, e.clientX, e.clientY, svSize, svSize);
 
-      const cellWidth = canvas.width / GRID_COLS;
-      const cellHeight = canvas.height / GRID_ROWS;
+      const cellWidth = svSize / GRID_COLS;
+      const cellHeight = svSize / GRID_ROWS;
       const gridCol = Math.floor(x / cellWidth);
       const gridRow = Math.floor(y / cellHeight);
       const clampedCol = clamp(gridCol, 0, GRID_COLS - 1);
@@ -474,27 +412,25 @@ export default function ColorPicker({
         applyHsvUpdate({ ...currentHsv, s: 0, v: 0 });
       } else {
         // Normal color selection
-        const gridX = clampedCol * cellWidth;
-        const gridY = clampedRow * cellHeight;
-        const s = (gridX / canvas.width) * 100;
-        const v = ((canvas.height - gridY) / canvas.height) * 100;
+        const s = (clampedCol / GRID_COLS) * 100;
+        const v = ((GRID_ROWS - clampedRow) / GRID_ROWS) * 100;
         applyHsvUpdate({ ...currentHsv, s, v });
       }
     },
-    [currentHsv, applyHsvUpdate, onInteractionStart],
+    [currentHsv, applyHsvUpdate, onInteractionStart, svSize],
   );
 
   const handleSVPointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!isPointerDown) return;
 
-      const canvas = svCanvasRef.current;
-      if (!canvas) return;
+      const surface = svSurfaceRef.current;
+      if (!surface) return;
 
-      const { x, y } = getCanvasPoint(canvas, e.clientX, e.clientY);
+      const { x, y } = getPickerPoint(surface, e.clientX, e.clientY, svSize, svSize);
 
-      const cellWidth = canvas.width / GRID_COLS;
-      const cellHeight = canvas.height / GRID_ROWS;
+      const cellWidth = svSize / GRID_COLS;
+      const cellHeight = svSize / GRID_ROWS;
       const gridCol = Math.floor(x / cellWidth);
       const gridRow = Math.floor(y / cellHeight);
       const clampedCol = clamp(gridCol, 0, GRID_COLS - 1);
@@ -509,21 +445,19 @@ export default function ColorPicker({
         scheduleHsvUpdate({ ...currentHsv, s: 0, v: 0 });
       } else {
         // Normal color selection
-        const gridX = clampedCol * cellWidth;
-        const gridY = clampedRow * cellHeight;
-        const s = (gridX / canvas.width) * 100;
-        const v = ((canvas.height - gridY) / canvas.height) * 100;
+        const s = (clampedCol / GRID_COLS) * 100;
+        const v = ((GRID_ROWS - clampedRow) / GRID_ROWS) * 100;
         scheduleHsvUpdate({ ...currentHsv, s, v });
       }
     },
-    [isPointerDown, currentHsv, scheduleHsvUpdate],
+    [isPointerDown, currentHsv, scheduleHsvUpdate, svSize],
   );
 
   const handleSVPointerUp = useCallback((e: React.PointerEvent) => {
-    const canvas = svCanvasRef.current;
-    if (!canvas) return;
+    const surface = svSurfaceRef.current;
+    if (!surface) return;
 
-    canvas.releasePointerCapture(e.pointerId);
+    surface.releasePointerCapture(e.pointerId);
     setIsPointerDown(false);
     flushPendingHsv();
     onInteractionEnd?.();
@@ -532,48 +466,48 @@ export default function ColorPicker({
 
   const handleHuePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      const canvas = hueCanvasRef.current;
-      if (!canvas) return;
+      const surface = hueSurfaceRef.current;
+      if (!surface) return;
 
-      canvas.setPointerCapture(e.pointerId);
+      surface.setPointerCapture(e.pointerId);
       setIsDraggingHue(true);
       onInteractionStart?.();
 
-      const { y } = getCanvasPoint(canvas, e.clientX, e.clientY);
-      const h = (y / canvas.height) * 360;
+      const { y } = getPickerPoint(surface, e.clientX, e.clientY, HUE_WIDTH, svSize);
+      const h = (y / svSize) * 360;
 
       applyHsvUpdate({ ...currentHsv, h });
     },
-    [currentHsv, applyHsvUpdate, onInteractionStart],
+    [currentHsv, applyHsvUpdate, onInteractionStart, svSize],
   );
 
   const handleHuePointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (!isDraggingHue) return;
 
-      const canvas = hueCanvasRef.current;
-      if (!canvas) return;
+      const surface = hueSurfaceRef.current;
+      if (!surface) return;
 
-      const { y } = getCanvasPoint(canvas, e.clientX, e.clientY);
-      const h = (y / canvas.height) * 360;
+      const { y } = getPickerPoint(surface, e.clientX, e.clientY, HUE_WIDTH, svSize);
+      const h = (y / svSize) * 360;
 
       scheduleHsvUpdate({ ...currentHsv, h });
     },
-    [isDraggingHue, currentHsv, scheduleHsvUpdate],
+    [isDraggingHue, currentHsv, scheduleHsvUpdate, svSize],
   );
 
   const handleHuePointerUp = useCallback((e: React.PointerEvent) => {
-    const canvas = hueCanvasRef.current;
-    if (!canvas) return;
+    const surface = hueSurfaceRef.current;
+    if (!surface) return;
 
-    canvas.releasePointerCapture(e.pointerId);
+    surface.releasePointerCapture(e.pointerId);
     setIsDraggingHue(false);
     flushPendingHsv();
     onInteractionEnd?.();
     onCommit?.();
   }, [flushPendingHsv, onCommit, onInteractionEnd]);
 
-  // Geometry for selection overlay (avoid per-move canvas redraws)
+  // Geometry for selection overlay
   const cellWidth = svSize / GRID_COLS;
   const cellHeight = svSize / GRID_ROWS;
   const normalizedHexValue = hexValue.trim().toUpperCase();
@@ -600,16 +534,24 @@ export default function ColorPicker({
     >
       <div className="flex w-full items-start justify-start gap-0">
         <div className="relative" style={{ width: svSize, height: svSize }}>
-          <canvas
-            ref={svCanvasRef}
-            width={svSize}
-            height={svSize}
+          <div
+            ref={svSurfaceRef}
+            data-color-picker="sv"
             className="cursor-crosshair"
             onPointerDown={handleSVPointerDown}
             onPointerMove={handleSVPointerMove}
             onPointerUp={handleSVPointerUp}
-            style={{ touchAction: "none", display: "block" }}
-          />
+            style={{
+              touchAction: 'none',
+              display: 'grid',
+              gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
+              gridTemplateRows: `repeat(${GRID_ROWS}, 1fr)`,
+              width: svSize,
+              height: svSize,
+            }}
+          >
+            {cells}
+          </div>
           <div
             className="pointer-events-none absolute left-0 top-0"
             style={{
@@ -621,16 +563,27 @@ export default function ColorPicker({
             }}
           />
         </div>
-        <canvas
-          ref={hueCanvasRef}
-          width={HUE_WIDTH}
-          height={svSize}
-          className="cursor-pointer"
+        <div
+          ref={hueSurfaceRef}
+          data-color-picker="hue"
+          className="relative cursor-pointer overflow-hidden shrink-0"
           onPointerDown={handleHuePointerDown}
           onPointerMove={handleHuePointerMove}
           onPointerUp={handleHuePointerUp}
-          style={{ touchAction: "none", display: 'block' }}
-        />
+          style={{
+            touchAction: 'none',
+            width: HUE_WIDTH,
+            height: svSize,
+            background: 'linear-gradient(to bottom, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
+          }}
+        >
+          <div
+            className="pointer-events-none absolute left-0 w-full"
+            style={{ top: (currentHsv.h / 360) * svSize - 2, height: 4, backgroundColor: '#fff' }}
+          >
+            <div style={{ margin: '1px 2px', height: 2, backgroundColor: '#000' }} />
+          </div>
+        </div>
       </div>
       {showHexInput ? (
         <div className="flex items-center gap-2 text-xs text-[#CCCCCC]">
