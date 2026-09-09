@@ -561,7 +561,7 @@ describe('AnimationControlsPanel', () => {
 
     render(<AnimationControlsPanel />);
 
-    expect(screen.getByRole('button', { name: 'Sequence Frame 3/16' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sequence', exact: true })).toHaveTextContent('3/16');
   });
 
   it('does not resize or trim frames while the numeric field is temporarily empty', () => {

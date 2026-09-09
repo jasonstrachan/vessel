@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { LoaderCircle } from 'lucide-react';
+import studioExtension from '@/extensions/studioExtension';
 
 import {
   useAppStore,
@@ -257,9 +258,13 @@ const AnimationControlsPanel: React.FC = () => {
     Math.max(1, Math.round(activeSequentialFrame) + 1),
   );
 
+  const StudioPlaybackControls = studioExtension.PlaybackControls ?? React.Fragment;
+  const StudioPlaybackSettings = studioExtension.PlaybackSettings;
+
   return (
     <div className="bg-[#1A1A1A] border-t border-[#404040]">
-      <div className="px-4 py-3 space-y-3">
+      <div className="px-4 py-1 space-y-1">
+        {StudioPlaybackSettings && <StudioPlaybackSettings />}
         <SequentialControlsModule
           controlsDisabled={controlsDisabled}
           currentFrameDisplay={currentFrameDisplay}
@@ -298,25 +303,29 @@ const AnimationControlsPanel: React.FC = () => {
           onPlaybackSpeedScaleChange={handlePlaybackSpeedScaleChange}
         />
 
-        <button
-          type="button"
-          onClick={handleTogglePlayback}
-          aria-busy={isPlaybackBuffering}
-          aria-label={isPlaybackBuffering
-            ? `${buttonLabel} playback; ${bufferingStatus}`
-            : buttonLabel}
-          title={isPlaybackBuffering
-            ? `${bufferingStatus.charAt(0).toUpperCase()}${bufferingStatus.slice(1)}`
-            : undefined}
-          className="w-full h-11 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
-        >
-          {isPlaybackBuffering ? (
-            <LoaderCircle aria-hidden="true" className="animate-spin" size={10} />
-          ) : (
-            <span className="text-[10px]" aria-hidden="true">{buttonIcon}</span>
-          )}
-          <span className="ml-1 text-[10px]">{buttonLabel}</span>
-        </button>
+        <div className="sticky bottom-0 bg-[#1A1A1A] py-1" data-playback-transport>
+          <StudioPlaybackControls>
+            <button
+              type="button"
+              onClick={handleTogglePlayback}
+              aria-busy={isPlaybackBuffering}
+              aria-label={isPlaybackBuffering
+                ? `${buttonLabel} playback; ${bufferingStatus}`
+                : buttonLabel}
+              title={isPlaybackBuffering
+                ? `${bufferingStatus.charAt(0).toUpperCase()}${bufferingStatus.slice(1)}`
+                : undefined}
+              className="w-full h-8 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
+            >
+              {isPlaybackBuffering ? (
+                <LoaderCircle aria-hidden="true" className="animate-spin" size={10} />
+              ) : (
+                <span className="text-[10px]" aria-hidden="true">{buttonIcon}</span>
+              )}
+              <span className="ml-1 text-[10px]">{buttonLabel}</span>
+            </button>
+          </StudioPlaybackControls>
+        </div>
       </div>
     </div>
   );

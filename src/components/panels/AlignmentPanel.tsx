@@ -2,7 +2,7 @@
 
 import { debugWarn } from '@/utils/debug';
 import React, { memo, useCallback, useMemo, useState } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ModuleHeader } from '@/components/panels/ModuleHeader';
 
 import { useAppStore } from '@/stores/useAppStore';
 import {
@@ -146,7 +146,7 @@ export const buildNextAlignment = (
   };
 };
 
-export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ density = 'compact', className = '', defaultExpanded = true }) => {
+export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ className = '', defaultExpanded = true }) => {
   const activeLayerId = useAppStore(selectActiveLayerId);
   const layers = useAppStore(selectLayers);
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
@@ -163,12 +163,10 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
   const selectedAnchor = resolveAnchorSelection(alignment);
   const isAuto = alignment?.positioning === 'auto';
   const effectiveFit: LayerAlignmentSettings['fit'] = alignment?.fit ?? 'contain';
-  const isComfortable = density === 'comfortable';
 
-  const paddingClasses = isComfortable ? 'px-2 py-1.5' : 'px-2 py-0.5';
+  const paddingClasses = 'px-2 py-0.5';
   const rootClasses = [paddingClasses, className].filter(Boolean).join(' ').trim();
 
-  const titleClass = 'text-sm font-medium text-[#F1F1F6]';
   const labelClass = 'text-sm font-medium text-[#D3D3DC]';
 
   const fieldClass = [
@@ -279,23 +277,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ densi
 
   return (
     <div className={rootClasses}>
-      <button
-        type="button"
-        className={[
-          'w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors',
-          isComfortable ? 'py-1' : 'py-0.5'
-        ].filter(Boolean).join(' ')}
-        onClick={handleToggleExpanded}
-        aria-expanded={isExpanded}
-      >
-        <div className="flex flex-col">
-          <span className={titleClass}>Layer alignment</span>
-        </div>
-        <ChevronRight
-          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-          aria-hidden
-        />
-      </button>
+      <ModuleHeader title="Layer alignment" expanded={isExpanded} onToggle={handleToggleExpanded} />
 
       {isExpanded && (
         <div className={contentSpacingClass}>
@@ -435,7 +417,7 @@ interface AlignmentPanelProps extends DensityProps {
 
 const AlignmentPanel: React.FC<AlignmentPanelProps> = ({ density = 'comfortable', defaultExpanded = true, className = '' }) => {
   const panelClass = [
-    'bg-[#1A1A1A] border-t border-[#404040] px-2 py-2',
+    'bg-[#1A1A1A] border-t border-[#404040] px-2 py-0.5',
     className
   ].filter(Boolean).join(' ');
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ModuleHeader } from '@/components/panels/ModuleHeader';
 import Input from '@/components/ui/Input';
 import { useAppStore } from '@/stores/useAppStore';
 
@@ -73,28 +73,8 @@ const GridSettingsPanel: React.FC = () => {
   );
 
   return (
-    <section className="bg-[#1A1A1A] border-t border-[#404040] px-4 py-3" aria-labelledby="grid-settings-heading">
-      <button
-        type="button"
-        className="w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors py-1"
-        onClick={handleToggleExpanded}
-        aria-expanded={isExpanded}
-      >
-        <div className="flex flex-col">
-          <span id="grid-settings-heading" className="text-sm font-medium text-[#F1F1F6]">
-            Grid
-          </span>
-          {isExpanded ? (
-            <span className="text-[11px] leading-4 text-[#88888A]">
-              Persistent canvas overlay aligned to the document.
-            </span>
-          ) : null}
-        </div>
-        <ChevronRight
-          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-          aria-hidden
-        />
-      </button>
+    <section className="bg-[#1A1A1A] border-t border-[#404040] px-4 py-1" aria-labelledby="grid-settings-heading">
+      <ModuleHeader title="Grid" headingId="grid-settings-heading" expanded={isExpanded} onToggle={handleToggleExpanded} />
 
       {isExpanded ? (
         <div className="mt-1.5">

@@ -39,7 +39,8 @@ export interface StudioClipboardActionContext {
 export interface VesselStudioExtension {
   brushPresets: readonly BrushPreset[];
   ToolbarItems?: React.ComponentType;
-  ToolSettings?: React.ComponentType<React.PropsWithChildren>;
+  PlaybackSettings?: React.ComponentType;
+  PlaybackControls?: React.ComponentType<{ children: React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>> }>;
   ExportControls?: React.ComponentType;
   BrushControls?: React.ComponentType;
   BrushSettingsControls?: React.ComponentType;

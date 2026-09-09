@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ModuleHeader } from '@/components/panels/ModuleHeader';
 
 import {
   CC_LAYER_SPEED_MULTIPLIER_STEP,
@@ -72,30 +72,9 @@ const PlaybackSpeedControlsModule: React.FC<PlaybackSpeedControlsModuleProps> = 
   return (
     <section
       aria-labelledby="playback-speed-controls-heading"
-      className="border-t border-[#404040] pt-2"
+      className="border-t border-[#404040] pt-1"
     >
-      <button
-        type="button"
-        className="w-full bg-transparent flex items-center justify-between text-left cursor-pointer select-none gap-2 transition-colors py-1"
-        onClick={handleToggleExpanded}
-        aria-expanded={isExpanded}
-        aria-label="Speed"
-      >
-        <div className="flex flex-col">
-          <span id="playback-speed-controls-heading" className="text-sm font-medium text-[#F1F1F6]">
-            Speed
-          </span>
-          {isExpanded ? (
-            <span className="text-[11px] leading-4 text-[#88888A]">
-              CC and Interlace playback
-            </span>
-          ) : null}
-        </div>
-        <ChevronRight
-          className={`h-4 w-4 text-[#8F8FA3] transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-          aria-hidden
-        />
-      </button>
+      <ModuleHeader title="Speed" headingId="playback-speed-controls-heading" expanded={isExpanded} onToggle={handleToggleExpanded} />
 
       {isExpanded && (
         <div className="mt-1.5 space-y-2">
