@@ -16,6 +16,7 @@ import {
   attachLegacyColorCycleTopLevelBuffers,
   getColorCycleLegacyLayerBuffer,
   registerColorCycleBrushSerializedStateRuntime,
+  mergeColorCycleBrushPersistenceLayerMetaForOwner,
 } from '@/lib/colorCycle/document';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 
@@ -273,6 +274,7 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
             gradientIdBuffer: new Uint8Array([3, 4, 0, 0]).buffer,
             gradientDefIdBuffer: new Uint16Array([5, 6, 0, 0]).buffer,
             speedBuffer: new Uint8Array([7, 8, 0, 0]).buffer,
+            speedSourceVersion: 2 as const,
             flowBuffer: new Uint8Array([9, 10, 0, 0]).buffer,
             phaseBuffer: new Uint8Array([11, 12, 0, 0]).buffer,
             hasContent: true,
@@ -316,11 +318,13 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     const payload = restoreSerializedState.mock.calls[0]?.[0] as {
       layerSnapshots?: Array<{
         speedBuffer?: ArrayBuffer;
+        speedSourceVersion?: number;
         flowBuffer?: ArrayBuffer;
         phaseBuffer?: ArrayBuffer;
       }>;
     };
     const snapshot = payload.layerSnapshots?.[0];
+    expect(snapshot?.speedSourceVersion).toBe(2);
     expect(Array.from(new Uint8Array(snapshot?.speedBuffer ?? new ArrayBuffer(0)))).toEqual([7, 8, 0, 0]);
     expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual([9, 10, 0, 0]);
     expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual([11, 12, 0, 0]);
@@ -626,6 +630,16 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
     expect(restoredLayer?.colorCycleData?.slotPalettes?.[0]?.slot).toBe(4);
     expect(restoredLayer?.colorCycleData?.gradientDefStore?.[0]?.slot).toBe(4);
     expect(restoredLayer?.colorCycleData?.nextGradientDefId).toBe(5);
+
+    restoreSerializedState.mockImplementationOnce(() => {
+      const metadata = useAppStore.getState().layers.find((entry) => entry.id === layer.id)?.colorCycleData;
+      expect(metadata?.gradientDefStore).toEqual(forwardState.layers[0].gradientDefStore);
+      expect(metadata?.slotPalettes).toEqual(forwardState.layers[0].slotPalettes);
+      expect(metadata?.paintSlot).toBe(9);
+      expect(mergeColorCycleBrushPersistenceLayerMetaForOwner(mockBrush, layer.id, null)?.gradientDefStore)
+        .toEqual(forwardState.layers[0].gradientDefStore);
+    });
+    await replayDeltaForTest(delta!, 'forward');
   });
 
   it('skips full-state restore when the document version has drifted', async () => {

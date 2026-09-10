@@ -447,6 +447,9 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     const playbackContext = getPlaybackBrushContext(brush);
     const context: ColorCycleSurfaceBrushContext = {
       ...playbackContext,
+      getColorCycleDerivedSurface: typeof brush.getColorCycleDerivedSurface === 'function'
+        ? brush.getColorCycleDerivedSurface.bind(brush)
+        : undefined,
       getCanvas: typeof brush.getCanvas === 'function'
         ? brush.getCanvas.bind(brush)
         : undefined,

@@ -1,5 +1,6 @@
 import {
   restoreColorCycleBrushSerializedStateToRuntime,
+  setColorCycleBrushPersistenceLayerMeta,
   type ColorCycleLayerDocumentRead,
   type ColorCycleBrushSerializedState,
   type ColorCycleBrushSerializedStateRuntimeWriter,
@@ -539,7 +540,7 @@ class ColorCycleStrokeDelta implements HistoryDelta {
     const liveState = useAppStore.getState();
     const layer = liveState.layers.find((candidate) => candidate.id === this.layerId);
     let targetCanvas = layer?.colorCycleData?.canvas;
-    if (!brush || !layer || layer.layerType !== 'color-cycle' || !targetCanvas) {
+    if (!brush || !layer || layer.layerType !== 'color-cycle' || !layer.colorCycleData || !targetCanvas) {
       throw new Error(`Color-cycle runtime for ${this.layerId} is unavailable for history replay.`);
     }
 
@@ -612,6 +613,46 @@ class ColorCycleStrokeDelta implements HistoryDelta {
       }
     }
 
+    // The document rebuild reads palette metadata from the layer. Publish it before
+    // restoring indices so history never renders them through the previous palettes.
+    const restoredLayerSnapshot = layerSnapshots.find((snapshot) => snapshot.layerId === this.layerId);
+    const hasRestoredSnapshot = Boolean(restoredLayerSnapshot);
+    const restoredSlotPalettes = restoredLayerSnapshot?.slotPalettes
+      ? restoredLayerSnapshot.slotPalettes.map((entry) => ({
+          slot: entry.slot,
+          stops: cloneStoredStops(entry.stops),
+          seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
+        }))
+      : undefined;
+    const restoredGradientDefStore = restoredLayerSnapshot?.gradientDefStore
+      ? restoredLayerSnapshot.gradientDefStore.map((entry) => ({
+          ...entry,
+          seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
+          stops: cloneStoredStops(entry.stops),
+          sourceStops: entry.sourceStops ? cloneStoredStops(entry.sourceStops) : undefined,
+        }))
+      : undefined;
+    const nextColorCycleData = {
+      gradientDefs: hasRestoredSnapshot ? restoredLayerSnapshot?.gradientDefs : layer.colorCycleData.gradientDefs,
+      slotPalettes: hasRestoredSnapshot ? restoredSlotPalettes : layer.colorCycleData.slotPalettes,
+      gradientDefStore: hasRestoredSnapshot ? restoredGradientDefStore : layer.colorCycleData.gradientDefStore,
+      nextGradientDefId: hasRestoredSnapshot ? restoredLayerSnapshot?.nextGradientDefId : layer.colorCycleData.nextGradientDefId,
+      fgActiveSlot: hasRestoredSnapshot ? restoredLayerSnapshot?.fgActiveSlot : layer.colorCycleData.fgActiveSlot,
+      fgDerivedKey: hasRestoredSnapshot ? restoredLayerSnapshot?.fgDerivedKey : layer.colorCycleData.fgDerivedKey,
+      fgDerivedGradients: hasRestoredSnapshot ? restoredLayerSnapshot?.fgDerivedGradients : layer.colorCycleData.fgDerivedGradients,
+      derivedGradients: hasRestoredSnapshot ? restoredLayerSnapshot?.derivedGradients : layer.colorCycleData.derivedGradients,
+      activeGradientId: hasRestoredSnapshot ? restoredLayerSnapshot?.activeGradientId : layer.colorCycleData.activeGradientId,
+      paintSlot: hasRestoredSnapshot ? restoredLayerSnapshot?.paintSlot : layer.colorCycleData.paintSlot,
+      legacyRemap: hasRestoredSnapshot ? restoredLayerSnapshot?.legacyRemap : layer.colorCycleData.legacyRemap,
+      hasContent: restoredHasContent
+    };
+    useAppStore.setState((current) => ({
+      layers: current.layers.map((candidate) => candidate.id === this.layerId
+        ? { ...candidate, colorCycleData: { ...candidate.colorCycleData, ...nextColorCycleData } }
+        : candidate),
+    }));
+    setColorCycleBrushPersistenceLayerMeta(brush, this.layerId, nextColorCycleData);
+
     try {
       // Do not clear before a history restore; the restore will rebuild the animator and commit the correct pixels.
       restoreColorCycleBrushSerializedStateToRuntime(brush, {
@@ -673,6 +714,7 @@ class ColorCycleStrokeDelta implements HistoryDelta {
             gradientIdBuffer: layerSnapshot.strokeData?.gradientIdBuffer,
             gradientDefIdBuffer: layerSnapshot.strokeData?.gradientDefIdBuffer,
             speedBuffer: layerSnapshot.strokeData?.speedBuffer,
+            speedSourceVersion: layerSnapshot.strokeData?.speedSourceVersion,
             flowBuffer: layerSnapshot.strokeData?.flowBuffer,
             phaseBuffer: layerSnapshot.strokeData?.phaseBuffer,
             hasContent: Boolean(layerSnapshot.strokeData?.hasContent),
@@ -773,42 +815,10 @@ class ColorCycleStrokeDelta implements HistoryDelta {
       try {
         const latestState = useAppStore.getState();
         const latestLayer = latestState.layers.find((candidate) => candidate.id === this.layerId);
-        const restoredLayerSnapshot = layerSnapshots.find((snapshot) => snapshot.layerId === this.layerId);
         const restoredImageData = targetDimensions
           ? tctx.getImageData(0, 0, targetCanvas.width, targetCanvas.height)
           : null;
         if (latestLayer?.colorCycleData) {
-          const hasRestoredSnapshot = Boolean(restoredLayerSnapshot);
-          const restoredSlotPalettes = restoredLayerSnapshot?.slotPalettes
-            ? restoredLayerSnapshot.slotPalettes.map((entry) => ({
-                slot: entry.slot,
-                stops: cloneStoredStops(entry.stops),
-                seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
-              }))
-            : undefined;
-          const restoredGradientDefStore = restoredLayerSnapshot?.gradientDefStore
-            ? restoredLayerSnapshot.gradientDefStore.map((entry) => ({
-                ...entry,
-                seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
-                stops: cloneStoredStops(entry.stops),
-                sourceStops: entry.sourceStops ? cloneStoredStops(entry.sourceStops) : undefined,
-              }))
-            : undefined;
-          const nextColorCycleData = {
-            ...latestLayer.colorCycleData,
-            gradientDefs: hasRestoredSnapshot ? restoredLayerSnapshot?.gradientDefs : latestLayer.colorCycleData.gradientDefs,
-            slotPalettes: hasRestoredSnapshot ? restoredSlotPalettes : latestLayer.colorCycleData.slotPalettes,
-            gradientDefStore: hasRestoredSnapshot ? restoredGradientDefStore : latestLayer.colorCycleData.gradientDefStore,
-            nextGradientDefId: hasRestoredSnapshot ? restoredLayerSnapshot?.nextGradientDefId : latestLayer.colorCycleData.nextGradientDefId,
-            fgActiveSlot: hasRestoredSnapshot ? restoredLayerSnapshot?.fgActiveSlot : latestLayer.colorCycleData.fgActiveSlot,
-            fgDerivedKey: hasRestoredSnapshot ? restoredLayerSnapshot?.fgDerivedKey : latestLayer.colorCycleData.fgDerivedKey,
-            fgDerivedGradients: hasRestoredSnapshot ? restoredLayerSnapshot?.fgDerivedGradients : latestLayer.colorCycleData.fgDerivedGradients,
-            derivedGradients: hasRestoredSnapshot ? restoredLayerSnapshot?.derivedGradients : latestLayer.colorCycleData.derivedGradients,
-            activeGradientId: hasRestoredSnapshot ? restoredLayerSnapshot?.activeGradientId : latestLayer.colorCycleData.activeGradientId,
-            paintSlot: hasRestoredSnapshot ? restoredLayerSnapshot?.paintSlot : latestLayer.colorCycleData.paintSlot,
-            legacyRemap: hasRestoredSnapshot ? restoredLayerSnapshot?.legacyRemap : latestLayer.colorCycleData.legacyRemap,
-            hasContent: restoredHasContent
-          };
           useAppStore.setState((current) => ({
             layers: current.layers.map((candidate) =>
               candidate.id === this.layerId && candidate.layerType === 'color-cycle'
@@ -818,7 +828,7 @@ class ColorCycleStrokeDelta implements HistoryDelta {
                     framebuffer: targetDimensions ? targetCanvas : candidate.framebuffer,
                     colorCycleData: {
                       ...candidate.colorCycleData,
-                      ...nextColorCycleData,
+                      hasContent: restoredHasContent,
                       canvas: targetCanvas,
                       canvasImageData:
                         restoredImageData ?? candidate.colorCycleData?.canvasImageData,

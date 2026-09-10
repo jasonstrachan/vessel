@@ -5,6 +5,12 @@ import {
 } from '@/components/canvas/resolveColorCyclePresentation';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import studioExtension from '@/extensions/studioExtension';
+
+jest.mock('@/extensions/studioExtension', () => ({
+  __esModule: true,
+  default: { getColorCycleLayerPreview: jest.fn() },
+}));
 
 const createLayer = (overrides: Partial<Layer>): Layer => {
   const framebuffer = document.createElement('canvas');
@@ -44,6 +50,20 @@ const resolve = (layer: Layer | null | undefined) =>
   });
 
 describe('resolveColorCyclePresentation', () => {
+  it('uses a transient preview only for its target layer and never changes its stored surface', () => {
+    const stored = createCanvas();
+    const preview = createCanvas();
+    const layer = createLayer({ colorCycleData: { canvas: stored, runtimeHydrationState: 'warm' } });
+    const getPreview = studioExtension.getColorCycleLayerPreview as jest.Mock;
+    getPreview.mockImplementation((id: string) => id === layer.id ? preview : null);
+    expect(getColorCyclePresentationCanvas(resolve(layer), layer)).toBe(preview);
+    expect(layer.colorCycleData?.canvas).toBe(stored);
+    expect(getColorCyclePresentationCanvas(resolve({ ...layer, visible: false }), layer)).toBeNull();
+    const other = { ...layer, id: 'other' };
+    expect(getColorCyclePresentationCanvas(resolve(other), other)).toBe(stored);
+    getPreview.mockReset();
+    expect(getColorCyclePresentationCanvas(resolve(layer), layer)).toBe(stored);
+  });
   it('returns compatibility snapshots for cold restored layers with canvas image data', () => {
     const imageData = new ImageData(16, 16);
     const layer = createLayer({

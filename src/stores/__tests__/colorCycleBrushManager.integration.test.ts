@@ -77,6 +77,7 @@ function createMockBrush() {
     removeColorCycleLayerDocument: jest.fn(),
     isUsingWebGL: jest.fn(() => false),
     getCanvas: jest.fn(() => canvas),
+    getColorCycleDerivedSurface: jest.fn(() => null),
     renderDirectToCanvas: jest.fn(),
     presentCurrentFrameToCanvas: jest.fn(),
     commitToLayer: jest.fn(),
@@ -301,6 +302,7 @@ describe('colorCycleBrushManager integration', () => {
     expect(surfaceBrush).not.toBe(brush);
     expect(Object.keys(surfaceBrush ?? {}).sort()).toEqual([
       'getCanvas',
+      'getColorCycleDerivedSurface',
       'isPlaying',
       'pause',
       'presentCurrentFrameToCanvas',
@@ -319,9 +321,11 @@ describe('colorCycleBrushManager integration', () => {
 
     const canvas = document.createElement('canvas');
     surfaceBrush?.setTargetCanvas?.(canvas);
+    surfaceBrush?.getColorCycleDerivedSurface?.('layer-1');
     surfaceBrush?.renderDirectToCanvas?.(canvas, 'layer-1');
 
     expect(brush.setTargetCanvas).toHaveBeenCalledWith(canvas);
+    expect(brush.getColorCycleDerivedSurface).toHaveBeenCalledWith('layer-1');
     expect(brush.renderDirectToCanvas).toHaveBeenCalledWith(canvas, 'layer-1');
   });
 
@@ -611,6 +615,7 @@ describe('colorCycleBrushManager integration', () => {
       'finalizeCurrentStroke',
       'flush',
       'getCanvas',
+      'getColorCycleDerivedSurface',
       'getColorCycleLayerDocument',
       'getSampledStrokeDitherPrimaryBuffer',
       'isPlaying',
@@ -688,6 +693,7 @@ describe('colorCycleBrushManager integration', () => {
       'commitToLayer',
       'flush',
       'getCanvas',
+      'getColorCycleDerivedSurface',
       'getColorCycleLayerDocument',
       'isPlaying',
       'pause',

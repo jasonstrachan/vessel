@@ -7,6 +7,7 @@ import type {
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type { GradientStop } from '@/lib/GradientPalette';
+import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { BrushSettings } from '@/types';
 import type { PatternStyle } from '@/utils/ditherAlgorithms';
 
@@ -66,6 +67,7 @@ export type ColorCycleBrushDocumentControls = {
 };
 
 export type ColorCycleBrushSurfaceControls = {
+  getColorCycleDerivedSurface?: ColorCycleSurfaceBrushContext['getColorCycleDerivedSurface'];
   setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
   getCanvas(): HTMLCanvasElement;
   render(...args: unknown[]): void;
@@ -163,6 +165,7 @@ export type ColorCycleExportPlaybackBrushContext =
 export type ColorCycleSurfaceBrushContext =
   & ColorCyclePlaybackBrushContext
   & {
+    getColorCycleDerivedSurface?: (layerId: string) => Pick<ColorCycleAnimator, 'getCanvas' | 'reset' | 'setDefPaletteCache'> | null;
     getCanvas?: () => HTMLCanvasElement | OffscreenCanvas | null;
     setTargetCanvas?: (canvas: HTMLCanvasElement | null) => void;
     renderDirectToCanvas?: (canvas: HTMLCanvasElement, layerId: string) => void;

@@ -1,4 +1,5 @@
 import type { Layer } from '@/types';
+import studioExtension from '@/extensions/studioExtension';
 
 export type ColorCyclePresentationSource =
   | {
@@ -252,6 +253,10 @@ export const getColorCyclePresentationCanvas = (
   layer?: Layer | null,
 ): HTMLCanvasElement | OffscreenCanvas | null => {
   const canvas = (() => {
+    if (source.kind !== 'none' && layer) {
+      const preview = studioExtension.getColorCycleLayerPreview?.(layer.id);
+      if (preview) return preview;
+    }
     if (source.kind === 'runtime-surface') {
       return source.canvas;
     }

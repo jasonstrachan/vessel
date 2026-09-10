@@ -37,6 +37,12 @@ recomposition, metadata updates, speed finalization, and erase-mask healing.
 The mask is ephemeral: save/load, history and exported playback consume the
 resulting canonical pixels, without requiring extension calculations.
 
+`getColorCycleLayerPreview` may return an ephemeral unmasked canvas while a
+private layer editor is active. Studio composites it with the layer's normal
+masks, opacity and ordering. Editors must release it on cancel, apply, layer
+switch and unmount. Canonical CC buffers remain unchanged until an explicit
+edit transaction; saved and exported CC playback uses those canonical buffers.
+
 ## Persistent local studio
 
 The normal private studio runs as a loopback-only macOS LaunchAgent at
