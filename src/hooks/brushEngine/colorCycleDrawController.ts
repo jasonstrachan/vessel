@@ -292,7 +292,6 @@ export const drawColorCycleStroke = ({
       ) {
         return;
       }
-      markPaintBounds(paintX, paintY);
 
       if (options?.customStamp && typeof colorCycleBrush.paintCustomStamp === 'function') {
         if (Number.isFinite(options.speedSamplePxPerMs)) {
@@ -315,6 +314,7 @@ export const drawColorCycleStroke = ({
             rotation
           );
         }
+        markPaintBounds(paintX, paintY);
         return;
       }
 
@@ -330,6 +330,7 @@ export const drawColorCycleStroke = ({
       } else {
         colorCycleBrush.paint(paintX, paintY, layerId, pressure, rotation);
       }
+      markPaintBounds(paintX, paintY);
     };
 
     const customSnapSpacing = resolveColorCycleCustomSnapSpacing({

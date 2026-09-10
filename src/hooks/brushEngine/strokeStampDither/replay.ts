@@ -239,9 +239,7 @@ export const recomposeStampDitherOverlay = (args: {
             if (def) def[idx] = 0;
           } else if (baseG && baseG.length === gid.length) {
             gid[idx] = baseG[idx];
-            if (def) {
-              def[idx] = 0;
-            }
+            if (def) def[idx] = state.stampDitherBaseDef?.[idx] ?? 0;
           } else {
             gid[idx] = flowSlot;
             if (def) def[idx] = 0;
@@ -574,9 +572,7 @@ export const finalizeStampDither = (args: {
             if (def) def[idx] = 0;
           } else if (baseG && baseG.length === gid.length) {
             gid[idx] = baseG[idx];
-            if (def) {
-              def[idx] = 0;
-            }
+            if (def) def[idx] = state.stampDitherBaseDef?.[idx] ?? 0;
           } else {
             gid[idx] = flowSlot;
             if (def) def[idx] = 0;

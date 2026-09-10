@@ -172,9 +172,8 @@ const applyStampDitherToRegion = (
             if (defData) defData[idx] = 0;
           } else if (baseG && baseG.length === gradientId.length) {
             gradientId[idx] = baseG[idx];
-            if (defData) {
-              defData[idx] = 0;
-            }
+            // Retained paint must keep its durable palette reference across save/reopen.
+            if (defData) defData[idx] = strokeData.stampDitherBaseDef?.[idx] ?? 0;
           } else {
             gradientId[idx] = flowSlot;
             if (defData) defData[idx] = 0;

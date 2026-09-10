@@ -1,4 +1,4 @@
-import { createColorCycleStrokePaintMask, createColorCycleStampPaintMask } from './colorCycleStrokePaintMask';
+import { createColorCycleStrokePaintMask, createColorCycleStampPaintMask, prepareColorCycleStrokePaintMask } from './colorCycleStrokePaintMask';
 import { getCcPencilMask, resolveCcPencilSize, type CcPencilMask } from './ccPencilPressure';
 import { createCcBristleWriter, getCcBristleBaseIndex } from './ccBristles';
 import { getAppStoreState } from '@/stores/appStoreAccess';
@@ -111,7 +111,11 @@ export function runColorCyclePaintStroke(
   const flowSlot = context.resolveFlowSlot(strokeData, activeSlot);
   const appState = getAppStoreState();
   const pencilSettings = appState.tools.brushSettings;
-  if (strokeData.paintMask === undefined) strokeData.paintMask = createColorCycleStrokePaintMask();
+  if (strokeData.paintMask === undefined) {
+    strokeData.paintMask = createColorCycleStrokePaintMask(
+      id, context.getCanvasWidth(), context.getCanvasHeight(), strokeData.buffers.paint,
+    );
+  }
   const pencilEnabled = pencilSettings.colorCyclePencilEnabled === true;
   // A Pencil stroke moves as one mark; pointer velocity must not split its playback speeds.
   if (!pencilEnabled) context.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
@@ -157,6 +161,10 @@ export function runColorCyclePaintStroke(
     pressure,
     sensitivity: pencilSettings.colorCyclePencilSensitivity,
   }) : undefined;
+  if (strokeData.paintMask) {
+    prepareColorCycleStrokePaintMask(strokeData.paintMask, x, y, pressureSize,
+      stampShape, context.getCanvasWidth(), context.getCanvasHeight());
+  }
   const writeMask = !useStampDither && strokeData.paintMask
     ? createColorCycleStampPaintMask(strokeData.paintMask, x, y, pressureSize, pencilMask)
     : pencilMask;

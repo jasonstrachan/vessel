@@ -113,7 +113,7 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
     strokeData.contentIsOptimistic = true;
   }
   if (strokeData) {
-    strokeData.paintMask = createColorCycleStrokePaintMask();
+    strokeData.paintMask = createColorCycleStrokePaintMask(id, context.width(), context.height(), strokeData.buffers.paint);
     const expected = context.width() * context.height();
     if (strokeData.buffers.paint.length === expected) {
       try {

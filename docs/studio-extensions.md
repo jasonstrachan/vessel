@@ -32,6 +32,13 @@ integer canvas pixel coordinates, independent of viewport transforms. Return
 `null` to retain ordinary painting. The predicate must be pure and retain its
 captured settings for the entire stroke.
 
+The context's lazy `readSourceCoverage()` returns a detached snapshot of the
+target layer's authored coverage, excluding fully erased or masked pixels.
+An optional `prepareStamp` callback runs before native writes and receives the
+stamp position and native tip footprint. Stateful constraints advance there;
+`acceptsPixel` remains a side-effect-free query, including during finalization.
+Erase-mask healing records coverage after this preparation and painting.
+
 Rejected pixels are excluded from native stamp writes, dither coverage and
 recomposition, metadata updates, speed finalization, and erase-mask healing.
 The mask is ephemeral: save/load, history and exported playback consume the

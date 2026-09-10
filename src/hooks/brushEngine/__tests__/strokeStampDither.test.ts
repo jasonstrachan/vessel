@@ -420,7 +420,7 @@ describe('strokeStampDither', () => {
     expect(state.stampDitherBaseIdx?.[idx]).toBe(9);
   });
 
-  it('does not preserve shape gradient def bindings when restoring dither base pixels', () => {
+  it('preserves durable gradient bindings when restoring dither base pixels', () => {
     const width = 16;
     const height = 16;
     const animator = buildAnimator(width, height);
@@ -480,7 +480,7 @@ describe('strokeStampDither', () => {
     expect(restoredBasePixels.length).toBeGreaterThan(0);
     restoredBasePixels.forEach((index) => {
       expect(animator.handle.gradientId[index]).toBe(3);
-      expect(state.gradientDefIdBuffer[index]).toBe(0);
+      expect(state.gradientDefIdBuffer[index]).toBe(7);
     });
   });
 

@@ -79,6 +79,7 @@ it.each(shapes.flatMap((shape) => [true, false].flatMap((bgFill) => ['sierra-lit
   }
   const check = () => {
     for (let i = 0; i < paint.length; i += 1) {
+      if (!bgFill && paint[i] === 46) expect(def[i]).toBe(315);
       if (acceptsPixel(i % width, Math.floor(i / width))) continue;
       expect([paint[i], gid[i], def[i], speed[i], flow[i], phase[i]]).toEqual([46, 3, 315, 91, 2, 137]);
       expect(state.stampDitherTag?.[i] ?? 0).toBe(0);

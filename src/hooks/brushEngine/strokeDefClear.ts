@@ -89,6 +89,14 @@ export const clearStrokeDefIdsForStamp = ({
     }
   };
 
+  visitStrokeStampPixels({ width, height, x, y, brushSize, shape }, clearAt);
+};
+
+/** Shared native tip footprint for metadata writes and pre-write constraints. */
+export const visitStrokeStampPixels = (
+  { width, height, x, y, brushSize, shape }: Pick<ClearStrokeDefIdsForStampArgs, 'width' | 'height' | 'x' | 'y' | 'brushSize' | 'shape'>,
+  clearAt: (x: number, y: number) => void,
+): void => {
   const clearPixelMask = (gridSize: number, pixelScale: number, mask: ReadonlyArray<number>) => {
     const scale = Math.max(1, Math.round(pixelScale));
     const stampSize = gridSize * scale;

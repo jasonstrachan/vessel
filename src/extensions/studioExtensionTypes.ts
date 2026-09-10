@@ -52,6 +52,8 @@ export interface VesselStudioExtension {
     currentTool: Tool;
     presetId: string | null;
     brushSettings: BrushSettings;
+    /** Read once at pen down, before this stroke writes or heals pixels. */
+    readSourceCoverage: () => { width: number; height: number; data: Uint8Array };
   }) => StudioStrokePaintMask | null;
   CanvasOverlay?: React.ComponentType<StudioCanvasOverlayProps>;
   resolveBracketShortcut?: (
@@ -77,5 +79,10 @@ export interface VesselStudioExtension {
 }
 
 export interface StudioStrokePaintMask {
+  /** Called in stroke order before any stamp writes. Pixel queries must remain side-effect free. */
+  readonly prepareStamp?: (stamp: {
+    x: number; y: number; size: number;
+    footprint?: { originX: number; originY: number; size: number; data: Uint8Array };
+  }) => void;
   readonly acceptsPixel: (x: number, y: number) => boolean;
 }
