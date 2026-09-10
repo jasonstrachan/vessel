@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 import { ColorCycleGradientSwatches } from '@/components/toolbar/ColorCycleGradientSwatches';
-import ColorSwatches from '@/components/toolbar/ColorSwatches';
 import ColorPicker from '@/components/ui/ColorPicker';
 import PaletteSwatches from '@/components/ui/PaletteSwatches';
 import ProgressSlider from '@/components/ui/ProgressSlider';
-import { isColorCycleBrushShape } from '@/stores/helpers/toolsState';
 import { useAppStore } from '@/stores/useAppStore';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
@@ -44,17 +42,6 @@ const ColorPickerPanel = React.memo(() => {
   const updateActiveColorCycleGradient = useAppStore(
     state => state.updateActiveColorCycleGradient,
   );
-  const activeLayerIsColorCycle = useAppStore((state) => (
-    state.layers.find((layer) => layer.id === state.activeLayerId)?.layerType === 'color-cycle'
-  ));
-  const brushShape = useAppStore((state) => state.tools.brushSettings.brushShape);
-  const customBrushColorCycle = useAppStore(
-    (state) => state.tools.brushSettings.customBrushColorCycle === true,
-  );
-  const showColorCycleGradients = activeLayerIsColorCycle
-    || isColorCycleBrushShape(brushShape)
-    || customBrushColorCycle;
-  
   const { foregroundColor, backgroundColor, activeSlot } = palette;
   const activeColor = useMemo(
     () => (activeSlot === 'foreground' ? foregroundColor : backgroundColor),
@@ -94,12 +81,11 @@ const ColorPickerPanel = React.memo(() => {
 
   useEffect(() => {
     if (
-      !showColorCycleGradients ||
       (selectedGradientStop && selectedGradientStop.gradientId !== activeGradient?.id)
     ) {
       setSelectedGradientStop(null);
     }
-  }, [activeGradient?.id, selectedGradientStop, showColorCycleGradients]);
+  }, [activeGradient?.id, selectedGradientStop]);
   
   // Note: setActiveSettings removed in favor of direct setter calls to avoid re-render loops
 
@@ -306,23 +292,6 @@ const ColorPickerPanel = React.memo(() => {
     setIsColorPickerDragging(false);
   }, []);
 
-  // Stable color select handler for ColorSwatches
-  const handleColorSelect = useCallback((color: string) => {
-    if (colorEditTarget.kind === 'gradient-stop') {
-      pendingColorRef.current = { color, target: colorEditTarget };
-      flushPendingColor();
-    } else {
-      const currentColor = colorEditTarget.slot === 'foreground'
-        ? paletteRef.current.foregroundColor
-        : paletteRef.current.backgroundColor;
-      setPaletteColor(
-        colorEditTarget.slot,
-        withCssOpacity(color, getCssOpacity(currentColor)),
-      );
-    }
-    requestDitherWarmup();
-  }, [colorEditTarget, flushPendingColor, requestDitherWarmup, setPaletteColor]);
-
   const handlePaletteSlotSelect = useCallback((slot: 'foreground' | 'background') => {
     setSelectedGradientStop(null);
     setActivePaletteSlot(slot);
@@ -454,17 +423,10 @@ const ColorPickerPanel = React.memo(() => {
         </div>
       </div>
 
-      {showColorCycleGradients ? (
-        <ColorCycleGradientSwatches
-          selectedStop={selectedGradientStop}
-          onSelectedStopChange={setSelectedGradientStop}
-        />
-      ) : (
-        <ColorSwatches
-          currentColor={activeColor}
-          onColorSelect={handleColorSelect}
-        />
-      )}
+      <ColorCycleGradientSwatches
+        selectedStop={selectedGradientStop}
+        onSelectedStopChange={setSelectedGradientStop}
+      />
     </div>
   );
 });

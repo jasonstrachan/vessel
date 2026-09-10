@@ -4,7 +4,7 @@ import { act, render, fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 
 import { useAppStore } from '@/stores/useAppStore';
-import type { Layer } from '@/types';
+import { BrushShape, type Layer } from '@/types';
 
 import ColorPickerPanel from '../ColorPickerPanel';
 
@@ -51,7 +51,7 @@ describe('ColorPickerPanel', () => {
     jest.restoreAllMocks();
   });
 
-  it('replaces recent colors with editable shared gradients for a CC layer', async () => {
+  it('shows editable shared gradients for a CC layer', async () => {
     const user = userEvent.setup();
     const layer = {
       id: 'cc-layer',
@@ -74,6 +74,31 @@ describe('ColorPickerPanel', () => {
     expect(state.tools.brushSettings.colorCycleGradient).toEqual(active?.stops);
     expect(state.tools.brushSettings.ccGradientSource).toBe('manual');
     expect(screen.queryByText('Seam')).not.toBeInTheDocument();
+  });
+
+  it('keeps the same gradient palette mounted when switching brushes, layers, and tools', () => {
+    const regular = { id: 'regular', layerType: 'normal' } as Layer;
+    const cc = { id: 'cc', layerType: 'color-cycle' } as Layer;
+    useAppStore.setState({ layers: [regular, cc], activeLayerId: regular.id });
+    render(<ColorPickerPanel />);
+    const palette = screen.getByTestId('cc-gradient-palette');
+
+    for (const activeLayerId of [cc.id, regular.id]) {
+      for (const brushShape of [BrushShape.COLOR_CYCLE, BrushShape.ROUND]) {
+        for (const currentTool of ['brush', 'eraser', 'eyedropper'] as const) {
+          act(() => useAppStore.setState((state) => ({
+            activeLayerId,
+            tools: {
+              ...state.tools,
+              currentTool,
+              brushSettings: { ...state.tools.brushSettings, brushShape },
+            },
+          })));
+          expect(screen.getByTestId('cc-gradient-palette')).toBe(palette);
+          expect(screen.getAllByRole('button', { name: /Use CC gradient/i }).length).toBeGreaterThan(1);
+        }
+      }
+    }
   });
 
   it('edits the selected gradient stop with the shared RGB sliders', async () => {
