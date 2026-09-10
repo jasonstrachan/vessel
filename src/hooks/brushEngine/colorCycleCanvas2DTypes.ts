@@ -84,6 +84,7 @@ export type LayerStrokeState = {
 
 export type ColorCycleRuntimeMutationReason =
   | 'brush-stroke-write'
+  | 'gradient-def-binding'
   | 'selection-region-clear'
   | 'shape-erase'
   | 'transparency-lock-erase'

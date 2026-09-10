@@ -648,6 +648,17 @@ const BrushLibrary = () => {
               {effect === 'filters' ? 'Filters' : effect === 'interlace' ? 'Interlace' : effect === 'recolor' ? 'Color cycle + recolor' : 'Colour Adjust'}
             </button>;
           })}
+          {studioExtension.UnresolveSettings && (
+            <button
+              type="button"
+              aria-pressed={brushPanelSection === 'unresolve'}
+              onClick={() => setBrushPanelSection('unresolve')}
+              className={`flex h-[26px] w-full items-center gap-0.5 px-2.5 text-left text-xs ${brushPanelSection === 'unresolve' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+            >
+              <span aria-hidden="true" className="w-[26px] shrink-0 text-center">Un</span>
+              Unresolve
+            </button>
+          )}
           <div className="px-2.5">
             {StudioPlaybackSettings && <StudioPlaybackSettings />}
           </div>

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react';
 import { bindColorCycleFramePublication } from '@/hooks/brushEngine/colorCycleInitController';
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { selectEffectiveColorCyclePlaying, useAppStore } from '@/stores/useAppStore';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
 import type { Layer } from '@/types';
@@ -33,6 +34,7 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
   pendingColorCycleRefreshRef,
   colorCycleBrushManagerRef,
 }: UseDrawingCanvasColorCycleSegmentRefreshOptions) => {
+  const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const isRefreshingRef = useRef(false);
 
   useEffect(() => {
@@ -138,7 +140,7 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
         bindColorCycleFramePublication(publicationBrush, segment.layerId);
       }
       const wantPlaying = Boolean(
-        layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor',
+        effectivePlaying && layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor',
       );
       const isPlaying = brush.isPlaying?.() ?? false;
       if (wantPlaying && !isPlaying) {
@@ -151,6 +153,7 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
     colorCycleBrushManagerRef,
     compositeSegmentsRef,
     compositeSegmentsVersion,
+    effectivePlaying,
     layerMapRef,
     layers,
   ]);

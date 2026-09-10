@@ -24,6 +24,8 @@ import {
   applyColorCycleBrushLayerSnapshotToRuntime,
   applyColorCycleBrushPaintPatchToRuntime,
   commitColorCycleCommittedLayerStateToRuntime,
+  ColorCycleLayerDocument,
+  createEmptyColorCycleLayerDocumentState,
   getColorCycleLegacyLayerBuffer,
   getColorCycleBrushStrokeStateForOwner,
   readColorCycleBrushSerializedStateFromRuntime,
@@ -1029,6 +1031,9 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const defId = 303;
     const brush = new ColorCycleBrushCanvas2D(makeCanvas(4, 1), { forceCanvas2D: true });
     const state = useAppStore.getState() as unknown as MockStoreState;
+    state.updateLayer = jest.fn((id: string, patch: Partial<Layer>) => {
+      state.layers = state.layers.map((layer) => layer.id === id ? { ...layer, ...patch } : layer);
+    });
 
     state.layers = [{
       id: layerId,
@@ -1068,6 +1073,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       strokeCounter: 1,
     });
 
+    brush.setColorCycleLayerDocument(layerId, new ColorCycleLayerDocument(
+      createEmptyColorCycleLayerDocumentState({ layerId, width: 4, height: 1 }),
+    ));
+    brush.rebaseColorCycleLayerDocument(layerId);
     const staleSnapshot = readBrushLayerSnapshot(brush, layerId);
     expect(Array.from(new Uint8Array(staleSnapshot?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([1, 0, 0, 0]);
 
@@ -1089,6 +1098,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
         previewSlot: TEMP_SAMPLE_SLOT,
       },
     });
+
+    const committedDocument = brush.getColorCycleLayerDocument(layerId)?.read().snapshot;
+    expect(new Uint16Array(committedDocument?.gradientDefIdBuffer ?? new ArrayBuffer(0))[2]).toBe(defId);
+    expect(new Uint8Array(committedDocument?.gradientIdBuffer ?? new ArrayBuffer(0))[2]).toBe(slot);
 
     const serialized = readSerializedBrushState(brush);
     const paint = Array.from(

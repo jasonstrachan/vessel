@@ -40,6 +40,7 @@ export interface VesselStudioExtension {
   brushPresets: readonly BrushPreset[];
   ToolbarItems?: React.ComponentType;
   PlaybackSettings?: React.ComponentType;
+  UnresolveSettings?: React.ComponentType;
   PlaybackControls?: React.ComponentType<{ children: React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>> }>;
   ExportControls?: React.ComponentType;
   BrushControls?: React.ComponentType;

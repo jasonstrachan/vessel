@@ -107,9 +107,11 @@ const nextMarkId = () => {
 };
 
 const finalizeSampledSession = (session: MarkGradientSession): void => {
-  // Pickup must include the complete path even when its last preview was throttled.
-  if (session.markKind === 'stroke' && session.colourPickup && session.sampledStrokePoints && session.sampledStrokeColorAt) {
+  // Preview sampling is throttled; a short or coalesced stroke may have only
+  // sampled pointer-down. The committed gradient must cover its complete path.
+  if (session.markKind === 'stroke' && session.sampledStrokePoints && session.sampledStrokeColorAt) {
     const sampled = buildSampledStops({
+      markKind: session.markKind,
       pickup: session.colourPickup,
       sourcePts: session.sampledStrokePoints,
       sampleColor: session.sampledStrokeColorAt,

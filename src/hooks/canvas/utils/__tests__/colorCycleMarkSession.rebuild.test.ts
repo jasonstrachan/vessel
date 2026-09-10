@@ -11,6 +11,7 @@ import {
 import { useAppStore } from '@/stores/useAppStore';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
+import { updateCcSampledSession } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 
 describe('colorCycleMarkSession rebuild', () => {
   const stops = [
@@ -63,6 +64,70 @@ describe('colorCycleMarkSession rebuild', () => {
         ? { ...state.project, width: 2, height: 2 }
         : state.project,
     }));
+  });
+
+  it('commits the complete sampled stroke when all moves arrive inside the preview throttle', () => {
+    const layer = createLayer();
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const session = beginMarkGradientSession({
+      layerId: layer.id,
+      markKind: 'stroke',
+      gradientKind: 'linear',
+      source: 'sampled',
+      stops,
+    });
+    if (!session) throw new Error('Expected a sampled mark session');
+    const lastUpdateRef = { current: 0 };
+    const sampleColor = jest.fn((x: number) => x < 32 ? '#3c7295' : '#508bab');
+    updateCcSampledSession({
+      session,
+      sourcePts: [{ x: 0, y: 0 }],
+      sampleColor,
+      now: 200,
+      lastUpdateRef,
+      allowTiny: true,
+    });
+    expect(updateCcSampledSession({
+      session,
+      sourcePts: [{ x: 0, y: 0 }, { x: 64, y: 0 }],
+      sampleColor,
+      now: 205,
+      lastUpdateRef,
+      allowTiny: true,
+    })).toBeNull();
+    expect(session.samples).toHaveLength(1);
+
+    const committed = finalizeMarkGradientSession(layer.id);
+
+    expect(committed?.rawStopsStored?.[0].color).toBe('#3c7295');
+    expect(committed?.rawStopsStored?.at(-1)?.color).toBe('#508bab');
+    expect(committed?.samples?.length).toBeGreaterThan(1);
+    expect(sampleColor).toHaveBeenLastCalledWith(64, 0);
+    expect(committed?.sampledStrokeColorAt).toBeUndefined();
+  });
+
+  it('freezes a separate full-path gradient for each differently sampled stroke', () => {
+    const layer = createLayer();
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const draw = (channel: 'red' | 'blue') => {
+      const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: 'sampled', stops });
+      if (!session) throw new Error('Expected a sampled mark session');
+      updateCcSampledSession({
+        session, sourcePts: [{ x: 0, y: 0 }, { x: 300, y: 0 }], now: 200,
+        lastUpdateRef: { current: 0 }, allowTiny: true,
+        sampleColor: (x) => channel === 'red' ? `rgb(${Math.round(x / 300 * 255)},0,0)` : `rgb(0,0,${Math.round(x / 300 * 255)})`,
+      });
+      return finalizeMarkGradientSession(layer.id);
+    };
+    const first = draw('red');
+    const firstStops = JSON.stringify(first?.frozenStopsStored);
+    const second = draw('blue');
+    expect(first?.samples).toHaveLength(256);
+    expect(second?.samples).toHaveLength(256);
+    expect(first?.binding?.kind).toBe('def');
+    expect(second?.binding?.kind).toBe('def');
+    expect(first?.binding?.defId).not.toBe(second?.binding?.defId);
+    expect(JSON.stringify(first?.frozenStopsStored)).toBe(firstStops);
   });
 
   it('captures the CC gradient background-fill toggle for the whole mark', () => {

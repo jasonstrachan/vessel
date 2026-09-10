@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import studioExtension from '@/extensions/studioExtension';
 import BrushControls from '@/components/toolbar/BrushControls';
 import FillControls from '@/components/toolbar/FillControls';
 import { CustomBrushPanel } from '@/components/toolbar/CustomBrushPanel';
@@ -25,6 +26,7 @@ import {
 } from '@/stores/selectors/toolsSelectors';
 
 const BrushSettingsPanel: React.FC = () => {
+  const StudioUnresolveSettings = studioExtension.UnresolveSettings;
   const currentTool = useAppStore(selectCurrentTool);
   const brushEditorStatus = useAppStore(selectBrushEditor).status;
   const brushSettings = useAppStore(selectBrushSettings);
@@ -82,13 +84,18 @@ const BrushSettingsPanel: React.FC = () => {
   const shouldShowBrushEditor =
     brushSettings.brushShape === BrushShape.CUSTOM || brushEditorStatus === 'EDITING';
 
+  const isUnresolveSection = brushPanelSection === 'unresolve' && Boolean(StudioUnresolveSettings);
   const isFiltersSection = brushPanelSection === 'filters';
   const isInterlaceSection = brushPanelSection === 'interlace';
 
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
-        {isFiltersSection ? (
+        {isUnresolveSection && StudioUnresolveSettings ? (
+          <div className="px-4 py-4">
+            <StudioUnresolveSettings />
+          </div>
+        ) : isFiltersSection ? (
           <div className="px-4 py-4">
             <DisplayFiltersSection />
           </div>

@@ -41,6 +41,26 @@ FG Grad and Man Grad continue their colour progression across consecutive
 strokes, with or without Stamp Dither. Sample maps its gradient from beginning
 to end along each completed stroke. Starting a stroke does not restart playback.
 
+Sample captures the complete path in order, at approximately one canvas pixel
+per sample up to 256 samples, then freezes that stroke's gradient on release.
+Longer paths distribute those samples across their full length. This samples
+the centreline, not every pixel across the brush width.
+Sampled Stamp Dither uses neighbouring colours along that path for its two inks;
+it does not jump to a distant part of the sampled gradient.
+
+In Studio, Effects → Unresolve keeps those gradients, path indices, and bristle
+phase offsets intact.
+Sample strokes: On selects the sampled source with neutral sampled contrast and a
+hard seam, pauses playback, and resets the layer clock so new strokes align with
+the sampled image on release. The button shows On/Off; turning it off selects
+Palette again. The shared cycle moves each stroke's own colours along its path;
+Resolve returns to the original alignment. Apply synchronises native playback
+on the selected CC layer, including Goblet playback. There is no separate
+unresolved palette or frame capture. Existing strokes retain their captured
+sampling detail; denser sampling applies to new strokes.
+Use global Play/Pause to animate or pause strokes and active Unresolve previews.
+After Apply, global Play runs the committed strokes.
+
 ## Collaboration profile
 
 Color Cycle Stroke is an available collaboration brush for genuinely linear

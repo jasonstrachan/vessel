@@ -1,9 +1,10 @@
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
 import type { Layer } from '@/types';
+import { useAppStore } from '@/stores/useAppStore';
 import { useDrawingCanvasColorCycleSegmentRefresh } from '../useDrawingCanvasColorCycleSegmentRefresh';
 
 jest.mock('@/hooks/useBrushEngineSimplified', () => ({
@@ -49,8 +50,45 @@ const renderRefreshHook = ({
 
 describe('useDrawingCanvasColorCycleSegmentRefresh', () => {
   beforeEach(() => {
+    useAppStore.setState((state) => ({
+      colorCyclePlayback: { ...state.colorCyclePlayback, desiredPlaying: true, suspendDepth: 0 },
+    }));
     mockRefreshLayerCCSurface.mockReset();
     mockRefreshLayerCCSurface.mockImplementation(() => document.createElement('canvas'));
+  });
+
+  it('honours global pause and suspension even when the layer animation flag is stale', () => {
+    let playing = false;
+    const surfaceBrush = {
+      isPlaying: () => playing,
+      startAnimation: jest.fn(() => { playing = true; }),
+      stopAnimation: jest.fn(() => { playing = false; }),
+      presentCurrentFrameToCanvas: jest.fn(),
+    };
+    const manager = {
+      getSurfaceBrush: () => surfaceBrush,
+      getInitBrush: () => null,
+    } as unknown as ColorCycleBrushManager;
+    useAppStore.getState().pauseColorCycle('toolbar');
+    const view = renderRefreshHook({
+      layers: [makeLayer('paused-layer', true)],
+      segments: [makeSegment('paused-layer')],
+      manager,
+    });
+    expect(surfaceBrush.startAnimation).not.toHaveBeenCalled();
+    view.rerender();
+    expect(surfaceBrush.startAnimation).not.toHaveBeenCalled();
+    act(() => useAppStore.getState().playColorCycle('toolbar'));
+    expect(playing).toBe(true);
+    act(() => useAppStore.getState().pauseColorCycle('toolbar'));
+    expect(playing).toBe(false);
+    act(() => {
+      useAppStore.getState().suspendColorCycle('shape-preview');
+      useAppStore.getState().playColorCycle('toolbar');
+    });
+    expect(playing).toBe(false);
+    expect(surfaceBrush.startAnimation).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
 
   it('binds frame publication before starting every restored layer runtime', () => {

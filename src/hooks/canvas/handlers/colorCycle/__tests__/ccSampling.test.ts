@@ -1,5 +1,6 @@
 import {
   CC_SAMPLED_MAX_STOPS,
+  buildSampledStops,
   remapSampledStrokePaintPhase,
   resolveSampledStopsWithFallback,
   updateCcSampledSession,
@@ -29,6 +30,21 @@ const makeSession = (): MarkGradientSession => ({
 });
 
 describe('ccSampling', () => {
+  it('captures narrow colour changes along the complete bent stroke in path order', () => {
+    const result = buildSampledStops({
+      markKind: 'stroke',
+      sourcePts: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }],
+      allowTiny: true,
+      sampleColor: (x, y) => y >= 50 && y <= 51 ? '#ff0000' : x < 100 ? '#000000' : '#ffffff',
+    });
+    expect(result?.sampleCount).toBeGreaterThan(200);
+    expect(result?.stops[0]).toEqual({ position: 0, color: '#000000' });
+    expect(result?.stops.at(-1)).toEqual({ position: 1, color: '#ffffff' });
+    const detail = result?.stops.find((stop) => stop.color === '#ff0000');
+    expect(detail?.position).toBeGreaterThanOrEqual(0.75);
+    expect(detail?.position).toBeLessThanOrEqual(0.755);
+  });
+
   it('builds a 2-stop gradient from a single sample', () => {
     const session = makeSession();
     const lastUpdateRef = { current: 0 };
@@ -114,7 +130,7 @@ describe('ccSampling', () => {
     expect(remapped?.phaseBuffer).toBe(phaseBuffer);
   });
 
-  it('preserves the stamp dither pattern and band count while remapping sampled stroke phase', () => {
+  it('maps both dither inks to neighbouring colours on the sampled path without a distant-colour wrap', () => {
     const width = 4;
     const primary = new Uint8Array([10, 10, 20, 20]);
     const paint = new Uint8Array([10, 74, 20, 84]);
@@ -135,14 +151,13 @@ describe('ccSampling', () => {
       region: { x: 0, y: 0, width, height: 1 },
       pathPadding: 1,
       ditherPrimaryBuffer: primary,
-      ditherBandCount: 2,
     });
 
     expect(Array.from(new Uint8Array(remapped?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
       1,
-      65,
+      86,
+      170,
       255,
-      64,
     ]);
   });
 

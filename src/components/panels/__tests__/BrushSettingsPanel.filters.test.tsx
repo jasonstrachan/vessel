@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import BrushSettingsPanel from '../BrushSettingsPanel';
 import BrushLibrary from '@/components/BrushLibrary';
+import studioExtension from '@/extensions/studioExtension';
 import { useAppStore } from '@/stores/useAppStore';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
@@ -57,6 +58,36 @@ describe('BrushSettingsPanel filters section', () => {
     expect(library.queryByLabelText('Noise enabled')).not.toBeInTheDocument();
     expect(options.getByLabelText('Noise enabled')).toBeInTheDocument();
     expect(screen.getAllByLabelText('Noise enabled')).toHaveLength(1);
+  });
+
+  it('opens Unresolve from Effects without selecting a brush and disposes its preview when leaving', () => {
+    const previous = studioExtension.UnresolveSettings;
+    const disposed = jest.fn();
+    const UnresolveOptions = () => {
+      React.useEffect(() => disposed, []);
+      return <div>Set resolved frame</div>;
+    };
+    studioExtension.UnresolveSettings = UnresolveOptions;
+    try {
+      const brush = useAppStore.getState().currentBrushPreset;
+      const tool = useAppStore.getState().tools.currentTool;
+      render(<><div data-testid="library"><BrushLibrary /></div><div data-testid="options"><BrushSettingsPanel /></div></>);
+      const library = within(screen.getByTestId('library'));
+      const options = within(screen.getByTestId('options'));
+      fireEvent.click(library.getByRole('button', { name: 'Brushes' }));
+      expect(library.queryByRole('button', { name: 'Unresolve' })).not.toBeInTheDocument();
+      fireEvent.click(library.getByRole('button', { name: 'Effects' }));
+      fireEvent.click(library.getByRole('button', { name: 'Unresolve' }));
+      expect(library.getByRole('button', { name: 'Unresolve' })).toHaveAttribute('aria-pressed', 'true');
+      expect(options.getByText('Set resolved frame')).toBeVisible();
+      expect(useAppStore.getState().currentBrushPreset).toBe(brush);
+      expect(useAppStore.getState().tools.currentTool).toBe(tool);
+      fireEvent.click(library.getByRole('button', { name: 'Filters' }));
+      expect(options.queryByText('Set resolved frame')).not.toBeInTheDocument();
+      expect(disposed).toHaveBeenCalledTimes(1);
+    } finally {
+      studioExtension.UnresolveSettings = previous;
+    }
   });
 
   it('prioritizes the selected adjustment layer editor and exposes its target selector', () => {

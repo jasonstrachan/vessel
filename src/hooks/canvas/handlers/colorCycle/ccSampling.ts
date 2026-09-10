@@ -10,7 +10,6 @@ import {
 } from '@/hooks/canvas/utils/autoSampleGradient';
 import { equidistantPointsOnPolyline } from '@/hooks/canvas/handlers/brushSampling';
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
-import { mapColorCycleBandIndexToPaletteIndex } from '@/hooks/brushEngine/colorCycleStrokeTimingRuntime';
 import { resolveStampDitherSecondaryIndex } from '@/hooks/brushEngine/strokeStampDither';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
@@ -20,8 +19,10 @@ import type { ColorCyclePaintSnapshot } from '@/lib/colorCycle/document';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 
 export const CC_SAMPLED_THROTTLE_MS = 120;
-export const CC_SAMPLED_MAX_STOPS = 16;
-export const CC_SAMPLED_SAMPLE_SPACING_PX = 32;
+export const CC_SAMPLED_MAX_STOPS = 256;
+export const CC_SAMPLED_SAMPLE_SPACING_PX = 1;
+const CC_SHAPE_SAMPLED_MAX_STOPS = 16;
+const CC_SHAPE_SAMPLED_SAMPLE_SPACING_PX = 32;
 
 type StrokePoint = { x: number; y: number };
 
@@ -72,7 +73,6 @@ export const remapSampledStrokePaintPhase = ({
   region,
   pathPadding,
   ditherPrimaryBuffer,
-  ditherBandCount,
 }: {
   snapshot: ColorCyclePaintSnapshot;
   width: number;
@@ -82,7 +82,6 @@ export const remapSampledStrokePaintPhase = ({
   region?: CaptureRegion;
   pathPadding: number;
   ditherPrimaryBuffer?: Uint8Array | null;
-  ditherBandCount?: number;
 }): ColorCyclePaintSnapshot | null => {
   const safeWidth = Math.floor(width);
   const safeHeight = Math.floor(height);
@@ -124,7 +123,6 @@ export const remapSampledStrokePaintPhase = ({
   const ditherPrimary = ditherPrimaryBuffer?.byteLength === pixelCount
     ? ditherPrimaryBuffer
     : null;
-  const ditherBands = Math.max(2, Math.min(254, Math.floor(ditherBandCount || 12)));
   const bestDistanceSq = new Float32Array(regionWidth * regionHeight);
   bestDistanceSq.fill(Number.POSITIVE_INFINITY);
   const bestPathT = new Float32Array(regionWidth * regionHeight);
@@ -199,12 +197,10 @@ export const remapSampledStrokePaintPhase = ({
       }
       const pixelIndex = row + x;
       const pathT = clamp(bestPathT[localIndex], 0, 1);
-      const nextPrimary = ditherPrimary
-        ? mapColorCycleBandIndexToPaletteIndex(
-          Math.round(pathT * (ditherBands - 1)),
-          ditherBands,
-        )
-        : 1 + Math.round(pathT * 254);
+      // The finalized palette is the complete sampled path. Dither inks must
+      // bracket that position, not jump a quarter of the way along the image.
+      const palettePosition = pathT * 254;
+      const nextPrimary = 1 + (ditherPrimary ? Math.floor(palettePosition) : Math.round(palettePosition));
       let nextIndex = nextPrimary;
       if (ditherPrimary) {
         const sourcePrimary = ditherPrimary[pixelIndex];
@@ -213,7 +209,7 @@ export const remapSampledStrokePaintPhase = ({
           continue;
         }
         if (sourceIndex === resolveStampDitherSecondaryIndex(sourcePrimary)) {
-          nextIndex = resolveStampDitherSecondaryIndex(nextPrimary);
+          nextIndex = 1 + Math.ceil(palettePosition);
         } else if (sourceIndex !== sourcePrimary) {
           continue;
         }
@@ -276,6 +272,7 @@ const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
 };
 
 export const buildSampledStops = (params: {
+  markKind?: 'stroke' | 'shape';
   pickup?: CcColourPickup;
   sourcePts: Array<{ x: number; y: number }>;
   sampleColor: (x: number, y: number) => string;
@@ -328,9 +325,12 @@ export const buildSampledStops = (params: {
     return null;
   }
 
+  // Shape fallbacks retain their sparse sampling; dense samples are for stroke paths.
+  const maxStops = params.markKind === 'stroke' ? CC_SAMPLED_MAX_STOPS : CC_SHAPE_SAMPLED_MAX_STOPS;
+  const spacing = params.markKind === 'stroke' ? CC_SAMPLED_SAMPLE_SPACING_PX : CC_SHAPE_SAMPLED_SAMPLE_SPACING_PX;
   const sampleCount = Math.min(
-    CC_SAMPLED_MAX_STOPS,
-    Math.max(2, Math.floor(totalLen / CC_SAMPLED_SAMPLE_SPACING_PX) + 2)
+    maxStops,
+    Math.max(2, Math.floor(totalLen / spacing) + 2)
   );
   const sampledPoints = equidistantPointsOnPolyline(deduped, sampleCount);
   if (sampledPoints.length === 0) {
@@ -406,7 +406,7 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
   if (args.session.source === 'sampled' && args.session.markKind === 'stroke') {
     args.session.sampledStrokePoints = dedupePolylineForSampling(args.sourcePts)
       .map((point) => ({ x: point.x, y: point.y }));
-    if (args.session.colourPickup) args.session.sampledStrokeColorAt = args.sampleColor;
+    args.session.sampledStrokeColorAt = args.sampleColor;
   }
   if (args.now - args.lastUpdateRef.current < CC_SAMPLED_THROTTLE_MS) {
     logSampledPipeline('updateCcSampledSession throttled', {
@@ -427,6 +427,7 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
   }
 
   const result = buildSampledStops({
+    markKind: args.session.markKind,
     pickup: args.session.colourPickup,
     sourcePts: args.sourcePts,
     sampleColor: args.sampleColor,

@@ -530,7 +530,18 @@ export class ColorCycleBrushCanvas2D {
    * Bind committed gradient def ids to pixels that match a slot.
    * This updates the authoritative def buffer without reading from animator state.
    */
-  readonly bindGradientDefIdToSlot = this.gradientApi.bindGradientDefIdToSlot;
+  readonly bindGradientDefIdToSlot: ColorCycleGradientApiRuntime['bindGradientDefIdToSlot'] = (
+    layerId, defId, slot, bbox, previewSlot,
+  ) => {
+    this.layerDocumentApi.mutateRuntimeLayerStrokeState({
+      layerId,
+      reason: 'gradient-def-binding',
+      source: 'stroke',
+      forceDocumentPublish: true,
+      pixelsChanged: true,
+      mutate: () => this.gradientApi.bindGradientDefIdToSlot(layerId, defId, slot, bbox, previewSlot),
+    });
+  };
 
   /** Enable/disable perceptual dithering for shape fills. */
   readonly setPerceptualDither = this.settingsApi.setPerceptualDither;
