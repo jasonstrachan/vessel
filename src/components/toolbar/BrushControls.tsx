@@ -1570,12 +1570,8 @@ const BrushControls = () => {
             <ButtonGroup
               options={[
                 { label: 'Square', value: 'square' },
-                { label: 'Checkered', value: 'checkered' },
                 { label: 'Round', value: 'round' },
                 { label: 'Diamond', value: 'diamond' },
-                { label: 'Diamond5', value: 'diamond5' },
-                { label: 'Diamond7', value: 'diamond7' },
-                { label: 'Diamond9', value: 'diamond9' },
                 { label: 'Triangle', value: 'triangle' },
                 { label: 'Shape', value: 'shape' },
                 { label: 'Gradient', value: 'gradient' }
@@ -1603,7 +1599,6 @@ const BrushControls = () => {
               }
               onChange={(value) => {
                 const strokePreset = brushPresets.find(p => p.id === 'color-cycle-stroke');
-                const checkeredPreset = brushPresets.find(p => p.id === 'checkered');
                 const shapePreset = brushPresets.find(p => p.id === 'color-cycle-shape');
                 const trianglePreset = brushPresets.find(p => p.id === 'color-cycle-triangle');
                 const gradientPreset = brushPresets.find(p => p.id === 'color-cycle-gradient');
@@ -1618,34 +1613,13 @@ const BrushControls = () => {
                 } else if (value === 'triangle' && trianglePreset) {
                   setBrushPreset(trianglePreset, true);
                   setActiveSettings({ colorCycleStampShape: 'triangle' });
-                } else if (value === 'checkered' && checkeredPreset) {
-                  setBrushPreset(checkeredPreset, true);
-                  setActiveSettings({ colorCycleStampShape: 'checkered' });
                 } else if (
-                  (
-                    value === 'square' ||
-                    value === 'round' ||
-                    value === 'diamond' ||
-                    value === 'diamond5' ||
-                    value === 'diamond7' ||
-                    value === 'diamond9'
-                  ) &&
+                  (value === 'square' || value === 'round' || value === 'diamond') &&
                   strokePreset
                 ) {
                   setBrushPreset(strokePreset, true);
                   setActiveSettings({
-                    colorCycleStampShape:
-                      value === 'round'
-                        ? 'round'
-                        : value === 'diamond9'
-                          ? 'diamond9'
-                          : value === 'diamond7'
-                            ? 'diamond7'
-                        : value === 'diamond'
-                          ? 'diamond'
-                          : value === 'diamond5'
-                            ? 'diamond5'
-                            : 'square'
+                    colorCycleStampShape: value,
                   });
                 }
               }}

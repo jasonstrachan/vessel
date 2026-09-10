@@ -654,48 +654,12 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond');
   });
 
-  it('allows selecting the 5px diamond stamp for color cycle stroke', async () => {
-    const user = userEvent.setup();
+  it('keeps the compact color cycle selector to six options', () => {
     render(<BrushControls />);
 
-    const diamondButton = screen.getByRole('button', { name: 'Diamond5' });
-    await user.click(diamondButton);
-
-    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond5');
-  });
-
-  it('allows selecting the 7px diamond stamp for color cycle stroke', async () => {
-    const user = userEvent.setup();
-    render(<BrushControls />);
-
-    const diamondButton = screen.getByRole('button', { name: 'Diamond7' });
-    await user.click(diamondButton);
-
-    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond7');
-  });
-
-  it('allows selecting the 9px diamond stamp for color cycle stroke', async () => {
-    const user = userEvent.setup();
-    render(<BrushControls />);
-
-    const diamondButton = screen.getByRole('button', { name: 'Diamond9' });
-    await user.click(diamondButton);
-
-    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('diamond9');
-  });
-
-  it('switches to the dedicated checkered CC preset', async () => {
-    const user = userEvent.setup();
-    render(<BrushControls />);
-
-    const checkeredButton = screen.getByRole('button', { name: 'Checkered' });
-    await user.click(checkeredButton);
-
-    expect(useAppStore.getState().setBrushPreset).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'checkered' }),
-      true,
-    );
-    expect(useAppStore.getState().tools.brushSettings.colorCycleStampShape).toBe('checkered');
+    const selector = screen.getByRole('button', { name: 'Square' }).parentElement;
+    expect(Array.from(selector!.querySelectorAll('button'), (button) => button.textContent?.trim()))
+      .toEqual(['Square', 'Round', 'Diamond', 'Triangle', 'Shape', 'Gradient']);
   });
 
   it('disables stamp dither resolution when pressure-linked', () => {
