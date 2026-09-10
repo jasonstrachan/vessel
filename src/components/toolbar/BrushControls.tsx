@@ -404,6 +404,7 @@ const BrushControls = () => {
   const currentBrushPresetId = useAppStore(state => state.currentBrushPreset?.id ?? null);
   const isColorCycleGradientPreset = isCcGradientPreset(currentBrushPresetId);
   const StudioBrushSettingsControls = studioExtension.BrushSettingsControls;
+  const StudioBrushStrokeSettingsControls = studioExtension.BrushStrokeSettingsControls;
   const isColorCycleFlatDitherPreset = currentBrushPresetId === 'color-cycle-flat-dither';
   const isColorCycleStrokePreset = currentBrushPresetId === 'color-cycle-stroke';
   const brushSettings = useAppStore(selectBrushSettings);
@@ -2278,6 +2279,8 @@ const BrushControls = () => {
             />
           </div>
         </div>
+
+        {StudioBrushStrokeSettingsControls && <StudioBrushStrokeSettingsControls />}
 
         {/* Dashed - only for stroke variants */}
         {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||

@@ -44,6 +44,7 @@ export interface VesselStudioExtension {
   ExportControls?: React.ComponentType;
   BrushControls?: React.ComponentType;
   BrushSettingsControls?: React.ComponentType;
+  BrushStrokeSettingsControls?: React.ComponentType;
   /** Transient, unmasked canvas for an active layer edit; never part of canonical export data. */
   getColorCycleLayerPreview?: (layerId: string) => HTMLCanvasElement | null;
   /** Snapshot at stroke start; coordinates are integer canvas pixels, sampled at their centres. */
