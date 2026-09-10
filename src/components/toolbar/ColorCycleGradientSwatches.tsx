@@ -71,7 +71,7 @@ export const ColorCycleGradientSwatches = React.memo(({
           );
         })}
       </div>
-      <div className="px-2 pb-2 pt-2">
+      <div className="px-2 pt-2">
         <GradientEditor
           key={activeGradient.id}
           stops={activeGradient.stops}

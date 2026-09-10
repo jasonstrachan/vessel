@@ -648,7 +648,7 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
   return (
     <div className={`gradient-editor relative ${className}`}>
       {/* Gradient preview bar with checkerboard background for transparency */}
-      <div className="relative mb-2">
+      <div className={colorEditingMode === 'external' ? 'relative' : 'relative mb-2'}>
         {/* Checkerboard background */}
         <div 
           className="absolute inset-0"
