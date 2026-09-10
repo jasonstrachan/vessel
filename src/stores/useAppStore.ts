@@ -481,6 +481,8 @@ export interface AppState {
   colorAdjust: ColorAdjustState;
   startColorAdjustSession: () => void;
   updateColorAdjustParams: (params: Partial<ColorAdjustToolParams>) => void;
+  setColorAdjustPickingTarget: (picking: boolean) => void;
+  pickColorAdjustTarget: (color: string) => void;
   previewColorAdjust: () => void;
   applyColorAdjust: () => Promise<void>;
   cancelColorAdjust: () => void;

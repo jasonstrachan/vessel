@@ -18,7 +18,7 @@ import {
 } from '@/stores/selectors/toolsSelectors';
 
 type ParamKey = keyof ColorAdjustToolParams;
-type SliderParamKey = Exclude<ParamKey, 'hueRangeEnabled' | 'hueRangeStart' | 'hueRangeEnd'>;
+type SliderParamKey = 'hue' | 'saturation' | 'vibrance' | 'lightness' | 'contrast' | 'ccInkContrast' | 'red' | 'green' | 'blue';
 type RuntimePreparationStatus = 'idle' | 'preparing' | 'failed';
 
 const SLIDER_CONFIG: Array<{
@@ -48,9 +48,47 @@ const SLIDER_CONFIG: Array<{
   { key: 'blue', label: 'Blue', min: -100, max: 100, suffix: '%' },
 ];
 
+const TargetRangeValue = ({ value, min, max, label, disabled, onCommit }: {
+  value: number;
+  min: number;
+  max: number;
+  label: string;
+  disabled: boolean;
+  onCommit: (value: number) => void;
+}) => {
+  const [draft, setDraft] = React.useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      className="w-14 border border-[#444] bg-transparent px-1 text-white"
+      aria-label={label}
+      min={min}
+      max={max}
+      step={1}
+      value={draft ?? Math.round(value)}
+      disabled={disabled}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        if (draft !== null && draft.trim() !== '' && Number.isFinite(Number(draft))) {
+          onCommit(Math.max(min, Math.min(max, Number(draft))));
+        }
+        setDraft(null);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== 'Escape') return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.key === 'Enter') event.currentTarget.blur();
+        else setDraft(null);
+      }}
+    />
+  );
+};
+
 const ColorAdjustToolPanel: React.FC = () => {
   const session = useAppStore((state) => state.colorAdjust);
   const updateParams = useAppStore((state) => state.updateColorAdjustParams);
+  const setPickingTarget = useAppStore((state) => state.setColorAdjustPickingTarget);
   const applyColorAdjust = useAppStore((state) => state.applyColorAdjust);
   const cancelColorAdjust = useAppStore((state) => state.cancelColorAdjust);
   const resetColorAdjustParams = useAppStore((state) => state.resetColorAdjustParams);
@@ -87,22 +125,6 @@ const ColorAdjustToolPanel: React.FC = () => {
     },
     [updateParams]
   );
-  const handleHueRangeChange = useCallback(
-    (value: [number, number]) => {
-      updateParams({
-        hueRangeStart: value[0],
-        hueRangeEnd: value[1],
-      });
-    },
-    [updateParams]
-  );
-  const handleHueRangeToggle = useCallback(
-    (enabled: boolean) => {
-      updateParams({ hueRangeEnabled: enabled });
-    },
-    [updateParams]
-  );
-
   const resolveFallbackTool = useCallback(
     (candidate?: Tool | null): Tool => {
       const fallback = candidate ?? 'brush';
@@ -246,31 +268,65 @@ const ColorAdjustToolPanel: React.FC = () => {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs uppercase tracking-wider text-[#9C9C9C]">
-            Hue Range
-          </div>
-          <CustomSwitch
-            checked={session.params.hueRangeEnabled}
-            onChange={handleHueRangeToggle}
-            aria-label="Enable hue range targeting"
-            disabled={!session.active}
-          />
-        </div>
-
-        <HueRangeStrip
-          value={[session.params.hueRangeStart, session.params.hueRangeEnd]}
-          onValueChange={handleHueRangeChange}
-          disabled={!session.active || !session.params.hueRangeEnabled}
-        />
-
-        <div className="flex items-center justify-between text-[11px] text-[#9C9C9C]">
-          <span>{Math.round(session.params.hueRangeStart)}°</span>
-          <span>{Math.round(session.params.hueRangeEnd)}°</span>
-        </div>
+      <div className="flex flex-col gap-2">
+        <div className="text-xs uppercase tracking-wider text-[#9C9C9C]">Target colours</div>
+        <button
+          type="button"
+          className="border border-[#555] px-2 py-1 text-xs text-white disabled:opacity-40"
+          disabled={!session.active}
+          aria-pressed={session.isPickingTarget === true}
+          onClick={() => setPickingTarget(!session.isPickingTarget)}
+        >
+          {session.isPickingTarget ? 'Cancel picking' : 'Pick from canvas'}
+        </button>
+        {session.isPickingTarget && <p role="status" className="text-xs text-[#aaa]">Showing original colours. Click a colour on the canvas.</p>}
+        <p className="text-[11px] text-[#9C9C9C]">Enabled ranges combine. Adjustments affect matching colours.</p>
+        {(['hue', 'lightness', 'saturation'] as const).map((channel) => {
+          const label = `${channel[0].toUpperCase()}${channel.slice(1)}`;
+          const max = channel === 'hue' ? 360 : 100;
+          const enabled = session.params[`${channel}RangeEnabled`] === true;
+          const start = session.params[`${channel}RangeStart`] ?? 0;
+          const end = session.params[`${channel}RangeEnd`] ?? max;
+          const disabled = !session.active || !enabled || session.isPickingTarget === true;
+          return (
+            <div key={channel} className="flex flex-col gap-1 border-b border-[#333] pb-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[#aaa]">{label} range</span>
+                <CustomSwitch checked={enabled} onChange={(value) => updateParams({ [`${channel}RangeEnabled`]: value })}
+                  aria-label={`Enable ${channel} range targeting`} disabled={!session.active || session.isPickingTarget === true} />
+              </div>
+              {enabled && <>
+                <HueRangeStrip channel={channel} value={[start, end]} disabled={disabled}
+                  aria-label={`Target ${channel} range`}
+                  onValueChange={([rangeStart, rangeEnd]) => updateParams({ [`${channel}RangeStart`]: rangeStart, [`${channel}RangeEnd`]: rangeEnd })} />
+                <div className="flex items-center justify-between text-[11px] text-[#aaa]">
+                  {([start, end] as const).map((value, index) => (
+                    <label key={index}>
+                      <TargetRangeValue
+                        label={`${label} range ${index === 0 ? 'start' : 'end'} value`}
+                        min={channel !== 'hue' && index === 1 ? start : 0}
+                        max={channel !== 'hue' && index === 0 ? end : max}
+                        value={value}
+                        disabled={disabled}
+                        onCommit={(next) => updateParams({ [`${channel}Range${index === 0 ? 'Start' : 'End'}`]: next })}
+                      />{channel === 'hue' ? '°' : '%'}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-[#aaa]">
+                  <span>Softness</span>
+                  <ProgressSlider className="flex-1" min={0} max={channel === 'hue' ? 60 : 50} step={1}
+                    value={session.params[`${channel}RangeSoftness`] ?? 0} disabled={disabled}
+                    onChange={(value) => updateParams({ [`${channel}RangeSoftness`]: value })}
+                    aria-label={`${label} range softness`} />
+                </div>
+              </>}
+            </div>
+          );
+        })}
       </div>
 
+      <div className="text-xs uppercase tracking-wider text-[#9C9C9C]">Adjustments</div>
       <div className="flex flex-col gap-3">
         {SLIDER_CONFIG.filter(({ colorCycleOnly }) => (
           !colorCycleOnly || colorCycleTargetIds.length > 0
@@ -306,7 +362,7 @@ const ColorAdjustToolPanel: React.FC = () => {
           type="button"
           className="px-3 py-1.5 text-sm font-medium border border-[#FFFFFF]/20 text-[#D9D9D9] rounded-none hover:bg-[#2A2A2A] transition disabled:opacity-50"
           onClick={handleReset}
-          disabled={!session.active || !hasAdjustments}
+          disabled={!session.active || (!hasAdjustments && !session.isPickingTarget && !session.params.hueRangeEnabled && !session.params.lightnessRangeEnabled && !session.params.saturationRangeEnabled)}
         >
           Reset
         </button>

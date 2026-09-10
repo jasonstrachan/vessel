@@ -1835,12 +1835,25 @@ export interface ColorAdjustParams {
   hueRangeEnd: number;   // 0 to 360 degrees
 }
 
-export interface ColorAdjustToolParams extends ColorAdjustParams {
+export interface ColorAdjustTargetParams {
+  hueRangeSoftness?: number; // Degrees of falloff outside the hue range
+  saturationRangeEnabled?: boolean;
+  saturationRangeStart?: number;
+  saturationRangeEnd?: number;
+  saturationRangeSoftness?: number; // Percentage points outside the range
+  lightnessRangeEnabled?: boolean;
+  lightnessRangeStart?: number;
+  lightnessRangeEnd?: number;
+  lightnessRangeSoftness?: number;
+}
+
+export interface ColorAdjustToolParams extends ColorAdjustParams, ColorAdjustTargetParams {
   ccInkContrast: number; // -100 to 100 percent delta around each CC gradient's perceptual center
 }
 
 export interface ColorAdjustState {
   active: boolean;
+  isPickingTarget?: boolean; // Ephemeral; never persisted
   params: ColorAdjustToolParams;
   originalImageData: ImageData | null;
   originalColorCycleGradient?: Array<{ position: number; color: string }> | null;

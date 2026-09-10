@@ -12,12 +12,21 @@ describe('HueRangeStrip', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Hue range start' })).toHaveStyle({
+    expect(screen.getByRole('slider', { name: 'Hue range start' })).toHaveStyle({
       left: '0%',
     });
-    expect(screen.getByRole('button', { name: 'Hue range end' })).toHaveStyle({
+    expect(screen.getByRole('slider', { name: 'Hue range end' })).toHaveStyle({
       left: '100%',
     });
+  });
+
+  it('keeps linear ranges ordered during keyboard adjustment', () => {
+    const onValueChange = jest.fn();
+    render(<HueRangeStrip channel="lightness" value={[20, 20]} onValueChange={onValueChange} />);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Lightness range start' }), { key: 'ArrowRight' });
+    expect(onValueChange).toHaveBeenLastCalledWith([20, 20]);
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Lightness range end' }), { key: 'ArrowRight', shiftKey: true });
+    expect(onValueChange).toHaveBeenLastCalledWith([20, 30]);
   });
 
   it('drags a handle across the strip and commits once at pointer end', () => {
@@ -44,7 +53,7 @@ describe('HueRangeStrip', () => {
       toJSON: () => ({}),
     });
 
-    const startHandle = screen.getByRole('button', { name: 'Hue range start' });
+    const startHandle = screen.getByRole('slider', { name: 'Hue range start' });
     const pointerDown = createEvent.pointerDown(startHandle);
     Object.defineProperties(pointerDown, {
       pointerId: { value: 7 },

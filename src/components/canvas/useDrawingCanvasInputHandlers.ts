@@ -1,8 +1,9 @@
-import { useCallback, useMemo, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { useCanvasEventHandlers } from '@/hooks/canvas/useCanvasEventHandlers';
 import { useDrawingCanvasPointerHandlers } from './useDrawingCanvasPointerHandlers';
 import { useDrawingCanvasEventBindings } from './useDrawingCanvasEventBindings';
 import { BrushShape } from '@/types';
+import { sampleColorAdjustTarget } from '@/hooks/canvas/handlers/colorAdjustTargetSampling';
 import {
   isVesselMultiplayerHumanPointerRelevant,
   recordVesselMultiplayerHumanPointer,
@@ -161,25 +162,50 @@ export const useDrawingCanvasInputHandlers = ({
     isSpacePressedRef,
   ]);
 
+  const targetPointerRef = useRef<{ pointerId: number; target: Element } | null>(null);
+  const releaseTargetPointer = useCallback(() => {
+    const pointer = targetPointerRef.current;
+    targetPointerRef.current = null;
+    if (pointer?.target.hasPointerCapture(pointer.pointerId)) {
+      pointer.target.releasePointerCapture(pointer.pointerId);
+    }
+  }, []);
   const responsivePointerHandlers = useMemo(() => ({
     ...pointerHandlers,
     handlePointerDown: (event: ReactPointerEvent<Element>) => {
+      releaseTargetPointer();
+      if (eventHandlerArgs.tools.currentTool === 'color-adjust' && !isSpacePressedRef.current && event.button === 0) {
+        event.preventDefault();
+        targetPointerRef.current = { pointerId: event.pointerId, target: event.currentTarget };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        sampleColorAdjustTarget(getWorldPointFromPointerEvent(event), eventHandlerArgs.compositeCanvasRef.current);
+        return;
+      }
       pointerHandlers.handlePointerDown(event);
       reportHumanPointer('start', event);
     },
     handlePointerMove: (event: ReactPointerEvent<Element>) => {
+      if (targetPointerRef.current && targetPointerRef.current.pointerId === event.pointerId) return;
       pointerHandlers.handlePointerMove(event);
       reportHumanPointer('move', event);
     },
     handlePointerUp: (event: ReactPointerEvent<Element>) => {
+      if (targetPointerRef.current && targetPointerRef.current.pointerId === event.pointerId) {
+        releaseTargetPointer();
+        return;
+      }
       pointerHandlers.handlePointerUp(event);
       reportHumanPointer('end', event);
     },
     handlePointerCancel: (event: ReactPointerEvent<Element>) => {
+      if (targetPointerRef.current && targetPointerRef.current.pointerId === event.pointerId) {
+        releaseTargetPointer();
+        return;
+      }
       pointerHandlers.handlePointerCancel(event);
       reportHumanPointer('cancel', event);
     },
-  }), [pointerHandlers, reportHumanPointer]);
+  }), [pointerHandlers, reportHumanPointer, releaseTargetPointer, eventHandlerArgs.tools.currentTool, eventHandlerArgs.compositeCanvasRef, getWorldPointFromPointerEvent, isSpacePressedRef]);
 
   useDrawingCanvasEventBindings({
     eventHandleKeyDown,
@@ -193,6 +219,9 @@ export const useDrawingCanvasInputHandlers = ({
   return {
     ...responsivePointerHandlers,
     handleDoubleClick,
-    handleBlur,
+    handleBlur: (event: Parameters<typeof handleBlur>[0]) => {
+      releaseTargetPointer();
+      handleBlur(event);
+    },
   };
 };

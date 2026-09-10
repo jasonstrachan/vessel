@@ -290,6 +290,11 @@ export const useDrawingCanvasKeyboard = ({
       }
 
       if (tools.currentTool === 'color-adjust' && colorAdjustActive) {
+        const state = getAppStoreState();
+        if (state.colorAdjust.isPickingTarget) {
+          state.setColorAdjustPickingTarget(false);
+          return;
+        }
         cancelColorAdjust();
         const fallbackTool = (previousTool ?? 'brush') as Tool;
         const resolvedTool: Tool = fallbackTool === 'color-adjust' ? 'brush' : fallbackTool;

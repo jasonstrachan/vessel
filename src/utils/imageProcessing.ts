@@ -1,5 +1,7 @@
 // Image processing utilities for brush tip editing
 import { logError } from '@/utils/debug';
+import type { ColorAdjustTargetParams } from '@/types';
+import { getColorAdjustTargetWeight } from '@/utils/colorAdjustTarget';
 import { canvasPool } from './canvasPool';
 
 // Convert RGB to HSL
@@ -372,7 +374,7 @@ export function adjustRgbChannelOffsets(
   return new ImageData(data, imageData.width, imageData.height);
 }
 
-export interface ColorAdjustOptions {
+export interface ColorAdjustOptions extends ColorAdjustTargetParams {
   hue: number;
   saturation: number;
   vibrance: number;
@@ -396,9 +398,6 @@ export function applyColorAdjustments(imageData: ImageData, options: ColorAdjust
     red,
     green,
     blue,
-    hueRangeEnabled,
-    hueRangeStart,
-    hueRangeEnd,
   } = options;
   const hasHueSatLightness = hue !== 0 || saturation !== 0 || vibrance !== 0 || lightness !== 0;
   const hasContrast = contrast !== 0;
@@ -419,19 +418,6 @@ export function applyColorAdjustments(imageData: ImageData, options: ColorAdjust
   const rOffset = channelPercentToOffset(red);
   const gOffset = channelPercentToOffset(green);
   const bOffset = channelPercentToOffset(blue);
-  const normalizedHueRangeStart = ((hueRangeStart % 360) + 360) % 360;
-  const normalizedHueRangeEnd = ((hueRangeEnd % 360) + 360) % 360;
-
-  const isHueInRange = (hueValue: number): boolean => {
-    if (!hueRangeEnabled) {
-      return true;
-    }
-    if (normalizedHueRangeStart <= normalizedHueRangeEnd) {
-      return hueValue >= normalizedHueRangeStart && hueValue <= normalizedHueRangeEnd;
-    }
-    return hueValue >= normalizedHueRangeStart || hueValue <= normalizedHueRangeEnd;
-  };
-
   for (let i = 0; i < data.length; i += 4) {
     const alpha = data[i + 3];
     if (alpha === 0) {
@@ -443,7 +429,8 @@ export function applyColorAdjustments(imageData: ImageData, options: ColorAdjust
     const originalB = data[i + 2] ?? 0;
     const [sourceHue, sourceSaturation, sourceLightness] = rgbToHsl(originalR, originalG, originalB);
 
-    if (!isHueInRange(sourceHue)) {
+    const weight = getColorAdjustTargetWeight(sourceHue, sourceSaturation, sourceLightness, options);
+    if (weight === 0) {
       continue;
     }
 
@@ -479,9 +466,9 @@ export function applyColorAdjustments(imageData: ImageData, options: ColorAdjust
       nextB = clampByte(nextB + bOffset);
     }
 
-    data[i] = nextR;
-    data[i + 1] = nextG;
-    data[i + 2] = nextB;
+    data[i] = originalR + (nextR - originalR) * weight;
+    data[i + 1] = originalG + (nextG - originalG) * weight;
+    data[i + 2] = originalB + (nextB - originalB) * weight;
   }
 
   return result;

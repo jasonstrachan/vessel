@@ -3,6 +3,11 @@ import { renderHook } from '@testing-library/react';
 import { useDrawingCanvasInputHandlers } from '@/components/canvas/useDrawingCanvasInputHandlers';
 import { BrushShape } from '@/types';
 
+const mockSampleColorAdjustTarget = jest.fn();
+jest.mock('@/hooks/canvas/handlers/colorAdjustTargetSampling', () => ({
+  sampleColorAdjustTarget: (...args: unknown[]) => mockSampleColorAdjustTarget(...args),
+}));
+
 const mockUseCanvasEventHandlers = jest.fn();
 const mockUseDrawingCanvasPointerHandlers = jest.fn();
 const mockUseDrawingCanvasEventBindings = jest.fn();
@@ -48,6 +53,7 @@ const buildTools = (
 const buildOptions = (overrides: Partial<InputHandlerOptions> = {}): InputHandlerOptions =>
   ({
     wrapperRef: { current: document.createElement('div') } as React.RefObject<HTMLDivElement>,
+    compositeCanvasRef: { current: document.createElement('canvas') },
     canvasRef: { current: document.createElement('canvas') } as React.RefObject<HTMLCanvasElement>,
     project: { width: 640, height: 480 },
     tools: buildTools(),
@@ -103,6 +109,25 @@ describe('useDrawingCanvasInputHandlers', () => {
       handlePointerLeave: jest.fn(),
       handlePointerCancel: jest.fn(),
     });
+  });
+
+  it('captures sampling pointers and releases them on blur so brush input can resume', () => {
+    const options = buildOptions({ tools: buildTools({ currentTool: 'color-adjust' }) });
+    const { result, rerender } = renderHook(({ input }) => useDrawingCanvasInputHandlers(input), {
+      initialProps: { input: options },
+    });
+    const target = document.createElement('div');
+    target.setPointerCapture = jest.fn();
+    target.hasPointerCapture = jest.fn(() => true);
+    target.releasePointerCapture = jest.fn();
+    const event = { button: 0, pointerId: 5, currentTarget: target, preventDefault: jest.fn() } as unknown as React.PointerEvent<Element>;
+    result.current.handlePointerDown(event);
+    expect(target.setPointerCapture).toHaveBeenCalledWith(5);
+    result.current.handleBlur({} as Parameters<typeof result.current.handleBlur>[0]);
+    expect(target.releasePointerCapture).toHaveBeenCalledWith(5);
+    rerender({ input: buildOptions() });
+    result.current.handlePointerMove(event);
+    expect(mockUseDrawingCanvasPointerHandlers.mock.results.at(-1)?.value.handlePointerMove).toHaveBeenCalledWith(event);
   });
 
   it('allows pointer down outside canvas shape for marquee selection', () => {

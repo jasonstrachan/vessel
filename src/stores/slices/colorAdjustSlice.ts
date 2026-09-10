@@ -18,6 +18,7 @@ import {
 } from '@/stores/helpers/colorAdjustSession';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import { applyColorAdjustments, rgbToHsl } from '@/utils/imageProcessing';
+import { getColorAdjustTargetWeight, getPickedColorAdjustTarget } from '@/utils/colorAdjustTarget';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { bindBrushToCanvas, refreshLayerCCSurface } from '@/hooks/brushEngine/colorCycleSurface';
@@ -314,18 +315,9 @@ const applyColorAdjustmentsToGradient = (
     return adjustedStops;
   }
 
-  const normalizedRangeStart = ((params.hueRangeStart % 360) + 360) % 360;
-  const normalizedRangeEnd = ((params.hueRangeEnd % 360) + 360) % 360;
-  const shouldAdjustStop = (stop: ColorCycleGradientStop): boolean => {
-    if (!params.hueRangeEnabled) {
-      return true;
-    }
+  const stopWeight = (stop: ColorCycleGradientStop): number => {
     const parsed = parseCssColor(stop.color, { r: 255, g: 255, b: 255, a: 255 });
-    const [hue] = rgbToHsl(parsed.r, parsed.g, parsed.b);
-    if (normalizedRangeStart <= normalizedRangeEnd) {
-      return hue >= normalizedRangeStart && hue <= normalizedRangeEnd;
-    }
-    return hue >= normalizedRangeStart || hue <= normalizedRangeEnd;
+    return getColorAdjustTargetWeight(...rgbToHsl(parsed.r, parsed.g, parsed.b), params);
   };
 
   const colors = adjustedStops.map((stop) => {
@@ -350,17 +342,19 @@ const applyColorAdjustmentsToGradient = (
   const factor = Math.max(0, Math.min(2, 1 + ccInkContrast / 100));
 
   return adjustedStops.map((stop, index) => {
-    if (!shouldAdjustStop(stops[index] ?? stop)) {
+    const weight = stopWeight(stops[index] ?? stop);
+    if (weight === 0) {
       return stop;
     }
     const color = colors[index];
     if (!color) {
       return stop;
     }
+    const weightedFactor = 1 + (factor - 1) * weight;
     const rgb = OKLabConverter.oklabToRGB({
-      L: center.L + (color.oklab.L - center.L) * factor,
-      a: center.a + (color.oklab.a - center.a) * factor,
-      b: center.b + (color.oklab.b - center.b) * factor,
+      L: center.L + (color.oklab.L - center.L) * weightedFactor,
+      a: center.a + (color.oklab.a - center.a) * weightedFactor,
+      b: center.b + (color.oklab.b - center.b) * weightedFactor,
     });
     return {
       ...stop,
@@ -939,10 +933,20 @@ export const defaultColorAdjustParams: ColorAdjustToolParams = {
   hueRangeEnabled: false,
   hueRangeStart: 0,
   hueRangeEnd: 360,
+  hueRangeSoftness: 0,
+  saturationRangeEnabled: false,
+  saturationRangeStart: 0,
+  saturationRangeEnd: 100,
+  saturationRangeSoftness: 0,
+  lightnessRangeEnabled: false,
+  lightnessRangeStart: 0,
+  lightnessRangeEnd: 100,
+  lightnessRangeSoftness: 0,
 };
 
 export const createDefaultColorAdjustState = (): ColorAdjustState => ({
   active: false,
+  isPickingTarget: false,
   params: { ...defaultColorAdjustParams },
   originalImageData: null,
   originalColorCycleGradient: null,
@@ -1347,6 +1351,8 @@ const refreshColorAdjustSessionState = (
 export interface ColorAdjustSlice {
   colorAdjust: ColorAdjustState;
   startColorAdjustSession: () => void;
+  setColorAdjustPickingTarget: (picking: boolean) => void;
+  pickColorAdjustTarget: (color: string) => void;
   updateColorAdjustParams: (params: Partial<ColorAdjustToolParams>) => void;
   previewColorAdjust: () => void;
   applyColorAdjust: () => Promise<void>;
@@ -1363,6 +1369,19 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       return;
     }
     scheduleColorAdjustPreview(get);
+  },
+  setColorAdjustPickingTarget: (picking) => {
+    if (!get().colorAdjust.active) return;
+    set((state) => ({ colorAdjust: { ...state.colorAdjust, isPickingTarget: picking } }));
+    cancelScheduledColorAdjustPreview();
+    get().previewColorAdjust();
+  },
+  pickColorAdjustTarget: (color) => {
+    if (!get().colorAdjust.active || !get().colorAdjust.isPickingTarget) return;
+    const parsed = parseCssColor(color, { r: 0, g: 0, b: 0, a: 0 });
+    if (parsed.a === 0) return;
+    set((state) => ({ colorAdjust: { ...state.colorAdjust, isPickingTarget: false } }));
+    get().updateColorAdjustParams(getPickedColorAdjustTarget(...rgbToHsl(parsed.r, parsed.g, parsed.b)));
   },
   updateColorAdjustParams: (params) => {
     let didUpdate = false;
@@ -1408,7 +1427,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
           set,
           get,
           layer,
-          params: colorAdjust.params,
+          params: colorAdjust.isPickingTarget ? defaultColorAdjustParams : colorAdjust.params,
         });
         continue;
       }
@@ -1417,7 +1436,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
         state,
         layer,
         layerId: targetLayerId,
-        params: colorAdjust.params,
+        params: colorAdjust.isPickingTarget ? defaultColorAdjustParams : colorAdjust.params,
         markLayersNeedRecomposition: () => set({ layersNeedRecomposition: true }),
       });
     }
@@ -1432,6 +1451,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
     }
 
     cancelScheduledColorAdjustPreview();
+    set((current) => ({ colorAdjust: { ...current.colorAdjust, isPickingTarget: false } }));
 
     get().previewColorAdjust();
     const refreshedState = get();
@@ -1497,6 +1517,7 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       return {
         colorAdjust: {
           ...state.colorAdjust,
+          isPickingTarget: false,
           params: { ...defaultColorAdjustParams },
         },
       };

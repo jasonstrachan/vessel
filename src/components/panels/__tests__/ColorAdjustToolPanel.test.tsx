@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import BrushSettingsPanel from '../BrushSettingsPanel';
 import { useAppStore } from '@/stores/useAppStore';
@@ -137,6 +137,21 @@ describe('ColorAdjustToolPanel', () => {
     expect(screen.getByRole('slider', { name: 'Contrast adjustment' })).toBeInTheDocument();
     expect(screen.queryByRole('slider', { name: 'CC Ink Contrast adjustment' })).not.toBeInTheDocument();
     expect(useAppStore.getState().colorAdjust.targetLayerIds).toEqual([layerA.id, layerB.id]);
+    act(() => useAppStore.getState().updateColorAdjustParams({
+      lightnessRangeEnabled: true, lightnessRangeStart: 20, lightnessRangeEnd: 90,
+    }));
+    const endValue = screen.getByRole('spinbutton', { name: 'Lightness range end value' });
+    fireEvent.focus(endValue);
+    fireEvent.change(endValue, { target: { value: '3' } });
+    expect(endValue).toHaveValue(3);
+    expect(useAppStore.getState().colorAdjust.params.lightnessRangeEnd).toBe(90);
+    fireEvent.change(endValue, { target: { value: '35' } });
+    fireEvent.blur(endValue);
+    expect(useAppStore.getState().colorAdjust.params.lightnessRangeEnd).toBe(35);
+    fireEvent.change(endValue, { target: { value: '80' } });
+    fireEvent.keyDown(endValue, { key: 'Escape' });
+    expect(endValue).toHaveValue(35);
+    expect(useAppStore.getState().colorAdjust.active).toBe(true);
     expect(
       consoleErrorSpy.mock.calls.some(([message]) =>
         String(message).includes('The result of getSnapshot should be cached')

@@ -651,6 +651,49 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(Math.abs(((lightValues[0] ?? 0) + (lightValues[1] ?? 0)) / 2 - 208)).toBeLessThanOrEqual(1);
   });
 
+  it('temporarily restores originals for picking and applies the retained adjustment afterwards', async () => {
+    const layer = createColorCycleLayer('cc-pick', [
+      { position: 0, color: 'rgb(0, 0, 128)' },
+      { position: 1, color: 'rgb(0, 128, 0)' },
+    ]);
+    installProjectWithLayer(layer);
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ lightness: 20 });
+    store.previewColorAdjust();
+    store.setColorAdjustPickingTarget(true);
+    expect(parseCssColor(useAppStore.getState().layers[0].colorCycleData!.gradient![0].color).b).toBe(128);
+    store.pickColorAdjustTarget('rgb(0, 0, 128)');
+    store.previewColorAdjust();
+    expect(useAppStore.getState().colorAdjust.isPickingTarget).toBe(false);
+    expect(useAppStore.getState().colorAdjust.params.lightness).toBe(20);
+    const stops = useAppStore.getState().layers[0].colorCycleData!.gradient!;
+    expect(parseCssColor(stops[0].color).b).toBeGreaterThan(128);
+    expect(parseCssColor(stops[1].color).g).toBe(128);
+    store.setColorAdjustPickingTarget(true);
+    await store.applyColorAdjust();
+    expect(parseCssColor(useAppStore.getState().layers[0].colorCycleData!.gradient![0].color).b).toBeGreaterThan(128);
+  });
+
+  it('restricts CC ink contrast with lightness and saturation targets', () => {
+    const layer = createColorCycleLayer('cc-target-ink', [
+      { position: 0, color: 'rgb(0, 0, 64)' },
+      { position: 0.5, color: 'rgb(64, 64, 64)' },
+      { position: 1, color: 'rgb(128, 128, 255)' },
+    ]);
+    installProjectWithLayer(layer);
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ ccInkContrast: 50, lightnessRangeEnabled: true,
+      lightnessRangeStart: 0, lightnessRangeEnd: 30,
+      saturationRangeEnabled: true, saturationRangeStart: 50, saturationRangeEnd: 100 });
+    store.previewColorAdjust();
+    const stops = useAppStore.getState().layers[0].colorCycleData!.gradient!;
+    expect(stops[0].color).not.toBe('rgb(0, 0, 64)');
+    expect(parseCssColor(stops[1].color)).toMatchObject({ r: 64, g: 64, b: 64 });
+    expect(parseCssColor(stops[2].color)).toMatchObject({ r: 128, g: 128, b: 255 });
+  });
+
   it('compresses color-cycle inks independently of fixed-midpoint contrast', () => {
     const layer = createColorCycleLayer('cc-ink-compression', [
       { position: 0, color: 'rgb(32, 32, 32)' },
