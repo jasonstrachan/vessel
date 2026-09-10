@@ -451,7 +451,7 @@ describe('BrushLibrary', () => {
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('orders Shape Pattern above Color Cycle Stroke', () => {
+  it('orders Mosaic and Shape Pattern below the Color Cycle brushes', () => {
     useAppStore.setState({
       ...useAppStore.getState(),
       currentBrushPreset: shapeFillPreset as any,
@@ -460,15 +460,17 @@ describe('BrushLibrary', () => {
         ccStrokePreset as any,
         shapeFillPreset as any,
         ccGradientPreset as any,
+        { ...shapeFillPreset, id: 'mosaic', name: 'Mosaic', category: 'Digital Painting' } as any,
       ],
     });
 
     render(<BrushLibrary />);
 
-    const shapeFill = screen.getByText('Shape Pattern');
-    const stroke = screen.getByText('Color Cycle Stroke');
-    const relation = shapeFill.compareDocumentPosition(stroke);
-    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const mosaic = screen.getByText('Mosaic');
+    for (const name of ['Color Cycle Stroke', ccGradientPreset.name]) {
+      expect(screen.getByText(name).compareDocumentPosition(mosaic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(mosaic.compareDocumentPosition(screen.getByText('Shape Pattern')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('places an anchored extension brush directly after its library anchor', () => {

@@ -32,6 +32,10 @@ const LEADING_BRUSH_ORDER = new Map([
   ['pixel-square', 0],
   ['soft-round', 1],
 ]);
+const TRAILING_BRUSH_ORDER = new Map([
+  ['mosaic', 0],
+  ['shape-fill', 1],
+]);
 const HIDDEN_BRUSH_PRESET_IDS = new Set([
   'color-cycle-triangle',
   'shape-gradient',
@@ -164,6 +168,13 @@ const BrushLibrary = () => {
       if (aCategory === 'Custom' && bCategory !== 'Custom') return 1;
       if (bCategory === 'Custom' && aCategory !== 'Custom') return -1;
 
+      // Studio text and UI brushes follow Shape Pattern via libraryOrderAfter.
+      const aTrailingOrder = TRAILING_BRUSH_ORDER.get(a.id);
+      const bTrailingOrder = TRAILING_BRUSH_ORDER.get(b.id);
+      if (aTrailingOrder !== undefined || bTrailingOrder !== undefined) {
+        return (aTrailingOrder ?? -1) - (bTrailingOrder ?? -1);
+      }
+
       const aLeadingOrder = LEADING_BRUSH_ORDER.get(a.id);
       const bLeadingOrder = LEADING_BRUSH_ORDER.get(b.id);
       if (aLeadingOrder !== undefined || bLeadingOrder !== undefined) {
@@ -184,7 +195,6 @@ const BrushLibrary = () => {
       }
 
       const specialOrder = new Map([
-        ['shape-fill', 0],
         ['color-cycle-stroke', 1],
         ['color-cycle-gradient', 2],
         ['color-cycle-flat-dither', 3],
