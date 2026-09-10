@@ -7,7 +7,6 @@ import {
   type VesselMultiplayerStatus,
   useVesselMultiplayerSnapshot,
 } from '@/collaboration/vesselMultiplayerSession';
-import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
 import { openReferenceStudioWindow } from '@/referenceStudio/referenceStudioChannel';
 import { useAppStore } from '@/stores/useAppStore';
 import { Tool } from '@/types';
@@ -15,7 +14,7 @@ import { showAppFeedback } from '@/utils/appFeedback';
 import studioExtension from '@/extensions/studioExtension';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 
-type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'filters' | 'interlace' | 'multiplayer' | 'reference-studio';
+type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'multiplayer' | 'reference-studio';
 
 export const TOOLBAR_TOOLTIP_DELAY_MS = 750;
 
@@ -53,11 +52,6 @@ const LeftToolbar = () => {
     setSelectionMode,
     setBrushPanelSection,
     setSettingsSection,
-    layers,
-    layerGroups,
-    activeLayerId,
-    selectedLayerIds,
-    createInterlaceGroupFromSelection,
   } = useAppStore();
   const switchTool = useToolSwitcher();
   const multiplayer = useVesselMultiplayerSnapshot();
@@ -111,14 +105,9 @@ const LeftToolbar = () => {
     ],
     [
       { id: 'brush' as Tool, label: 'Brush', abbr: 'Br' },
-      { id: 'custom' as Tool, label: 'Custom Brush', abbr: 'Cb' },
       { id: 'eraser' as Tool, label: 'Eraser', abbr: 'Er' },
       { id: 'color-picker' as Tool, label: 'Eyedropper', abbr: 'Ey' },
-      { id: 'fill' as Tool, label: 'Fill', abbr: 'Fi' },
       { id: 'magic-wand' as ToolbarItemId, label: 'Magic Wand', abbr: 'Mw' },
-      { id: 'color-adjust' as Tool, label: 'Hue/Sat', abbr: 'Hs' },
-      { id: 'filters' as ToolbarItemId, label: 'Filters', abbr: 'Fl' },
-      { id: 'interlace' as ToolbarItemId, label: 'Interlace', abbr: 'In' },
     ],
     [
       { id: 'save' as Tool, label: 'Save File', abbr: 'Sv' },
@@ -181,25 +170,6 @@ const LeftToolbar = () => {
       toggleModal('export');
     } else if (toolId === 'grid-toggle') {
       toggleGrid();
-    } else if (toolId === 'filters') {
-      setBrushPanelSection('filters');
-    } else if (toolId === 'interlace') {
-      const activeLayer = layers.find((layer) => layer.id === activeLayerId);
-      const selectedLayers = layers.filter((layer) => selectedLayerIds.includes(layer.id));
-      const existingInterlaceGroup = layerGroups.find((group) => (
-        isInterlaceGroup(group)
-        && (activeLayer?.groupId === group.id || selectedLayers.some((layer) => layer.groupId === group.id))
-      ));
-      if (!existingInterlaceGroup) {
-        const eligibleIds = selectedLayers
-          .filter((layer) => layer.layerType !== 'sequential')
-          .map((layer) => layer.id);
-        if (eligibleIds.length < 2 || !createInterlaceGroupFromSelection(eligibleIds)) {
-          showAppFeedback('Select at least two regular or Color Cycle layers');
-          return;
-        }
-      }
-      setBrushPanelSection('interlace');
     } else if (toolId === 'options') {
       setSettingsSection('display');
       if (!ui.modals.settings) {
@@ -237,10 +207,6 @@ const LeftToolbar = () => {
               ? ui.grid.enabled
               : tool.id === 'multiplayer'
                 ? multiplayerActive
-              : tool.id === 'filters'
-                ? isFilterSectionActive
-                : tool.id === 'interlace'
-                  ? isInterlaceSectionActive
                 : tool.id === 'magic-wand'
                   ? !isFilterSectionActive && !isInterlaceSectionActive
                     && toolState.currentTool === 'selection'

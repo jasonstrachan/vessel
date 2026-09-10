@@ -4,6 +4,10 @@ import React, { useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, BrushPreset, CustomBrush } from '@/types';
+import ButtonGroup from '@/components/ui/ButtonGroup';
+import studioExtension from '@/extensions/studioExtension';
+import { isInterlaceGroup } from '@/lib/interlace/interlaceSettings';
+import { showAppFeedback } from '@/utils/appFeedback';
 import PlusButton from './ui/PlusButton';
 import { generateBrushThumbnail } from '@/utils/brushThumbnailGenerator';
 import { useToolSwitcher } from '@/utils/toolSwitch';
@@ -68,6 +72,14 @@ const resolveBrushThumbnailUrl = (src: string): string => {
 };
 
 const BrushLibrary = () => {
+  const [libraryFilter, setLibraryFilter] = React.useState('all');
+  const StudioPlaybackSettings = studioExtension.PlaybackSettings;
+  const brushPanelSection = useAppStore((state) => state.ui.brushPanelSection);
+  const layers = useAppStore((state) => state.layers);
+  const layerGroups = useAppStore((state) => state.layerGroups);
+  const activeLayerId = useAppStore((state) => state.activeLayerId);
+  const selectedLayerIds = useAppStore((state) => state.selectedLayerIds);
+  const createInterlaceGroupFromSelection = useAppStore((state) => state.createInterlaceGroupFromSelection);
   const currentBrushPreset = useAppStore((state) => state.currentBrushPreset);
   const brushPresets = useAppStore((state) => state.brushPresets);
   const projectCustomBrushes = useAppStore((state) => state.project?.customBrushes ?? []);
@@ -213,7 +225,7 @@ const BrushLibrary = () => {
   const { brushShape, selectedCustomBrush } = brushSettings;
 
   const activeBrushId = React.useMemo(() => {
-    if (currentTool === 'recolor' || currentTool === 'fill') {
+    if (currentTool !== 'brush' || brushPanelSection !== 'tool') {
       return null;
     }
 
@@ -252,6 +264,7 @@ const BrushLibrary = () => {
     return currentBrushPreset?.id ?? null;
   }, [
     allBrushes,
+    brushPanelSection,
     brushShape,
     currentBrushPreset?.id,
     currentTool,
@@ -377,23 +390,42 @@ const BrushLibrary = () => {
 
   return (
     <div className="h-full flex flex-col bg-[#1A1A1A]">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#1A1A1A] border-b border-[#4a4a4a]">
-        <span className="font-medium text-[#D9D9D9]" style={{ fontSize: '14px' }}>Brush Library</span>
-        <div className="flex items-center space-x-2">
-          <PlusButton
-            onClick={handleSaveCustomBrushAsPreset}
-            disabled={!canSaveCustomBrush}
-            aria-label="Save captured custom brush to library"
-            title={
-              canSaveCustomBrush
-                ? 'Save captured custom brush to library'
-                : 'Capture a custom brush before saving'
-            }
+      <div className="flex items-center gap-2 px-2 py-1 border-b border-[#4a4a4a]">
+        <div role="group" aria-label="Library filter" className="min-w-0 flex-1">
+          <ButtonGroup
+            options={[
+              { label: 'All', value: 'all' },
+              { label: 'Brushes', value: 'brushes' },
+              { label: 'Effects', value: 'effects' },
+            ]}
+            value={libraryFilter}
+            onChange={setLibraryFilter}
+            size="xs"
+            wrap={false}
+            className="w-full [&>button]:flex-1 [&>button]:basis-0 [&>button]:min-w-0"
           />
         </div>
+        <PlusButton
+          type="button"
+          className="shrink-0"
+          onClick={handleSaveCustomBrushAsPreset}
+          disabled={!canSaveCustomBrush}
+          aria-label="Save captured custom brush to library"
+          title={canSaveCustomBrush
+            ? 'Save captured custom brush to library'
+            : 'Capture a custom brush before saving'}
+        />
       </div>
-      
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
+        <div hidden={libraryFilter === 'effects'}>
+        {(['custom', 'fill'] as const).map((tool) => (
+          <button key={tool} type="button" aria-pressed={currentTool === tool && brushPanelSection === 'tool'}
+            className={`flex w-full items-center px-2.5 h-[26px] text-xs text-left ${currentTool === tool && brushPanelSection === 'tool' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+            onClick={() => { setBrushPanelSection('tool'); void switchTool(tool); }}>
+            <span aria-hidden="true" className="w-[26px] shrink-0">{tool === 'custom' ? 'Cb' : 'Fi'}</span>
+            {tool === 'custom' ? 'Custom Brush' : 'Fill'}
+          </button>
+        ))}
         {allBrushes.map((preset) => {
           const isSpamBrush = preset.id === 'spam-text';
           const iconSizePx = BRUSH_ICON_SIZE;
@@ -572,66 +604,44 @@ const BrushLibrary = () => {
               </div>
             )}
 
-            {/* Insert Recolor and animate entry after CC Fixed Dither */}
-            {preset.id === 'color-cycle-flat-dither' && (
-              <div
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void switchTool('recolor');
-                }}
-                className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${
-                  currentTool === 'recolor' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]'
-                }`}
-                title="Open Color cycle + recolor panel"
-              >
-                <div className="flex items-center gap-0.5">
-                  {brushThumbnails['color-cycle-shape'] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={brushThumbnails['color-cycle-shape']}
-                      alt={`Color cycle + recolor icon`}
-                      width={BRUSH_ICON_SIZE}
-                      height={BRUSH_ICON_SIZE}
-                      style={{
-                        imageRendering: 'auto',
-                        width: `${BRUSH_ICON_SIZE}px`,
-                        height: `${BRUSH_ICON_SIZE}px`,
-                        display: 'block',
-                        flexShrink: 0,
-                        filter: currentTool === 'recolor' ? 'invert(1)' : 'none'
-                      }}
-                    />
-                  ) : (
-                    <div
-                      style={{
-                        fontSize: '12px',
-                        flexShrink: 0,
-                        width: `${BRUSH_ICON_SIZE}px`,
-                        height: `${BRUSH_ICON_SIZE}px`,
-                        color: currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9',
-                        border: currentTool === 'recolor' ? '2px solid #1A1A1A' : '2px solid #D9D9D9'
-                      }}
-                      className="flex items-center justify-center"
-                    >
-                      □
-                    </div>
-                  )}
-                  <span
-                    style={{
-                      fontSize: '12px',
-                      lineHeight: `${BRUSH_TEXT_LINE_HEIGHT}px`,
-                      color: currentTool === 'recolor' ? '#1A1A1A' : '#D9D9D9'
-                    }}
-                    className={currentTool === 'recolor' ? '' : 'transition-colors group-hover:text-[#F3F3F7]'}
-                  >
-                    Color cycle + recolor
-                  </span>
-                </div>
-              </div>
-            )}
           </React.Fragment>
         );
         })}
+        </div>
+        <div hidden={libraryFilter === 'brushes'}>
+          {(['color-adjust', 'recolor', 'filters', 'interlace'] as const).map((effect) => {
+            const active = effect === 'interlace' || effect === 'filters' ? brushPanelSection === effect : brushPanelSection === 'tool' && currentTool === effect;
+            return <button key={effect} type="button" aria-pressed={active}
+              className={`flex w-full items-center px-2.5 h-[26px] text-xs text-left ${active ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+              onClick={() => {
+                if (effect === 'filters') {
+                  setBrushPanelSection('filters');
+                } else if (effect === 'interlace') {
+                  const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+                  const selectedLayers = layers.filter((layer) => selectedLayerIds.includes(layer.id));
+                  const existingGroup = layerGroups.find((group) => isInterlaceGroup(group)
+                    && (activeLayer?.groupId === group.id || selectedLayers.some((layer) => layer.groupId === group.id)));
+                  if (!existingGroup) {
+                    const eligibleIds = selectedLayers.filter((layer) => layer.layerType !== 'sequential').map((layer) => layer.id);
+                    if (eligibleIds.length < 2 || !createInterlaceGroupFromSelection(eligibleIds)) {
+                      showAppFeedback('Select at least two regular or Color Cycle layers');
+                      return;
+                    }
+                  }
+                  setBrushPanelSection('interlace');
+                } else {
+                  setBrushPanelSection('tool');
+                  void switchTool(effect);
+                }
+              }}>
+              <span aria-hidden="true" className="w-[26px] shrink-0">{effect === 'filters' ? 'Fl' : effect === 'interlace' ? 'In' : effect === 'recolor' ? 'Cc' : 'Hs'}</span>
+              {effect === 'filters' ? 'Filters' : effect === 'interlace' ? 'Interlace' : effect === 'recolor' ? 'Color cycle + recolor' : 'Colour Adjust'}
+            </button>;
+          })}
+          <div className="px-2.5">
+            {StudioPlaybackSettings && <StudioPlaybackSettings />}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -159,26 +159,26 @@ describe('LeftToolbar accessibility', () => {
     render(<LeftToolbar />);
 
     const brushButton = screen.getByRole('button', { name: /brush \(b\)/i });
-    const customButton = screen.getByRole('button', { name: /custom brush \(c\)/i });
+    const eraserButton = screen.getByRole('button', { name: /eraser/i });
     fireEvent.mouseEnter(brushButton.parentElement as HTMLElement);
-    fireEvent.focus(customButton);
+    fireEvent.focus(eraserButton);
 
     act(() => {
       jest.advanceTimersByTime(TOOLBAR_TOOLTIP_DELAY_MS);
     });
 
-    expect(screen.getByRole('tooltip')).toHaveTextContent('Custom Brush (C)');
-    expect(customButton).toHaveAttribute('aria-describedby', 'toolbar-tooltip-custom');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Eraser (E (tap/hold))');
+    expect(eraserButton).toHaveAttribute('aria-describedby', 'toolbar-tooltip-eraser');
   });
 
   it('invokes the tool switcher for standard tool clicks', async () => {
     render(<LeftToolbar />);
 
-    const customButton = screen.getByRole('button', { name: /custom brush/i });
-    fireEvent.click(customButton);
+    const eraserButton = screen.getByRole('button', { name: /eraser/i });
+    fireEvent.click(eraserButton);
 
     await waitFor(() => {
-      expect(mockSwitchTool).toHaveBeenCalledWith('custom');
+      expect(mockSwitchTool).toHaveBeenCalledWith('eraser');
     });
   });
 
@@ -250,21 +250,11 @@ describe('LeftToolbar accessibility', () => {
     expect(mockSwitchTool).not.toHaveBeenCalled();
   });
 
-  it('routes the Fl button to the brush settings filters section', () => {
+  it('keeps library entries out of the left toolbar', () => {
     render(<LeftToolbar />);
-
-    fireEvent.click(screen.getByRole('button', { name: /filters/i }));
-
-    expect(mockStore.setBrushPanelSection).toHaveBeenCalledWith('filters');
-    expect(mockStore.toggleModal).not.toHaveBeenCalled();
-  });
-
-  it('marks the Fl button active when the brush panel is showing filters', () => {
-    mockStore.ui.brushPanelSection = 'filters';
-
-    render(<LeftToolbar />);
-
-    expect(screen.getByRole('button', { name: /filters/i })).toHaveAttribute('aria-pressed', 'true');
+    for (const name of ['Custom Brush', 'Fill', 'Hue/Sat', 'Filters', 'Interlace']) {
+      expect(screen.queryByRole('button', { name: new RegExp(name) })).not.toBeInTheDocument();
+    }
   });
 
   it('treats filters as the only active toolbar state while the filters section is open', () => {
@@ -272,7 +262,6 @@ describe('LeftToolbar accessibility', () => {
 
     render(<LeftToolbar />);
 
-    expect(screen.getByRole('button', { name: /filters/i })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /brush \(b\)/i })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: /selection \(m\)/i })).toHaveAttribute('aria-pressed', 'false');
   });
@@ -281,16 +270,16 @@ describe('LeftToolbar accessibility', () => {
     mockStore.ui.brushPanelSection = 'filters';
     const { rerender } = render(<LeftToolbar />);
 
-    fireEvent.click(screen.getByRole('button', { name: /custom brush/i }));
+    fireEvent.click(screen.getByRole('button', { name: /eraser/i }));
 
     await waitFor(() => {
       expect(mockStore.setBrushPanelSection).toHaveBeenCalledWith('tool');
-      expect(mockSwitchTool).toHaveBeenCalledWith('custom');
+      expect(mockSwitchTool).toHaveBeenCalledWith('eraser');
     });
 
     rerender(<LeftToolbar />);
 
-    expect(screen.getByRole('button', { name: /filters/i })).toHaveAttribute('aria-pressed', 'false');
+    expect(mockStore.ui.brushPanelSection).toBe('tool');
   });
 
   it('still opens global settings from the options button', () => {

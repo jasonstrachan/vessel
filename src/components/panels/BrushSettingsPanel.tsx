@@ -88,14 +88,14 @@ const BrushSettingsPanel: React.FC = () => {
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
-        {isAdjustmentLayer ? (
-          <AdjustmentLayerPanel />
-        ) : isInterlaceSection ? (
-          <InterlaceSettingsPanel />
-        ) : isFiltersSection ? (
+        {isFiltersSection ? (
           <div className="px-4 py-4">
             <DisplayFiltersSection />
           </div>
+        ) : isAdjustmentLayer ? (
+          <AdjustmentLayerPanel />
+        ) : isInterlaceSection ? (
+          <InterlaceSettingsPanel />
         ) : currentTool === 'crop' ? (
           <CropOptionsPanel />
         ) : (

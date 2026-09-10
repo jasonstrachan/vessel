@@ -259,12 +259,10 @@ const AnimationControlsPanel: React.FC = () => {
   );
 
   const StudioPlaybackControls = studioExtension.PlaybackControls ?? React.Fragment;
-  const StudioPlaybackSettings = studioExtension.PlaybackSettings;
 
   return (
     <div className="bg-[#1A1A1A] border-t border-[#404040]">
       <div className="px-4 py-1 space-y-1">
-        {StudioPlaybackSettings && <StudioPlaybackSettings />}
         <SequentialControlsModule
           controlsDisabled={controlsDisabled}
           currentFrameDisplay={currentFrameDisplay}

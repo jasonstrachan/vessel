@@ -119,6 +119,8 @@ const Tabs: React.FC<TabsProps> = ({
         return (
           <button
             key={tab.value}
+            type="button"
+            aria-pressed={isActive}
             onClick={() => onTabChange(tab.value)}
             disabled={isDisabled}
             title={tab.title}

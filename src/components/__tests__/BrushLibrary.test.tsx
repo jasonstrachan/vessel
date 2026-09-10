@@ -8,6 +8,14 @@ import {
 } from '@/presets/brushPresets';
 import { BrushShape } from '@/types';
 
+const mockReplayUnmount = jest.fn();
+jest.mock('@/extensions/studioExtension', () => ({
+  __esModule: true,
+  default: { brushPresets: [], PlaybackSettings: function Replay() {
+    React.useEffect(() => () => mockReplayUnmount(), []);
+    return <button>Replay</button>;
+  } },
+}));
 const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
 const originalVesselBasePath = process.env.VESSEL_BASE_PATH;
 
@@ -19,7 +27,7 @@ type MockState = {
   currentBrushPreset: unknown;
   brushPresets: unknown[];
   project: any;
-  tools: { brushSettings: { brushShape: BrushShape; selectedCustomBrush: string | null } };
+  tools: { currentTool: 'brush', brushSettings: { brushShape: BrushShape; selectedCustomBrush: string | null } };
   ui: {
     panels: {
       leftToolbar: boolean;
@@ -67,7 +75,7 @@ jest.mock('@/stores/useAppStore', () => {
     currentBrushPreset: null,
     brushPresets: [],
     project: null,
-    tools: { brushSettings: { brushShape: BrushShape.ROUND, selectedCustomBrush: null } },
+    tools: { currentTool: 'brush', brushSettings: { brushShape: BrushShape.ROUND, selectedCustomBrush: null } },
     ui: {
       panels: {
         leftToolbar: true,
@@ -241,6 +249,52 @@ const shapeGradientPreset = {
   };
 
 describe('BrushLibrary', () => {
+  it('filters brushes and effects without unmounting Replay', () => {
+    render(<BrushLibrary />);
+    mockReplayUnmount.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Effects' }));
+    expect(screen.getByRole('button', { name: 'Effects' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('button', { name: 'Fill' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Replay' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Colour Adjust' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Brushes' }));
+    expect(screen.getByRole('button', { name: 'Fill' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Replay' })).not.toBeInTheDocument();
+    expect(mockReplayUnmount).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'All' }));
+    expect(screen.getByRole('button', { name: 'Replay' })).toBeVisible();
+  });
+
+  it('opens Filters in the options panel without rendering individual filters in the library', () => {
+    render(<BrushLibrary />);
+    fireEvent.click(screen.getByRole('button', { name: 'Effects' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
+    expect(useAppStore.getState().setBrushPanelSection).toHaveBeenCalledWith('filters');
+    expect(screen.queryByText('Pixelate')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Noise enabled')).not.toBeInTheDocument();
+  });
+
+  it('creates Interlace from the selected eligible layers', () => {
+    const createGroup = jest.fn(() => 'group');
+    useAppStore.setState({
+      layers: [{ id: 'one', layerType: 'normal' }, { id: 'two', layerType: 'color-cycle' }] as any,
+      layerGroups: [],
+      selectedLayerIds: ['one', 'two'],
+      activeLayerId: 'one',
+      createInterlaceGroupFromSelection: createGroup,
+    });
+    render(<BrushLibrary />);
+    fireEvent.click(screen.getByRole('button', { name: 'Interlace' }));
+    expect(createGroup).toHaveBeenCalledWith(['one', 'two']);
+    expect(useAppStore.getState().setBrushPanelSection).toHaveBeenCalledWith('interlace');
+  });
+
+  it.each([['Custom Brush', 'custom'], ['Fill', 'fill'], ['Colour Adjust', 'color-adjust'], ['Color cycle + recolor', 'recolor']])('routes %s to its existing tool', (label, tool) => {
+    render(<BrushLibrary />);
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(label.replace('+', '\\+')) }));
+    expect(mockSwitchTool).toHaveBeenCalledWith(tool);
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     useAppStore.setState({

@@ -1,10 +1,15 @@
 import React from 'react';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import BrushSettingsPanel from '../BrushSettingsPanel';
+import BrushLibrary from '@/components/BrushLibrary';
 import { useAppStore } from '@/stores/useAppStore';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
+
+jest.mock('@/utils/brushThumbnailGenerator', () => ({
+  generateBrushThumbnail: () => '',
+}));
 
 describe('BrushSettingsPanel filters section', () => {
   const initialState = useAppStore.getInitialState();
@@ -40,6 +45,18 @@ describe('BrushSettingsPanel filters section', () => {
 
     expect(screen.getByText('Pixelate')).toBeInTheDocument();
     expect(screen.getByLabelText('Pixelate enabled')).toBeInTheDocument();
+  });
+
+  it('selects the single Filters library entry and shows its controls only in options', () => {
+    render(<><div data-testid="library"><BrushLibrary /></div><div data-testid="options"><BrushSettingsPanel /></div></>);
+    const library = within(screen.getByTestId('library'));
+    const options = within(screen.getByTestId('options'));
+    fireEvent.click(library.getByRole('button', { name: 'Effects' }));
+    fireEvent.click(library.getByRole('button', { name: 'Filters' }));
+    expect(library.getByRole('button', { name: 'Filters' })).toHaveAttribute('aria-pressed', 'true');
+    expect(library.queryByLabelText('Noise enabled')).not.toBeInTheDocument();
+    expect(options.getByLabelText('Noise enabled')).toBeInTheDocument();
+    expect(screen.getAllByLabelText('Noise enabled')).toHaveLength(1);
   });
 
   it('prioritizes the selected adjustment layer editor and exposes its target selector', () => {
@@ -92,5 +109,10 @@ describe('BrushSettingsPanel filters section', () => {
     expect(screen.getByLabelText('Strength adjustment')).toBeInTheDocument();
     expect(screen.getByText('Reset Effect')).toBeInTheDocument();
     expect(screen.queryByText('Pixelate')).not.toBeInTheDocument();
+
+    act(() => { useAppStore.getState().setBrushPanelSection('filters'); });
+    expect(screen.getByLabelText('Pixelate enabled')).toBeInTheDocument();
+    expect(screen.queryByText('Reset Effect')).not.toBeInTheDocument();
+
   });
 });
