@@ -430,9 +430,9 @@ const BrushLibrary = () => {
         <div hidden={libraryFilter === 'effects'}>
         {(['custom', 'fill'] as const).map((tool) => (
           <button key={tool} type="button" aria-pressed={currentTool === tool && brushPanelSection === 'tool'}
-            className={`flex w-full items-center px-2.5 h-[26px] text-xs text-left ${currentTool === tool && brushPanelSection === 'tool' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+            className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${currentTool === tool && brushPanelSection === 'tool' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
             onClick={() => { setBrushPanelSection('tool'); void switchTool(tool); }}>
-            <span aria-hidden="true" className="w-[26px] shrink-0">{tool === 'custom' ? 'Cb' : 'Fi'}</span>
+            <span aria-hidden="true" className="w-[26px] shrink-0 text-center">{tool === 'custom' ? 'Cb' : 'Fi'}</span>
             {tool === 'custom' ? 'Custom Brush' : 'Fill'}
           </button>
         ))}
@@ -622,7 +622,7 @@ const BrushLibrary = () => {
           {(['color-adjust', 'recolor', 'filters', 'interlace'] as const).map((effect) => {
             const active = effect === 'interlace' || effect === 'filters' ? brushPanelSection === effect : brushPanelSection === 'tool' && currentTool === effect;
             return <button key={effect} type="button" aria-pressed={active}
-              className={`flex w-full items-center px-2.5 h-[26px] text-xs text-left ${active ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+              className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${active ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
               onClick={() => {
                 if (effect === 'filters') {
                   setBrushPanelSection('filters');
@@ -644,7 +644,7 @@ const BrushLibrary = () => {
                   void switchTool(effect);
                 }
               }}>
-              <span aria-hidden="true" className="w-[26px] shrink-0">{effect === 'filters' ? 'Fl' : effect === 'interlace' ? 'In' : effect === 'recolor' ? 'Cc' : 'Hs'}</span>
+              <span aria-hidden="true" className="w-[26px] shrink-0 text-center">{effect === 'filters' ? 'Fl' : effect === 'interlace' ? 'In' : effect === 'recolor' ? 'Cc' : 'Hs'}</span>
               {effect === 'filters' ? 'Filters' : effect === 'interlace' ? 'Interlace' : effect === 'recolor' ? 'Color cycle + recolor' : 'Colour Adjust'}
             </button>;
           })}
