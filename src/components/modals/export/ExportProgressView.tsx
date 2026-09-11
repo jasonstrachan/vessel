@@ -1,6 +1,7 @@
 'use client';
 
 import Button from '@/components/ui/Button';
+import studioExtension from '@/extensions/studioExtension';
 import {
   GobletReleaseActions,
   GobletReleaseSummary,
@@ -187,6 +188,10 @@ export const ExportProgressView = ({
 
         {state.phase === 'complete' && artifact && (
           <GobletReleaseSummary artifact={artifact} />
+        )}
+
+        {state.phase === 'complete' && artifact && studioExtension.ExportResultControls && (
+          <studioExtension.ExportResultControls artifact={artifact} />
         )}
 
         {diagnosticsText && (

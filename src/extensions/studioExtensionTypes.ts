@@ -8,6 +8,7 @@ import type {
   TxtShapePlaybackSettings,
 } from '@/types';
 import type { WebGLExportMetadata } from '@/utils/export/goblet/gobletTypes';
+import type { GobletArtifact } from '@/utils/export/goblet/gobletArtifact';
 
 export interface StudioCanvasOverlayProps {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
@@ -43,6 +44,7 @@ export interface VesselStudioExtension {
   UnresolveSettings?: React.ComponentType;
   PlaybackControls?: React.ComponentType<{ children: React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>> }>;
   ExportControls?: React.ComponentType;
+  ExportResultControls?: React.ComponentType<{ artifact: GobletArtifact }>;
   BrushControls?: React.ComponentType;
   BrushSettingsControls?: React.ComponentType;
   BrushStrokeSettingsControls?: React.ComponentType;
