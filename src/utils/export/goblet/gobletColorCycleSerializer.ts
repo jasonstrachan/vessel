@@ -1,6 +1,7 @@
 import { resolveGobletColorCycleExportSource, type GobletColorCycleDocumentRead, type GobletColorCyclePayloadBuildSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import { debugLog, debugWarn } from '@/utils/debug';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
+import { getColorCyclePlaybackClock, type ColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 import { normalizeGradientSeamProfile, type GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import { MAX_BRUSH_COLOR_CYCLE_SPEED, MAX_CC_LAYER_SPEED_SCALE, MIN_BRUSH_COLOR_CYCLE_SPEED, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
@@ -1794,6 +1795,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   project: Project,
   speedWarning?: { warned: boolean },
   options?: {
+      playbackClock?: ColorCyclePlaybackClock | null;
       forceSpeedBuffer?: boolean;
       layerSpeedScale?: number;
       toolSpeed?: number | null;
@@ -1820,6 +1822,9 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   }
 
   const layerSpeedScale = clampExportLayerSpeedScale(options?.layerSpeedScale);
+  const playbackClock = options?.playbackClock === undefined
+    ? getColorCyclePlaybackClock(layer.id, project.id)
+    : options.playbackClock;
   let brushState: WebGLSerializedBrushState | undefined;
   let exportDocumentState: ColorCyclePersistenceDocumentState | undefined;
   if (!data.recolorSettings) {
@@ -1896,6 +1901,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     ? shouldExportLayerAsAnimating(layer, brushState, layerSpeedScale)
     : !isStaticPreviewOnlyBrushLayer;
   const serialized: WebGLSerializedColorCycle = {
+    ...(playbackClock ? { playbackClock: { ...playbackClock } } : {}),
     mode: exportMode,
     gradient: data.gradient,
     brushSpeed: resolvedBrushSpeed,
@@ -2194,11 +2200,11 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       );
     };
     const speedPlan = prepareBrushSpeedExport({
-      layer,
+      layer: playbackClock ? { ...layer, colorCycleData: { ...data, layerBaseSpeedCps: 1 } } : layer,
       brushState,
       warnOnce: warnOnceMissingSpeed,
-      forceBuffer: options?.forceSpeedBuffer === true || remappedDefBoundSlots,
-      layerSpeedScale,
+      forceBuffer: Boolean(playbackClock) || options?.forceSpeedBuffer === true || remappedDefBoundSlots,
+      layerSpeedScale: playbackClock ? 1 : layerSpeedScale,
       fallbackToolSpeed: options?.toolSpeed,
       speedSourceVersion,
     });

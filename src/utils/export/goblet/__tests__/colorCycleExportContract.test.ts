@@ -8,6 +8,7 @@ import * as colorCycleBrushManager from '@/stores/colorCycleBrushManager';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { localDitherPatternRegistry } from '@/utils/ditherPatterns/ditherPatternRegistry';
 import type { Layer, Project } from '@/types';
+import { registerColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 
 const project = {
   id: 'project',
@@ -128,6 +129,26 @@ const createDocumentBackedLiveRuntime = (settings: Record<string, unknown>) => (
 });
 
 describe('Goblet color-cycle export contract boundaries', () => {
+  it('exports shared time once without baking a layer multiplier into the speed bytes', async () => {
+    const clock = { timeSeconds: 1.25, speedScale: 2 };
+    const unregister = registerColorCyclePlaybackClock({ read: () => clock, snapshotProject: (value) => value });
+    try {
+      for (const multiplier of [0.5, 3]) {
+        const strokeData = { ...createCompleteStrokeData(), speedSourceVersion: 2 as const };
+        const layer = createLayer({ layerBaseSpeedCps: multiplier, brushState: {
+          canonicalPaint: true, schemaVersion: 1,
+          layers: [{ layerId: 'cc-layer', strokeData }],
+        } });
+        const result = await serializeColorCycleDataFromResolvedLayer(layer, project, undefined, { layerSpeedScale: 2 });
+        expect(result?.colorCycle?.playbackClock).toEqual(clock);
+        expect(result?.colorCycle?.playbackClock).not.toBe(clock);
+        expect(result?.colorCycle?.speedMode).toBe('buffer');
+        expect(result?.colorCycle?.speedMin).toBe(0);
+        expect(result?.colorCycle?.speedMax).toBe(2.64);
+      }
+    } finally { unregister(); }
+  });
+
   afterEach(() => {
     jest.restoreAllMocks();
     localDitherPatternRegistry.clear();

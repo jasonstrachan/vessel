@@ -54,12 +54,18 @@ Sample strokes: On selects the sampled source with neutral sampled contrast and 
 hard seam, pauses playback, and resets the layer clock so new strokes align with
 the sampled image on release. The button shows On/Off; turning it off selects
 Palette again. The shared cycle moves each stroke's own colours along its path;
-Resolve returns to the original alignment. Apply synchronises native playback
-on the selected CC layer, including Goblet playback. There is no separate
+Resolve returns every Unresolve layer to its original alignment together.
+Apply joins the selected CC layer to the shared Unresolve clock at its current
+position. Global playback speed controls this clock; individual layer speed
+multipliers do not separate Unresolve layers. Ordinary CC layers retain their
+own playback. This synchronisation also applies in Goblet exports. There is no separate
 unresolved palette or frame capture. Existing strokes retain their captured
 sampling detail; denser sampling applies to new strokes.
 Use global Play/Pause to animate or pause strokes and active Unresolve previews.
 After Apply, global Play runs the committed strokes.
+Saved projects retain the shared playback position. Older Unresolve files,
+including the original captured-frame format, join at the resolved position
+when no shared clock was saved; their authored palettes and pixels are retained.
 
 ## Collaboration profile
 

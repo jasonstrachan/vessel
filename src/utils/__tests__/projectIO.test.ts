@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { registerColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 import type { PersistedColorCycleBrushState } from '@/lib/colorCycle/persistence';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
@@ -449,6 +450,22 @@ const createLargeProjectBenchmarkFixture = async (): Promise<{
 });
 
 describe('projectIO readProjectManifest', () => {
+  it('round-trips the shared playback snapshot without changing the live project', async () => {
+    const project = await deserializeProject(asJson);
+    const unregister = registerColorCyclePlaybackClock({
+      read: () => undefined,
+      snapshotProject: (value) => ({ ...value, extensionData: { ...value.extensionData,
+        unresolveClock: { version: 1, timeSeconds: 2.5 },
+      } }),
+    });
+    try {
+      const archive = await serializeProject(project);
+      const reopened = await deserializeProject(archive);
+      expect(reopened.extensionData?.unresolveClock).toEqual({ version: 1, timeSeconds: 2.5 });
+      expect(project.extensionData?.unresolveClock).toBeUndefined();
+    } finally { unregister(); }
+  });
+
   let errorSpy: jest.SpyInstance;
 
   beforeEach(() => {

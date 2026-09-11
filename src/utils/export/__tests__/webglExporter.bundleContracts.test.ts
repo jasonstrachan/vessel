@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 
 import { MAX_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { registerColorCycleBrushSerializedStateRuntime } from '@/lib/colorCycle/document';
+import { registerColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 import {
   buildProjectGobletArtifact,
   exportProjectAsWebGL,
@@ -344,6 +345,37 @@ afterEach(() => {
 });
 
 describe('webglExporter bundle contracts', () => {
+  it.each([
+    { colorCyclePlaybackSpeedScale: 0.5 },
+    { colorCycleLayerSpeedScale: 0.5 },
+  ])('honors explicit export speed for shared clocks: %j', async (speedOptions) => {
+    const clock = { timeSeconds: 1.25, speedScale: 2 };
+    const unregister = registerColorCyclePlaybackClock({ read: () => clock, snapshotProject: (project) => project });
+    try {
+      const artifact = await buildProjectGobletArtifact({
+        ...baseExportRequest(), layers: [createDenseBrushLayer()], bundleFormat: 'json', ...speedOptions,
+      });
+      expect(artifact.metadata.layers.find((layer) => layer.colorCycle)?.colorCycle?.playbackClock)
+        .toEqual({ timeSeconds: 1.25, speedScale: 0.5 });
+      expect(clock).toEqual({ timeSeconds: 1.25, speedScale: 2 });
+    } finally { unregister(); }
+  });
+
+  it('captures authored playback time before asynchronous export work', async () => {
+    const request = { ...baseExportRequest(), layers: [createDenseBrushLayer()] };
+    const clock = { timeSeconds: 1.25, speedScale: 2 };
+    const read = jest.fn(() => clock);
+    const unregister = registerColorCyclePlaybackClock({ read, snapshotProject: (project) => project });
+    try {
+      const artifact = await buildProjectGobletArtifact({ ...request, bundleFormat: 'json',
+        onProgress: () => { clock.timeSeconds = 99; },
+      });
+      expect(read).toHaveBeenCalledTimes(request.layers.length);
+      expect(artifact.metadata.layers.find((layer) => layer.colorCycle)?.colorCycle?.playbackClock)
+        .toEqual({ timeSeconds: 1.25, speedScale: 2 });
+    } finally { unregister(); }
+  });
+
   it('builds a reusable artifact without downloading it', async () => {
     const artifact = await buildProjectGobletArtifact({
       ...baseExportRequest(),

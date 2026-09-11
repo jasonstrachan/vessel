@@ -4856,6 +4856,14 @@ class ColorCycleLayerPlayer {
     return true;
   }
 
+  getRenderTimeSeconds() {
+    const clock = this.layer.colorCycle?.playbackClock;
+    if (!clock) return this.baseTimeSeconds;
+    const offset = Math.max(0, toFiniteNumberOrNull(clock.timeSeconds) ?? 0);
+    const scale = Math.max(0, toFiniteNumberOrNull(clock.speedScale) ?? 1);
+    return offset + this.baseTimeSeconds * scale;
+  }
+
   renderFrame() {
     if (!this.indexBuffer) {
       return;
@@ -4864,7 +4872,7 @@ class ColorCycleLayerPlayer {
     this._lastCpuBlitMs = 0;
     if (this.useWebGL && this.webglRenderer) {
       this._lastRenderPath = 'webgl';
-      this.webglRenderer.render(this.baseTimeSeconds, this.legacyOffset01);
+      this.webglRenderer.render(this.getRenderTimeSeconds(), this.legacyOffset01);
       return;
     }
     this._lastRenderPath = 'cpu';
@@ -4890,7 +4898,7 @@ class ColorCycleLayerPlayer {
           paletteSize: n,
           speedMin: this.speedMin,
           speedMax: this.speedMax,
-          timeSeconds: this.baseTimeSeconds,
+          timeSeconds: this.getRenderTimeSeconds(),
           defaultSpeed: Number.isFinite(this.speed) ? this.speed : 0,
           legacyOffset01: this.legacyOffset01
         },
@@ -4938,7 +4946,7 @@ class ColorCycleLayerPlayer {
           this.alpha,
           {
             paletteSize: n,
-            timeSeconds: this.baseTimeSeconds,
+            timeSeconds: this.getRenderTimeSeconds(),
             defaultSpeed: baseSpeed,
             legacyOffset01: this.legacyOffset01
           },
@@ -4951,7 +4959,7 @@ class ColorCycleLayerPlayer {
         fillMs = fillEnd - fillStart;
       } else {
         const fillStart = profileNow();
-        const baseOffset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
+        const baseOffset01 = (((this.getRenderTimeSeconds() * baseSpeed) % 1) + 1) % 1;
         const basePal = this._fallbackPalette32 ?? this._basePalette32BySlot.get(0);
         const baseLut = buildPaletteFractionalShiftLUT256({
           basePalette32: basePal,
@@ -4962,7 +4970,7 @@ class ColorCycleLayerPlayer {
           const lutsBySlot = this._fractionalLutsBySlot;
           this._basePalette32BySlot.forEach((pal, slot) => {
             const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot)) ? slotSpeedMap.get(slot) : baseSpeed;
-            const slotOffset = (((this.baseTimeSeconds * (slotSpeed ?? 0)) % 1) + 1) % 1;
+            const slotOffset = (((this.getRenderTimeSeconds() * (slotSpeed ?? 0)) % 1) + 1) % 1;
             let slotLut = lutsBySlot.get(slot);
             if (!slotLut) {
               slotLut = new Uint32Array(256);
@@ -4996,7 +5004,7 @@ class ColorCycleLayerPlayer {
         fillMs = fillEnd - fillStart;
       }
     } else {
-      const offset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
+      const offset01 = (((this.getRenderTimeSeconds() * baseSpeed) % 1) + 1) % 1;
       const basePal = this._fallbackPalette32 ?? this._basePalette32BySlot.get(0);
       const baseLut = buildPaletteShiftLUT256({
         basePalette32: basePal,

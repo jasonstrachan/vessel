@@ -1,3 +1,4 @@
+import { snapshotColorCyclePlaybackProject } from '@/lib/colorCycle/playbackClock';
 // Project input/output utilities for Vessel
 // Handles serialization, deserialization, and file operations
 
@@ -4543,6 +4544,7 @@ const buildSerializedProjectArtifacts = async (
   project: Project,
   layers?: Layer[],
 ): Promise<SerializedProjectArtifacts> => {
+  project = snapshotColorCyclePlaybackProject(project);
   // Use the passed layers parameter, falling back to project.layers if not provided
   const layersToSerialize = layers || project.layers || [];
   const serializedLayers = await Promise.all(layersToSerialize.map((layer) => serializeLayer(layer)));

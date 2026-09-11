@@ -27,6 +27,7 @@ import {
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type { ColorCycleLayerDocumentSnapshot, DerivedSurface } from '@/lib/colorCycle/document';
 import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
+import { getColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -853,10 +854,10 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       const legacyPhase = this.strokeTracker.computePhase(offset);
       const flowMode = this.strokeTracker.getFlowMode();
       const baseOffset = offset;
-      const baseTime =
-        Number.isFinite(baseTimeOverride)
-          ? (baseTimeOverride as number)
-          : this.animationController.getScaledElapsedTime();
+      const baseTime = Number.isFinite(baseTimeOverride)
+        ? (baseTimeOverride as number)
+        : (getColorCyclePlaybackClock(this.diagnosticLayerId)?.timeSeconds
+          ?? this.animationController.getScaledElapsedTime());
       const indexData = this.indexBuffer.getDirectData();
       const gradientIdData = this.indexBuffer.getDirectGradientIdData();
       const speedData = this.indexBuffer.getDirectSpeedData();

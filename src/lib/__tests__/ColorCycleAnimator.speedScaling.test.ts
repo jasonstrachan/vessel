@@ -1,5 +1,6 @@
 import { ColorCycleAnimator } from '../ColorCycleAnimator';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { registerColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 
 const readPixel = (animator: ColorCycleAnimator): [number, number, number, number] => {
   const data = animator.getImageData().data;
@@ -7,6 +8,45 @@ const readPixel = (animator: ColorCycleAnimator): [number, number, number, numbe
 };
 
 describe('ColorCycleAnimator speed scaling', () => {
+  it('renders shared-clock layers identically despite different native clocks and multipliers', () => {
+    const clock = { timeSeconds: 0, speedScale: 2 };
+    const unregister = registerColorCyclePlaybackClock({
+      read: (id) => id === 'ordinary' ? undefined : clock,
+      snapshotProject: (project) => project,
+    });
+    const animators = ['a', 'b', 'ordinary'].map((layerId) => {
+      const animator = new ColorCycleAnimator({ width: 1, height: 1, layerId, forceCanvas2D: true,
+        gradientStops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+      });
+      animator.setStrokeSpeedByte(17);
+      animator.setIndex(0, 0, 128);
+      animator.forceRender();
+      return animator;
+    });
+    try {
+      const [a, b, ordinary] = animators;
+      const resolved = readPixel(a);
+      a.setLayerSpeedMultiplier(0.25); b.setLayerSpeedMultiplier(4);
+      for (let i = 0; i < 120; i++) a.updateFrame();
+      b.updateFrame();
+      expect(readPixel(a)).toEqual(resolved);
+      expect(readPixel(b)).toEqual(resolved);
+      a.setPhase(0.5);
+      expect(readPixel(a)).not.toEqual(resolved);
+      a.forceRender();
+      expect(readPixel(a)).toEqual(resolved);
+      clock.timeSeconds = 1;
+      a.forceRender(); b.forceRender();
+      expect(readPixel(a)).toEqual(readPixel(b));
+      expect(readPixel(a)).not.toEqual(resolved);
+      expect(readPixel(ordinary)).toEqual(resolved);
+      clock.timeSeconds = 0;
+      a.forceRender(); b.forceRender();
+      expect(readPixel(a)).toEqual(resolved);
+      expect(readPixel(b)).toEqual(resolved);
+    } finally { unregister(); animators.forEach((animator) => animator.cleanup()); }
+  });
+
   it('composes global playback and layer speed without changing either authority', () => {
     const animator = new ColorCycleAnimator({
       width: 1,

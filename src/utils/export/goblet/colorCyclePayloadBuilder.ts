@@ -1,4 +1,5 @@
 import type { Layer, Project } from '@/types';
+import type { ColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 import type { ColorCycleSerializationResult } from '@/utils/export/goblet/gobletTypes';
 import type { GobletColorCycleDocumentRead, GobletColorCyclePayloadBuildSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import {
@@ -32,6 +33,7 @@ export type GobletColorCyclePayloadResult =
     };
 
 export type GobletColorCyclePayloadBuildOptions = {
+  playbackClock?: ColorCyclePlaybackClock | null;
   forceSpeedBuffer?: boolean;
   layerSpeedScale?: number;
   toolSpeed?: number | null;
@@ -41,6 +43,7 @@ export type GobletColorCyclePayloadBuildOptions = {
     project: Project,
     speedWarning?: { warned: boolean },
     options?: {
+      playbackClock?: ColorCyclePlaybackClock | null;
       forceSpeedBuffer?: boolean;
       layerSpeedScale?: number;
       toolSpeed?: number | null;
@@ -65,6 +68,7 @@ export const buildGobletColorCyclePayload = async (
     project,
     options.speedWarning,
     {
+      playbackClock: options.playbackClock,
       forceSpeedBuffer: options.forceSpeedBuffer,
       layerSpeedScale: options.layerSpeedScale,
       toolSpeed: options.toolSpeed,

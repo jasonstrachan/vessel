@@ -1,3 +1,4 @@
+import { getColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { cloneExportLayout } from '@/utils/layoutDefaults';
 import { computeLayerContentMetrics } from '@/utils/layerMetrics';
@@ -595,6 +596,16 @@ export const buildProjectGobletArtifact = async (
     throw new Error('WebGL export is only available in the browser');
   }
 
+  const requestedPlaybackSpeedScale = options.colorCyclePlaybackSpeedScale ?? options.colorCycleLayerSpeedScale;
+  const exportLayerSpeedScale = resolveExportLayerSpeedScale(requestedPlaybackSpeedScale);
+  const playbackClocks = new Map(options.layers.map((layer) => {
+    const clock = getColorCyclePlaybackClock(layer.id, options.project.id);
+    return [layer.id, clock ? {
+      ...clock,
+      speedScale: requestedPlaybackSpeedScale === undefined ? clock.speedScale : exportLayerSpeedScale,
+    } : null] as const;
+  }));
+
   const diagnosticsEnabled = options.enableGobletDiagnostics ?? gobletDiagnosticsDefault;
   const previousDiagnostics = gobletDiagnosticsActive;
   gobletDiagnosticsActive = diagnosticsEnabled;
@@ -725,9 +736,6 @@ export const buildProjectGobletArtifact = async (
     height: options.project.height
   };
   const speedWarning = { warned: false };
-  const exportLayerSpeedScale = resolveExportLayerSpeedScale(
-    options.colorCyclePlaybackSpeedScale ?? options.colorCycleLayerSpeedScale
-  );
 
   for (let index = 0; index < options.layers.length; index += 1) {
     throwIfExportAborted(options.signal);
@@ -872,6 +880,7 @@ export const buildProjectGobletArtifact = async (
         },
       });
       const payloadResult = await buildGobletColorCyclePayload(layer, options.project, {
+        playbackClock: playbackClocks.get(layer.id) ?? null,
         forceSpeedBuffer: false,
         layerSpeedScale: exportLayerSpeedScale,
         toolSpeed: options.colorCycleToolSpeed,

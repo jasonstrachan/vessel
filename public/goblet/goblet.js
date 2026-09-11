@@ -3031,6 +3031,14 @@ class ColorCycleLayerPlayer {
     return true;
   }
 
+  getRenderTimeSeconds() {
+    const clock = this.layer.colorCycle?.playbackClock;
+    if (!clock) return this.baseTimeSeconds;
+    const offset = Math.max(0, toFiniteNumberOrNull(clock.timeSeconds) ?? 0);
+    const scale = Math.max(0, toFiniteNumberOrNull(clock.speedScale) ?? 1);
+    return offset + this.baseTimeSeconds * scale;
+  }
+
   renderFrame() {
     if (!this.indexBuffer) {
       return;
@@ -3108,7 +3116,7 @@ class ColorCycleLayerPlayer {
         const speed = sb > 0
           ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)
           : defaultSpeed;
-        const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+        const offsetBase = (((this.getRenderTimeSeconds() * speed) % 1) + 1) % 1;
         const shiftKey = (offsetBase * n) | 0;
         const modeMap = new Map();
         modeMap.set(forward, getBaseLut(sb, shiftKey, forward, () => {
@@ -3149,7 +3157,7 @@ class ColorCycleLayerPlayer {
           const speed = sb > 0
             ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)
             : defaultSpeed;
-          const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+          const offsetBase = (((this.getRenderTimeSeconds() * speed) % 1) + 1) % 1;
           const shiftKey = (offsetBase * n) | 0;
           const modeMap = new Map();
           const forwardMap = new Map();
@@ -3255,7 +3263,7 @@ class ColorCycleLayerPlayer {
     const speed = Number.isFinite(this.speed) ? this.speed : 0;
     const slotSpeedMap = this.slotSpeeds;
     const baseSpeed = Number.isFinite(slotSpeedMap?.get(0)) ? slotSpeedMap.get(0) : speed;
-    const offset01 = (((this.baseTimeSeconds * baseSpeed) % 1) + 1) % 1;
+    const offset01 = (((this.getRenderTimeSeconds() * baseSpeed) % 1) + 1) % 1;
     const n = this._basePaletteSize || (this.cycleColors | 0) || 1;
     const shiftKey = (offset01 * n) | 0;
     const canUseSlots = this.gradientIdBuffer && this.slotGradients && this.slotGradients.size > 0;
@@ -3274,7 +3282,7 @@ class ColorCycleLayerPlayer {
         const lutsBySlot = new Map();
         this._basePalette32BySlot.forEach((pal, slot) => {
           const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot)) ? slotSpeedMap.get(slot) : baseSpeed;
-          const slotOffset = (((this.baseTimeSeconds * (slotSpeed ?? 0)) % 1) + 1) % 1;
+          const slotOffset = (((this.getRenderTimeSeconds() * (slotSpeed ?? 0)) % 1) + 1) % 1;
           lutsBySlot.set(
             slot,
             buildPaletteShiftLUT256({
@@ -3365,7 +3373,7 @@ class ColorCycleLayerPlayer {
       const speed = sb > 0
         ? decodeColorCycleSpeedByte(sb, this.speedMin, this.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX)
         : speedDefault;
-      const offsetBase = (((this.baseTimeSeconds * speed) % 1) + 1) % 1;
+      const offsetBase = (((this.getRenderTimeSeconds() * speed) % 1) + 1) % 1;
       const shiftKey = (offsetBase * cycleColors) | 0;
       if (this._lastShiftKeyBySpeedByte[sb] !== shiftKey) {
         this._lastShiftKeyBySpeedByte[sb] = shiftKey;
@@ -3392,7 +3400,7 @@ class ColorCycleLayerPlayer {
     const baseSpeed = Number.isFinite(slotSpeedMap?.get(0)) ? slotSpeedMap.get(0) : this.speed;
     slotEntries.forEach((_, slot) => {
       const slotSpeed = Number.isFinite(slotSpeedMap?.get(slot)) ? slotSpeedMap.get(slot) : baseSpeed;
-      const slotOffset = (((this.baseTimeSeconds * (slotSpeed ?? 0)) % 1) + 1) % 1;
+      const slotOffset = (((this.getRenderTimeSeconds() * (slotSpeed ?? 0)) % 1) + 1) % 1;
       const shiftKey = (slotOffset * cycleColors) | 0;
       if (this._lastSlotShiftKeyBySlot.get(slot) !== shiftKey) {
         this._lastSlotShiftKeyBySlot.set(slot, shiftKey);

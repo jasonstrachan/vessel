@@ -21,6 +21,28 @@ const loadRuntimeSeamProfileHelper = (runtime: string): ApplyGradientSeamProfile
 };
 
 describe('Goblet 2 runtime export regression guard', () => {
+  it('uses the same shared clock in both Goblet players and preserves legacy timing when absent', () => {
+    for (const path of ['public/goblet/goblet.js', 'public/goblet2/goblet2.js']) {
+      const source = read(path);
+      const start = source.indexOf('  getRenderTimeSeconds() {');
+      const end = source.indexOf('\n  renderFrame() {', start);
+      const method = source.slice(start, end);
+      const player = new Function('toFiniteNumberOrNull', `return ({ ${method} });`)(
+        (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null,
+      );
+      player.baseTimeSeconds = 3;
+      player.layer = { colorCycle: {} };
+      expect(player.getRenderTimeSeconds()).toBe(3);
+      player.layer.colorCycle.playbackClock = { timeSeconds: 1.25, speedScale: 2 };
+      expect(player.getRenderTimeSeconds()).toBe(7.25);
+      player.baseTimeSeconds = 0;
+      expect(player.getRenderTimeSeconds()).toBe(1.25);
+      player.layer.colorCycle.playbackClock.speedScale = 0;
+      player.baseTimeSeconds = 20;
+      expect(player.getRenderTimeSeconds()).toBe(1.25);
+    }
+  });
+
   it('keeps viewport cursor hand and grab states in source and inline runtimes', () => {
     const runtime = read('public/goblet2/goblet2.js');
     const inlineRuntime = read('public/goblet2/goblet2-inline.js');
