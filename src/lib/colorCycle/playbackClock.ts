@@ -4,7 +4,21 @@ import type { Project } from '@/types';
 export interface ColorCyclePlaybackClock {
   timeSeconds: number;
   speedScale: number;
+  /** One repeating period of sampled render times, including both endpoints. */
+  timeCurve?: { durationSeconds: number; samples: number[] };
 }
+
+export const getColorCyclePlaybackTime = (clock: ColorCyclePlaybackClock): number => {
+  const curve = clock.timeCurve;
+  if (!curve || !(curve.durationSeconds > 0) || !Number.isFinite(curve.durationSeconds) || curve.samples.length < 2) return clock.timeSeconds;
+  const position = ((clock.timeSeconds % curve.durationSeconds + curve.durationSeconds) % curve.durationSeconds)
+    / curve.durationSeconds * (curve.samples.length - 1);
+  const index = Math.min(Math.floor(position), curve.samples.length - 2);
+  const start = curve.samples[index];
+  const end = curve.samples[index + 1];
+  return Number.isFinite(start) && Number.isFinite(end)
+    ? start + (end - start) * (position - index) : clock.timeSeconds;
+};
 
 interface ClockProvider {
   read: (layerId: string, projectId?: string) => ColorCyclePlaybackClock | undefined;

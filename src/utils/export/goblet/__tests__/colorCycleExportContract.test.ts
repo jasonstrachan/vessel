@@ -129,8 +129,10 @@ const createDocumentBackedLiveRuntime = (settings: Record<string, unknown>) => (
 });
 
 describe('Goblet color-cycle export contract boundaries', () => {
-  it('exports shared time once without baking a layer multiplier into the speed bytes', async () => {
-    const clock = { timeSeconds: 1.25, speedScale: 2 };
+  it('exports shared time and its motion curve without baking a layer multiplier into the speed bytes', async () => {
+    const clock = { timeSeconds: 1.25, speedScale: 2,
+      timeCurve: { durationSeconds: 4, samples: [0, 1, 2, 1, 0] },
+    };
     const unregister = registerColorCyclePlaybackClock({ read: () => clock, snapshotProject: (value) => value });
     try {
       for (const multiplier of [0.5, 3]) {

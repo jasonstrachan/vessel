@@ -3036,7 +3036,17 @@ class ColorCycleLayerPlayer {
     if (!clock) return this.baseTimeSeconds;
     const offset = Math.max(0, toFiniteNumberOrNull(clock.timeSeconds) ?? 0);
     const scale = Math.max(0, toFiniteNumberOrNull(clock.speedScale) ?? 1);
-    return offset + this.baseTimeSeconds * scale;
+    const time = offset + this.baseTimeSeconds * scale;
+    const curve = clock.timeCurve;
+    if (!curve || !(curve.durationSeconds > 0) || !Number.isFinite(curve.durationSeconds)
+      || !Array.isArray(curve.samples) || curve.samples.length < 2) return time;
+    const position = ((time % curve.durationSeconds + curve.durationSeconds) % curve.durationSeconds)
+      / curve.durationSeconds * (curve.samples.length - 1);
+    const index = Math.min(Math.floor(position), curve.samples.length - 2);
+    const start = curve.samples[index];
+    const end = curve.samples[index + 1];
+    return Number.isFinite(start) && Number.isFinite(end)
+      ? start + (end - start) * (position - index) : time;
   }
 
   renderFrame() {

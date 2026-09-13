@@ -149,7 +149,7 @@ export interface WebGLSerializedBrushState {
 }
 
 export interface WebGLSerializedColorCycle {
-  playbackClock?: { timeSeconds: number; speedScale: number };
+  playbackClock?: { timeSeconds: number; speedScale: number; timeCurve?: { durationSeconds: number; samples: number[] } };
   mode: NonNullable<Layer['colorCycleData']>['mode'] | 'brush';
   gradient?: SerializedGradientStops;
   gradientRef?: number;

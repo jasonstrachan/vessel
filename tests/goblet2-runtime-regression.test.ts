@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { getColorCyclePlaybackTime } from '@/lib/colorCycle/playbackClock';
+
 const rootDir = process.cwd();
 
 const read = (relativePath: string) => fs.readFileSync(path.join(rootDir, relativePath), 'utf8');
@@ -40,6 +42,14 @@ describe('Goblet 2 runtime export regression guard', () => {
       player.layer.colorCycle.playbackClock.speedScale = 0;
       player.baseTimeSeconds = 20;
       expect(player.getRenderTimeSeconds()).toBe(1.25);
+      const curve = { durationSeconds: 2, samples: [2, 1.5, 1, 1.5, 2] };
+      for (const time of [0, 0.1, 0.5, 0.9, 1, 1.9, 2, 8.3]) {
+        player.layer.colorCycle.playbackClock = { timeSeconds: time, speedScale: 2, timeCurve: curve };
+        player.baseTimeSeconds = 0.3;
+        expect(player.getRenderTimeSeconds()).toBeCloseTo(getColorCyclePlaybackTime({
+          timeSeconds: time + 0.6, speedScale: 2, timeCurve: curve,
+        }), 12);
+      }
     }
   });
 

@@ -1,6 +1,6 @@
 import { ColorCycleAnimator } from '../ColorCycleAnimator';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
-import { registerColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
+import { registerColorCyclePlaybackClock, type ColorCyclePlaybackClock } from '@/lib/colorCycle/playbackClock';
 
 const readPixel = (animator: ColorCycleAnimator): [number, number, number, number] => {
   const data = animator.getImageData().data;
@@ -9,7 +9,7 @@ const readPixel = (animator: ColorCycleAnimator): [number, number, number, numbe
 
 describe('ColorCycleAnimator speed scaling', () => {
   it('renders shared-clock layers identically despite different native clocks and multipliers', () => {
-    const clock = { timeSeconds: 0, speedScale: 2 };
+    const clock: ColorCyclePlaybackClock = { timeSeconds: 0, speedScale: 2 };
     const unregister = registerColorCyclePlaybackClock({
       read: (id) => id === 'ordinary' ? undefined : clock,
       snapshotProject: (project) => project,
@@ -31,6 +31,19 @@ describe('ColorCycleAnimator speed scaling', () => {
       b.updateFrame();
       expect(readPixel(a)).toEqual(resolved);
       expect(readPixel(b)).toEqual(resolved);
+      clock.timeCurve = { durationSeconds: 2, samples: [0, 1, 0] };
+      clock.timeSeconds = 0.5;
+      a.forceRender();
+      const outward = readPixel(a);
+      expect(outward).not.toEqual(resolved);
+      clock.timeSeconds = 1.5;
+      a.forceRender();
+      expect(readPixel(a)).toEqual(outward);
+      clock.timeSeconds = 2;
+      a.forceRender();
+      expect(readPixel(a)).toEqual(resolved);
+      delete clock.timeCurve;
+      clock.timeSeconds = 0;
       a.setPhase(0.5);
       expect(readPixel(a)).not.toEqual(resolved);
       a.forceRender();
