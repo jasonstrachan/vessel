@@ -43,6 +43,7 @@ export type ColorCycleStrokeApiRuntimeContext = {
   getFlowMode: ColorCyclePaintStrokeContext['getFlowMode'];
   resolvePressureBrushSize: ColorCyclePaintStrokeContext['resolvePressureBrushSize'];
   getGradientBands: ColorCyclePaintStrokeContext['getGradientBands'];
+  getStrokeBandSpacing?: () => number | undefined;
   createStampDitherConfig: ColorCyclePaintStrokeContext['createStampDitherConfig'];
   getStampDitherStrokeData: ColorCyclePaintStrokeContext['getStampDitherStrokeData'];
   getStampDitherRuntime: ColorCyclePaintStrokeContext['getStampDitherRuntime'];
@@ -231,6 +232,7 @@ export class ColorCycleStrokeApiRuntime {
       resolveActiveStrokeSlot: (layerId, strokeData) =>
         this.context.resolveActiveStrokeSlot(layerId, strokeData),
       resolveFlowSlot: (strokeData, activeSlot) => this.context.resolveFlowSlot(strokeData, activeSlot),
+      getStrokeBandSpacing: this.context.getStrokeBandSpacing,
       isStampDitherEnabled: () => this.context.isStampDitherEnabled(),
       getStampShape: () => this.context.getStampShape(),
       computeColorBandIndex: (strokeData) => this.context.computeColorBandIndex(strokeData),
@@ -287,12 +289,14 @@ export class ColorCycleStrokeApiRuntime {
       applyStrokeFlowSpeed: (strokeData, speed) => {
         this.context.applyStrokeFlowSpeed(strokeData, speed);
       },
+      getStrokeBandSpacing: this.context.getStrokeBandSpacing,
       isStampDitherEnabled: () => this.context.isStampDitherEnabled(),
       getWriteSpeedByte: (strokeData) => this.context.getWriteSpeedByte(strokeData),
       getFlowMode: () => this.context.getFlowMode(),
       resolvePressureBrushSize: (pressure) => this.context.resolvePressureBrushSize(pressure),
       advanceStrokePhase: (strokeData) => this.context.advanceStrokePhase(strokeData),
       computeColorBandIndexPerStamp: (strokeData) => this.context.computeColorBandIndex(strokeData),
+      getGradientBands: () => this.context.getGradientBands(),
       getNonDitherStrokeColorIndex: (strokeData) => this.context.getNonDitherStrokeColorIndex(strokeData),
       resolveCapturedStampGradientBinding: (layerId, colorCycle, mode) =>
         this.context.resolveCapturedStampGradientBinding(layerId, colorCycle, mode),

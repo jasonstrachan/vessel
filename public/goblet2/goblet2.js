@@ -3095,6 +3095,7 @@ class BrushWebGLRenderer {
       uniform bool u_hasSoftMask;
       uniform bool u_opaqueIndices;
 
+
       void main() {
         ivec2 size = textureSize(u_index, 0);
         int x = int(gl_FragCoord.x);
@@ -3120,8 +3121,9 @@ class BrushWebGLRenderer {
           float speed = u_speedMin + normalized * (u_speedMax - u_speedMin);
           phase = u_time * speed;
         }
-        phase = fract(phase + float(phaseByte) / 256.0);
-        float base = float(int(idx) - 1);
+        bool legacyDistanceIndex = flowByte == uint(4);
+        phase = fract(phase + (legacyDistanceIndex ? 0.0 : float(phaseByte) / 256.0));
+        float base = legacyDistanceIndex ? float(phaseByte) : float(int(idx) - 1);
         base = clamp(base, 0.0, float(u_paletteSize - 1));
         float adjustedPhase = phase;
         if (flowByte == uint(3)) {
@@ -3829,7 +3831,10 @@ const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (
       outPixels32[i] = 0;
       continue;
     }
-    const color = samplePalette32Fractional(palette, effective, phase, flowMode, paletteSize) >>> 0;
+    const color = samplePalette32Fractional(
+      palette, encodedFlow === 4 ? phaseByte : effective,
+      encodedFlow === 4 ? resolveGobletPhase01(basePhase, 0) : phase, flowMode, paletteSize,
+    ) >>> 0;
     if (useAlpha) {
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;
@@ -3895,7 +3900,10 @@ const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
       outPixels32[i] = 0;
       continue;
     }
-    const color = samplePalette32Fractional(palette, effective, phase, flowMode, paletteSize) >>> 0;
+    const color = samplePalette32Fractional(
+      palette, encodedFlow === 4 ? phaseByte : effective,
+      encodedFlow === 4 ? resolveGobletPhase01(basePhase, 0) : phase, flowMode, paletteSize,
+    ) >>> 0;
     if (useAlpha) {
       const rgb = color & 0x00ffffff;
       const lutA = (color >>> 24) & 0xff;

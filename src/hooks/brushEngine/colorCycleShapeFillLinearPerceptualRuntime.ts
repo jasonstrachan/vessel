@@ -1,3 +1,4 @@
+import { distanceBandPosition } from '@/utils/colorCycle/distanceBands';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { debugWarn } from '@/utils/debug';
 import { applyEdgePadding } from '@/utils/colorCycle/fillMath';
@@ -62,6 +63,7 @@ export type LinearPerceptualFillParams = {
     dirY: number;
     min: number;
     range: number;
+    bandSpacingPx?: number;
   };
   layerId: string;
   minX: number;
@@ -170,7 +172,9 @@ export async function tryRunLinearPerceptualFill({
           const dx = sampleX - centerX;
           const dy = sampleY - centerY;
           const proj = dx * dirX + dy * dirY;
-          const r = applyEdgePadding((proj - paddedMinProj) / Math.max(projRange, 1e-6));
+          const r = gradientProjection.bandSpacingPx !== undefined
+            ? distanceBandPosition(proj - paddedMinProj, gradientProjection.bandSpacingPx, numBands)
+            : applyEdgePadding((proj - paddedMinProj) / Math.max(projRange, 1e-6));
           const { r: R, g: G, b: B } = context.colorAtPosition(r);
           const idx = (yy * width + xx) * 4;
           data[idx] = R;

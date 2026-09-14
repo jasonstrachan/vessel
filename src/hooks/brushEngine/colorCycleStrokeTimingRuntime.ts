@@ -8,6 +8,31 @@ import { debugLog } from '@/utils/debug';
 
 import type { LayerStrokeState } from './colorCycleCanvas2DTypes';
 
+/** Changes only the ink pair; stamp geometry, spacing and dither masks stay unchanged. */
+export function advanceDistanceBand(
+  strokeData: LayerStrokeState,
+  point: { x: number; y: number },
+  spacingPx: number,
+  gradientBands: number,
+): number {
+  const spacing = Number.isFinite(spacingPx) ? Math.max(1, Math.min(256, Math.round(spacingPx))) : 20;
+  const bands = Math.max(2, Math.min(254, Math.floor(gradientBands || 12)));
+  let state = strokeData.distanceBand;
+  if (!state || state.spacing !== spacing) {
+    state = { remainder: 0, phase: strokeData.strokePhaseUnits, spacing };
+    strokeData.distanceBand = state;
+  }
+  const last = strokeData.lastPoint;
+  const distance = last ? Math.hypot(point.x - last.x, point.y - last.y) : 0;
+  const total = state.remainder + distance;
+  const steps = Math.floor((total + 1e-9) / spacing);
+  state.remainder = Math.max(0, total - steps * spacing);
+  state.phase = (state.phase + steps * 255 / bands) % 255;
+  strokeData.strokePhaseUnits = state.phase;
+  const band = Math.min(bands - 1, Math.floor((state.phase + 1e-9) * bands / 255));
+  return mapColorCycleBandIndexToPaletteIndex(band, bands);
+}
+
 export function refreshColorCycleShapeFillWriteSpeed(params: {
   strokeData: LayerStrokeState | null | undefined;
   strokeCounter: number;

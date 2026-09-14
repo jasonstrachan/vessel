@@ -715,6 +715,15 @@ const BrushControls = () => {
     ),
     (nextPosition) => setColorCycleSpeed(sliderPositionToBrushColorCycleSpeed(nextPosition))
   );
+  const useStrokeBandSpacing = (
+    activeSettings.brushShape === BrushShape.COLOR_CYCLE
+    || activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE
+    || activeSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE
+    || (activeSettings.brushShape === BrushShape.CUSTOM && activeSettings.customBrushColorCycle)
+  );
+  const bandSpacingSlider = useCommittedSliderValue(activeSettings.colorCycleBandSpacingPx ?? 20, (value) => {
+    setActiveSettings({ colorCycleBandSpacingPx: Math.max(1, Math.min(256, Math.round(value))) });
+  });
   const bandsSlider = useCommittedSliderValue(activeSettings.gradientBands ?? 12, (nextRaw) => {
     const next = Math.max(2, Math.min(128, Math.round(nextRaw)));
     setActiveSettings({ gradientBands: next });
@@ -2063,20 +2072,20 @@ const BrushControls = () => {
 
         {/* Animation + banding */}
 
-        {showColorCycleBands && !useForegroundDerivedGradient && (
+        {showColorCycleBands && (useStrokeBandSpacing || !useForegroundDerivedGradient) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                Bands
+                {useStrokeBandSpacing ? 'Band px' : 'Bands'}
               </label>
               <NonCcSlider
-                value={bandsSlider.value}
-                min={2}
-                max={64}
+                value={useStrokeBandSpacing ? bandSpacingSlider.value : bandsSlider.value}
+                min={useStrokeBandSpacing ? 1 : 2}
+                max={useStrokeBandSpacing ? 256 : 64}
                 step={1}
-                onChange={(value) => bandsSlider.onChange(Math.round(value))}
-                onCommit={bandsSlider.onCommit}
-                aria-label="Gradient Bands"
+                onChange={(value) => (useStrokeBandSpacing ? bandSpacingSlider : bandsSlider).onChange(Math.round(value))}
+                onCommit={(useStrokeBandSpacing ? bandSpacingSlider : bandsSlider).onCommit}
+                aria-label={useStrokeBandSpacing ? 'Band spacing (px)' : 'Gradient Bands'}
                 className="flex-1"
               />
             </div>
@@ -4015,25 +4024,25 @@ const BrushControls = () => {
                 </div>
               )}
 
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                    Band px
+                  </label>
+                  <ProgressSlider
+                    value={bandSpacingSlider.value}
+                    min={1}
+                    max={256}
+                    step={1}
+                    onChange={(value) => bandSpacingSlider.onChange(Math.round(value))}
+                    onCommit={bandSpacingSlider.onCommit}
+                    aria-label="Band spacing (px)"
+                    className="flex-1"
+                  />
+                </div>
+              </div>
               {!isCapturedDataMode && (
                 <>
-                  <div className="mt-2">
-                    <div className="flex items-center gap-2">
-                      <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-                        Bands
-                      </label>
-                      <NonCcSlider
-                        value={bandsSlider.value}
-                        min={2}
-                        max={64}
-                        step={1}
-                        onChange={(value) => bandsSlider.onChange(Math.round(value))}
-                        onCommit={bandsSlider.onCommit}
-                        aria-label="Gradient Bands"
-                        className="flex-1"
-                      />
-                    </div>
-                  </div>
                   <div className="mt-2">
                     <div className="flex items-center gap-2">
                       <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
@@ -4056,7 +4065,7 @@ const BrushControls = () => {
                     </div>
                   </div>
                   {(activeSettings.customBrushCcPhaseMode ?? 'global') === 'jittered' && (
-                    <div className="mt-2">
+                  <div className="mt-2">
                       <div className="flex items-center gap-2">
                         <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
                           Jitter

@@ -527,7 +527,20 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(screen.getByLabelText('Brush Size (px)')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Grid Snap' })).toBeInTheDocument();
     expect(screen.getByLabelText('Speed')).toBeInTheDocument();
-    expect(screen.getByLabelText('Gradient Bands')).toBeInTheDocument();
+    expect(screen.getByLabelText('Band spacing (px)')).toBeInTheDocument();
+  });
+
+  it('changes colour spacing without changing stamp spacing, tip or dither resolution', () => {
+    render(<BrushControls />);
+    const before = useAppStore.getState().tools.brushSettings;
+    fireEvent.change(screen.getByLabelText('Band spacing (px)'), { target: { value: '1' } });
+    fireEvent.blur(screen.getByLabelText('Band spacing (px)'));
+    const after = useAppStore.getState().tools.brushSettings;
+    expect(after.colorCycleBandSpacingPx).toBe(1);
+    expect(after.spacing).toBe(before.spacing);
+    expect(after.colorCycleStampShape).toBe(before.colorCycleStampShape);
+    expect(after.colorCycleStampDitherPixelSize).toBe(before.colorCycleStampDitherPixelSize);
+    expect(after.gradientBands).toBe(before.gradientBands);
   });
 
   it('toggles grid snap for color cycle stroke', async () => {
@@ -992,6 +1005,10 @@ describe('BrushControls – Custom brush captured data mode', () => {
     expect(screen.getByText('Captured')).toBeInTheDocument();
     expect(screen.getByText('Map 2x2')).toBeInTheDocument();
     expect(screen.getByText('Cycle Length 256')).toBeInTheDocument();
+    expect(screen.getAllByLabelText('Band spacing (px)')).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText('Band spacing (px)'), { target: { value: '7' } });
+    fireEvent.blur(screen.getByLabelText('Band spacing (px)'));
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBandSpacingPx).toBe(7);
     expect(screen.getByLabelText('Custom Brush Color Cycle Speed')).toBeInTheDocument();
     const velocityToggle = document.getElementById('velocity-animation-speed-custom') as HTMLInputElement | null;
     expect(velocityToggle).toBeTruthy();

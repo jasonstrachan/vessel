@@ -1,3 +1,4 @@
+import { distanceBandPosition } from '@/utils/colorCycle/distanceBands';
 import { buildNonZeroWindingRowSpans } from '@/utils/colorCycle/ccGradientDither';
 
 import { applyLostEdgeFromWrittenMask } from './colorCycleShapeFillBuffers';
@@ -48,6 +49,7 @@ export type LinearScanlineFillParams = {
   dirY: number;
   paddedMinProjection: number;
   safeProjectionRange: number;
+  bandSpacingPx?: number;
   bbox: LinearFillBBox;
   buffers: LinearScanlineBufferState;
   previous: LinearScanlinePreviousState;
@@ -80,6 +82,7 @@ export async function runLinearScanlineFillFallback({
   dirY,
   paddedMinProjection,
   safeProjectionRange,
+  bandSpacingPx,
   bbox,
   buffers,
   previous,
@@ -160,7 +163,9 @@ export async function runLinearScanlineFillFallback({
         const px = quantize && cellSize > 1 ? quantizeCoord(rawX, ixBase, maxX) : rawX;
         const py = quantize && cellSize > 1 ? quantizeCoord(rawY, iyBase, maxY) : rawY;
         const proj = (px - centerX) * dirX + (py - centerY) * dirY;
-        return clamp01((proj - paddedMinProjection) / safeProjectionRange);
+        return bandSpacingPx !== undefined
+          ? distanceBandPosition(proj - paddedMinProjection, bandSpacingPx, numBands)
+          : clamp01((proj - paddedMinProjection) / safeProjectionRange);
       };
 
       if (context.isDitherEnabled() && cellSize > 1) {

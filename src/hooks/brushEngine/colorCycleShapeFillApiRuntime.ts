@@ -162,6 +162,7 @@ export class ColorCycleShapeFillApiRuntime {
       getCanvasHeight: () => this.context.getCanvasHeight(),
       getCanvasPixelCount: () => this.context.getCanvasPixelCount(),
       prepareShapeFillLayer: (options) => this.prepareLayer(options),
+      getDistanceBandSpacing: () => this.getSettings().strokeBandSpacing,
       normalizeBandSpacingValue: (spacing) => this.normalizeBandSpacingValue(spacing),
       getGradientBands: () => this.getGradientBands(),
       deriveBandCountFromDistance: (distance, spacing) => this.deriveBandCountFromDistance(distance, spacing),

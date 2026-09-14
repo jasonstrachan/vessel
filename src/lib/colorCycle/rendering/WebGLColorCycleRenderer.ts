@@ -98,6 +98,7 @@ interface FillRequest {
   baseOffset: number;
   colorStep: number;
   maxDist: number;
+  bandSpacingPx?: number;
   bbox: { minX: number; minY: number; width: number; height: number };
   canvasHeight: number;
   mode?: FillMode;
@@ -727,6 +728,7 @@ export class WebGLColorCycleRenderer {
       uniform float u_speedMax;
       uniform float u_flowMode;
 
+
       void main() {
         // Flip Y to match Canvas/ImageData top-left origin
         vec2 uv = vec2(v_uv.x, 1.0 - v_uv.y);
@@ -752,7 +754,8 @@ export class WebGLColorCycleRenderer {
         }
 
         // Convert to palette index in [0, paletteSize)
-        float base = (fIdx - 1.0);
+        bool legacyDistanceIndex = fFlow > 3.5 && fFlow < 4.5;
+        float base = legacyDistanceIndex ? phaseN * 256.0 : fIdx - 1.0;
         float basePhase;
         if (fSpd < 0.5) {
           // Per-pixel speed byte 0 means static (no cycling).
@@ -763,14 +766,14 @@ export class WebGLColorCycleRenderer {
           float speed = mix(u_speedMin, u_speedMax, clamp(tNorm, 0.0, 1.0));
           basePhase = mod(u_offset * speed, 1.0);
         }
-        float phase = mod(basePhase + phaseN, 1.0);
+        float phase = mod(basePhase + (legacyDistanceIndex ? 0.0 : phaseN), 1.0);
         // fFlow: 0=unset, 1=forward, 2=reverse, 3=pingpong
         float dirForward = -1.0;
         float dir = dirForward;
         if (fFlow > 1.5 && fFlow < 2.5) {
           dir = -dirForward;
         }
-        if (fFlow > 2.5) {
+        if (fFlow > 2.5 && fFlow < 3.5) {
           float t2 = mod(phase * 2.0, 2.0);
           phase = t2 > 1.0 ? 2.0 - t2 : t2;
           dir = dirForward;
@@ -881,6 +884,7 @@ export class WebGLColorCycleRenderer {
       uniform int u_count;
       uniform vec2 u_verts[${MAX}];
 
+      uniform float u_bandSpacingPx;
       uniform float u_bands;
       uniform float u_bandStep;
       uniform float u_baseOffset;
@@ -906,6 +910,29 @@ export class WebGLColorCycleRenderer {
         return hash(cellCoord, u_noiseSeed);
       }
 
+      void visitEdge(vec2 a, vec2 b, vec2 actualPos, vec2 samplePos,
+                     inout float winding, inout float minDistSq) {
+        // Crossing test (top-left coords)
+        bool upward = a.y <= actualPos.y && b.y > actualPos.y;
+        bool downward = b.y <= actualPos.y && a.y > actualPos.y;
+        if (upward || downward) {
+          float crossX = (b.x - a.x) * (actualPos.y - a.y) / (b.y - a.y) + a.x;
+          if (actualPos.x < crossX) {
+            winding += upward ? 1.0 : -1.0;
+          }
+        }
+
+        // Distance to segment squared (for concentric mode)
+        vec2 pa = samplePos - a;
+        vec2 ba = b - a;
+        float denomSeg = max(dot(ba, ba), 1e-6);
+        float h = clamp(dot(pa, ba) / denomSeg, 0.0, 1.0);
+        vec2 proj = a + h * ba;
+        vec2 d = samplePos - proj;
+        float dsq = dot(d, d);
+        if (dsq < minDistSq) minDistSq = dsq;
+      }
+
       // Compute min distance to polygon edges and inside/outside via non-zero winding.
       void main() {
         // Map fragment to top-left pixel coordinates in canvas space
@@ -925,32 +952,17 @@ export class WebGLColorCycleRenderer {
 
         float minDistSq = 1.0e20;
         float winding = 0.0;
-        for (int i = 0; i < ${MAX}; i++) {
+        vec2 previous = u_verts[0];
+        for (int i = 1; i < ${MAX}; i++) {
           if (i >= u_count) break;
-          int j = (i + 1) >= u_count ? 0 : (i + 1);
-          vec2 a = u_verts[i];
-          vec2 b = u_verts[j];
+          vec2 a = previous;
+          vec2 b = u_verts[i];
 
-          // Crossing test (top-left coords)
-          bool upward = a.y <= actualPos.y && b.y > actualPos.y;
-          bool downward = b.y <= actualPos.y && a.y > actualPos.y;
-          if (upward || downward) {
-            float crossX = (b.x - a.x) * (actualPos.y - a.y) / (b.y - a.y) + a.x;
-            if (actualPos.x < crossX) {
-              winding += upward ? 1.0 : -1.0;
-            }
-          }
-
-          // Distance to segment squared (for concentric mode)
-          vec2 pa = samplePos - a;
-          vec2 ba = b - a;
-          float denomSeg = max(dot(ba, ba), 1e-6);
-          float h = clamp(dot(pa, ba) / denomSeg, 0.0, 1.0);
-          vec2 proj = a + h * ba;
-          vec2 d = samplePos - proj;
-          float dsq = dot(d, d);
-          if (dsq < minDistSq) minDistSq = dsq;
+          visitEdge(a, b, actualPos, samplePos, winding, minDistSq);
+          previous = b;
         }
+
+        visitEdge(previous, u_verts[0], actualPos, samplePos, winding, minDistSq);
 
         if (abs(winding) < 0.5) {
           gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
@@ -959,20 +971,26 @@ export class WebGLColorCycleRenderer {
 
         float padding = clamp(1.0 / max(u_bands * 4.0, 8.0), 0.001, 0.02);
         float normalized = 0.0;
+        float distancePx = 0.0;
         if (u_mode < 0.5) {
           float maxDist = max(u_maxDist, 1.0);
           float dist = sqrt(minDistSq);
+          distancePx = dist;
           normalized = clamp(dist / maxDist, padding, 1.0 - padding);
         } else {
           vec2 rel = samplePos - u_dirOrigin;
           float safeRange = max(abs(u_dirRange), 1e-6);
           vec2 dir = normalize(u_dirVector);
           float proj = dot(rel, dir);
+          distancePx = max(0.0, proj - u_dirMinProj);
           normalized = clamp((proj - u_dirMinProj) / safeRange, 0.0, 1.0);
           normalized = clamp(normalized, padding, 1.0 - padding);
         }
 
         float denom = max(1.0, u_bands - 1.0);
+        if (u_bandSpacingPx > 0.0) {
+          normalized = mod(floor(distancePx / u_bandSpacingPx), u_bands) / denom;
+        }
         float quantStep = max(u_bandStep, 1.0 / denom);
         float jittered = normalized;
 
@@ -1097,6 +1115,7 @@ export class WebGLColorCycleRenderer {
     const loc_canvasH = gl.getUniformLocation(this.fillProgram!, 'u_canvasH');
     const loc_count = gl.getUniformLocation(this.fillProgram!, 'u_count');
     const loc_verts = gl.getUniformLocation(this.fillProgram!, 'u_verts[0]');
+    gl.uniform1f(gl.getUniformLocation(this.fillProgram!, 'u_bandSpacingPx'), params.bandSpacingPx ?? 0);
     const loc_bands = gl.getUniformLocation(this.fillProgram!, 'u_bands');
     const loc_bandStep = gl.getUniformLocation(this.fillProgram!, 'u_bandStep');
     const loc_baseOffset = gl.getUniformLocation(this.fillProgram!, 'u_baseOffset');

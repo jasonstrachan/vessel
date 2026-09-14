@@ -161,8 +161,9 @@ describe('colorCycleMarkSession rebuild', () => {
 
     const committed = finalizeMarkGradientSession(layer.id);
 
-    expect(committed?.rawStopsStored?.[0].color).toBe('#3c7295');
-    expect(committed?.rawStopsStored?.at(-1)?.color).toBe('#508bab');
+    expect(committed?.samples?.[0].rgba).toEqual([60, 114, 149, 255]);
+    expect(committed?.samples?.at(-1)?.rgba).toEqual([80, 139, 171, 255]);
+    expect(committed?.rawStopsStored?.[0].color).toBe(committed?.rawStopsStored?.at(-1)?.color);
     expect(committed?.samples?.length).toBeGreaterThan(1);
     expect(sampleColor).toHaveBeenLastCalledWith(64, 0);
     expect(committed?.sampledStrokeColorAt).toBeUndefined();

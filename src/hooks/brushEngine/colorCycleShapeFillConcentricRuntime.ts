@@ -161,6 +161,7 @@ export async function runColorCycleConcentricShapeFill(
     ? Math.max(1, Math.min(254, Math.floor(options?.ditherLevels as number)))
     : null;
   const baseOffset = context.getStampCounter() % 255;
+  const distanceSpacing = ccGradient ? undefined : context.getDistanceBandSpacing?.();
   const numBands = ccGradient
     ? Math.max(2, Math.min(254, Math.floor(context.getGradientBands() || 12)))
     : context.deriveBandCountFromDistance(maxDist, spacingValue);
@@ -232,6 +233,7 @@ export async function runColorCycleConcentricShapeFill(
           const ok = animator.gpuFillShape(gpuVertices, {
             mode: 'concentric',
             bands: numBands,
+            bandSpacingPx: distanceSpacing,
             baseOffset,
             colorStep: stepPerBand,
             maxDist,
@@ -560,6 +562,7 @@ export async function runColorCycleConcentricShapeFill(
         maxX,
         maxY,
         maxDist,
+        bandSpacingPx: distanceSpacing,
         numBands,
         baseOffset,
         fillAlgorithm,
@@ -600,6 +603,7 @@ export async function runColorCycleConcentricShapeFill(
           vertices: workerVertices,
           bbox,
           bands: numBands,
+          bandSpacingPx: distanceSpacing,
           baseOffset,
           maxDist,
           ditherEnabled: context.isDitherEnabled(),
@@ -626,6 +630,7 @@ export async function runColorCycleConcentricShapeFill(
         vertices,
         bbox,
         bands: numBands,
+        bandSpacingPx: distanceSpacing,
         baseOffset,
         maxDist,
         ditherEnabled: context.isDitherEnabled(),

@@ -1,6 +1,7 @@
 import { createColorCycleStrokePaintMask, createColorCycleStampPaintMask, prepareColorCycleStrokePaintMask } from './colorCycleStrokePaintMask';
 import { getCcPencilMask, resolveCcPencilSize, type CcPencilMask } from './ccPencilPressure';
 import { createCcBristleWriter, getCcBristleBaseIndex } from './ccBristles';
+import { advanceDistanceBand } from './colorCycleStrokeTimingRuntime';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { ColorCycleLayerDirtyBatch } from '@/lib/colorCycle/document';
@@ -44,6 +45,7 @@ export type ColorCyclePaintStrokeContext = {
   getFlowMode(): FlowMode;
   resolvePressureBrushSize(pressure: number): number;
   getGradientBands(): number;
+  getStrokeBandSpacing?(): number | undefined;
   createStampDitherConfig(options: {
     patterns: CcCustomTilePattern[] | undefined;
     seed: number;
@@ -132,13 +134,16 @@ export function runColorCyclePaintStroke(
   const dist = Math.hypot(dx, dy);
   const prevPhase = strokeData.strokePhaseUnits;
 
-  if (useStampDither) {
+  const bandSpacing = context.getStrokeBandSpacing?.();
+  if (useStampDither && bandSpacing === undefined) {
     context.advanceStrokePhase(strokeData);
   }
+  const nextColorIndex = bandSpacing !== undefined
+    ? advanceDistanceBand(strokeData, { x, y }, bandSpacing, context.getGradientBands())
+    : useStampDither
+      ? context.computeColorBandIndex(strokeData)
+      : context.getNonDitherStrokeColorIndex(strokeData);
   const nextPhase = strokeData.strokePhaseUnits;
-  const nextColorIndex = useStampDither
-    ? context.computeColorBandIndex(strokeData)
-    : context.getNonDitherStrokeColorIndex(strokeData);
   const colorIndex = nextColorIndex;
   const speedByte = useStampDither || bristlesEnabled || pencilEnabled ? context.getWriteSpeedByte(strokeData) : 0;
   if (typeof (animator as { setStrokeSpeedByte?: (value: number) => void }).setStrokeSpeedByte === 'function') {
@@ -168,7 +173,7 @@ export function runColorCyclePaintStroke(
   const writeMask = !useStampDither && strokeData.paintMask
     ? createColorCycleStampPaintMask(strokeData.paintMask, x, y, pressureSize, pencilMask)
     : pencilMask;
-  const primaryIndex = bristlesEnabled && !useStampDither
+  const primaryIndex = bristlesEnabled && !useStampDither && bandSpacing === undefined
     ? getCcBristleBaseIndex(strokeData.buffers.phase, colorIndex, !last)
     : colorIndex;
 

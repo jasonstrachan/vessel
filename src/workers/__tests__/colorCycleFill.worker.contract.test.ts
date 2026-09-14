@@ -75,6 +75,21 @@ describe('colorCycleFill worker contract', () => {
     expect(response.result?.indices.byteLength).toBe(job.bbox.width * job.bbox.height);
   });
 
+  it('keeps distance bands independent of the worker distance extent', async () => {
+    const job: ConcentricFillJob = {
+      type: 'concentric-fill', vertices: Float32Array.of(0, 0, 80, 0, 80, 80, 0, 80),
+      bbox: { minX: 0, minY: 0, width: 80, height: 80 },
+      bands: 4, bandSpacingPx: 3, baseOffset: 0, maxDist: 40,
+      ditherEnabled: false, ditherStrength: 0, ditherPixelSize: 1,
+    };
+    const first = await runWorkerJob(job);
+    const second = await runWorkerJob({ ...job, maxDist: 400 });
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(new Uint8Array(first.result!.indices)).toEqual(new Uint8Array(second.result!.indices));
+    expect(new Set(new Uint8Array(first.result!.indices)).size).toBeGreaterThan(2);
+  });
+
   it('rejects unsupported job types with an error payload', async () => {
     const response = await runWorkerJob({
       type: 'unknown-type' as ColorCycleFillJob['type'],

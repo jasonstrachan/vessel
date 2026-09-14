@@ -34,6 +34,7 @@ export type ColorCycleShapeFillExecutionContext = {
   getCanvasHeight(): number;
   getCanvasPixelCount(): number;
   prepareShapeFillLayer(options: PrepareColorCycleShapeFillLayerOptions): PreparedColorCycleShapeFillLayer;
+  getDistanceBandSpacing?(): number | undefined;
   normalizeBandSpacingValue(spacing?: number): number;
   getGradientBands(): number;
   deriveBandCountFromDistance(distance: number, spacing?: number): number;

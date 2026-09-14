@@ -133,6 +133,7 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
     // an explicit phase (for example, an auto-converted contour).
     if (context.phaseOffsetUnits !== undefined) {
       strokeData.strokePhaseUnits = phaseOffsetUnits;
+      strokeData.distanceBand = undefined;
       if (!context.stampDitherEnabled()) {
         strokeData.stampCounter = phaseOffsetUnits;
       }

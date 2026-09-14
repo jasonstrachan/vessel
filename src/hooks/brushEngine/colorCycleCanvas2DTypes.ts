@@ -55,6 +55,7 @@ export type LayerStrokeState = {
   strokeCounter: number;
   stampCounter: number;
   strokePhaseUnits: number;
+  distanceBand?: { remainder: number; phase: number; spacing: number };
   strokeCycleSpeed: number;
   strokeSpeedByte: number;
   lastPoint: Vec2 | null;

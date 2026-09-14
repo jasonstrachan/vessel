@@ -1,4 +1,3 @@
-import { remapSampledStrokePaintPhase } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 import { pointInPolygon } from '@/shapeFill/utils/geometry';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { finalizeColorCycleShapeFillLinear } from '@/hooks/canvas/handlers/colorCycle/colorCycleShapeFill';
@@ -397,7 +396,7 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     }
   });
 
-  it('remaps a long sampled Pencil stroke as one continuous path with Dither retained', () => {
+  it('keeps distance bands and a single playback speed on a long Pencil stroke', () => {
     const state = useAppStore.getState() as unknown as MockStoreState;
     const previousSettings = state.tools.brushSettings;
     state.tools.brushSettings = { size: 4, colorCyclePencilEnabled: true };
@@ -405,23 +404,18 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
       const layerId = 'pencil-path';
       const brush = new ColorCycleBrushCanvas2D(makeCanvas(520, 16), { brushSize: 4, forceCanvas2D: true });
       brush.setStampDitherEnabled(true);
+      brush.setBandSpacing(20);
+      brush.setGradientBands(12);
       brush.startStroke(layerId);
       for (let x = 4; x <= 510; x += 1) brush.paint(x, 8, layerId, 1, 0, x % 30 < 15 ? 0 : 3);
       brush.endStroke(layerId);
       const snapshot = readBrushLayerSnapshot(brush, layerId)!;
-      const remapped = remapSampledStrokePaintPhase({
-        snapshot, width: 520, height: 16, points: [{ x: 4, y: 8 }, { x: 510, y: 8 }],
-        targetSlot: 0, pathPadding: 4,
-        ditherPrimaryBuffer: brush.getSampledStrokeDitherPrimaryBuffer(layerId),
-      });
-      expect(remapped).not.toBeNull();
-      const paint = new Uint8Array(remapped!.paintBuffer);
-      const speeds = new Uint8Array(remapped!.speedBuffer!);
+      const paint = new Uint8Array(snapshot.paintBuffer);
+      const speeds = new Uint8Array(snapshot.speedBuffer!);
       expect(new Set(Array.from(speeds).filter((_, index) => paint[index] > 0)).size).toBe(1);
-      const row = Array.from(paint.slice(8 * 520 + 4, 8 * 520 + 511));
-      expect(row.every((value, index) => index === 0 || value >= row[index - 1])).toBe(true);
-      expect(row[0]).toBe(1);
-      expect(row[row.length - 1]).toBe(255);
+      const row = paint.slice(8 * 520, 9 * 520);
+      expect(row.slice(8, 220)).toEqual(row.slice(248, 460));
+      expect(new Set(row.slice(8, 220)).size).toBeGreaterThan(5);
       state.tools.brushSettings = { size: 4, colorCyclePencilEnabled: false };
       brush.startStroke(layerId);
       brush.paint(8, 8, layerId, 1);
@@ -430,6 +424,111 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     } finally {
       state.tools.brushSettings = previousSettings;
     }
+  });
+
+  it.each(['square', 'round', 'triangle', 'diamond'] as const)(
+    'preserves the original %s dither mask at 1 px and 20 px colour spacing', (shape) => {
+      const draw = (spacing?: number) => {
+        const brush = new ColorCycleBrushCanvas2D(makeCanvas(128, 64), { forceCanvas2D: true });
+        brush.setBrushSize(24);
+        brush.setStampShape(shape);
+        brush.setStampDitherEnabled(true);
+        brush.setStampDitherAlgorithm('sierra-lite');
+        brush.setStampDitherPixelSize(2);
+        brush.setStampDitherBgFill(false);
+        if (spacing !== undefined) brush.setBandSpacing(spacing);
+        brush.startStroke('distance-mask');
+        for (let x = 16; x <= 110; x += 2) brush.paint(x, 32, 'distance-mask', 1);
+        brush.endStroke('distance-mask');
+        const paint = new Uint8Array(readBrushLayerSnapshot(brush, 'distance-mask')!.paintBuffer);
+        brush.dispose();
+        return paint;
+      };
+      const original = draw();
+      const narrow = draw(1);
+      const wide = draw(20);
+      expect(narrow.map(value => Number(value > 0))).toEqual(original.map(value => Number(value > 0)));
+      expect(wide.map(value => Number(value > 0))).toEqual(original.map(value => Number(value > 0)));
+      expect(narrow).not.toEqual(wide);
+    },
+  );
+
+  it('advances bristle colours by distance while retaining strand phase offsets', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const previousSettings = state.tools.brushSettings;
+    state.tools.brushSettings = { size: 8, colorCycleBristlesEnabled: true };
+    try {
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(280, 24), { forceCanvas2D: true });
+      brush.setBrushSize(8);
+      brush.setBandSpacing(20);
+      brush.setGradientBands(12);
+      brush.startStroke('bristles-distance');
+      for (let x = 8; x < 270; x++) brush.paint(x, 12, 'bristles-distance', 1);
+      brush.endStroke('bristles-distance');
+      const snapshot = readBrushLayerSnapshot(brush, 'bristles-distance')!;
+      const paint = new Uint8Array(snapshot.paintBuffer);
+      const phase = new Uint8Array(snapshot.phaseBuffer!);
+      expect(paint[12 * 280 + 40]).not.toBe(paint[12 * 280 + 20]);
+      expect(phase[12 * 280 + 40]).toBe(phase[12 * 280 + 20]);
+      brush.dispose();
+    } finally { state.tools.brushSettings = previousSettings; }
+  });
+
+  it('uses distance for captured tips without flattening their internal colour map', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(100, 8), { forceCanvas2D: true });
+    const stamp = {
+      imageData: new ImageData(new Uint8ClampedArray(8).fill(255), 2, 1), width: 2, height: 1,
+      colorCycle: { schemaVersion: 2 as const, mode: 'captured-data' as const,
+        sourceCycleLength: 256, mapWidth: 2, mapHeight: 1, phaseMap: Uint16Array.of(1, 40) },
+    };
+    brush.setBrushSize(2);
+    brush.setBandSpacing(20);
+    brush.setGradientBands(12);
+    brush.startStroke('captured-distance');
+    for (const x of [10, 10, 20, 30]) brush.paintCustomStamp(stamp, x, 4, 'captured-distance', 1);
+    brush.endStroke('captured-distance');
+    const paint = new Uint8Array(readBrushLayerSnapshot(brush, 'captured-distance')!.paintBuffer);
+    expect(paint[4 * 100 + 9]).toBe(paint[4 * 100 + 19]);
+    expect(paint[4 * 100 + 29]).not.toBe(paint[4 * 100 + 9]);
+    expect(paint[4 * 100 + 30] - paint[4 * 100 + 29]).toBe(39);
+    brush.dispose();
+  });
+
+  it.each(['linear', 'concentric'] as const)('keeps %s shape band widths when the shape grows', async (mode) => {
+    const draw = async (extent: number) => {
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(260, 260), { forceCanvas2D: true });
+      brush.setBandSpacing(5);
+      brush.setGradientBands(4);
+      const vertices = [{ x: 0, y: 0 }, { x: extent, y: 0 }, { x: extent, y: extent }, { x: 0, y: extent }];
+      if (mode === 'linear') await brush.fillShapeLinear(vertices, { x: 1, y: 0 }, 'shape-distance');
+      else await brush.fillShape(vertices, 'shape-distance');
+      const paint = new Uint8Array(readBrushLayerSnapshot(brush, 'shape-distance')!.paintBuffer);
+      const row = paint.slice(Math.floor(extent / 2) * 260, Math.floor(extent / 2) * 260 + 35);
+      brush.dispose();
+      return row;
+    };
+    const small = await draw(100);
+    const large = await draw(240);
+    expect(small).toEqual(large);
+    expect(new Set(small).size).toBeGreaterThan(2);
+    expect(small.slice(5, 15)).toEqual(small.slice(25, 35));
+  });
+
+  it('authors distance bands without stretching a longer stroke or advancing at a stationary point', () => {
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(512, 4), { forceCanvas2D: true });
+    brush.setBrushSize(1);
+    brush.setStampShape('square');
+    brush.setBandSpacing(20);
+    brush.setGradientBands(12);
+    brush.startStroke('distance');
+    for (let x = 1; x < 500; x++) brush.paint(x, 2, 'distance', 1);
+    brush.paint(499, 2, 'distance', 1);
+    brush.endStroke('distance');
+    const row = new Uint8Array(readBrushLayerSnapshot(brush, 'distance')!.paintBuffer).slice(1024, 1536);
+    expect(row[1]).toBe(row[20]);
+    expect(row[21]).not.toBe(row[20]);
+    expect(row.slice(1, 241)).toEqual(row.slice(241, 481));
+    brush.dispose();
   });
 
   it('updates indices on endStroke for sierra-lite stamp dither', () => {

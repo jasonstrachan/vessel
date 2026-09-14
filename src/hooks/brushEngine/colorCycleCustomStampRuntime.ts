@@ -17,6 +17,7 @@ import {
   getCcCustomStampProfile,
   type CustomStampInput,
 } from './colorCycleCustomStampCache';
+import { advanceDistanceBand } from './colorCycleStrokeTimingRuntime';
 import { stampMaskHasVisiblePixels } from './colorCycleStampMask';
 import type {
   LayerStrokeState,
@@ -116,6 +117,8 @@ export const resolveCustomStampIndex: ResolveCustomStampIndexFn = ({
 export interface ColorCycleCustomStampRuntimeDeps {
   width: number;
   height: number;
+  getStrokeBandSpacing?: () => number | undefined;
+  getGradientBands?: () => number;
   getActiveLayerId: () => string | null;
   getLayerDocumentVersion: (layerId: string) => number | null;
   prepareStrokeContext: (layerId: string) => {
@@ -242,12 +245,15 @@ export class ColorCycleCustomStampRuntime {
     const colorCycleMode =
       stamp.colorCycleMode ?? getCustomBrushColorCycleDefaultMode(colorCycle);
     const isCapturedDataStamp = colorCycleMode === 'captured-data';
-    if (useStampDither || isCapturedDataStamp) {
+    const bandSpacing = deps.getStrokeBandSpacing?.();
+    if (bandSpacing === undefined && (useStampDither || isCapturedDataStamp)) {
       deps.advanceStrokePhase(strokeData);
     }
-    const fallbackColorIndex = useStampDither
-      ? deps.computeColorBandIndexPerStamp(strokeData)
-      : deps.getNonDitherStrokeColorIndex(strokeData);
+    const fallbackColorIndex = bandSpacing !== undefined
+      ? advanceDistanceBand(strokeData, { x, y }, bandSpacing, deps.getGradientBands?.() ?? 12)
+      : useStampDither
+        ? deps.computeColorBandIndexPerStamp(strokeData)
+        : deps.getNonDitherStrokeColorIndex(strokeData);
     const capturedPhaseMap = capturedTip?.paintIndexMap;
     const capturedMapWidth = capturedTip?.mapWidth ?? 0;
     const capturedMapHeight = capturedTip?.mapHeight ?? 0;

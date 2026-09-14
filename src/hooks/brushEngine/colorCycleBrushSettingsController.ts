@@ -1,4 +1,4 @@
-import { BrushShape, type BrushSettings } from '@/types';
+import type { BrushSettings } from '@/types';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import {
   applyColorCycleBrushSettingsPatch,
@@ -92,10 +92,7 @@ export const updateColorCycleBandSpacingForLayer = <TBrush extends ColorCycleSet
   getLayers,
   getActiveLayerColorCycleBrush,
   initializeColorCycleBrush,
-  brushShape,
   colorCycleBandSpacingPx,
-  spacing,
-  defaultBandSpacing,
   clampColorCycleBandSpacing,
   renderBrushToLayerCanvas,
 }: {
@@ -124,12 +121,7 @@ export const updateColorCycleBandSpacingForLayer = <TBrush extends ColorCycleSet
     return;
   }
 
-  const useShapeSpacing = brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-  const spacingValue = clampColorCycleBandSpacing(
-    useShapeSpacing
-      ? colorCycleBandSpacingPx ?? spacing ?? defaultBandSpacing
-      : spacing ?? defaultBandSpacing
-  );
+  const spacingValue = clampColorCycleBandSpacing(colorCycleBandSpacingPx ?? 20);
   applyColorCycleBrushSettingsPatch(brush, { bandSpacing: spacingValue });
   renderBrushToLayerCanvas(brush, activeLayerId);
   dispatchColorCycleFrameReady(activeLayerId);

@@ -1,5 +1,6 @@
 export type ColorCycleShapeFillSettingsSnapshot = {
   gradientBands: number;
+  strokeBandSpacing?: number;
   bandSpacing: number;
   ditherEnabled: boolean;
   ditherStrength: number;
@@ -11,6 +12,7 @@ export type ColorCycleShapeFillSettingsSnapshot = {
 export class ColorCycleShapeFillSettingsState {
   private gradientBands = 12;
   private bandSpacing = 5;
+  private strokeBandSpacing?: number;
   private ditherEnabled = false;
   private ditherStrength = 1.0;
   private ditherPixelSize = 1;
@@ -37,6 +39,7 @@ export class ColorCycleShapeFillSettingsState {
     if (!Number.isFinite(spacing) || spacing <= 0) {
       return null;
     }
+    this.strokeBandSpacing = Math.max(1, Math.min(256, Math.round(spacing)));
     this.bandSpacing = Math.max(1, Math.min(512, Math.round(spacing)));
     return this.bandSpacing;
   }
@@ -111,6 +114,7 @@ export class ColorCycleShapeFillSettingsState {
     return {
       gradientBands: this.gradientBands,
       bandSpacing: this.bandSpacing,
+      strokeBandSpacing: this.strokeBandSpacing,
       ditherEnabled: this.ditherEnabled,
       ditherStrength: this.ditherStrength,
       ditherPixelSize: this.ditherPixelSize,

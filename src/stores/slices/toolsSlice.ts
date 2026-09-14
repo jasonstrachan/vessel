@@ -2294,19 +2294,12 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       newBrushSettings.colorCycleStampShape = 'checkered';
     }
 
-    const shouldPreserveColorCycleSource = isColorCyclePresetId(preset.id);
-    let nextCcGradientSource = shouldPreserveColorCycleSource
-      ? currentColorCycleSource
-      : newBrushSettings.ccGradientSource ?? currentColorCycleSource;
-    if (shouldPreserveColorCycleSource) {
-      newBrushSettings.colorCycleUseForegroundGradient = nextCcGradientSource === 'fg';
-      newBrushSettings.autoSampleGradient = false;
-      newBrushSettings.autoSampleGradientRealtime = false;
-    } else if (newBrushSettings.colorCycleUseForegroundGradient) {
-      nextCcGradientSource = 'fg';
-    } else if (newBrushSettings.autoSampleGradientRealtime || newBrushSettings.autoSampleGradient) {
-      nextCcGradientSource = 'sampled';
-    }
+    // Source selection belongs to the tool state. Regular presets may contain
+    // stale CC settings too; restoring those must not change the next CC stroke.
+    const nextCcGradientSource = currentColorCycleSource;
+    newBrushSettings.colorCycleUseForegroundGradient = nextCcGradientSource === 'fg';
+    newBrushSettings.autoSampleGradient = false;
+    newBrushSettings.autoSampleGradientRealtime = false;
     newBrushSettings.ccGradientSource = nextCcGradientSource;
 
     // Decide shapeMode based on brush domain (Color Cycle vs regular)

@@ -83,7 +83,6 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
   brushSettings,
   playbackSpeedScale = 1,
   isCCGradientActiveLayer,
-  defaultBandSpacing,
   clampColorCycleBandSpacing,
   resolveBrushPressureRange,
   getLayers,
@@ -162,12 +161,7 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
       settingsPatch.gradientBands = brushSettings.gradientBands;
     }
 
-    const useShapeSpacing = brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
-    const resolvedBandSpacing = clampColorCycleBandSpacing(
-      useShapeSpacing
-        ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? defaultBandSpacing
-        : brushSettings.spacing ?? defaultBandSpacing
-    );
+    const resolvedBandSpacing = clampColorCycleBandSpacing(brushSettings.colorCycleBandSpacingPx ?? 20);
     settingsPatch.bandSpacing = resolvedBandSpacing;
 
     try {

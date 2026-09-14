@@ -1,3 +1,4 @@
+import { distanceBandPosition } from './distanceBands';
 import { applyEdgePadding } from './fillMath';
 
 type Point = { x: number; y: number };
@@ -25,6 +26,7 @@ export interface ConcentricFillParams {
   bands: number;
   baseOffset: number;
   maxDist: number;
+  bandSpacingPx?: number;
   ditherEnabled: boolean;
   ditherStrength: number;
   ditherPixelSize: number;
@@ -376,7 +378,9 @@ export async function fillConcentricIndices(
         const xBlockEnd = Math.min(ixBase + width - 1, xBlock + cellSize - 1);
         const xCenter = Math.min(xBlockEnd, xBlock + Math.floor(cellSize / 2));
         const dist = sampleDistance(xCenter, yCenter);
-        let r = Math.min(1, dist / maxDist);
+        let r = params.bandSpacingPx !== undefined
+          ? distanceBandPosition(dist, params.bandSpacingPx, bands)
+          : Math.min(1, dist / maxDist);
         if (params.ditherEnabled && ditherStrength > 0) {
           const j = (noiseAt(xCenter, yCenter) - 0.5) * (jitterScale / quantLevels);
           r = clampNormalized(r + j);
@@ -467,7 +471,9 @@ export async function fillConcentricIndices(
           return;
         }
         const dist = sampleDistance(x, y);
-        let r = Math.min(1, dist / maxDist);
+        let r = params.bandSpacingPx !== undefined
+          ? distanceBandPosition(dist, params.bandSpacingPx, bands)
+          : Math.min(1, dist / maxDist);
         if (params.ditherEnabled && ditherStrength > 0) {
           const j = (noiseAt(x, y) - 0.5) * (jitterScale / quantLevels);
           r = clampNormalized(r + j);

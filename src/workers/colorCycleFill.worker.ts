@@ -69,6 +69,7 @@ const handleConcentricFill = async (job: ConcentricFillJob) => {
     bands: job.bands,
     baseOffset: job.baseOffset,
     maxDist: job.maxDist,
+    bandSpacingPx: job.bandSpacingPx,
     ditherEnabled: job.ditherEnabled,
     ditherStrength: job.ditherStrength,
     ditherPixelSize: job.ditherPixelSize,

@@ -38,6 +38,7 @@ interface GPUFillOptions {
   colorStep: number;
   bbox: { minX: number; minY: number; width: number; height: number };
   maxDist?: number;
+  bandSpacingPx?: number;
   direction?: { x: number; y: number };
   directionOrigin?: { x: number; y: number };
   directionRange?: { min: number; range: number };
@@ -730,6 +731,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       const result = this.glRenderer.fillPolygonConcentric({
         vertices: flat,
         bands: options.bands,
+        bandSpacingPx: options.bandSpacingPx,
         baseOffset: options.baseOffset,
         colorStep: options.colorStep,
         maxDist: Math.max(1, options.maxDist ?? 1),

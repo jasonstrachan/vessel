@@ -7,7 +7,10 @@ import {
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { setOverlaySeededFromLayer } from '@/hooks/canvas/utils/overlaySeedState';
 import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
-import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
+import {
+  registerColorCycleBrushLayerSnapshotRuntime,
+  setColorCycleBrushStrokeStateForOwner,
+} from '@/lib/colorCycle/document';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { Layer } from '@/types';
@@ -599,13 +602,15 @@ describe('commitRasterOverlay', () => {
   });
 
   it.each([
-    { seamProfile: 'hard' as const, retainedPickup: false },
-    { seamProfile: 'soft' as const, retainedPickup: false },
-    { seamProfile: 'hard' as const, retainedPickup: true },
-    { seamProfile: 'soft' as const, retainedPickup: true },
+    { seamProfile: 'hard' as const, retainedPickup: false, dither: false },
+    { seamProfile: 'hard' as const, retainedPickup: false, dither: true },
+    { seamProfile: 'soft' as const, retainedPickup: false, dither: true },
+    { seamProfile: 'soft' as const, retainedPickup: false, dither: false },
+    { seamProfile: 'hard' as const, retainedPickup: true, dither: false },
+    { seamProfile: 'soft' as const, retainedPickup: true, dither: false },
   ])(
-    'commits $seamProfile stroke phase with retainedPickup=$retainedPickup',
-    async ({ seamProfile, retainedPickup }) => {
+    'commits $seamProfile stroke phase with retainedPickup=$retainedPickup dither=$dither',
+    async ({ seamProfile, retainedPickup, dither }) => {
     const layer = createLayer();
     const canvas = document.createElement('canvas');
     canvas.width = 8;
@@ -665,6 +670,25 @@ describe('commitRasterOverlay', () => {
     });
 
     const brush = makeCommittedBrush(TEMP_SAMPLE_SLOT);
+    // Include the former stamp-distance metadata so this catches the finalizer
+    // overwriting distance-authored ink indices, even in an existing runtime.
+    setColorCycleBrushStrokeStateForOwner(brush, layer.id, {
+      hasContent: true,
+      buffers: {
+        paint: new Uint8Array(64).fill(1),
+        gid: new Uint8Array(64).fill(TEMP_SAMPLE_SLOT),
+        spd: new Uint8Array(64),
+        flow: new Uint8Array(64),
+        phase: new Uint8Array(64),
+        def: new Uint16Array(64),
+      },
+      stampDither: {
+        stampDitherTag: new Uint32Array(64).fill(65537),
+        stampDistances: Float64Array.of(0, 0),
+        stampDistanceCursor: { x: 3.5, y: 3.5, total: 1 },
+        stampDitherStrokeEpoch: 1,
+      },
+    });
     const applySnapshot = jest.fn();
     registerColorCycleBrushLayerSnapshotRuntime(brush, { apply: applySnapshot });
 
@@ -674,6 +698,8 @@ describe('commitRasterOverlay', () => {
         drawingCanvas: canvas,
         brushSettings: {
           opacity: 1,
+          colorCycleStampDitherEnabled: dither,
+          colorCycleBandSpacingPx: 1,
         } as never,
         project: { width: 8, height: 8 },
         strokeBoundingBox: null,
@@ -703,20 +729,7 @@ describe('commitRasterOverlay', () => {
       ],
       seamProfile
     );
-    if (retainedPickup) {
-      expect(applySnapshot).not.toHaveBeenCalled();
-    } else {
-      expect(applySnapshot).toHaveBeenCalledWith(
-        layer.id,
-        expect.objectContaining({ paintBuffer: expect.any(ArrayBuffer) }),
-        undefined,
-        'sampled-stroke-path-phase',
-        undefined,
-      );
-      const remappedPaint = new Uint8Array(applySnapshot.mock.calls[0]?.[1].paintBuffer);
-      expect(remappedPaint[3 * 8 + 2]).toBe(1);
-      expect(remappedPaint[3 * 8 + 3]).toBe(255);
-    }
+    expect(applySnapshot).not.toHaveBeenCalled();
     expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(
       layer.id,
       22,

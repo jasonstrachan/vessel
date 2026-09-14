@@ -118,7 +118,9 @@ export class Renderer2D {
       const hasSpeed = speedByte > 0;
       const speed = hasSpeed ? decodeColorCycleSpeedByte(speedByte) : 0;
       const basePhase = hasSpeed ? (baseTime * speed) % 1 : (hasPerPixelSpeed ? 0 : offset);
-      const phaseOffset = phaseByte / 256;
+      // Legacy morph strokes stored their distance-band index in the phase byte.
+      const paletteIndex = flowByte === 4 ? phaseByte : colorIndex - 1;
+      const phaseOffset = flowByte === 4 ? 0 : phaseByte / 256;
       let phase = (basePhase + phaseOffset) % 1;
       if (flowByte === 3) {
         const t = (phase * 2) % 2;
@@ -132,14 +134,14 @@ export class Renderer2D {
           ? defPalettesById?.get(defId) ?? options.basePalette
           : options.paletteSlots[slot] ?? options.basePalette;
       if (hasSpeed) {
-        const palettePos = ((((colorIndex - 1) + dir * speedOffset * 256) % 256) + 256) % 256;
+        const palettePos = (((paletteIndex + dir * speedOffset * 256) % 256) + 256) % 256;
         const lower = Math.floor(palettePos) & 255;
         const upper = (lower + 1) & 255;
         const frac = palettePos - Math.floor(palettePos);
         pixels32[i] = mixPackedColor(palette[lower], palette[upper], frac);
       } else {
         const shift = hasPerPixelSpeed ? 0 : (dir * legacyShift);
-        pixels32[i] = palette[(colorIndex - 1 + shift) & 255];
+        pixels32[i] = palette[(paletteIndex + shift) & 255];
       }
     }
 

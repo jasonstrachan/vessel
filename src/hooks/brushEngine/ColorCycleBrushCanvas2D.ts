@@ -251,6 +251,7 @@ export class ColorCycleBrushCanvas2D {
     getFlowMode: () => this.runtimeMetadataApi.getFlowMode(),
     resolvePressureBrushSize: (pressure) => this.settingsApi.resolvePressureBrushSize(pressure),
     getGradientBands: () => this.shapeFillApi.getGradientBands(),
+    getStrokeBandSpacing: () => this.shapeFillApi.getSettings().strokeBandSpacing,
     createStampDitherConfig: (options) => this.settingsApi.createStampDitherConfig(options),
     getStampDitherStrokeData: (strokeData) => getColorCycleStampDitherStrokeData(strokeData),
     getStampDitherRuntime: () => this.settingsApi.getStampDitherRuntime(),

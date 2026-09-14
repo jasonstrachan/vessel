@@ -1,3 +1,5 @@
+import { smoothSampledGradient } from '@/utils/colorCycle/smoothSampledGradient';
+import { withCanvasSamplingBatch } from '@/utils/canvasSamplingBatch';
 import { buildCcPickupStrokeStops, type CcColourPickup } from '@/utils/colorCycle/ccColourPickup';
 import type React from 'react';
 
@@ -10,221 +12,15 @@ import {
 } from '@/hooks/canvas/utils/autoSampleGradient';
 import { equidistantPointsOnPolyline } from '@/hooks/canvas/handlers/brushSampling';
 import { resolveStrokeDitherPalette } from '@/hooks/brushEngine/engineShared';
-import { resolveStampDitherSecondaryIndex } from '@/hooks/brushEngine/strokeStampDither';
 import { appendCCDebugOverlayEntry } from '@/utils/colorCycle/ccDebugOverlayStore';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
-import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
-import type { ColorCyclePaintSnapshot } from '@/lib/colorCycle/document';
-import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 
 export const CC_SAMPLED_THROTTLE_MS = 120;
 export const CC_SAMPLED_MAX_STOPS = 256;
 export const CC_SAMPLED_SAMPLE_SPACING_PX = 1;
 const CC_SHAPE_SAMPLED_MAX_STOPS = 16;
 const CC_SHAPE_SAMPLED_SAMPLE_SPACING_PX = 32;
-
-type StrokePoint = { x: number; y: number };
-
-const clamp = (value: number, min: number, max: number): number => (
-  Math.max(min, Math.min(max, value))
-);
-
-const prepareStrokePath = (points: StrokePoint[]): {
-  points: StrokePoint[];
-  cumulativeLengths: Float64Array;
-  totalLength: number;
-} | null => {
-  const prepared: StrokePoint[] = [];
-  for (const point of points) {
-    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-      continue;
-    }
-    const previous = prepared[prepared.length - 1];
-    if (previous && Math.hypot(point.x - previous.x, point.y - previous.y) < 0.01) {
-      continue;
-    }
-    prepared.push({ x: point.x, y: point.y });
-  }
-  if (prepared.length < 2) {
-    return null;
-  }
-
-  const cumulativeLengths = new Float64Array(prepared.length);
-  for (let index = 1; index < prepared.length; index += 1) {
-    const previous = prepared[index - 1];
-    const current = prepared[index];
-    cumulativeLengths[index] = cumulativeLengths[index - 1]
-      + Math.hypot(current.x - previous.x, current.y - previous.y);
-  }
-  const totalLength = cumulativeLengths[cumulativeLengths.length - 1];
-  if (!(totalLength > 0)) {
-    return null;
-  }
-  return { points: prepared, cumulativeLengths, totalLength };
-};
-
-export const remapSampledStrokePaintPhase = ({
-  snapshot,
-  width,
-  height,
-  points,
-  targetSlot,
-  region,
-  pathPadding,
-  ditherPrimaryBuffer,
-}: {
-  snapshot: ColorCyclePaintSnapshot;
-  width: number;
-  height: number;
-  points: StrokePoint[];
-  targetSlot: number;
-  region?: CaptureRegion;
-  pathPadding: number;
-  ditherPrimaryBuffer?: Uint8Array | null;
-}): ColorCyclePaintSnapshot | null => {
-  const safeWidth = Math.floor(width);
-  const safeHeight = Math.floor(height);
-  const pixelCount = safeWidth * safeHeight;
-  const gradientIdBuffer = snapshot.gradientIdBuffer;
-  const path = prepareStrokePath(points);
-  if (
-    safeWidth <= 0 ||
-    safeHeight <= 0 ||
-    pixelCount <= 0 ||
-    snapshot.paintBuffer.byteLength < pixelCount ||
-    !gradientIdBuffer ||
-    gradientIdBuffer.byteLength < pixelCount ||
-    !path
-  ) {
-    return null;
-  }
-
-  const regionX = clamp(Math.floor(region?.x ?? 0), 0, safeWidth);
-  const regionY = clamp(Math.floor(region?.y ?? 0), 0, safeHeight);
-  const regionRight = clamp(
-    Math.ceil((region?.x ?? 0) + (region?.width ?? safeWidth)),
-    regionX,
-    safeWidth,
-  );
-  const regionBottom = clamp(
-    Math.ceil((region?.y ?? 0) + (region?.height ?? safeHeight)),
-    regionY,
-    safeHeight,
-  );
-  const regionWidth = regionRight - regionX;
-  const regionHeight = regionBottom - regionY;
-  if (regionWidth <= 0 || regionHeight <= 0) {
-    return null;
-  }
-
-  const sourcePaint = new Uint8Array(snapshot.paintBuffer);
-  const gradientIds = new Uint8Array(gradientIdBuffer);
-  const ditherPrimary = ditherPrimaryBuffer?.byteLength === pixelCount
-    ? ditherPrimaryBuffer
-    : null;
-  const bestDistanceSq = new Float32Array(regionWidth * regionHeight);
-  bestDistanceSq.fill(Number.POSITIVE_INFINITY);
-  const bestPathT = new Float32Array(regionWidth * regionHeight);
-  const visited = new Uint8Array(regionWidth * regionHeight);
-  const radius = Math.max(1, pathPadding);
-  const radiusSq = radius * radius;
-
-  for (let segmentIndex = 1; segmentIndex < path.points.length; segmentIndex += 1) {
-    const start = path.points[segmentIndex - 1];
-    const end = path.points[segmentIndex];
-    const deltaX = end.x - start.x;
-    const deltaY = end.y - start.y;
-    const segmentLengthSq = deltaX * deltaX + deltaY * deltaY;
-    if (!(segmentLengthSq > 0)) {
-      continue;
-    }
-    const segmentLength = Math.sqrt(segmentLengthSq);
-    const minX = Math.max(regionX, Math.floor(Math.min(start.x, end.x) - radius));
-    const maxX = Math.min(regionRight - 1, Math.ceil(Math.max(start.x, end.x) + radius));
-    const minY = Math.max(regionY, Math.floor(Math.min(start.y, end.y) - radius));
-    const maxY = Math.min(regionBottom - 1, Math.ceil(Math.max(start.y, end.y) + radius));
-
-    for (let y = minY; y <= maxY; y += 1) {
-      const row = y * safeWidth;
-      const localRow = (y - regionY) * regionWidth;
-      for (let x = minX; x <= maxX; x += 1) {
-        const pixelIndex = row + x;
-        if (
-          sourcePaint[pixelIndex] === 0 ||
-          (gradientIds[pixelIndex] & FLOW_SLOT_MASK) !== targetSlot
-        ) {
-          continue;
-        }
-
-        const pixelX = x + 0.5;
-        const pixelY = y + 0.5;
-        const projection = clamp(
-          ((pixelX - start.x) * deltaX + (pixelY - start.y) * deltaY) / segmentLengthSq,
-          0,
-          1,
-        );
-        const nearestX = start.x + deltaX * projection;
-        const nearestY = start.y + deltaY * projection;
-        const distanceX = pixelX - nearestX;
-        const distanceY = pixelY - nearestY;
-        const distanceSq = distanceX * distanceX + distanceY * distanceY;
-        if (distanceSq > radiusSq) {
-          continue;
-        }
-
-        const localIndex = localRow + (x - regionX);
-        if (!visited[localIndex] || distanceSq <= bestDistanceSq[localIndex]) {
-          visited[localIndex] = 1;
-          bestDistanceSq[localIndex] = distanceSq;
-          bestPathT[localIndex] = (
-            path.cumulativeLengths[segmentIndex - 1] + segmentLength * projection
-          ) / path.totalLength;
-        }
-      }
-    }
-  }
-
-  const remappedPaint = new Uint8Array(sourcePaint);
-  let didChange = false;
-  for (let y = regionY; y < regionBottom; y += 1) {
-    const row = y * safeWidth;
-    const localRow = (y - regionY) * regionWidth;
-    for (let x = regionX; x < regionRight; x += 1) {
-      const localIndex = localRow + (x - regionX);
-      if (!visited[localIndex]) {
-        continue;
-      }
-      const pixelIndex = row + x;
-      const pathT = clamp(bestPathT[localIndex], 0, 1);
-      // The finalized palette is the complete sampled path. Dither inks must
-      // bracket that position, not jump a quarter of the way along the image.
-      const palettePosition = pathT * 254;
-      const nextPrimary = 1 + (ditherPrimary ? Math.floor(palettePosition) : Math.round(palettePosition));
-      let nextIndex = nextPrimary;
-      if (ditherPrimary) {
-        const sourcePrimary = ditherPrimary[pixelIndex];
-        const sourceIndex = sourcePaint[pixelIndex];
-        if (sourcePrimary === 0) {
-          continue;
-        }
-        if (sourceIndex === resolveStampDitherSecondaryIndex(sourcePrimary)) {
-          nextIndex = 1 + Math.ceil(palettePosition);
-        } else if (sourceIndex !== sourcePrimary) {
-          continue;
-        }
-      }
-      if (remappedPaint[pixelIndex] !== nextIndex) {
-        remappedPaint[pixelIndex] = nextIndex;
-        didChange = true;
-      }
-    }
-  }
-
-  return didChange
-    ? { ...snapshot, paintBuffer: remappedPaint.buffer }
-    : null;
-};
 
 export type CcSampledUpdateArgs = {
   session: MarkGradientSession;
@@ -267,7 +63,8 @@ const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
 
   return [
     { position: 0, color: low },
-    { position: 1, color: high },
+    { position: 0.5, color: high },
+    { position: 1, color: low },
   ];
 };
 
@@ -349,13 +146,15 @@ export const buildSampledStops = (params: {
   const stops: StoredStop[] = [];
   const samples: Array<{ t01: number; rgba: [number, number, number, number] }> = [];
   const denom = Math.max(1, sampledPoints.length - 1);
-  for (let i = 0; i < sampledPoints.length; i += 1) {
-    const point = sampledPoints[i];
-    const color = params.sampleColor(point.x, point.y);
-    const t01 = sampledPoints.length === 1 ? 0 : i / denom;
-    stops.push({ position: t01, color });
-    samples.push({ t01, rgba: parseCssColorToRgba(color) });
-  }
+  withCanvasSamplingBatch(() => {
+    for (let i = 0; i < sampledPoints.length; i += 1) {
+      const point = sampledPoints[i];
+      const color = params.sampleColor(point.x, point.y);
+      const t01 = sampledPoints.length === 1 ? 0 : i / denom;
+      stops.push({ position: t01, color });
+      samples.push({ t01, rgba: parseCssColorToRgba(color) });
+    }
+  });
 
   logSampledPipeline('buildSampledStops', {
     sourcePts: params.sourcePts.length,
@@ -367,7 +166,11 @@ export const buildSampledStops = (params: {
     uniqueColors: new Set(stops.map((stop) => stop.color)).size,
   });
 
-  return { stops, samples, sampleCount: sampledPoints.length };
+  return {
+    stops: params.markKind === 'stroke' ? smoothSampledGradient(samples) : stops,
+    samples,
+    sampleCount: sampledPoints.length,
+  };
 };
 
 export const resolveSampledStopsWithFallback = ({

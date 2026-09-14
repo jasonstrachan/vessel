@@ -74,7 +74,7 @@ export const applyColorCycleSettingsPatch = (
   if (hasOwnSetting(settings, 'gradientBands') && settings.gradientBands !== current.gradientBands) {
     actions.setGradientBands(settings.gradientBands);
   }
-  if (hasOwnSetting(settings, 'bandSpacing') && settings.bandSpacing !== current.bandSpacing) {
+  if (hasOwnSetting(settings, 'bandSpacing')) {
     actions.setBandSpacing(settings.bandSpacing);
   }
   if (hasOwnSetting(settings, 'pressureEnabled') && settings.pressureEnabled !== current.pressureEnabled) {

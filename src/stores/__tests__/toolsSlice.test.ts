@@ -674,6 +674,26 @@ describe('tools slice', () => {
     },
   );
 
+  it.each(['sampled', 'fg'] as const)(
+    'preserves %s through a regular preset with saved Palette settings',
+    (source) => {
+      const regular = brushPresets.find((preset) => preset.id === 'pixel-square')!;
+      const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;
+      useAppStore.getState().setBrushPreset(regular);
+      useAppStore.getState().setCcGradientSource('manual');
+      useAppStore.getState().setBrushPreset(stroke);
+      useAppStore.getState().setCcGradientSource(source);
+
+      for (const preset of [regular, stroke, regular, stroke]) {
+        useAppStore.getState().setBrushPreset(preset);
+        const { tools } = useAppStore.getState();
+        expect(tools.ccGradientSource).toBe(source);
+        expect(tools.brushSettings.ccGradientSource).toBe(source);
+        expect(tools.brushSettings.colorCycleUseForegroundGradient).toBe(source === 'fg');
+      }
+    },
+  );
+
   it('stores color cycle fill mode only for the gradient preset', () => {
     const store = useAppStore.getState();
     store.saveBrushSettings('color-cycle-gradient', { colorCycleFillMode: 'concentric' });

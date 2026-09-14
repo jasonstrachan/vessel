@@ -1,3 +1,4 @@
+import { distanceBandPosition } from '@/utils/colorCycle/distanceBands';
 import { fillConcentric } from './ccGradientFillDither';
 import type { FillDitherAlgorithm } from './ccGradientFillDither';
 import type { ColorCycleShapeFillExecutionContext } from './colorCycleShapeFillExecutionTypes';
@@ -18,6 +19,7 @@ export type ConcentricPerceptualFillParams = {
   maxX: number;
   maxY: number;
   maxDist: number;
+  bandSpacingPx?: number;
   numBands: number;
   baseOffset: number;
   fillAlgorithm: FillDitherAlgorithm;
@@ -36,6 +38,7 @@ export async function tryRunConcentricPerceptualFill({
   maxX,
   maxY,
   maxDist,
+  bandSpacingPx,
   numBands,
   baseOffset,
   fillAlgorithm,
@@ -136,7 +139,9 @@ export async function tryRunConcentricPerceptualFill({
               if (minDistSq <= 1) break;
             }
           }
-          const r = Math.min(1, Math.sqrt(minDistSq) / maxDistSafe);
+          const r = bandSpacingPx !== undefined
+            ? distanceBandPosition(Math.sqrt(minDistSq), bandSpacingPx, numBands)
+            : Math.min(1, Math.sqrt(minDistSq) / maxDistSafe);
           const { r: R, g: G, b: B } = context.colorAtPosition(r);
           const p = (yy * width + xx) * 4;
           data[p] = R;

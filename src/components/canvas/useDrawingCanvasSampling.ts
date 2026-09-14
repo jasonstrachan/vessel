@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
+import { readCanvasSamplingRegion } from '@/utils/canvasSamplingBatch';
 import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
 import { mapProjectPointToReferencePixel } from '@/referenceStudio/referenceAssets';
 import type { Layer, ReferenceAsset, ReferenceSamplingSource } from '@/types';
@@ -38,7 +39,7 @@ const readCanvasPixel = (
     { willReadFrequently: true } as CanvasRenderingContext2DSettings,
   ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   if (sourceContext) {
-    return sourceContext.getImageData(x, y, 1, 1).data;
+    return readCanvasSamplingRegion(sourceContext, x, y, 1, 1);
   }
   if (typeof document === 'undefined') {
     return null;
@@ -163,7 +164,7 @@ export const useDrawingCanvasSampling = ({
       const boxW = sx1 - sx0 + 1;
       const boxH = sy1 - sy0 + 1;
 
-      const image = ctx.getImageData(sx0, sy0, boxW, boxH).data;
+      const image = readCanvasSamplingRegion(ctx, sx0, sy0, boxW, boxH);
 
       let solidAlpha = -1;
       let solidR = 255;

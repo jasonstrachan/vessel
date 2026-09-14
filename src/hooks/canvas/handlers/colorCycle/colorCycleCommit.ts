@@ -46,7 +46,6 @@ import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMu
 import { persistCommittedSampledSlot } from '@/hooks/canvas/handlers/colorCycle/colorCycleSampledSlotPersistence';
 import { debugWarn } from '@/utils/debug';
 import { strokeFinalizeProbeTime, strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
-import { remapSampledStrokePaintPhase } from '@/hooks/canvas/handlers/colorCycle/ccSampling';
 
 const loggedLegacySlotSummaryByLayer = new Set<string>();
 
@@ -812,58 +811,7 @@ export const commitColorCycleLayerStroke = async (
         );
       }
 
-      if (
-        committedSession?.source === 'sampled' &&
-        !committedSession.sampledAlignment &&
-        !committedSession.colourPickup?.strokePaletteIndicesAt &&
-        committedSession.markKind === 'stroke' &&
-        committedSession.sampledStrokePoints &&
-        committedSession.sampledStrokePoints.length >= 2 &&
-        args.project
-      ) {
-        const currentSnapshot = snapshotAfterTransparencyLock
-          ?? strokeFinalizeProbeTimeSync(
-            'commitColorCycleLayerStroke:readSampledStrokePhaseSnapshot',
-            () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId),
-            {
-              layerId: targetLayerId,
-              layerType: args.layer.layerType,
-              hasRoi: Boolean(strokeCaptureRoi),
-            }
-          );
-        if (currentSnapshot) {
-          const remappedSnapshot = remapSampledStrokePaintPhase({
-            snapshot: currentSnapshot,
-            width: args.project.width,
-            height: args.project.height,
-            points: committedSession.sampledStrokePoints,
-            targetSlot: TEMP_SAMPLE_SLOT,
-            region: strokeCaptureRoi,
-            pathPadding: args.strokeCapturePadding + args.roiPadding,
-            ditherPrimaryBuffer: brush.getSampledStrokeDitherPrimaryBuffer?.(targetLayerId),
-          });
-          if (remappedSnapshot) {
-            const didApplySampledStrokePhase = strokeFinalizeProbeTimeSync(
-              'commitColorCycleLayerStroke:applySampledStrokePhaseSnapshot',
-              () => applyColorCycleBrushLayerSnapshotToRuntime(
-                brush,
-                targetLayerId,
-                remappedSnapshot,
-                undefined,
-                'sampled-stroke-path-phase'
-              ),
-              {
-                layerId: targetLayerId,
-                layerType: args.layer.layerType,
-              }
-            );
-            if (didApplySampledStrokePhase) {
-              snapshotAfterTransparencyLock = remappedSnapshot;
-            }
-          }
-        }
-      }
-
+      // Bind the remaining primary pixels; aligned secondary inks already own their palette.
       const sampledCommitNeedsFullRebind = committedSession?.source === 'sampled';
       let binding: ColorCycleCommittedLayerStateOptions['binding'] = committedSession?.binding
         ? {

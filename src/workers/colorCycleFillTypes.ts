@@ -29,6 +29,7 @@ export interface ConcentricFillJob {
   bands: number;
   baseOffset: number;
   maxDist: number;
+  bandSpacingPx?: number;
   ditherEnabled: boolean;
   ditherStrength: number;
   ditherPixelSize: number;

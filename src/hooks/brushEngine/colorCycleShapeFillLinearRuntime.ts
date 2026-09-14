@@ -171,6 +171,7 @@ export async function runColorCycleLinearShapeFill(
   const spacingValue = context.normalizeBandSpacingValue(spacing);
   const projectionSpan = Math.max(1, Math.abs(safeProjectionRange));
   const ccGradient = options?.ccGradient === true;
+  const distanceSpacing = ccGradient ? undefined : context.getDistanceBandSpacing?.();
   const numBands = ccGradient
     ? Math.max(2, Math.min(254, Math.floor(context.getGradientBands() || 12)))
     : context.deriveBandCountFromDistance(projectionSpan, spacingValue);
@@ -300,6 +301,7 @@ export async function runColorCycleLinearShapeFill(
         const ok = animator.gpuFillShape(gpuVertices, {
           mode: 'linear',
           bands: numBands,
+          bandSpacingPx: distanceSpacing,
           baseOffset,
           colorStep,
           maxDist: 1,
@@ -353,6 +355,7 @@ export async function runColorCycleLinearShapeFill(
         ccWarn('[ColorCycleBrush] Linear GPU fill returned empty result', {
           vertices: gpuVertices.length,
           bands: numBands,
+          bandSpacingPx: distanceSpacing,
           ditherStrength,
         });
       }
@@ -621,6 +624,7 @@ export async function runColorCycleLinearShapeFill(
         dirY,
         min: paddedMinProjection,
         range: safeProjectionRange,
+        bandSpacingPx: distanceSpacing,
       },
       layerId: id,
       minX,
@@ -676,6 +680,7 @@ export async function runColorCycleLinearShapeFill(
       dirY,
       paddedMinProjection,
       safeProjectionRange,
+      bandSpacingPx: distanceSpacing,
       bbox,
       buffers: {
         paint: linearBuffer,

@@ -18,7 +18,7 @@ attention, signal, time, or any boundary that should remain active.
 | Size | Overall animated line weight. Establish hierarchy just as with a static brush. |
 | Spacing / Vel | Stamp interval and optional response to drawing speed. Tight spacing makes flow; open spacing exposes pulses. |
 | Speed / Vel | Cycle rate and optional velocity linkage. Use speed as narrative tempo, not a universal special effect. |
-| Bands | Number of indexed colour bands in the cycle. Few bands pulse; many bands travel smoothly. |
+| Band px | Canvas distance before the next colour band. Changes the stamp ink pair without changing tip geometry, stamp spacing, or dither resolution. |
 | FG Grad | Builds related stops from the foreground colour. |
 | Light / Hue / Sat / Opacity / Stops | Defines variation across a foreground-derived gradient. |
 | Man Grad | Uses editable authored stops, positions, and opacity. |
@@ -38,37 +38,32 @@ attention, signal, time, or any boundary that should remain active.
 The default uses a square stamp around Size 20, Spacing 8, 30 FPS, and 12
 bands.
 
-FG Grad and Man Grad continue their colour progression across consecutive
-strokes, with or without Stamp Dither. Sample maps its gradient from beginning
-to end along each completed stroke. Starting a stroke does not restart playback.
+Palette, FG Grad, and Sample use Band px for colour spacing in ordinary strokes,
+Pencil, bristles, and custom tips. Each stroke keeps the selected tip and texture.
+Captured-data tips retain their internal colour differences while the whole tip's
+colour phase advances by canvas distance. Bristles retain their strand offsets.
 
 Sample captures the complete path in order, at approximately one canvas pixel
 per sample up to 256 samples, then freezes that stroke's gradient on release.
-Longer paths distribute those samples across their full length. This samples
-the centreline, not every pixel across the brush width.
-Sampled Stamp Dither uses neighbouring colours along that path for its two inks;
-it does not jump to a distant part of the sampled gradient.
+The sampled colour sequence is smoothed around its cycle, including the join
+from its last colour back to its first. Small colour spikes soften while broad
+colour regions remain. Preview and release use the same smoothing; tip geometry,
+dither masks and Band px are unchanged. The captured gradient repeats at Band px
+spacing; release does not stretch it
+across the completed stroke. Longer paths can contain more repeated bands without
+needing more palette entries. The 255 available colour positions still limit
+colour precision within one cycle, independently of the number of repeated bands.
+Stamp spacing remains independent: boundaries appear at available stamp positions.
 
-In Studio, Effects → Unresolve keeps those gradients, path indices, and bristle
-phase offsets intact.
-Sample strokes: On selects the sampled source with neutral sampled contrast and a
-hard seam, pauses playback, and resets the layer clock so new strokes align with
-the sampled image on release. The button shows On/Off; turning it off selects
-Palette again. The shared cycle moves each stroke's own colours along its path;
-Resolve returns every Unresolve layer to its original alignment together.
-Apply joins the selected CC layer to the shared Unresolve clock at its current
-position. Global playback speed controls this clock; individual layer speed
-multipliers do not separate Unresolve layers. Ordinary CC layers retain their
-own playback. This synchronisation also applies in Goblet exports. There is no separate
-unresolved palette or frame capture. Existing strokes retain their captured
-sampling detail; denser sampling applies to new strokes.
-Use global Play/Pause to animate or pause strokes and active Unresolve previews.
-After Apply, global Play runs the committed strokes.
-Saved projects retain the shared playback position. Older Unresolve files,
-including the original captured-frame format, join at the resolved position
-when no shared clock was saved; their authored palettes and pixels are retained.
+CC Shape also uses Band px. Linear fills measure along their direction; concentric
+fills measure inward from the polygon edge. Larger shapes add repeated bands.
+The dedicated Gradient tool retains its authored gradient range and ink controls.
 
-### Sampled Unresolve inks
+In Studio, new sampled stamp-dither strokes drawn with Unresolve enabled retain
+sample positions along the entire stroke. Band px groups nearby stamp positions;
+it does not repeat the complete sampled sequence every few bands. At Resolve,
+light and dark regions follow the source along the stroke. Each stamp keeps its
+shape, including at overlaps and crossings.
 
 The original dither mask selects between two palettes at the same sample position:
 a pair controlled by Ink Spd. At 0 both inks match the sampled colour; increasing
@@ -77,7 +72,24 @@ dark/light separation, including a blue/yellow pair for neutral samples. Strong
 spread intentionally departs from the sampled colour's average tone. Gradient
 Contrast is applied before splitting the inks, independently of Ink Spd.
 The palettes move together throughout playback, with no crossfade or layout morph.
-Ink Spd is captured when each new stroke starts.
+Both use the shared clock speed from the first finished stroke, before Apply.
+The existing narrow gradient smoothing and loop seam remain fixed.
+
+This mapping currently applies to native stamp-dither strokes; Pickup, Pencil,
+Bristles and shape fills retain their own paths. The live drawing preview remains
+approximate; source alignment is committed when the stroke finishes. Existing
+strokes cannot gain this alignment because their original stamp positions were
+not retained. Draw a new stroke to use it.
+
+Older morph strokes retain their distance-band indices in the phase channel;
+playback uses those indices directly and ignores the discarded source layout.
+Their stored palette colours are retained. New strokes use the ordinary indexed
+playback format, without source-remapping buffers or captured frames.
+Use global Play/Pause to animate or pause strokes and active Unresolve previews.
+After Apply, global Play runs the committed strokes.
+Saved projects retain the shared playback position. Older Unresolve files,
+including the original captured-frame format, join at the resolved position
+when no shared clock was saved; their authored palettes and pixels are retained.
 
 ## Collaboration profile
 

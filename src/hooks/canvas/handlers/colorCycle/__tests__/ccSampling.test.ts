@@ -1,11 +1,9 @@
 import {
   CC_SAMPLED_MAX_STOPS,
   buildSampledStops,
-  remapSampledStrokePaintPhase,
   resolveSampledStopsWithFallback,
   updateCcSampledSession,
 } from '../ccSampling';
-import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 
 const makeSession = (): MarkGradientSession => ({
@@ -30,6 +28,16 @@ const makeSession = (): MarkGradientSession => ({
 });
 
 describe('ccSampling', () => {
+  it('closes the source-aligned playback seam while retaining the raw observations', () => {
+    const common = { markKind: 'stroke' as const, preserveSingleSampleColor: true, allowTiny: true,
+      sampleColor: (x: number) => x < 5 ? '#ff0000' : '#0000ff' };
+    const path = buildSampledStops({ ...common, sourcePts: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+    expect(path?.samples[0].rgba).toEqual([255, 0, 0, 255]);
+    expect(path?.samples.at(-1)?.rgba).toEqual([0, 0, 255, 255]);
+    expect(path?.stops[0].color).toBe(path?.stops.at(-1)?.color);
+    const dab = buildSampledStops({ ...common, sourcePts: [{ x: 0, y: 0 }] });
+    expect(dab?.stops.map(stop => stop.color)).toEqual(['#ff0000', '#ff0000']);
+  });
   it('captures narrow colour changes along the complete bent stroke in path order', () => {
     const result = buildSampledStops({
       markKind: 'stroke',
@@ -38,14 +46,15 @@ describe('ccSampling', () => {
       sampleColor: (x, y) => y >= 50 && y <= 51 ? '#ff0000' : x < 100 ? '#000000' : '#ffffff',
     });
     expect(result?.sampleCount).toBeGreaterThan(200);
-    expect(result?.stops[0]).toEqual({ position: 0, color: '#000000' });
-    expect(result?.stops.at(-1)).toEqual({ position: 1, color: '#ffffff' });
-    const detail = result?.stops.find((stop) => stop.color === '#ff0000');
-    expect(detail?.position).toBeGreaterThanOrEqual(0.75);
-    expect(detail?.position).toBeLessThanOrEqual(0.755);
+    expect(result?.samples[0].rgba).toEqual([0, 0, 0, 255]);
+    expect(result?.samples.at(-1)?.rgba).toEqual([255, 255, 255, 255]);
+    const detail = result?.samples.find((sample) => sample.rgba.join(',') === '255,0,0,255');
+    expect(detail?.t01).toBeGreaterThanOrEqual(0.75);
+    expect(detail?.t01).toBeLessThanOrEqual(0.755);
+    expect(result?.stops[0].color).toBe(result?.stops.at(-1)?.color);
   });
 
-  it('builds a 2-stop gradient from a single sample', () => {
+  it('builds a closed two-colour gradient from a single sample', () => {
     const session = makeSession();
     const lastUpdateRef = { current: 0 };
 
@@ -58,7 +67,8 @@ describe('ccSampling', () => {
       allowTiny: true,
     });
 
-    expect(result?.stops.length).toBe(2);
+    expect(result?.stops.length).toBe(3);
+    expect(result?.stops[0].color).toBe(result?.stops.at(-1)?.color);
     expect(result?.sampleCount).toBe(1);
     expect(session.previewStopsStored).toEqual(result?.stops);
     expect(new Set(result?.stops.map((stop) => stop.color)).size).toBe(2);
@@ -85,79 +95,6 @@ describe('ccSampling', () => {
     expect(session.sampledStrokePoints).toEqual([
       { x: 0, y: 0 },
       { x: 40, y: 0 },
-    ]);
-  });
-
-  it('maps one sampled gradient continuously across a stroke longer than 255 stamps', () => {
-    const width = 300;
-    const paint = new Uint8Array(width);
-    const gradientIds = new Uint8Array(width).fill(TEMP_SAMPLE_SLOT);
-    for (let x = 0; x < width; x += 1) {
-      paint[x] = 1 + (x % 255);
-    }
-    gradientIds[150] = 7;
-    const speedBuffer = new Uint8Array(width).fill(27).buffer;
-    const flowBuffer = new Uint8Array(width).fill(1).buffer;
-    const phaseBuffer = new Uint8Array(width).buffer;
-
-    const remapped = remapSampledStrokePaintPhase({
-      snapshot: {
-        paintBuffer: paint.buffer,
-        gradientIdBuffer: gradientIds.buffer,
-        speedBuffer,
-        flowBuffer,
-        phaseBuffer,
-      },
-      width,
-      height: 1,
-      points: [
-        { x: 0.5, y: 0.5 },
-        { x: 299.5, y: 0.5 },
-      ],
-      targetSlot: TEMP_SAMPLE_SLOT,
-      region: { x: 0, y: 0, width, height: 1 },
-      pathPadding: 1,
-    });
-
-    const nextPaint = new Uint8Array(remapped?.paintBuffer ?? new ArrayBuffer(0));
-    expect(nextPaint[0]).toBe(1);
-    expect(nextPaint[254]).toBe(217);
-    expect(nextPaint[255]).toBe(218);
-    expect(nextPaint[299]).toBe(255);
-    expect(nextPaint[150]).toBe(paint[150]);
-    expect(remapped?.speedBuffer).toBe(speedBuffer);
-    expect(remapped?.flowBuffer).toBe(flowBuffer);
-    expect(remapped?.phaseBuffer).toBe(phaseBuffer);
-  });
-
-  it('maps both dither inks to neighbouring colours on the sampled path without a distant-colour wrap', () => {
-    const width = 4;
-    const primary = new Uint8Array([10, 10, 20, 20]);
-    const paint = new Uint8Array([10, 74, 20, 84]);
-    const gradientIds = new Uint8Array(width).fill(TEMP_SAMPLE_SLOT);
-
-    const remapped = remapSampledStrokePaintPhase({
-      snapshot: {
-        paintBuffer: paint.buffer,
-        gradientIdBuffer: gradientIds.buffer,
-      },
-      width,
-      height: 1,
-      points: [
-        { x: 0.5, y: 0.5 },
-        { x: 3.5, y: 0.5 },
-      ],
-      targetSlot: TEMP_SAMPLE_SLOT,
-      region: { x: 0, y: 0, width, height: 1 },
-      pathPadding: 1,
-      ditherPrimaryBuffer: primary,
-    });
-
-    expect(Array.from(new Uint8Array(remapped?.paintBuffer ?? new ArrayBuffer(0)))).toEqual([
-      1,
-      86,
-      170,
-      255,
     ]);
   });
 
