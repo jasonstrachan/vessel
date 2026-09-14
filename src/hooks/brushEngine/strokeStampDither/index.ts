@@ -118,7 +118,7 @@ const applyStampDitherToRegion = (
         const usePrimary = usePattern ? t === 1 : t <= coverageByte;
         const nextIndex = usePrimary
           ? primary[idx]
-          : resolveStampDitherSecondaryIndex(primary[idx]);
+          : resolveStampDitherSecondaryIndex(primary[idx], strokeData.stampDitherInkOffset);
         data[idx] = nextIndex;
         gradientId[idx] = nextIndex === 0 ? 0 : flowSlot;
         speedData[idx] = nextIndex === 0 ? 0 : speedByte;
@@ -199,7 +199,7 @@ const applyStampDitherToRegion = (
         continue;
       }
 
-      const secondary = resolveStampDitherSecondaryIndex(primaryIndex);
+      const secondary = resolveStampDitherSecondaryIndex(primaryIndex, strokeData.stampDitherInkOffset);
       data[idx] = secondary;
       gradientId[idx] = secondary === 0 ? 0 : flowSlot;
       speedData[idx] = secondary === 0 ? 0 : speedByte;
@@ -354,6 +354,7 @@ export const applyStampDitherStamp = (args: {
   const fusedShouldCloseHandle = fusedBgFill && !state.stampDitherFillHandle;
   const fusedWriter: StampDitherBgFillWriter | undefined = fusedHandle
     ? {
+        inkOffset: state.stampDitherInkOffset,
         data: fusedHandle.data,
         gradientId: fusedHandle.gradientId,
         speedData: fusedHandle.speedData,

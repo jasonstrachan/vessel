@@ -24,6 +24,7 @@ attention, signal, time, or any boundary that should remain active.
 | Man Grad | Uses editable authored stops, positions, and opacity. |
 | Sample / Hard seam | Derives colours from the canvas and chooses whether the loop join pulses or blends. |
 | Contrast | Increases separation across the sampled or derived gradient. |
+| Ink Spd | Separates the two stamp-dither inks along the gradient: 0 uses neighbouring colours, 100 uses colours half a cycle apart. Applies to new strokes with BG Fill on; Contrast stays independent. |
 | Stamp Dither | Converts the animated tip into a dithered texture. |
 | Algorithm / Pattern | Distribution of pixels within a dithered stamp. |
 | Res / Pres Res / Max | Base stamp cell size, pressure linkage, and largest linked cell. |

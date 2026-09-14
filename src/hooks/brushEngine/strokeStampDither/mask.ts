@@ -42,6 +42,7 @@ const CHECKERED_4_MASK: ReadonlyArray<number> = [
 ];
 
 export type StampDitherBgFillWriter = {
+  inkOffset?: number;
   data: Uint8Array;
   gradientId: Uint8Array;
   speedData: Uint8Array;
@@ -56,8 +57,8 @@ export type StampDitherBgFillWriter = {
   usePattern: boolean;
 };
 
-export const resolveStampDitherSecondaryIndex = (primaryIndex: number): number => {
-  const offset = 64;
+export const resolveStampDitherSecondaryIndex = (primaryIndex: number, inkOffset = 64): number => {
+  const offset = Number.isFinite(inkOffset) ? Math.max(1, Math.min(127, Math.round(inkOffset))) : 64;
   if (!Number.isFinite(primaryIndex)) {
     return 1;
   }
@@ -118,7 +119,7 @@ const writeStampDitherBgFillSpan = (
     writer.defData.fill(0, start, end);
   }
 
-  const secondaryIndex = resolveStampDitherSecondaryIndex(primaryIndex);
+  const secondaryIndex = resolveStampDitherSecondaryIndex(primaryIndex, writer.inkOffset);
   const writerTileRow = (((y - writer.maskOriginY) % writer.tileClamp + writer.tileClamp) % writer.tileClamp) * writer.tileClamp;
   let writerLocalX = ((startX - writer.maskOriginX) % writer.tileClamp + writer.tileClamp) % writer.tileClamp;
   for (let idx = start; idx < end; idx += 1) {

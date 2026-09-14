@@ -842,6 +842,34 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(useAppStore.getState().tools.brushSettings.ccGradientRangeContrast).toBe(42);
   });
 
+  it('exposes ink spread independently of gradient contrast for CC Stroke', () => {
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          brushShape: 'color_cycle' as BrushSettings['brushShape'],
+          ccGradientRangeContrast: 70,
+          ditherPaletteSpread: 24,
+        },
+      },
+      currentBrushPreset: {
+        id: 'color-cycle-stroke',
+        name: 'CC Stroke',
+      } as AppState['currentBrushPreset'],
+    }));
+
+    render(<BrushControls />);
+
+    expect(screen.getAllByLabelText('Ink Spread')).toHaveLength(1);
+    expect(screen.getByLabelText('Ink Spread')).toHaveValue('24');
+    fireEvent.change(screen.getByLabelText('Ink Spread'), { target: { value: '68' } });
+
+    expect(useAppStore.getState().tools.brushSettings.ditherPaletteSpread).toBe(68);
+    expect(useAppStore.getState().tools.brushSettings.ccGradientRangeContrast).toBe(70);
+  });
+
   it('does not flush gradient on unmount when there are no pending edits', () => {
     const setSharedSpy = jest.spyOn(colorCycleGradients, 'setSharedColorCycleGradient');
     const { unmount } = render(<BrushControls />);

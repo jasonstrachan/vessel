@@ -29,6 +29,48 @@ describe('strokeStampDither', () => {
     };
   };
 
+  it('changes the secondary ink without changing stamp coverage or dither placement', () => {
+    const draw = (inkOffset: number) => {
+      const animator = buildAnimator(32, 32);
+      const state = {
+        paint: animator.handle.data,
+        stampDitherInkOffset: inkOffset,
+      };
+      stampDither.applyStampDitherStamp({
+        animator: animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'],
+        state,
+        config: { algorithm: 'sierra-lite', pixelSize: 1, bgFill: true, pressureLinked: false, seed: 0, diversity: 0 },
+        runtime: stampDither.createStampDitherRuntime(0),
+        stampShape: 'round', x: 16, y: 16, pressure: 1, pressureSize: 20,
+        primaryIndex: 200, flowSlot: 1, cycleSpeed: 1, width: 32, height: 32, isAnimating: true,
+      });
+      const beforeRecompose = animator.handle.data.slice();
+      stampDither.recomposeStampDitherOverlay({
+        animator: animator as unknown as Parameters<typeof stampDither.recomposeStampDitherOverlay>[0]['animator'],
+        state,
+        config: { algorithm: 'sierra-lite', pixelSize: 1, bgFill: true, pressureLinked: false, seed: 0, diversity: 0 },
+        runtime: stampDither.createStampDitherRuntime(0),
+        flowSlot: 1, cycleSpeed: 1, tileScale: 1,
+      });
+      expect(animator.handle.data).toEqual(beforeRecompose);
+      expect(stampDither.finalizeStampDither({
+        animator: animator as unknown as Parameters<typeof stampDither.finalizeStampDither>[0]['animator'],
+        state,
+        config: { algorithm: 'sierra-lite', pixelSize: 1, bgFill: true, pressureLinked: false, seed: 0, diversity: 0 },
+        runtime: stampDither.createStampDitherRuntime(0),
+        width: 32, height: 32, flowSlot: 1, cycleSpeed: 1, ditherStrength: 1,
+      })).toBe(true);
+      expect(animator.handle.data).toEqual(beforeRecompose);
+      return animator.handle.data;
+    };
+    const narrow = draw(1);
+    const wide = draw(127);
+    expect(new Set(narrow)).toEqual(new Set([0, 200, 201]));
+    expect(new Set(wide)).toEqual(new Set([0, 200, 72]));
+    expect(narrow.map((ink) => ink === 200 ? 1 : 0)).toEqual(wide.map((ink) => ink === 200 ? 1 : 0));
+    expect(narrow.map((ink) => ink > 0 ? 1 : 0)).toEqual(wide.map((ink) => ink > 0 ? 1 : 0));
+  });
+
   it('uses the shared registered Sierra interruption at zero Variety and canonical Sierra above zero', () => {
     const runtime = createStampDitherRuntime(0);
     const tileSize = 64;

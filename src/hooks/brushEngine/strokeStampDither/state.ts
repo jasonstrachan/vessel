@@ -2,6 +2,7 @@ import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { createPressureResolutionState } from '@/utils/pressureResolution';
 
 export type StampDitherState = {
+  stampDitherInkOffset?: number;
   stampDitherOrigin?: { x: number; y: number } | null;
   stampDitherSeed?: number;
   stampDitherDiversity?: number;

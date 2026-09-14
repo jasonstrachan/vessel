@@ -357,6 +357,13 @@ function paintStampDither(
 ): void {
   const appState = getAppStoreState();
   const stampDitherState = context.getStampDitherStrokeData(strokeData);
+  if ((stampDitherState.stampDitherStampSeq ?? 0) === 0) {
+    const spread = appState.tools.brushSettings.ditherPaletteSpread;
+    // Freeze the ink distance for this stroke, including pressure recomposition.
+    stampDitherState.stampDitherInkOffset = Number.isFinite(spread)
+      ? 1 + Math.round(Math.max(0, Math.min(100, spread ?? 0)) * 126 / 100)
+      : 64;
+  }
   const requestedConfig = context.createStampDitherConfig({
     patterns: appState.project?.ccCustomTilePatterns,
     seed: strokeData.stampDither?.stampDitherSeed ?? 0,

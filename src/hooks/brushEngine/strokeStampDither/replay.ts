@@ -247,7 +247,7 @@ export const recomposeStampDitherOverlay = (args: {
         }
         continue;
       }
-      const secondary = resolveStampDitherSecondaryIndex(p);
+      const secondary = resolveStampDitherSecondaryIndex(p, state.stampDitherInkOffset);
       data[idx] = secondary;
       gid[idx] = secondary === 0 ? 0 : flowSlot;
       spd[idx] = secondary === 0 ? 0 : speedByte;
@@ -580,7 +580,7 @@ export const finalizeStampDither = (args: {
         }
         continue;
       }
-      const secondary = resolveStampDitherSecondaryIndex(primaryIndex);
+      const secondary = resolveStampDitherSecondaryIndex(primaryIndex, state.stampDitherInkOffset);
       data[idx] = secondary;
       gid[idx] = secondary === 0 ? 0 : flowSlot;
       spd[idx] = secondary === 0 ? 0 : speedByte;
