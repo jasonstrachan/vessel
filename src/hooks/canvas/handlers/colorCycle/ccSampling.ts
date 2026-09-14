@@ -273,6 +273,7 @@ const buildSingleSampleAnimatedStops = (color: string): StoredStop[] => {
 
 export const buildSampledStops = (params: {
   markKind?: 'stroke' | 'shape';
+  preserveSingleSampleColor?: boolean;
   pickup?: CcColourPickup;
   sourcePts: Array<{ x: number; y: number }>;
   sampleColor: (x: number, y: number) => string;
@@ -308,7 +309,9 @@ export const buildSampledStops = (params: {
       color,
     });
     return {
-      stops: buildSingleSampleAnimatedStops(color),
+      stops: params.preserveSingleSampleColor
+        ? [{ position: 0, color }, { position: 1, color }]
+        : buildSingleSampleAnimatedStops(color),
       samples: [{ t01: 0, rgba }],
       sampleCount: 1,
     };
@@ -429,6 +432,7 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
   const result = buildSampledStops({
     markKind: args.session.markKind,
     pickup: args.session.colourPickup,
+    preserveSingleSampleColor: args.session.isRuntimePalette,
     sourcePts: args.sourcePts,
     sampleColor: args.sampleColor,
     allowTiny: Boolean(args.allowTiny),

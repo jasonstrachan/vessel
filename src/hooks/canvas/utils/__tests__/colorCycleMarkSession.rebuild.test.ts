@@ -1,3 +1,6 @@
+import studioExtension from '@/extensions/studioExtension';
+import { buildSampledInkPalettes } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
+import { applyCcSampledRangeContrast } from '@/utils/colorCycle/ccSampledRangeContrast';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import {
@@ -64,6 +67,65 @@ describe('colorCycleMarkSession rebuild', () => {
         ? { ...state.project, width: 2, height: 2 }
         : state.project,
     }));
+  });
+
+  it('freezes source alignment, distance spacing and cycle speed only for enabled sampled dither strokes', () => {
+    const previous = studioExtension.sampledStrokeAlignment;
+    const previousPalette = studioExtension.preserveSampledStrokePalette;
+    studioExtension.preserveSampledStrokePalette = true;
+    studioExtension.sampledStrokeAlignment = () => ({ speedCps: 0.063 });
+    try {
+      const layer = createLayer();
+      useAppStore.setState((state) => ({ layers: [layer], activeLayerId: layer.id, tools: { ...state.tools,
+        brushSettings: { ...state.tools.brushSettings, colorCyclePickupEnabled: false,
+          colorCycleStampDitherEnabled: true, colorCycleStampDitherBgFill: true,
+          colorCyclePencilEnabled: false, colorCycleBristlesEnabled: false, colorCycleBandSpacingPx: 4 } } }));
+      const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: 'sampled', stops });
+      expect(session?.sampledAlignment).toEqual({ bandPx: 4, pairedInks: true, speedCps: 0.063 });
+      expect(session?.speedCps).toBe(0.063);
+      studioExtension.sampledStrokeAlignment = () => undefined;
+      expect(session?.sampledAlignment?.bandPx).toBe(4);
+      cancelMarkGradientSession(layer.id);
+      const ordinary = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: 'sampled', stops });
+      expect(ordinary?.sampledAlignment).toBeUndefined();
+      cancelMarkGradientSession(layer.id);
+    } finally {
+      studioExtension.sampledStrokeAlignment = previous;
+      studioExtension.preserveSampledStrokePalette = previousPalette;
+    }
+  });
+
+  it.each([0, 50, 100])('freezes sampled ink spread %s and applies gradient contrast to both inks once', (spread) => {
+    const previous = studioExtension.sampledStrokeAlignment;
+    const previousPalette = studioExtension.preserveSampledStrokePalette;
+    studioExtension.sampledStrokeAlignment = () => ({ speedCps: 0.063 });
+    studioExtension.preserveSampledStrokePalette = true;
+    const source = [{ position: 0, color: '#5070a0' }, { position: 1, color: '#b05030' }];
+    const layer = createLayer();
+    try {
+      useAppStore.setState((state) => ({ layers: [layer], activeLayerId: layer.id,
+        tools: { ...state.tools, brushSettings: { ...state.tools.brushSettings,
+          colorCyclePickupEnabled: false, colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherBgFill: true, colorCyclePencilEnabled: false,
+          colorCycleBristlesEnabled: false, ditherPaletteSpread: spread,
+          ccGradientRangeContrast: 40,
+        } },
+      }));
+      const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke',
+        gradientKind: 'linear', source: 'sampled', stops: source });
+      if (!session) throw new Error('Expected sampled session');
+      session.previewStopsStored = source;
+      useAppStore.getState().setBrushSettings({ ditherPaletteSpread: 100 - spread });
+      const result = finalizeMarkGradientSession(layer.id);
+      const expected = buildSampledInkPalettes(applyCcSampledRangeContrast(source, 40), spread);
+      expect(result?.frozenStopsStored).toEqual(expected.primary);
+      expect(result?.sampledSecondaryStops).toEqual(expected.secondary);
+      expect(result?.rawStopsStored).toEqual(source);
+    } finally {
+      cancelMarkGradientSession(layer.id);
+      studioExtension.sampledStrokeAlignment = previous;
+      studioExtension.preserveSampledStrokePalette = previousPalette;
+    }
   });
 
   it('commits the complete sampled stroke when all moves arrive inside the preview throttle', () => {

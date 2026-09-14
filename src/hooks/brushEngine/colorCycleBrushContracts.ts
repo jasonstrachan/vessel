@@ -1,3 +1,4 @@
+import type { SampledStampPositions } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
 import type {
   ColorCycleBrushPersistenceLayerMeta,
   ColorCycleLayerDirtyBatch,
@@ -283,6 +284,7 @@ export type ColorCycleCommitBrushContext =
       bbox?: { minX: number; minY: number; width: number; height: number },
       previewSlot?: number | null,
     ) => void;
+    getSampledStrokePositions?: (layerId: string) => SampledStampPositions | null;
     getSampledStrokeDitherPrimaryBuffer?: (layerId: string) => Uint8Array | null;
   };
 

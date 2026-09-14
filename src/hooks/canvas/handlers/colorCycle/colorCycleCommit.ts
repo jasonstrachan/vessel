@@ -1,3 +1,5 @@
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
+import { alignSampledStampPositions, type SampledStampPositions } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { takeCanvasProgress } from '@/utils/canvasAuthoringObserver';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
@@ -32,7 +34,7 @@ import {
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
-import type { StoredStop } from '@/utils/colorCycleGradientDefs';
+import { ensureGradientDefForStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import {
   allocateNextColorCycleDefId,
   EXHAUSTED_COLOR_CYCLE_DEF_ID,
@@ -147,6 +149,7 @@ export type ManagedColorCycleBrush = ColorCycleSurfaceBrush
     bbox?: { minX: number; minY: number; width: number; height: number },
     previewSlot?: number | null
   ) => void;
+  getSampledStrokePositions?: (layerId: string) => SampledStampPositions | null;
   getSampledStrokeDitherPrimaryBuffer?: (layerId: string) => Uint8Array | null;
 };
 
@@ -760,6 +763,38 @@ export const commitColorCycleLayerStroke = async (
         });
       }
 
+      if (committedSession?.sampledAlignment) {
+        const ownership = brush.getSampledStrokePositions?.(targetLayerId);
+        if (ownership) {
+          const secondaryStops = committedSession.sampledAlignment.pairedInks
+            ? committedSession.sampledSecondaryStops ?? null : null;
+          const secondary = secondaryStops ? ensureGradientDefForStops({
+            layerId: targetLayerId, kind: committedSession.gradientKind,
+            stops: secondaryStops, source: 'sampled', seamProfile: committedSession.seamProfile,
+            speedCps: committedSession.speedCps ?? undefined,
+            updateOptions: { skipColorCycleSync: true },
+          }) : null;
+          if (secondaryStops && !secondary) throw new Error('No colour-cycle palette slot is available for the sampled dither inks.');
+          // Allocation can compact slot assignments. Read pixels and the primary binding afterwards.
+          const currentDef = getAppStoreState().layers.find((entry) => entry.id === targetLayerId)
+            ?.colorCycleData?.gradientDefStore?.find((entry) => entry.id === committedSession?.binding?.defId);
+          if (committedSession.binding && currentDef?.slot !== undefined) {
+            committedSession.binding = { ...committedSession.binding, slot: currentDef.slot };
+          }
+          const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
+          if (!snapshot?.gradientIdBuffer) throw new Error('The sampled stroke pixels are unavailable.');
+          if (secondary && secondaryStops) {
+            brush.setGradientSlotStops?.(targetLayerId, secondary.slot, secondaryStops, committedSession.seamProfile);
+          }
+          const aligned = alignSampledStampPositions(snapshot, ownership, committedSession.sampledAlignment.bandPx,
+            secondary ? { slot: secondary.slot, defId: secondary.def.id } : undefined,
+            encodeColorCycleSpeedByte(committedSession.sampledAlignment.speedCps));
+          if (!applyColorCycleBrushLayerSnapshotToRuntime(brush, targetLayerId, aligned, undefined, 'snapshot-apply')) {
+            throw new Error('The sampled stroke positions could not be committed.');
+          }
+        }
+      }
+
       const gradientSessionForSlotStops = committedSession;
       if (gradientSessionForSlotStops?.binding && typeof brush.setGradientSlotStops === 'function') {
         strokeFinalizeProbeTimeSync(
@@ -779,6 +814,7 @@ export const commitColorCycleLayerStroke = async (
 
       if (
         committedSession?.source === 'sampled' &&
+        !committedSession.sampledAlignment &&
         !committedSession.colourPickup?.strokePaletteIndicesAt &&
         committedSession.markKind === 'stroke' &&
         committedSession.sampledStrokePoints &&

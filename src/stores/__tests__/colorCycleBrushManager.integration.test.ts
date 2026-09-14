@@ -618,6 +618,7 @@ describe('colorCycleBrushManager integration', () => {
       'getColorCycleDerivedSurface',
       'getColorCycleLayerDocument',
       'getSampledStrokeDitherPrimaryBuffer',
+      'getSampledStrokePositions',
       'isPlaying',
       'pause',
       'presentCurrentFrameToCanvas',

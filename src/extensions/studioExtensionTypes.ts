@@ -39,6 +39,9 @@ export interface StudioClipboardActionContext {
 
 export interface VesselStudioExtension {
   brushPresets: readonly BrushPreset[];
+  /** Use sampled stroke colours directly, without deriving another dither palette. */
+  preserveSampledStrokePalette?: boolean;
+  sampledStrokeAlignment?: (layerId: string) => { speedCps: number } | undefined;
   ToolbarItems?: React.ComponentType;
   PlaybackSettings?: React.ComponentType;
   UnresolveSettings?: React.ComponentType;

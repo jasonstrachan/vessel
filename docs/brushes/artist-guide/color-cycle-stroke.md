@@ -68,6 +68,17 @@ Saved projects retain the shared playback position. Older Unresolve files,
 including the original captured-frame format, join at the resolved position
 when no shared clock was saved; their authored palettes and pixels are retained.
 
+### Sampled Unresolve inks
+
+The original dither mask selects between two palettes at the same sample position:
+a pair controlled by Ink Spd. At 0 both inks match the sampled colour; increasing
+spread separates them in OKLab. At 100 they use saturated opposing hues with a
+dark/light separation, including a blue/yellow pair for neutral samples. Strong
+spread intentionally departs from the sampled colour's average tone. Gradient
+Contrast is applied before splitting the inks, independently of Ink Spd.
+The palettes move together throughout playback, with no crossfade or layout morph.
+Ink Spd is captured when each new stroke starts.
+
 ## Collaboration profile
 
 Color Cycle Stroke is an available collaboration brush for genuinely linear
