@@ -1176,6 +1176,21 @@ const hydrateGlobalBrushSettings = (): void => {
       nextTools = applyPressureToTools(nextTools, nextPressure);
     }
 
+    const storedSource = payload.ccGradientSource ?? (payload.lastBrushId
+      ? payload.brushSpecificSettings?.[payload.lastBrushId]?.ccGradientSource : undefined);
+    if (storedSource === 'manual' || storedSource === 'sampled' || storedSource === 'fg') {
+      nextTools = {
+        ...nextTools,
+        ccGradientSource: storedSource,
+        brushSettings: {
+          ...nextTools.brushSettings,
+          ccGradientSource: storedSource,
+          colorCycleUseForegroundGradient: storedSource === 'fg',
+          autoSampleGradient: false,
+          autoSampleGradientRealtime: false,
+        },
+      };
+    }
     if (nextTools !== state.tools) {
       partial.tools = nextTools;
     }
@@ -1232,6 +1247,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
   storeSubscribeWithSelector(
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
+      ccGradientSource: state.tools.ccGradientSource,
       ccBrushDitherSelection: state.ccBrushDitherSelection,
       shapeModeByBrush: state.shapeModeByBrush,
       globalBrushSize: state.globalBrushSize,
@@ -1241,6 +1257,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
     (next, prev) => {
       if (
         next.brushSpecificSettings === prev.brushSpecificSettings &&
+        next.ccGradientSource === prev.ccGradientSource &&
         next.ccBrushDitherSelection === prev.ccBrushDitherSelection &&
         next.shapeModeByBrush === prev.shapeModeByBrush &&
         next.globalBrushSize === prev.globalBrushSize &&
@@ -1253,6 +1270,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
       scheduleSave({
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
+        ccGradientSource: next.ccGradientSource,
         ccBrushDitherSelection: next.ccBrushDitherSelection,
         shapeModeByBrush: next.shapeModeByBrush,
         pressureSettings: next.pressureSettings,
@@ -1262,6 +1280,7 @@ const subscribeToGlobalBrushPersistence = (): void => {
     {
       equalityFn: (a, b) =>
         a.brushSpecificSettings === b.brushSpecificSettings &&
+        a.ccGradientSource === b.ccGradientSource &&
         a.ccBrushDitherSelection === b.ccBrushDitherSelection &&
         a.shapeModeByBrush === b.shapeModeByBrush &&
         a.globalBrushSize === b.globalBrushSize &&

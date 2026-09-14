@@ -991,6 +991,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       if (settings.colorCycleStampShape !== undefined) {
         settingsToSave.colorCycleStampShape = newSettings.colorCycleStampShape;
       }
+      if (settings.colorCycleBandSpacingPx !== undefined) {
+        settingsToSave.colorCycleBandSpacingPx = newSettings.colorCycleBandSpacingPx;
+      }
       if (settings.pressureLinkedFillResolution !== undefined) {
         settingsToSave.pressureLinkedFillResolution = newSettings.pressureLinkedFillResolution;
       }

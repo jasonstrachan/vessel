@@ -213,6 +213,25 @@ describe('project slice lifecycle flows', () => {
     }));
   }, 10000);
 
+  it.each(['sampled', 'fg', 'manual'] as const)('preserves the %s brush source while creating the startup document', (source) => {
+    const previous = useAppStore.getState();
+    jest.useFakeTimers();
+    try {
+      useAppStore.getState().setCcGradientSource(source);
+      useAppStore.getState().setBrushSettings({ colorCycleBandSpacingPx: 4 });
+      useAppStore.getState().newProject(32, 32, 'Startup');
+      const state = useAppStore.getState();
+      expect(state.tools.ccGradientSource).toBe(source);
+      expect(state.tools.brushSettings.ccGradientSource).toBe(source);
+      expect(state.tools.brushSettings.colorCycleUseForegroundGradient).toBe(source === 'fg');
+      expect(state.tools.brushSettings.colorCycleBandSpacingPx).toBe(4);
+    } finally {
+      jest.runOnlyPendingTimers();
+      useAppStore.setState(previous, true);
+      jest.useRealTimers();
+    }
+  });
+
   it('defaults Goblet export to visible layers only', () => {
     expect(useAppStore.getState().webglExportSettings.includeHiddenLayers).toBe(false);
   });

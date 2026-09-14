@@ -51,6 +51,45 @@ describe('global brush persistence', () => {
     expect(state.tools.brushSettings.maxPressure).toBe(300);
   });
 
+  it.each(['sampled', 'fg', 'manual'])('restores the saved CC source %s before selecting the last preset', async (source) => {
+    loadMock.mockReturnValue({
+      ccGradientSource: source, lastBrushId: 'color-cycle-stroke',
+      brushSpecificSettings: { 'color-cycle-stroke': {
+        ccGradientSource: source, colorCycleBandSpacingPx: 4,
+        colorCycleStampShape: 'diamond', spacing: 1, colorCycleSpeed: 0.099,
+        ccGradientRangeContrast: 71, ditherPaletteSpread: 49,
+      } },
+    });
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
+    expect(state.tools.ccGradientSource).toBe(source);
+    expect(state.tools.brushSettings).toMatchObject({ ccGradientSource: source,
+      colorCycleBandSpacingPx: 4, colorCycleStampShape: 'diamond', spacing: 1,
+      ccGradientRangeContrast: 71, ditherPaletteSpread: 49 });
+    state.setBrushSettings({ colorCycleBandSpacingPx: 9 });
+    state.setCcGradientSource(source === 'fg' ? 'sampled' : 'fg');
+    jest.advanceTimersByTime(300);
+    const payload = saveMock.mock.calls.at(-1)?.[0];
+    expect(payload?.brushSpecificSettings?.['color-cycle-stroke']?.colorCycleBandSpacingPx).toBe(9);
+    expect(payload?.ccGradientSource).toBe(source === 'fg' ? 'sampled' : 'fg');
+  });
+
+  it('keeps the CC source when the last selected brush was a regular brush', async () => {
+    loadMock.mockReturnValue({ ccGradientSource: 'fg', lastBrushId: 'pixel-square',
+      brushSpecificSettings: { 'pixel-square': { ccGradientSource: 'manual' } } });
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
+    state.setBrushPreset(state.brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!);
+    expect(useAppStore.getState().tools.ccGradientSource).toBe('fg');
+  });
+
+  it('restores source from older saved CC profiles without a global source field', async () => {
+    loadMock.mockReturnValue({ lastBrushId: 'color-cycle-stroke',
+      brushSpecificSettings: { 'color-cycle-stroke': { ccGradientSource: 'sampled' } } });
+    const { useAppStore } = await import('@/stores/useAppStore');
+    expect(useAppStore.getState().tools.ccGradientSource).toBe('sampled');
+  });
+
   it('migrates the legacy pixel round preset into the combined pixel brush', async () => {
     loadMock.mockReturnValue({
       brushSpecificSettings: {

@@ -40,6 +40,11 @@ describe('brushSettingsStorage', () => {
     expect(loadGlobalBrushSettings()).toBeNull();
   });
 
+  it.each(['manual', 'sampled', 'fg'] as const)('round-trips the global CC source %s', (ccGradientSource) => {
+    saveGlobalBrushSettings({ ccGradientSource, lastBrushId: 'pixel-square' });
+    expect(loadGlobalBrushSettings()?.ccGradientSource).toBe(ccGradientSource);
+  });
+
   it('loads stored payload', () => {
     storage.setItem('vessel:brush-settings', JSON.stringify({
       globalBrushSize: 18,

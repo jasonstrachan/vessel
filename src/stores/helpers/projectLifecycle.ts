@@ -992,7 +992,7 @@ export const createProjectLifecycle = ({
       palette: normalizedPalette,
       paletteDirty: false,
       tools: updateToolsWithPalette(normalizedPalette, get().tools, {
-        syncColorCycleGradient: true,
+        syncColorCycleGradient: state.tools.ccGradientSource === 'manual',
       }),
       projectFilename: null,
       projectFileHandle: null,

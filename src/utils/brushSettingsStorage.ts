@@ -57,6 +57,7 @@ export interface CcBrushDitherSelectionPayload {
 }
 
 export interface GlobalBrushSettingsPayload {
+  ccGradientSource?: BrushSettings['ccGradientSource'];
   globalBrushSize?: number;
   brushSpecificSettings?: StoredBrushMap;
   lastBrushId?: string;
@@ -146,6 +147,9 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
 
   try {
     const sanitized: GlobalBrushSettingsPayload = {};
+    if (payload.ccGradientSource === 'manual' || payload.ccGradientSource === 'sampled' || payload.ccGradientSource === 'fg') {
+      sanitized.ccGradientSource = payload.ccGradientSource;
+    }
     if (typeof payload.globalBrushSize === 'number' && Number.isFinite(payload.globalBrushSize)) {
       sanitized.globalBrushSize = payload.globalBrushSize;
     }
