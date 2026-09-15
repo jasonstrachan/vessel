@@ -22,7 +22,7 @@ const render = (result: ReturnType<typeof build>, phase: number) => {
   }));
   const defs = new Uint16Array(result.snapshot.gradientDefIdBuffer!);
   return Array.from(new Uint8Array(result.snapshot.paintBuffer), (index, i) =>
-    [...palettes.get(defs[i])!.slice((index - 1) * 4, index * 4)]);
+    index ? [...palettes.get(defs[i])!.slice((index - 1) * 4, index * 4)] : [0, 0, 0, 0]);
 };
 
 it.each([1, 4, 20])('matches the reference at Resolve with %s px bands beyond 255 source positions', spacing => {
@@ -110,4 +110,45 @@ it('animates the stored source through the native palette cache and returns to t
       expect([...animator.getImageData().data]).toEqual(render(stroke, phase).flat());
     }
   } finally { animator.cleanup(); }
+});
+
+it.each([1, 4, 20])('samples the actual pixel-snapped turning path at %s px without accumulating reference drift', async spacing => {
+  const { applyStampDitherStamp, createStampDitherRuntime } = await import('@/hooks/brushEngine/strokeStampDither');
+  const width = 256, height = 256;
+  const paint = new Uint8Array(width * height);
+  const gid = new Uint8Array(paint.length);
+  const speed = new Uint8Array(paint.length);
+  const state: import('@/hooks/brushEngine/strokeStampDither/state').StampDitherStrokeData = {
+    paint, gradientIdBuffer: gid, stampDitherStrokeEpoch: 1,
+  };
+  const animator = {
+    beginDirectFill: () => ({ data: paint, gradientId: gid, speedData: speed, width, height }),
+    endDirectFill: jest.fn(), markDirtyBounds: jest.fn(), hasWebGL: () => false,
+  } as unknown as Parameters<typeof applyStampDitherStamp>[0]['animator'];
+  const runtime = createStampDitherRuntime();
+  for (let turn = 0; turn < 12; turn++) {
+    for (let step = 0; step < 180; step++) {
+      // The real draw controller snaps resampled pointer positions to pixels.
+      const x = Math.round(8 + turn * 19 + step * 0.04);
+      const y = Math.round(turn % 2 ? 200 - step : 20 + step);
+      applyStampDitherStamp({ animator, state, runtime,
+        config: { algorithm: 'sierra-lite', pixelSize: 1, bgFill: true, pressureLinked: false, diversity: 0, seed: 0 },
+        stampShape: 'diamond', x, y, pressure: 1, pressureSize: 3,
+        primaryIndex: 1, flowSlot: 254, cycleSpeed: 0.1, width, height, isAnimating: false });
+    }
+  }
+  const referenceAt = (_x: number, y: number) => Math.floor(y / 80) % 2 ? '#cccccc' : '#222222';
+  const stops = sampleFixedPathBands(state.stampSourcePoints!, spacing, referenceAt);
+  const stroke = buildSampledPathStroke({ snapshot: { paintBuffer: paint.buffer, gradientIdBuffer: gid.buffer },
+    ownership: { tags: state.stampDitherTag!, epoch: 1, primary: state.stampDitherPrimaryBuffer!,
+      distances: state.stampSourceDistances }, bandPx: spacing, primary: stops, definitions: [], speedByte: 17 });
+  const pixels = render({ ...stroke, stops }, 0);
+  let checked = 0;
+  for (let i = 0; i < paint.length; i++) {
+    const y = Math.floor(i / width);
+    if (!paint[i] || y % 80 < 24 || y % 80 > 56) continue;
+    expect(pixels[i][0]).toBe(Math.floor(y / 80) % 2 ? 204 : 34);
+    checked++;
+  }
+  expect(checked).toBeGreaterThan(500);
 });

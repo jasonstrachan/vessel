@@ -110,6 +110,8 @@ under Effects → Unresolve. The All Unresolve layers group shares motion, easin
 and Length across every participating layer, regardless of the selected layer.
 Length sets a complete cycle from 1–60 seconds
 in 0.5-second steps, including the full out-and-back for Pendulum and Breathe.
+Pendulum and Breathe travel a full colour cycle in each direction: both eased turning points
+are resolved positions.
 Changing Length keeps the current cycle position. It is saved with the project
 and exported with playback; Global Speed scales the chosen duration (2× plays
 a 12-second cycle in 6 seconds). Older projects retain their original duration.

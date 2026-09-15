@@ -9,6 +9,7 @@ export type SampledStampPositions = {
   epoch: number;
   primary: Uint8Array;
   distances?: number[];
+  points?: Array<{ x: number; y: number }>;
 };
 
 const toLinear = (byte: number): number => {

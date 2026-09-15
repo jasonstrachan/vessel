@@ -346,3 +346,28 @@ source sequence at five phases, including motion across 255-band boundaries and
 return to Resolve. It caught and now guards against export normalization dropping
 flow 5 and causing a second palette shift. Session, animator, archive and private
 Unresolve tests cover full source retention, ink ownership, seams and anchors.
+
+## 2026-09-15: turning strokes exposed a second source-coordinate mismatch
+
+The straight-line proof above did not cover the reported back-and-forth strokes.
+A production reproduction with Diamond, Band px 1, Contrast 100 and Ink Spd 57
+misplaced 24,864 of 54,459 checked pixels across known reference stripes even at
+clock time zero. Sampling measured the unsnapped pointer polyline; stamp ownership
+measured the pixel-snapped path. Their accumulated distances diverged at diagonals
+and turns. Playback timing was not the cause of this reproduction.
+
+The stamp owner now retains its actual source points beside its distances. Native
+Unresolve finalization samples that same path before binding source bands to paint.
+Stamp masks, ink selection and playback are unchanged. The points are ephemeral;
+already saved strokes cannot recover their missing original path from this change.
+
+Regression coverage includes actual diamond stamping on twelve turning runs at
+1, 4 and 20 px, commit routing and stroke reset. The production browser fixture
+`tests/fixtures/cc/unresolve-reference-interaction.js` draws two strokes at different
+clock positions, performs Resolve/Apply from three cycle positions, plays, then
+resolves again. Its expected stripes come directly from the reference image; it
+requires zero misplaced interior pixels. `tests/unresolve-reference.spec.ts` runs
+that fixture at 1/20 px and 100%/230% zoom using `VESSEL_STUDIO_TEST_URL`.
+
+Live production checks passed: 25,596 pixels at 100% zoom and 6,954 at 230% zoom,
+with zero reference stripe mismatches after Resolve and after playback.

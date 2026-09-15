@@ -747,8 +747,13 @@ export const commitColorCycleLayerStroke = async (
       }
 
       const sampledSession = getActiveMarkGradientSession(targetLayerId);
-      if (sampledSession?.sampledPairedInks) {
+      if (sampledSession && (sampledSession.sampledPairedInks || sampledSession.sampledAlignment?.bandPx)) {
         const ownership = brush.getSampledStrokePositions?.(targetLayerId);
+        if (sampledSession.sampledAlignment?.bandPx && !sampledSession.sampledBristles && ownership?.points?.length) {
+          // Distances belong to pixel-snapped stamps. Sampling the unsnapped
+          // pointer path accumulates a different length at diagonals and turns.
+          sampledSession.sampledStrokePoints = ownership.points;
+        }
         const snapshot = snapshotAfterTransparencyLock ?? readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
         if (ownership && snapshot?.gradientIdBuffer) {
           sampledSession.sampledPrimaryCoverage = measureSampledInkCoverage(

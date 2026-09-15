@@ -455,13 +455,15 @@ describe('projectIO readProjectManifest', () => {
     const unregister = registerColorCyclePlaybackClock({
       read: () => undefined,
       snapshotProject: (value) => ({ ...value, extensionData: { ...value.extensionData,
-        unresolveClock: { version: 1, timeSeconds: 2.5 },
+        unresolveClock: { version: 1, timeSeconds: 7.1, mode: 'pendulum', easeStrength: 80, durationSeconds: 35.5 },
       } }),
     });
     try {
       const archive = await serializeProject(project);
       const reopened = await deserializeProject(archive);
-      expect(reopened.extensionData?.unresolveClock).toEqual({ version: 1, timeSeconds: 2.5 });
+      expect(reopened.extensionData?.unresolveClock).toEqual({
+        version: 1, timeSeconds: 7.1, mode: 'pendulum', easeStrength: 80, durationSeconds: 35.5,
+      });
       expect(project.extensionData?.unresolveClock).toBeUndefined();
     } finally { unregister(); }
   });

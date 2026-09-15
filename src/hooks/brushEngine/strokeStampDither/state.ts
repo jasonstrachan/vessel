@@ -15,6 +15,7 @@ export type StampDitherState = {
   stampDitherStrokeEpoch?: number;
   stampDitherStampSeq?: number;
   stampSourceDistances?: number[];
+  stampSourcePoints?: Array<{ x: number; y: number }>;
   stampSourceLast?: { x: number; y: number };
   stampSeqMeta?: Array<[number, number]>;
   stampSeqToTileScale?: Uint16Array;

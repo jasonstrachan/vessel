@@ -350,11 +350,13 @@ export const applyStampDitherStamp = (args: {
   const stampSeq = state.stampDitherStampSeq ?? 1;
   if (stampSeq === 1) {
     state.stampSourceDistances = [0, 0];
+    state.stampSourcePoints = [];
   } else {
     const last = state.stampSourceLast;
     const distances = state.stampSourceDistances ?? (state.stampSourceDistances = [0]);
     distances[stampSeq] = (distances[stampSeq - 1] ?? 0) + (last ? Math.hypot(x - last.x, y - last.y) : 0);
   }
+  (state.stampSourcePoints ??= [])[stampSeq - 1] = { x, y };
   state.stampSourceLast = { x, y };
   const coverage = resolveStampDitherBucketCoverage(bucket);
   const fusedBgFill = config.bgFill;
