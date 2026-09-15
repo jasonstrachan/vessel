@@ -95,7 +95,14 @@ not retained. Draw a new stroke to use it.
 FG Grad, Palette, Sample and Unresolve form one choice group. Choosing Unresolve
 selects sampling and enables shared playback for the selected layer; choosing
 another option disables Unresolve. Motion, easing and Resolve settings remain
-under Effects → Unresolve. Switching off cancels an active preview and returns
+under Effects → Unresolve. The All Unresolve layers group shares motion, easing
+and Length across every participating layer, regardless of the selected layer.
+Length sets a complete cycle from 1–60 seconds
+in 0.5-second steps, including the full out-and-back for Pendulum and Breathe.
+Changing Length keeps the current cycle position. It is saved with the project
+and exported with playback; Global Speed scales the chosen duration (2× plays
+a 12-second cycle in 6 seconds). Older projects retain their original duration.
+Switching off cancels an active preview and returns
 the layer to ordinary CC playback without erasing strokes or their palettes. Apply commits the preview to the
 shared Unresolve clock. Global speed controls this clock; individual layer speeds
 do not separate its layers. Native save/load and Goblet2 use the same sequence.
