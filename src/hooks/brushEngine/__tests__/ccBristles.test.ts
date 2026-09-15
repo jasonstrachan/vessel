@@ -4,7 +4,7 @@ import { clearStrokeDefIdsForStamp } from '../strokeDefClear';
 it('keeps one-pixel strands stable as the brush grows and adds variation at its edges', () => {
   const crossSection = (size: number) => {
     const phases = new Uint8Array(size);
-    const write = createCcBristleWriter(phases, { x: 100, y: 100 }, { x: 90, y: 100 });
+    const write = createCcBristleWriter(phases, { x: 100, y: 100 }, { x: 90, y: 100 }, 1, 100);
     for (let i = 0; i < size; i += 1) write(i, 100, 100 - size / 2 + i);
     return Array.from(phases);
   };
@@ -17,11 +17,11 @@ it('keeps one-pixel strands stable as the brush grows and adds variation at its 
 });
 
 it('changes strand identity at half-pixel boundaries', () => {
-  expect(getCcBristlePhase(0.01, 0.5)).toBe(getCcBristlePhase(0.49, 0.5));
-  expect(getCcBristlePhase(0.49, 0.5)).not.toBe(getCcBristlePhase(0.51, 0.5));
-  expect(getCcBristlePhase(0.51, 0.5)).toBe(getCcBristlePhase(0.99, 0.5));
-  expect(getCcBristlePhase(-0.49, 0.5)).toBe(getCcBristlePhase(-0.01, 0.5));
-  expect(getCcBristlePhase(-0.51, 0.5)).not.toBe(getCcBristlePhase(-0.49, 0.5));
+  expect(getCcBristlePhase(0.01, 0.5, 100)).toBe(getCcBristlePhase(0.49, 0.5, 100));
+  expect(getCcBristlePhase(0.49, 0.5, 100)).not.toBe(getCcBristlePhase(0.51, 0.5, 100));
+  expect(getCcBristlePhase(0.51, 0.5, 100)).toBe(getCcBristlePhase(0.99, 0.5, 100));
+  expect(getCcBristlePhase(-0.49, 0.5, 100)).toBe(getCcBristlePhase(-0.01, 0.5, 100));
+  expect(getCcBristlePhase(-0.51, 0.5, 100)).not.toBe(getCcBristlePhase(-0.49, 0.5, 100));
 });
 
 it('keeps strand phases constant along a straight stroke and varies across it', () => {
@@ -92,9 +92,52 @@ it('retains the nearest strand when a later stamp cap overlaps a bend', () => {
 it('uses the configured strand width without rounding it to whole pixels', () => {
   for (const width of [0.5, 1, 1.5, 4, 8]) {
     const phases = new Uint8Array(3);
-    const write = createCcBristleWriter(phases, { x: 20, y: 20 }, { x: 10, y: 20 }, width);
+    const write = createCcBristleWriter(phases, { x: 20, y: 20 }, { x: 10, y: 20 }, width, 100);
     [0.1, width - 0.1, width + 0.1].forEach((across, i) => write(i, 15, 19.5 + across));
     expect(phases[0]).toBe(phases[1]);
     expect(phases[1]).not.toBe(phases[2]);
+  }
+});
+
+
+it('reduces signed colour variation without moving strand boundaries, with the original look at 100%', () => {
+  const signed = (phase: number) => phase > 127 ? phase - 256 : phase;
+  for (const width of [0.5, 0.6, 1, 4]) {
+    for (let lane = -32; lane < 32; lane++) {
+      const across = (lane + 0.25) * width;
+      const hash = Math.imul(lane + 101, 1597334677) >>> 0;
+      const original = ((hash >>> 16) % 65) - 32;
+      expect(signed(getCcBristlePhase(across, width, 100))).toBe(original);
+      expect(signed(getCcBristlePhase(across, width))).toBe(Math.sign(original) * Math.round(Math.abs(original) * 0.25) || 0);
+      expect(getCcBristlePhase(across, width, 0)).toBe(0);
+      expect(getCcBristlePhase(across, width, 25)).toBe(getCcBristlePhase((lane + 0.75) * width, width, 25));
+    }
+  }
+});
+
+it('clamps invalid strength and writes matching phases for both ink pixels on a strand', () => {
+  const phases = new Uint8Array(2);
+  createCcBristleWriter(phases, { x: 20, y: 20 }, { x: 10, y: 20 }, 0.6, 12)(0, 14, 21);
+  createCcBristleWriter(phases, { x: 20, y: 20 }, { x: 10, y: 20 }, 0.6, 12)(1, 16, 21);
+  expect(phases[0]).toBe(phases[1]);
+  expect(getCcBristlePhase(2, 1, -1)).toBe(0);
+  expect(getCcBristlePhase(2, 1, 200)).toBe(getCcBristlePhase(2, 1, 100));
+  expect(getCcBristlePhase(2, 1, NaN)).toBe(getCcBristlePhase(2, 1, 25));
+});
+
+
+it('keeps equal opposite strand offsets balanced at reduced strengths', () => {
+  const byOffset = new Map<number, number>();
+  for (let lane = -512; lane <= 512; lane++) {
+    const raw = ((Math.imul(lane + 101, 1597334677) >>> 16) % 65) - 32;
+    byOffset.set(raw, lane + 0.25);
+  }
+  const signed = (value: number) => value > 127 ? value - 256 : value;
+  for (const strength of [25, 50, 75]) {
+    for (let offset = 1; offset <= 32; offset++) {
+      const positive = signed(getCcBristlePhase(byOffset.get(offset)!, 1, strength));
+      const negative = signed(getCcBristlePhase(byOffset.get(-offset)!, 1, strength));
+      expect(positive + negative).toBe(0);
+    }
   }
 });

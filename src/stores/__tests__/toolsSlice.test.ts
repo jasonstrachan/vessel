@@ -115,12 +115,26 @@ describe('tools slice', () => {
     const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;
     const shape = brushPresets.find((preset) => preset.id === 'color-cycle-shape')!;
     useAppStore.getState().setBrushPreset(stroke, true);
-    useAppStore.getState().setBrushSettings({ colorCycleBristlesEnabled: true, colorCycleBristleWidth: 1.5 });
+    useAppStore.getState().setBrushSettings({ colorCycleBristlesEnabled: true, colorCycleBristleWidth: 1.5, colorCycleBristleStrength: 12 });
     useAppStore.getState().setBrushPreset(shape, true);
     useAppStore.getState().setBrushPreset(stroke, true);
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(true);
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristleWidth).toBe(1.5);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristleStrength).toBe(12);
   });
+
+  it.each([[NaN, 25], [Infinity, 25], [-5, 0], [120, 100], [0, 0]])(
+    'normalizes bristle strength %s before saving the preset', (incoming, expected) => {
+      const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;
+      const shape = brushPresets.find((preset) => preset.id === 'color-cycle-shape')!;
+      useAppStore.getState().setBrushPreset(stroke, true);
+      useAppStore.getState().setBrushSettings({ colorCycleBristleStrength: incoming });
+      expect(useAppStore.getState().tools.brushSettings.colorCycleBristleStrength).toBe(expected);
+      useAppStore.getState().setBrushPreset(shape, true);
+      useAppStore.getState().setBrushPreset(stroke, true);
+      expect(useAppStore.getState().tools.brushSettings.colorCycleBristleStrength).toBe(expected);
+    },
+  );
 
   it('persists colour pickup independently for each CC preset without changing its source', () => {
     const stroke = brushPresets.find((preset) => preset.id === 'color-cycle-stroke')!;

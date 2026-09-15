@@ -82,6 +82,10 @@ uses the shared clock speed from the first finished stroke, before Apply.
 The selected loop seam is applied to the target gradient before the inks are
 split, so a soft join preserves the same colour match throughout playback.
 
+Bristle Strength controls strand colour variation independently of width: 25% is
+the gentler default, 0% removes the colour offset, and 100% restores the original
+variation. It affects new marks; existing strokes retain their stored phases.
+
 This mapping currently applies to native stamp-dither strokes; Pickup, Pencil,
 Bristles and shape fills retain their own paths. The live drawing preview uses
 the same Contrast, Ink Spread and dither-mask mapping as the finished stroke.

@@ -2045,6 +2045,22 @@ const BrushControls = () => {
           </div>
         )}
 
+        {activeSettings.brushShape === BrushShape.COLOR_CYCLE && activeSettings.colorCycleBristlesEnabled && (
+          <div className="mb-2 flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}
+              title="Colour variation between strands. 100% restores the original strength.">
+              Strength
+            </label>
+            <NonCcSlider aria-label="Bristle strength"
+              min={0} max={100} step={1}
+              value={activeSettings.colorCycleBristleStrength ?? 25}
+              onChange={(value) => setActiveSettings({ colorCycleBristleStrength: value })}
+              formatValue={(value) => `${value}%`}
+              className="flex-1"
+            />
+          </div>
+        )}
+
         {activeSettings.brushShape === BrushShape.COLOR_CYCLE && (
           <div className="mb-2">
             <div className="flex items-center gap-2">

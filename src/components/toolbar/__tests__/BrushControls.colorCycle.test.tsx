@@ -496,6 +496,10 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     fireEvent.change(screen.getByRole('slider', { name: 'Bristle Width' }), { target: { value: '1.5' } });
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(true);
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristleWidth).toBe(1.5);
+    expect(screen.getByRole('slider', { name: 'Bristle strength' })).toHaveValue('25');
+    fireEvent.change(screen.getByRole('slider', { name: 'Bristle strength' }), { target: { value: '12' } });
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristleStrength).toBe(12);
+    expect(useAppStore.getState().tools.brushSettings.colorCycleBristleWidth).toBe(1.5);
     fireEvent.change(screen.getByRole('slider', { name: 'Bristle Width' }), { target: { value: '0' } });
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristlesEnabled).toBe(false);
     expect(useAppStore.getState().tools.brushSettings.colorCycleBristleWidth).toBe(1.5);

@@ -709,6 +709,11 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     for (const key of ['colorCyclePencilSensitivity'] as const) {
       if (settings[key] !== undefined) settings[key] = Math.max(0, Math.min(100, Number.isFinite(settings[key]) ? settings[key]! : 50));
     }
+    if (settings.colorCycleBristleStrength !== undefined) {
+      settings.colorCycleBristleStrength = Number.isFinite(settings.colorCycleBristleStrength)
+        ? Math.max(0, Math.min(100, settings.colorCycleBristleStrength))
+        : 25;
+    }
     let newSettings = { ...currentSettings, ...settings };
     if (newSettings.colorCycleFlowMode && newSettings.colorCycleFlowMode !== 'forward') {
       newSettings.colorCycleFlowMode = 'forward';
@@ -963,6 +968,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.colorCycleBristlesEnabled !== undefined) {
         settingsToSave.colorCycleBristlesEnabled = newSettings.colorCycleBristlesEnabled === true;
+      }
+      if (settings.colorCycleBristleStrength !== undefined) {
+        settingsToSave.colorCycleBristleStrength = newSettings.colorCycleBristleStrength;
       }
       if (settings.colorCycleBristleWidth !== undefined) {
         settingsToSave.colorCycleBristleWidth = newSettings.colorCycleBristleWidth;

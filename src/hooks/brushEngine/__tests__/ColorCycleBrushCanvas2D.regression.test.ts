@@ -474,6 +474,38 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     } finally { state.tools.brushSettings = previousSettings; }
   });
 
+  it('authors bristle strength into phase while preserving paint coverage and ink bindings', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const previousSettings = state.tools.brushSettings;
+    const draw = (strength: number) => {
+      state.tools.brushSettings = { size: 16, colorCycleBristlesEnabled: true,
+        colorCycleBristleWidth: 0.6, colorCycleBristleStrength: strength };
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(100, 32), { forceCanvas2D: true });
+      try {
+        brush.setBrushSize(16);
+        brush.setBandSpacing(20);
+        brush.setStampDitherEnabled(true);
+        brush.setStampDitherBgFill(true);
+        brush.startStroke('strength');
+        for (let x = 10; x <= 90; x += 2) brush.paint(x, 16, 'strength', 1);
+        brush.endStroke('strength');
+        return readBrushLayerSnapshot(brush, 'strength')!;
+      } finally { brush.dispose(); }
+    };
+    try {
+      const full = draw(100), gentle = draw(25), flat = draw(0);
+      expect(new Uint8Array(gentle.paintBuffer)).toEqual(new Uint8Array(full.paintBuffer));
+      expect(new Uint8Array(flat.paintBuffer)).toEqual(new Uint8Array(full.paintBuffer));
+      expect(gentle.gradientIdBuffer).toEqual(full.gradientIdBuffer);
+      const signed = (value: number) => value > 127 ? value - 256 : value;
+      const fullPhase = new Uint8Array(full.phaseBuffer!);
+      const gentlePhase = new Uint8Array(gentle.phaseBuffer!);
+      expect(fullPhase.some(value => Math.abs(signed(value)) > 8)).toBe(true);
+      fullPhase.forEach((value, i) => expect(signed(gentlePhase[i])).toBe(Math.sign(signed(value)) * Math.round(Math.abs(signed(value)) * 0.25) || 0));
+      expect(new Uint8Array(flat.phaseBuffer!).every(value => value === 0)).toBe(true);
+    } finally { state.tools.brushSettings = previousSettings; }
+  });
+
   it('uses distance for captured tips without flattening their internal colour map', () => {
     const brush = new ColorCycleBrushCanvas2D(makeCanvas(100, 8), { forceCanvas2D: true });
     const stamp = {

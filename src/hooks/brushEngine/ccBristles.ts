@@ -10,11 +10,14 @@ const directions = new WeakMap<Uint8Array, Point>();
 const strandFields = new WeakMap<Uint8Array, { distance: Float32Array; phase: Uint8Array }>();
 
 /** Stable strand identity across the tip; no per-stamp random reseeding. */
-export const getCcBristlePhase = (across: number, width = 1): number => {
+export const getCcBristlePhase = (across: number, width = 1, strength = 25): number => {
   // Measure across the path in canvas pixels so larger tips add strands.
   const lane = Math.floor(across / width);
   const hash = Math.imul(lane + 101, 1597334677) >>> 0;
-  const offset = ((hash >>> 16) % 65) - 32;
+  const amount = Number.isFinite(strength) ? Math.max(0, Math.min(100, strength)) / 100 : 0.25;
+  const rawOffset = ((hash >>> 16) % 65) - 32;
+  // Round magnitudes symmetrically so weaker strands do not drift forward.
+  const offset = Math.sign(rawOffset) * Math.round(Math.abs(rawOffset) * amount);
   return (offset + 256) % 256;
 };
 
@@ -23,6 +26,7 @@ export const createCcBristleWriter = (
   center: Point,
   previous: Point | null,
   width = 1,
+  strength = 25,
 ): ((index: number, x: number, y: number) => void) => {
   const strandWidth = Number.isFinite(width) ? Math.max(0.5, Math.min(8, width)) : 1;
   let field = strandFields.get(phase);
@@ -55,7 +59,7 @@ export const createCcBristleWriter = (
     if (distance <= field.distance[index] + 0.0001) {
       field.distance[index] = distance;
       // Strand colour follows the transverse offset even beyond the segment ends.
-      field.phase[index] = getCcBristlePhase(across, strandWidth);
+      field.phase[index] = getCcBristlePhase(across, strandWidth, strength);
     }
     phase[index] = field.phase[index];
   };
