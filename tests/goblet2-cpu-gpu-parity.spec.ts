@@ -306,6 +306,7 @@ const buildCpuGpuParityHtml = (): string => {
     '<canvas id="plain-cpu" width="4" height="2"></canvas>',
     '<script type="module">',
     runtime,
+    read('tests/fixtures/cc/sampled-path-render-check.js'),
     `const metadata = ${metadata};`,
     `const definitionBoundMetadata = ${definitionBoundMetadata};`,
     `const packedDefinitionBoundMetadata = ${packedDefinitionBoundMetadata};`,
@@ -496,6 +497,7 @@ try {
   if (typeof setGobletDiagnosticsEnabled === 'function') {
     setGobletDiagnosticsEnabled(true);
   }
+  await verifySampledPathRendering(renderVesselWebGL);
   const gpuSummary = await renderVesselWebGL(metadata, gpuCanvas, {});
   const cpuSummary = await withWebGLDisabled(() => renderVesselWebGL(structuredClone(metadata), cpuCanvas, {}));
   const unfilteredMetadata = structuredClone(metadata);

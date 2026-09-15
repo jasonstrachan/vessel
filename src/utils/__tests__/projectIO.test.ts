@@ -1864,7 +1864,7 @@ describe('projectIO serialize/deserialize layering', () => {
     paint[0] = 1;
     gradientId[0] = 9;
     speed[0] = 3;
-    flow[0] = 2;
+    flow[0] = 5;
     phase[0] = 7;
     gradientDefIds[0] = 11;
 
@@ -1916,6 +1916,7 @@ describe('projectIO serialize/deserialize layering', () => {
             { position: 0, color: '#123456', opacity: 0.5 },
             { position: 1, color: '#abcdef' },
           ],
+          sampledPath: { rgba: 'ESIz/w==', offset: 255 },
           hash: 'def-11',
           source: 'manual',
           createdAtMs: 1,
@@ -2035,6 +2036,7 @@ describe('projectIO serialize/deserialize layering', () => {
       expect(Array.from(new Uint16Array(snapshot?.gradientDefIdBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(gradientDefIds));
       expect(Array.from(new Uint8Array(snapshot?.flowBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(flow));
       expect(Array.from(new Uint8Array(snapshot?.phaseBuffer ?? new ArrayBuffer(0)))).toEqual(Array.from(phase));
+      expect(restoredLayer.colorCycleData?.gradientDefStore?.[0]?.sampledPath).toEqual({ rgba: 'ESIz/w==', offset: 255 });
       expect(restoredLayer.colorCycleData?.gradientDefStore?.[0]?.sourceStops).toEqual([
         { position: 0, color: '#123456', opacity: 0.5 },
         { position: 1, color: '#abcdef' },

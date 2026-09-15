@@ -30,6 +30,6 @@ describe('legacy distance-band playback', () => {
   });
 
   it('keeps the legacy distance channel through export normalization', () => {
-    expect([...normalizeGobletFlowBuffer(new Uint8Array([1, 4, 3]), null, 3)]).toEqual([1, 4, 3]);
+    expect([...normalizeGobletFlowBuffer(new Uint8Array([1, 4, 5, 3]), null, 4)]).toEqual([1, 4, 5, 3]);
   });
 });

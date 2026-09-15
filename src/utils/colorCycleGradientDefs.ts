@@ -1,3 +1,4 @@
+import type { SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 import { logError } from '@/utils/debug';
 import { useAppStore } from '@/stores/useAppStore';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
@@ -28,6 +29,7 @@ export type ColorCycleGradientDefStore = {
   kind: 'linear' | 'concentric';
   stops: StoredStop[];
   sourceStops?: StoredStop[];
+  sampledPath?: SampledPathPalette;
   hash: string;
   source: GradientDefSource;
   seamProfile?: GradientSeamProfile;

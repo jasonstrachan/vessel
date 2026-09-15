@@ -1,3 +1,5 @@
+import { decodeSampledPathColors, renderSampledPathPalette, type SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
+import { decodeColorCycleSpeedByte as decodeSampledPathSpeed } from '@/utils/colorCycleSpeed';
 /**
  * ColorCycleAnimator - Integrates AnimationController with color cycling
  * Provides a complete animated drawing system with indexed colors
@@ -134,6 +136,8 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   private forceCanvas2D: boolean = false;
   private strokeTracker: StrokeOrderTracker;
   private defIdData: Uint16Array | null = null;
+  private sampledPathPalettes = new Map<number, { source: Uint8Array; offset: number; rgba: Uint8ClampedArray; speed: number }>();
+  private sampledPathSpeedsDirty = true;
   private defPalettesById: Map<number, Uint32Array> | null = null;
   private defPaletteRGBAById: Map<number, PaletteRGBA> | null = null;
   private defPaletteSignaturesById: Map<number, string> | null = null;
@@ -273,6 +277,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   }
 
   setDefPaletteCache(cache?: {
+    sampledPaths?: Map<number, SampledPathPalette>;
     palettesById: Map<number, Uint32Array>;
     rgbaById: Map<number, PaletteRGBA>;
     signaturesById: Map<number, string>;
@@ -285,6 +290,23 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       this.defPalettesById = cache.palettesById;
       this.defPaletteRGBAById = cache.rgbaById;
       this.defPaletteSignaturesById = cache.signaturesById;
+    }
+    this.sampledPathPalettes.clear();
+    this.sampledPathSpeedsDirty = true;
+    if (cache?.sampledPaths?.size) {
+      // Palette handles are shared. Animated rows belong to this animator only.
+      this.defPalettesById = new Map(cache.palettesById);
+      this.defPaletteRGBAById = new Map(cache.rgbaById);
+      this.defPaletteSignaturesById = new Map(cache.signaturesById);
+      const sources = new Map<string, Uint8Array>();
+      for (const [id, path] of cache.sampledPaths) {
+        let source = sources.get(path.rgba);
+        if (!source) { source = decodeSampledPathColors(path.rgba); sources.set(path.rgba, source); }
+        const rgba = new Uint8ClampedArray(1024);
+        this.sampledPathPalettes.set(id, { source, offset: path.offset, rgba, speed: 0 });
+        this.defPaletteRGBAById.set(id, rgba);
+        this.defPalettesById.set(id, new Uint32Array(rgba.buffer));
+      }
     }
     this.defPaletteCacheDirty = true;
     this.defValidationDirty = true;
@@ -887,6 +909,25 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
       const flowData = this.indexBuffer.getDirectFlowData();
       const phaseData = this.indexBuffer.getDirectPhaseData();
       if (!indexData) return false;
+      if (this.sampledPathPalettes.size) {
+        if (this.sampledPathSpeedsDirty || this._glIndexDirty) {
+          const pending = new Set(this.sampledPathPalettes.keys());
+          for (let i = 0; i < indexData.length && pending.size; i++) {
+            const id = this.defIdData?.[i];
+            if (!indexData[i] || id === undefined || !pending.has(id)) continue;
+            this.sampledPathPalettes.get(id)!.speed = decodeSampledPathSpeed(speedData[i]);
+            pending.delete(id);
+          }
+          this.sampledPathSpeedsDirty = false;
+        }
+        for (const [id, path] of this.sampledPathPalettes) {
+          const phase = baseTime * path.speed;
+          renderSampledPathPalette(path.source, path.offset, phase, path.rgba);
+          this.defPaletteSignaturesById!.set(id, `sampled:${phase}`);
+        }
+        this.defPaletteCacheDirty = true;
+      }
+
 
       if (!this._dbgSpeedStatsLogged && speedData && speedData.length > 0) {
         const length = speedData.length;

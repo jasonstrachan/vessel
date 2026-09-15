@@ -584,7 +584,7 @@ export class ColorCycleBrushCanvas2D {
   readonly getRenderDiagnostics = (layerId: string) => this.presentationApi.getRenderDiagnostics(layerId);
   readonly getSampledStrokePositions = (layerId: string) => {
     const state = this.layerDocumentApi.getStrokeState(layerId)?.stampDither;
-    if (!state?.stampDitherTag || !state.stampSourceDistances || !state.stampDitherPrimaryBuffer) return null;
+    if (!state?.stampDitherTag || !state.stampDitherPrimaryBuffer) return null;
     return { tags: state.stampDitherTag, distances: state.stampSourceDistances,
       epoch: state.stampDitherStrokeEpoch ?? 1, primary: state.stampDitherPrimaryBuffer };
   };

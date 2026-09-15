@@ -133,7 +133,9 @@ export class Renderer2D {
         defId > 0
           ? defPalettesById?.get(defId) ?? options.basePalette
           : options.paletteSlots[slot] ?? options.basePalette;
-      if (hasSpeed) {
+      if (flowByte === 5) {
+        pixels32[i] = palette[paletteIndex];
+      } else if (hasSpeed) {
         const palettePos = (((paletteIndex + dir * speedOffset * 256) % 256) + 256) % 256;
         const lower = Math.floor(palettePos) & 255;
         const upper = (lower + 1) & 255;

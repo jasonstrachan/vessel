@@ -1,3 +1,4 @@
+import type { SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 import type { GradientStop } from '@/lib/GradientPalette';
 import {
   AUTHORED_SPEED_SOURCE_VERSION,
@@ -166,6 +167,7 @@ export type ColorCycleBrushPersistenceLayerMeta = {
     kind: 'linear' | 'concentric';
     stops: GradientStop[];
     sourceStops?: GradientStop[];
+    sampledPath?: SampledPathPalette;
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
     seamProfile?: unknown;
@@ -258,6 +260,7 @@ export const cloneColorCycleBrushPersistenceLayerMeta = (
           createdAtMs: entry.createdAtMs,
           slot: entry.slot,
           speedCps: entry.speedCps,
+          sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
         }))
       : undefined,
     nextGradientDefId: meta.nextGradientDefId,
@@ -426,6 +429,7 @@ export const createColorCycleBrushPersistenceLayerMetaFromLayerData = (
       createdAtMs: entry.createdAtMs,
       slot: entry.slot,
       speedCps: entry.speedCps,
+      sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
     })),
     nextGradientDefId: colorCycleData.nextGradientDefId,
     paintSlot: colorCycleData.paintSlot,

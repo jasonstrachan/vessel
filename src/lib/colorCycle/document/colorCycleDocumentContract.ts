@@ -253,6 +253,7 @@ const cloneGradientDefStore = (
 ): ColorCycleGradientDefStoreEntry[] | undefined => (
   gradientDefStore?.map((entry) => ({
     ...entry,
+    sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
     stops: cloneStops(entry.stops),
     sourceStops: entry.sourceStops ? cloneStops(entry.sourceStops) : undefined,
   }))

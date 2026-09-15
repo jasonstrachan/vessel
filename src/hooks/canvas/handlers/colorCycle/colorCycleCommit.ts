@@ -1,3 +1,4 @@
+import { buildSampledPathStroke } from './sampledPathStroke';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { alignSampledStampPositions, measureSampledInkCoverage, type SampledStampPositions } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
 import { getAppStoreState } from '@/stores/appStoreAccess';
@@ -774,7 +775,20 @@ export const commitColorCycleLayerStroke = async (
         });
       }
 
-      if (committedSession && (committedSession.sampledAlignment || committedSession.sampledSecondaryStops)) {
+      if (committedSession?.sampledPathStops && committedSession.sampledAlignment?.bandPx) {
+        const ownership = brush.getSampledStrokePositions?.(targetLayerId);
+        const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
+        const current = getAppStoreState().layers.find(entry => entry.id === targetLayerId)?.colorCycleData;
+        if (!ownership || !snapshot?.gradientIdBuffer || !current) throw new Error('The sampled stroke source is unavailable.');
+        const result = buildSampledPathStroke({ snapshot, ownership,
+          bandPx: committedSession.sampledAlignment.bandPx, primary: committedSession.sampledPathStops,
+          secondary: committedSession.sampledPathSecondaryStops, definitions: current.gradientDefStore ?? [],
+          speedByte: encodeColorCycleSpeedByte(committedSession.sampledAlignment.speedCps) });
+        getAppStoreState().updateLayer(targetLayerId, { colorCycleData: { ...current, gradientDefStore: result.definitions } }, { skipColorCycleSync: true });
+        if (!applyColorCycleBrushLayerSnapshotToRuntime(brush, targetLayerId, result.snapshot, undefined, 'snapshot-apply')) {
+          throw new Error('The sampled stroke source could not be committed.');
+        }
+      } else if (committedSession && (committedSession.sampledAlignment || committedSession.sampledSecondaryStops)) {
         const ownership = brush.getSampledStrokePositions?.(targetLayerId);
         if (ownership) {
           const secondaryStops = committedSession.sampledSecondaryStops ?? null;
@@ -799,10 +813,11 @@ export const commitColorCycleLayerStroke = async (
           if (secondary && secondaryStops) {
             brush.setGradientSlotStops?.(targetLayerId, secondary.slot, secondary.def.stops, committedSession.seamProfile);
           }
-          const aligned = alignSampledStampPositions(snapshot, ownership, committedSession.sampledAlignment?.bandPx,
+          const aligned = alignSampledStampPositions(snapshot, ownership,
             secondary ? { slot: secondary.slot, defId: secondary.def.id } : undefined,
             committedSession.sampledAlignment
-              ? encodeColorCycleSpeedByte(committedSession.sampledAlignment.speedCps) : undefined);
+              ? encodeColorCycleSpeedByte(committedSession.sampledAlignment.speedCps) : undefined,
+            committedSession.sampledBristles);
           if (!applyColorCycleBrushLayerSnapshotToRuntime(brush, targetLayerId, aligned, undefined, 'snapshot-apply')) {
             throw new Error('The sampled stroke positions could not be committed.');
           }

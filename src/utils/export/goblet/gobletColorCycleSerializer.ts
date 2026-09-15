@@ -1277,6 +1277,7 @@ const resolveActiveGradientDefinitions = (params: {
       id: Math.round(entry.id),
       stops: toSerializableGradientStops(entry.stops, []),
       seamProfile: normalizeGradientSeamProfile(entry.seamProfile),
+      sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
     }))
     .filter((entry) => entry.stops.length > 0)
     .sort((a, b) => a.id - b.id);
@@ -2203,7 +2204,8 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       layer: playbackClock ? { ...layer, colorCycleData: { ...data, layerBaseSpeedCps: 1 } } : layer,
       brushState,
       warnOnce: warnOnceMissingSpeed,
-      forceBuffer: Boolean(playbackClock) || options?.forceSpeedBuffer === true || remappedDefBoundSlots,
+      forceBuffer: Boolean(playbackClock) || options?.forceSpeedBuffer === true || remappedDefBoundSlots
+        || serialized.gradientDefStore?.some(def => Boolean(def.sampledPath)),
       layerSpeedScale: playbackClock ? 1 : layerSpeedScale,
       fallbackToolSpeed: options?.toolSpeed,
       speedSourceVersion,

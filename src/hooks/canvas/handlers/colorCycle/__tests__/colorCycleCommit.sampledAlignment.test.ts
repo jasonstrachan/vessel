@@ -33,7 +33,8 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
   gids[0] = TEMP_SAMPLE_SLOT;
   const snapshot = {
     width: 8, height: 8, hasContent: true,
-    paintBuffer: new Uint8Array(64).fill(1).buffer,
+    paintBuffer: new Uint8Array(64).fill(20).buffer,
+    phaseBuffer: new Uint8Array(64).fill(27).buffer,
     gradientIdBuffer: gids.buffer, gradientDefIdBuffer: new Uint16Array(64).buffer,
   };
   const reusedStops = [{ position: 0, color: '#eeeecc' }, { position: 1, color: '#eeddaa' }];
@@ -54,7 +55,7 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
     }, version: 1 }) }),
     getSampledStrokePositions: () => ({
       tags: Uint32Array.from({ length: 64 }, (_, i) => i === 0 ? 65537 : 0),
-      epoch: 1, distances: [0, 0], primary: new Uint8Array(64).fill(1),
+      epoch: 1, primary: new Uint8Array(64).fill(20),
     }),
   };
   const applySnapshot = jest.fn();
@@ -62,8 +63,8 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
   const activeSession: NonNullable<ReturnType<typeof finalizeMarkGradientSession>> = {
     markId: 'sampled', layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source,
     frozenStopsStored: stops, frozenHash: 'sampled', binding: { kind: 'def', defId: 22, slot: 6 },
-    sampledAlignment: unresolve ? { bandPx: 1, pairedInks: true, speedCps: 0.063 } : undefined,
-    sampledSecondaryStops: stops, speedCps: 0.063, sampledPairedInks: true,
+    sampledAlignment: unresolve ? { speedCps: 0.063 } : undefined,
+    sampledSecondaryStops: stops, speedCps: 0.063, sampledPairedInks: true, sampledBristles: true,
   };
   jest.mocked(finalizeMarkGradientSession).mockReturnValue(activeSession);
   jest.mocked(getActiveMarkGradientSession).mockReturnValue(activeSession);
@@ -84,6 +85,8 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
     expect(applySnapshot).toHaveBeenCalledTimes(1);
     expect(brush.setGradientSlotStops).toHaveBeenCalledWith(layer.id, 9, atCapacity ? reusedStops : stops, undefined);
     const applied = applySnapshot.mock.calls[0][1];
+    expect(applied.paintBuffer).toEqual(snapshot.paintBuffer);
+    expect(applied.phaseBuffer).toEqual(snapshot.phaseBuffer);
     expect([...new Uint8Array(applied.gradientIdBuffer)]).toEqual([TEMP_SAMPLE_SLOT, ...Array(63).fill(8)]);
     expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(layer.id, 22, 7, undefined, TEMP_SAMPLE_SLOT);
   } finally {

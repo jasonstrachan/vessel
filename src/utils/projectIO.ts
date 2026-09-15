@@ -1,3 +1,4 @@
+import type { SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 import { snapshotColorCyclePlaybackProject } from '@/lib/colorCycle/playbackClock';
 // Project input/output utilities for Vessel
 // Handles serialization, deserialization, and file operations
@@ -894,6 +895,7 @@ interface SerializedBrushLayerSnapshot {
     kind: 'linear' | 'concentric';
     stops: Array<{ position: number; color: string; opacity?: number }>;
     sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
+    sampledPath?: SampledPathPalette;
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
     seamProfile?: 'hard' | 'soft';
@@ -1006,6 +1008,7 @@ interface SerializedColorCycleLayerData {
     kind: 'linear' | 'concentric';
     stops: Array<{ position: number; color: string; opacity?: number }>;
     sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
+    sampledPath?: SampledPathPalette;
     hash: string;
     source: 'manual' | 'fg' | 'sampled';
     seamProfile?: 'hard' | 'soft';
@@ -1134,6 +1137,7 @@ interface ColorCycleBrushState {
       kind: 'linear' | 'concentric';
       stops: Array<{ position: number; color: string; opacity?: number }>;
       sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
+      sampledPath?: SampledPathPalette;
       hash: string;
       source: 'manual' | 'fg' | 'sampled';
       seamProfile?: 'hard' | 'soft';
@@ -2625,6 +2629,7 @@ const buildSerializedColorCycleCanonicalState = (
         createdAtMs: entry.createdAtMs,
         slot: entry.slot,
         speedCps: entry.speedCps,
+        sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
       }))
     : undefined,
   nextGradientDefId: colorCycleData.nextGradientDefId,
@@ -3953,6 +3958,7 @@ async function deserializeLayer(serializedLayer: SerializedLayer, projectWidth: 
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
             speedCps: entry.speedCps,
+            sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
           }))
         : undefined,
       nextGradientDefId: serializedLayer.colorCycleData.nextGradientDefId,

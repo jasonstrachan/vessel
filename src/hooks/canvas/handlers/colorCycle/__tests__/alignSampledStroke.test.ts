@@ -1,3 +1,5 @@
+import { advanceDistanceBand } from '@/hooks/brushEngine/colorCycleStrokeTimingRuntime';
+import { createLayerStrokeState } from '@/hooks/brushEngine/colorCycleLayerStrokeBuffers';
 import { alignSampledStampPositions, buildSampledInkPalettes, measureSampledInkCoverage } from '../alignSampledStroke';
 import { OKLabConverter } from '@/lib/colorCycle/colorSpace/OKLabConverter';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
@@ -24,30 +26,30 @@ it.each([25, 50, 100])('keeps neighbouring near-neutral samples continuous at sp
   }
 });
 
-it('maps the whole sampled sequence once, preserves the ink mask, and leaves other strokes alone', () => {
+it('preserves distance-authored ink positions, the mask, and other strokes', () => {
   const paint = new Uint8Array([1, 65, 80, 144, 150, 214, 0, 9]);
   const gids = new Uint8Array([254, 254, 254, 254, 254, 254, 254, 3]);
   const snapshot = { paintBuffer: paint.buffer, gradientIdBuffer: gids.buffer,
     phaseBuffer: new Uint8Array(8).fill(57).buffer };
   const result = alignSampledStampPositions(snapshot, {
     tags: new Uint32Array([65537, 65537, 65538, 65538, 65539, 65539, 0, 0]),
-    epoch: 1, distances: [0, 0, 50, 100], primary: new Uint8Array([1, 1, 80, 80, 150, 150, 0, 0]),
-  }, 1, { slot: 5, defId: 11 }, 17);
+    epoch: 1, primary: new Uint8Array([1, 1, 80, 80, 150, 150, 0, 0]),
+  }, { slot: 5, defId: 11 }, 17);
   const indices = new Uint8Array(result.paintBuffer);
-  expect([...indices]).toEqual([2, 2, 129, 129, 255, 255, 0, 9]);
+  expect([...indices]).toEqual([1, 1, 80, 80, 150, 150, 0, 9]);
   expect([...new Uint8Array(result.gradientIdBuffer!)]).toEqual([254, 5, 254, 5, 254, 5, 254, 3]);
   expect([...new Uint8Array(result.phaseBuffer!)]).toEqual([0, 0, 0, 0, 0, 0, 57, 57]);
   expect([...new Uint8Array(result.speedBuffer!)]).toEqual([17, 17, 17, 17, 17, 17, 0, 0]);
   expect(paint).toEqual(new Uint8Array([1, 65, 80, 144, 150, 214, 0, 9]));
 });
 
-it('uses owning stamps at crossings, with distance-sized groups instead of repeated full palettes', () => {
+it('uses the owning stamp colour at crossings', () => {
   const result = alignSampledStampPositions({
     paintBuffer: new Uint8Array([1, 1, 1]).buffer,
     gradientIdBuffer: new Uint8Array(3).fill(TEMP_SAMPLE_SLOT).buffer,
   }, { tags: new Uint32Array([65539, 65537, 65538]), epoch: 1,
-    distances: [0, 1, 9, 100], primary: new Uint8Array(3).fill(1) }, 20);
-  expect([...new Uint8Array(result.paintBuffer)]).toEqual([255, 26, 26]);
+    primary: new Uint8Array([150, 1, 1]) });
+  expect([...new Uint8Array(result.paintBuffer)]).toEqual([150, 1, 1]);
 });
 
 it('increases ink separation within the target colour gamut', () => {
@@ -98,8 +100,8 @@ it('assigns ordinary Sample inks without changing band positions, speed, flow or
   };
   const result = alignSampledStampPositions(snapshot, {
     tags: new Uint32Array([65537, 65537, 65538, 65538, 0, 0]),
-    epoch: 1, distances: [0, 0, 100], primary: new Uint8Array([20, 20, 80, 80, 0, 0]),
-  }, undefined, { slot: 5, defId: 11 });
+    epoch: 1, primary: new Uint8Array([20, 20, 80, 80, 0, 0]),
+  }, { slot: 5, defId: 11 });
   expect([...new Uint8Array(result.paintBuffer)]).toEqual([20, 20, 80, 80, 0, 9]);
   expect([...new Uint8Array(result.gradientIdBuffer!)]).toEqual([254, 5, 254, 5, 254, 3]);
   expect([...new Uint16Array(result.gradientDefIdBuffer!)]).toEqual([0, 11, 0, 11, 0, 0]);
@@ -158,4 +160,52 @@ it.each(['#6080a0', '#a06060', '#60a060', '#808080'])('uses the available ink se
   const full = buildSampledInkPalettes([{ position: 0, color }], 100);
   const channels = [full.primary[0], full.secondary[0]].flatMap(stop => parseCssColorToRgba(stop.color).slice(0, 3));
   expect(channels.some(value => value === 0 || value === 255)).toBe(true);
+});
+
+
+it('preserves strand phases on both Unresolve inks and rejected pixels', () => {
+  const snapshot = {
+    paintBuffer: new Uint8Array([20, 84, 40, 104, 9]).buffer,
+    gradientIdBuffer: new Uint8Array([254, 254, 254, 254, 3]).buffer,
+    phaseBuffer: new Uint8Array([240, 240, 17, 17, 99]).buffer,
+    flowBuffer: new Uint8Array([2, 2, 2, 2, 3]).buffer,
+  };
+  const aligned = alignSampledStampPositions(snapshot, {
+    tags: new Uint32Array([65537, 65537, 65538, 65538, 0]), epoch: 1,
+    primary: new Uint8Array([20, 20, 40, 40, 0]),
+  }, { slot: 5, defId: 11 }, 17, true);
+  expect(aligned.phaseBuffer).toEqual(snapshot.phaseBuffer);
+  expect([...new Uint8Array(aligned.paintBuffer)]).toEqual([20, 20, 40, 40, 9]);
+  expect([...new Uint8Array(aligned.gradientIdBuffer!)]).toEqual([254, 5, 254, 5, 3]);
+  expect([...new Uint8Array(aligned.flowBuffer!)]).toEqual([1, 1, 1, 1, 3]);
+  expect([...new Uint8Array(aligned.speedBuffer!)]).toEqual([17, 17, 17, 17, 0]);
+});
+
+
+it.each([1, 20, 256])('keeps ordinary %s px bands fixed when a stroke grows', (spacing) => {
+  const mapStroke = (length: number) => {
+    const stroke = createLayerStrokeState({ strokeCycleSpeed: 0.1, strokeSpeedByte: 17 });
+    const primary = new Uint8Array(length * 2);
+    const paint = new Uint8Array(length * 2);
+    const tags = new Uint32Array(length * 2);
+    for (let x = 0; x < length; x++) {
+      const index = advanceDistanceBand(stroke, { x, y: 0 }, spacing, 12);
+      stroke.lastPoint = { x, y: 0 };
+      primary.fill(index, x * 2, x * 2 + 2);
+      paint[x * 2] = index;
+      paint[x * 2 + 1] = 1 + ((index - 1 + 64) % 255);
+      tags.fill(65536 + x + 1, x * 2, x * 2 + 2);
+    }
+    const mapped = alignSampledStampPositions({
+      paintBuffer: paint.buffer,
+      gradientIdBuffer: new Uint8Array(paint.length).fill(TEMP_SAMPLE_SLOT).buffer,
+    }, { primary, tags, epoch: 1 }, { slot: 5, defId: 11 }, 17);
+    return { primary, mapped: new Uint8Array(mapped.paintBuffer) };
+  };
+  const short = mapStroke(spacing * 13);
+  const long = mapStroke(spacing * 29);
+  expect(short.mapped).toEqual(short.primary);
+  expect(long.mapped.slice(0, short.mapped.length)).toEqual(short.mapped);
+  // After twelve physical bands, the full palette repeats at the same spacing.
+  expect(long.mapped[spacing * 12 * 2]).toBe(long.mapped[0]);
 });

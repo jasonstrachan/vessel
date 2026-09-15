@@ -72,7 +72,7 @@ describe('colorCycleMarkSession rebuild', () => {
     }));
   });
 
-  it('freezes source alignment, distance spacing and cycle speed only for enabled sampled dither strokes', () => {
+  it('freezes shared cycle speed only for enabled sampled dither strokes', () => {
     const previous = studioExtension.sampledStrokeAlignment;
     const previousPalette = studioExtension.preserveSampledStrokePalette;
     studioExtension.preserveSampledStrokePalette = true;
@@ -84,10 +84,10 @@ describe('colorCycleMarkSession rebuild', () => {
           colorCycleStampDitherEnabled: true, colorCycleStampDitherBgFill: true,
           colorCyclePencilEnabled: false, colorCycleBristlesEnabled: false, colorCycleBandSpacingPx: 4 } } }));
       const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: 'sampled', stops });
-      expect(session?.sampledAlignment).toEqual({ bandPx: 4, pairedInks: true, speedCps: 0.063 });
+      expect(session?.sampledAlignment).toEqual({ speedCps: 0.063, bandPx: 4 });
       expect(session?.speedCps).toBe(0.063);
       studioExtension.sampledStrokeAlignment = () => undefined;
-      expect(session?.sampledAlignment?.bandPx).toBe(4);
+      expect(session?.sampledAlignment?.speedCps).toBe(0.063);
       cancelMarkGradientSession(layer.id);
       const ordinary = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: 'sampled', stops });
       expect(ordinary?.sampledAlignment).toBeUndefined();
@@ -203,6 +203,43 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(committed?.samples?.length).toBeGreaterThan(1);
     expect(sampleColor).toHaveBeenLastCalledWith(64, 0);
     expect(committed?.sampledStrokeColorAt).toBeUndefined();
+  });
+
+  it.each([1, 4, 20].flatMap(bandPx => (['hard', 'soft'] as const).map(seam => ({ bandPx, seam }))))('finalizes every $bandPx px source band with a $seam seam without capping at 256', ({ bandPx, seam }) => {
+    const previous = studioExtension.sampledStrokeAlignment;
+    studioExtension.sampledStrokeAlignment = () => ({ speedCps: 0.063 });
+    const layer = createLayer();
+    useAppStore.setState((state) => ({ layers: [layer], activeLayerId: layer.id,
+      tools: { ...state.tools, brushSettings: { ...state.tools.brushSettings,
+        colorCycleStampDitherEnabled: true, colorCycleStampDitherBgFill: true,
+        colorCyclePencilEnabled: false, colorCycleBristlesEnabled: false,
+        colorCyclePickupEnabled: false, colorCycleBandSpacingPx: bandPx, colorCycleGradientSeamProfile: seam,
+      } },
+    }));
+    try {
+      const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke',
+        gradientKind: 'linear', source: 'sampled', stops });
+      if (!session) throw new Error('Expected sampled session');
+      const sampleColor = (x: number) => `rgb(${Math.floor(x) % 251},80,120)`;
+      const lastUpdateRef = { current: 0 };
+      updateCcSampledSession({ session, sourcePts: [{ x: 0, y: 0 }], sampleColor,
+        now: 200, lastUpdateRef, allowTiny: true });
+      updateCcSampledSession({ session, sourcePts: [{ x: 0, y: 0 }, { x: 5999, y: 0 }],
+        sampleColor, now: 205, lastUpdateRef, allowTiny: true });
+      const result = finalizeMarkGradientSession(layer.id)!;
+      expect(result.sampledPathStops).toHaveLength(Math.floor(5999 / bandPx) + 1);
+      if (seam === 'soft') expect(result.sampledPathStops!.at(-1)?.color).toBe(result.sampledPathStops![0].color);
+      result.sampledPathStops!.forEach((stop, band) => {
+        if (seam === 'soft' && band >= Math.floor(result.sampledPathStops!.length * 0.875) - 2) return;
+        const expected = parseCssColorToRgba(sampleColor(Math.min(5999, (band + 0.5) * bandPx)));
+        const actual = parseCssColorToRgba(stop.color);
+        actual.forEach((channel, i) => expect(Math.abs(channel - expected[i])).toBeLessThanOrEqual(1));
+      });
+      expect(result.sampledStrokeColorAt).toBeUndefined();
+    } finally {
+      cancelMarkGradientSession(layer.id);
+      studioExtension.sampledStrokeAlignment = previous;
+    }
   });
 
   it('freezes a separate full-path gradient for each differently sampled stroke', () => {

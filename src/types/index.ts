@@ -1,3 +1,4 @@
+import type { SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 
 // Core type definitions for Vessel
 // Based on /docs/02_System_Architecture/Data_Model.md
@@ -844,6 +845,7 @@ export interface ColorCycleGradientDefStoreEntry {
   kind: 'linear' | 'concentric';
   stops: Array<{ position: number; color: string; opacity?: number }>;
   sourceStops?: Array<{ position: number; color: string; opacity?: number }>;
+  sampledPath?: SampledPathPalette;
   hash: string;
   source: 'manual' | 'fg' | 'sampled';
   seamProfile?: GradientSeamProfile;

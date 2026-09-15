@@ -306,6 +306,7 @@ describe('strokeStampDither', () => {
 
     const before = animator.handle.data.slice();
 
+    state.stampSourceDistances = [0, 0, 100, 200, 300];
     state.stampDitherStrokeEpoch = 2;
     state.stampDitherStampSeq = 0;
     stampDither.applyStampDitherStamp({
@@ -326,6 +327,7 @@ describe('strokeStampDither', () => {
       isAnimating: false,
     });
 
+    expect(state.stampSourceDistances).toEqual([0, 0]);
     const minX = 4;
     const minY = 4;
     const maxX = 7;

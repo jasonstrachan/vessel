@@ -324,6 +324,31 @@ describe('Goblet color-cycle export contract boundaries', () => {
     }
   });
 
+  it.each([1, 3])('exports all source bands and per-pixel timing for %s sampled-path sections without a Studio clock', async (sections) => {
+    const rgba = btoa(Array.from({ length: 512 * 4 }, (_, i) => String.fromCharCode(i % 4 === 3 ? 255 : Math.floor(i / 4) % 251)).join(''));
+    const stops = [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }];
+    const definitions = Array.from({ length: sections }, (_, i) => ({
+      id: i + 1, kind: 'linear' as const, stops, hash: `path:${i}`, source: 'sampled' as const,
+      seamProfile: 'hard' as const, createdAtMs: 1, sampledPath: { rgba, offset: i * 255 },
+    }));
+    const layer = createLayer({ gradientDefStore: definitions, brushState: {
+      canonicalPaint: true, schemaVersion: 1, layers: [{ layerId: 'cc-layer', strokeData: {
+        ...createCompleteStrokeData(),
+        gradientDefIdBuffer: new Uint16Array([1, sections, sections, 1]).buffer,
+        flowBuffer: new Uint8Array(4).fill(5).buffer,
+      } }],
+    } });
+    const payload = await serializeColorCycleDataFromResolvedLayer(layer, project, undefined, { playbackClock: null });
+    const exported = payload?.colorCycle;
+    expect(exported?.gradientDefStore).toHaveLength(sections === 1 ? 1 : 2);
+    for (const definition of definitions.filter(def => def.id === 1 || def.id === sections)) {
+      expect(exported?.gradientDefStore?.find(def => def.id === definition.id)).toMatchObject({ sampledPath: definition.sampledPath });
+    }
+    expect(exported?.speedMode).toBe('buffer');
+    expect(Array.from(exported?.brushState?.speedBuffer as ArrayLike<number>)).toEqual([128, 128, 128, 128]);
+    expect(Array.from(exported?.brushState?.flowBuffer as ArrayLike<number>)).toEqual([5, 5, 5, 5]);
+  });
+
   it('folds gradient stop opacity into Goblet colors', async () => {
     const transparentStop = {
       position: 0.5,

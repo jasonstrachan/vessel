@@ -45,7 +45,7 @@ export const createSampledStrokePreview = (
   const ownership = stroke?.stampDither;
   const stops = session?.previewStopsStored;
   if (!session?.sampledPairedInks || !stops?.length || !stroke ||
-      !ownership?.stampDitherTag || !ownership.stampDitherPrimaryBuffer || !ownership.stampSourceDistances) {
+      !ownership?.stampDitherTag || !ownership.stampDitherPrimaryBuffer) {
     return undefined;
   }
   const contrast = getAppStoreState().tools.brushSettings.ccGradientRangeContrast;
@@ -89,6 +89,15 @@ export const createSampledStrokePreview = (
       },
     );
     cached.inks = resolveSampledStrokeInkPalettes(session, stops, contrast);
+    // The live palette is bounded; project it onto source positions while drawing.
+    // Release stores the full sequence in sections, retaining every physical band.
+    const distances = ownership.stampSourceDistances;
+    const bandPx = session.sampledAlignment?.bandPx;
+    const total = distances?.at(-1) ?? 0;
+    const previewSourceIndices = distances && bandPx && !session.sampledBristles
+      ? Uint8Array.from(distances, distance => 1 + Math.round(total > 0
+        ? Math.min(total, (Math.floor(distance / bandPx) + 0.5) * bandPx) / total * 254 : 0))
+      : undefined;
     const aligned = alignSampledStampPositions({
       paintBuffer: buffer.getDirectData().buffer as ArrayBuffer,
       gradientIdBuffer: buffer.getDirectGradientIdData().buffer as ArrayBuffer,
@@ -99,10 +108,10 @@ export const createSampledStrokePreview = (
     }, {
       tags: ownership.stampDitherTag,
       primary: ownership.stampDitherPrimaryBuffer,
-      distances: ownership.stampSourceDistances,
       epoch: ownership.stampDitherStrokeEpoch ?? 1,
-    }, session.sampledAlignment?.bandPx, { slot: SECONDARY_PREVIEW_SLOT, defId: 0 },
-    session.sampledAlignment ? encodeColorCycleSpeedByte(session.sampledAlignment.speedCps) : undefined);
+    }, { slot: SECONDARY_PREVIEW_SLOT, defId: 0 },
+    session.sampledAlignment ? encodeColorCycleSpeedByte(session.sampledAlignment.speedCps) : undefined,
+    session.sampledBristles, previewSourceIndices);
     cached.buffer.getDirectData().set(new Uint8Array(aligned.paintBuffer));
     cached.buffer.getDirectGradientIdData().set(new Uint8Array(aligned.gradientIdBuffer!));
     cached.buffer.getDirectSpeedData().set(new Uint8Array(aligned.speedBuffer!));

@@ -3125,7 +3125,7 @@ class BrushWebGLRenderer {
         phase = fract(phase + (legacyDistanceIndex ? 0.0 : float(phaseByte) / 256.0));
         float base = legacyDistanceIndex ? float(phaseByte) : float(int(idx) - 1);
         base = clamp(base, 0.0, float(u_paletteSize - 1));
-        float adjustedPhase = phase;
+        float adjustedPhase = flowByte == uint(5) ? 0.0 : phase;
         if (flowByte == uint(3)) {
           adjustedPhase = phase < 0.5 ? phase * 2.0 : (1.0 - phase) * 2.0;
         }
@@ -3831,7 +3831,7 @@ const fillPixelsFromIndicesWithFractionalSpeedFlowPhase = (
       outPixels32[i] = 0;
       continue;
     }
-    const color = samplePalette32Fractional(
+    const color = encodedFlow === 5 ? palette[effective] : samplePalette32Fractional(
       palette, encodedFlow === 4 ? phaseByte : effective,
       encodedFlow === 4 ? resolveGobletPhase01(basePhase, 0) : phase, flowMode, paletteSize,
     ) >>> 0;
@@ -3900,7 +3900,7 @@ const fillPixelsFromIndicesWithFractionalSlotSpeeds = (
       outPixels32[i] = 0;
       continue;
     }
-    const color = samplePalette32Fractional(
+    const color = encodedFlow === 5 ? palette[effective] : samplePalette32Fractional(
       palette, encodedFlow === 4 ? phaseByte : effective,
       encodedFlow === 4 ? resolveGobletPhase01(basePhase, 0) : phase, flowMode, paletteSize,
     ) >>> 0;
@@ -3980,6 +3980,8 @@ class ColorCycleLayerPlayer {
     this._touchedSpeedListLen = 0;
     this._basePalette32BySlot = new Map();
     this._basePalette32ByDefId = new Map();
+    this.sampledPathPalettes = new Map();
+    this.sampledPathPaletteTable = null;
     this._fallbackPalette32 = null;
     this._basePaletteSize = 0;
     this.usePerPixelSpeed = false;
@@ -4398,6 +4400,22 @@ class ColorCycleLayerPlayer {
     const defPalettes = normalizeGradientDefPalettes(colorCycle.gradientDefStore);
     this.defGradients = defPalettes.gradients;
     this.defSeamProfiles = defPalettes.seamProfiles;
+    this.sampledPathPalettes.clear();
+    const sampledSources = new Map();
+    for (const def of colorCycle.gradientDefStore ?? []) {
+      if (!def.sampledPath) continue;
+      let source = sampledSources.get(def.sampledPath.rgba);
+      if (!source) {
+        source = Uint8Array.from(atob(def.sampledPath.rgba), c => c.charCodeAt(0));
+        if (!source.length || source.length % 4) throw new Error('Invalid sampled stroke colours');
+        sampledSources.set(def.sampledPath.rgba, source);
+      }
+      const pixel = this.gradientDefIdBuffer?.findIndex((id, i) => id === def.id && this.indexBuffer[i]);
+      const byte = pixel >= 0 ? this.speedBuffer?.[pixel] : 0;
+      const speed = byte ? decodeColorCycleSpeedByte(byte, colorCycle.speedMin, colorCycle.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX) : 0;
+      const rgba = new Uint8ClampedArray(1024);
+      this.sampledPathPalettes.set(def.id, { source, offset: def.sampledPath.offset, speed, rgba, packed: new Uint32Array(rgba.buffer) });
+    }
     this.cycleColors = DEFAULT_PALETTE_SIZE;
     this.mappingMode = 'continuous';
     this.flowMapping = 'palette';
@@ -4467,6 +4485,7 @@ class ColorCycleLayerPlayer {
         paletteTable.defRowById,
         expectedLength,
       );
+      this.sampledPathPaletteTable = paletteTable;
       renderer.setPalette(paletteTable.data, paletteTable.width, paletteTable.height);
       renderer.setSlotSpeeds(slotSpeedData);
       renderer.setBuffers(
@@ -4606,6 +4625,22 @@ class ColorCycleLayerPlayer {
     const defPalettes = normalizeGradientDefPalettes(colorCycle.gradientDefStore);
     this.defGradients = defPalettes.gradients;
     this.defSeamProfiles = defPalettes.seamProfiles;
+    this.sampledPathPalettes.clear();
+    const sampledSources = new Map();
+    for (const def of colorCycle.gradientDefStore ?? []) {
+      if (!def.sampledPath) continue;
+      let source = sampledSources.get(def.sampledPath.rgba);
+      if (!source) {
+        source = Uint8Array.from(atob(def.sampledPath.rgba), c => c.charCodeAt(0));
+        if (!source.length || source.length % 4) throw new Error('Invalid sampled stroke colours');
+        sampledSources.set(def.sampledPath.rgba, source);
+      }
+      const pixel = this.gradientDefIdBuffer?.findIndex((id, i) => id === def.id && this.indexBuffer[i]);
+      const byte = pixel >= 0 ? this.speedBuffer?.[pixel] : 0;
+      const speed = byte ? decodeColorCycleSpeedByte(byte, colorCycle.speedMin, colorCycle.speedMax, DEFAULT_SPEED_MIN, DEFAULT_SPEED_MAX) : 0;
+      const rgba = new Uint8ClampedArray(1024);
+      this.sampledPathPalettes.set(def.id, { source, offset: def.sampledPath.offset, speed, rgba, packed: new Uint32Array(rgba.buffer) });
+    }
     const explicitBufferMode = colorCycle?.speedMode === 'buffer';
     this.speedMode = explicitBufferMode ? 'buffer' : 'slot';
     this.slotSpeeds = !explicitBufferMode ? normalizeSlotSpeeds(colorCycle?.slotSpeeds) : null;
@@ -4888,6 +4923,24 @@ class ColorCycleLayerPlayer {
     }
     this._lastCpuFillMs = 0;
     this._lastCpuBlitMs = 0;
+    if (this.sampledPathPalettes.size) {
+      const time = this.getRenderTimeSeconds();
+      for (const [id, path] of this.sampledPathPalettes) {
+        const count = path.source.length / 4;
+        const shift = (((time * path.speed) % 1 + 1) % 1) * count;
+        for (let i = 0; i < 256; i++) {
+          const pos = ((path.offset + i - shift) % count + count) % count;
+          const lo = Math.floor(pos), hi = (lo + 1) % count, mix = pos - lo;
+          for (let c = 0; c < 4; c++) path.rgba[i * 4 + c] = Math.round(path.source[lo * 4 + c] * (1 - mix) + path.source[hi * 4 + c] * mix);
+        }
+        this._basePalette32ByDefId.set(id, path.packed);
+        const table = this.sampledPathPaletteTable;
+        const row = table?.defRowById.get(id);
+        if (row !== undefined) table.data.set(path.rgba, row * 1024);
+      }
+      const table = this.sampledPathPaletteTable;
+      if (this.useWebGL && this.webglRenderer && table) this.webglRenderer.setPalette(table.data, table.width, table.height);
+    }
     if (this.useWebGL && this.webglRenderer) {
       this._lastRenderPath = 'webgl';
       this.webglRenderer.render(this.getRenderTimeSeconds(), this.legacyOffset01);

@@ -1,3 +1,4 @@
+import { sampledPathSignature, type SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 import type { GradientStop } from '@/lib/GradientPalette';
 import {
   appendGradientSeamProfileSignature,
@@ -11,9 +12,11 @@ export type DefPaletteEntry = {
   hash: string;
   stops?: GradientStop[];
   seamProfile?: GradientSeamProfile;
+  sampledPath?: SampledPathPalette;
 };
 
 export type DefPaletteCache = {
+  sampledPaths: Map<number, SampledPathPalette>;
   signature: string;
   builtFromVersion: number | null;
   palettesById: Map<number, Uint32Array>;
@@ -34,7 +37,7 @@ export const buildDefPaletteSignature = (defs: DefPaletteEntry[]): string =>
   defs
     .map((entry) => {
       const stopsSignature = buildDefStopsSignature(entry.stops);
-      return `${entry.id}:${appendGradientSeamProfileSignature(entry.hash, entry.seamProfile)}:${stopsSignature}`;
+      return `${entry.id}:${appendGradientSeamProfileSignature(entry.hash, entry.seamProfile)}:${stopsSignature}:${entry.sampledPath ? sampledPathSignature(entry.sampledPath) : ''}`;
     })
     .sort()
     .join('|');
@@ -43,6 +46,7 @@ export const createDefPaletteCache = (
   defs: DefPaletteEntry[],
   builtFromVersion: number | null,
 ): DefPaletteCache => {
+  const sampledPaths = new Map<number, SampledPathPalette>();
   const palettesById = new Map<number, Uint32Array>();
   const rgbaById = new Map<number, Uint8ClampedArray | Uint8Array>();
   const signaturesById = new Map<number, string>();
@@ -51,6 +55,7 @@ export const createDefPaletteCache = (
     if (!def || !def.stops || def.stops.length === 0) {
       continue;
     }
+    if (def.sampledPath) sampledPaths.set(def.id, def.sampledPath);
     const handle = ensurePalette({
       stops: def.stops,
       seamProfile: normalizeGradientSeamProfile(def.seamProfile),
@@ -62,6 +67,7 @@ export const createDefPaletteCache = (
   }
 
   return {
+    sampledPaths,
     signature: buildDefPaletteSignature(defs),
     builtFromVersion,
     palettesById,

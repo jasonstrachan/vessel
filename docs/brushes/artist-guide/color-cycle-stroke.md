@@ -59,11 +59,14 @@ CC Shape also uses Band px. Linear fills measure along their direction; concentr
 fills measure inward from the polygon edge. Larger shapes add repeated bands.
 The dedicated Gradient tool retains its authored gradient range and ink controls.
 
-In Studio, new sampled stamp-dither strokes drawn with Unresolve enabled retain
-sample positions along the entire stroke. Band px groups nearby stamp positions;
-it does not repeat the complete sampled sequence every few bands. At Resolve,
-light and dark regions follow the source along the stroke. Each stamp keeps its
-shape, including at overlaps and crossings.
+In Studio, new sampled stamp-dither strokes drawn with Unresolve enabled and
+Bristles off sample the source at fixed Band px intervals along the path. Resolve
+restores those source colours in order. Long strokes retain the full sequence in
+palette sections, so bands do not stretch or repeat prematurely. Playback moves
+the sequence across section boundaries. Each stamp keeps its shape and both
+dither inks, including at overlaps and crossings. The drawing preview approximates
+the growing source sequence; release stores every source band. Existing strokes
+retain their saved mapping and need redrawing to use this repair.
 
 For Palette, FG Grad, Sample and Unresolve, the original dither mask selects between two palettes at the same colour position:
 a pair controlled by Ink Spd. At 0 both inks match the contrast-adjusted target; increasing
@@ -82,19 +85,23 @@ uses the shared clock speed from the first finished stroke, before Apply.
 The selected loop seam is applied to the target gradient before the inks are
 split, so a soft join preserves the same colour match throughout playback.
 
-Bristle Strength controls strand colour variation independently of width: 25% is
-the gentler default, 0% removes the colour offset, and 100% restores the original
-variation. It affects new marks; existing strokes retain their stored phases.
-
-This mapping currently applies to native stamp-dither strokes; Pickup, Pencil,
-Bristles and shape fills retain their own paths. The live drawing preview uses
+This mapping applies to native stamp-dither strokes, including Bristles with
+background fill enabled; Pickup, Pencil and shape fills retain their own paths.
+Bristles retain their configured strand width and transverse colour phase.
+Strength controls strand colour variation independently of width: 25% is the
+gentler default, 0% removes the colour offset, and 100% restores the original
+variation. It affects new marks; existing strokes retain their stored phases. Both
+inks on a strand use the same gradient position and phase, including with
+Unresolve, so their weighted mixture follows that strand’s intended colour.
+Very short strands and coarse dither cells may not contain the stroke-wide
+proportion of both inks; assess their colour over an area containing both. The live drawing preview uses
 the same Contrast, Ink Spread and dither-mask mapping as the finished stroke.
-All four modes split the complete 256-colour playback gradient, including colours
-between source points. Palette and FG Grad freeze their source on pointer-down. Sample and
+Palette, FG Grad and ordinary Sample split the complete 256-colour playback
+gradient, including colours between source points. Fixed-distance Unresolve
+splits every source band in its full sequence. Palette and FG Grad freeze their source on pointer-down. Sample and
 Unresolve still update as the path grows; their complete source sequence is frozen
-when the stroke finishes. Existing
-strokes cannot gain this alignment because their original stamp positions were
-not retained. Draw a new stroke to use it.
+when the stroke finishes. Previously stretched strokes retain their saved indices;
+redraw them to use fixed Band px spacing.
 
 FG Grad, Palette, Sample and Unresolve form one choice group. Choosing Unresolve
 selects sampling and enables shared playback for the selected layer; choosing

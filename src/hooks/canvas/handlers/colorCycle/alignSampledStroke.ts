@@ -7,8 +7,8 @@ import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 export type SampledStampPositions = {
   tags: Uint32Array;
   epoch: number;
-  distances: number[];
   primary: Uint8Array;
+  distances?: number[];
 };
 
 const toLinear = (byte: number): number => {
@@ -93,9 +93,10 @@ export const buildSampledInkPalettes = (stops: StoredStop[], spread = 0, primary
 export const alignSampledStampPositions = (
   snapshot: ColorCyclePaintSnapshot,
   ownership: SampledStampPositions,
-  bandPx: number | undefined,
   secondary?: { slot: number; defId: number },
   speedByte?: number,
+  preservePhase = false,
+  previewSourceIndices?: Uint8Array,
 ): ColorCyclePaintSnapshot => {
   const paint = new Uint8Array(snapshot.paintBuffer.slice(0));
   const gids = new Uint8Array(snapshot.gradientIdBuffer!.slice(0));
@@ -107,22 +108,17 @@ export const alignSampledStampPositions = (
     ? new Uint8Array(snapshot.flowBuffer.slice(0)) : new Uint8Array(paint.length);
   const speeds = snapshot.speedBuffer
     ? new Uint8Array(snapshot.speedBuffer.slice(0)) : new Uint8Array(paint.length);
-  const total = ownership.distances.at(-1) ?? 0;
-  const spacing = bandPx !== undefined && Number.isFinite(bandPx) ? Math.max(1, Math.min(256, Math.round(bandPx))) : 20;
-  const indices = bandPx === undefined ? undefined : ownership.distances.map((distance) => {
-    const grouped = Math.min(total, (Math.floor(distance / spacing) + 0.5) * spacing);
-    return 1 + Math.round(total > 0 ? grouped / total * 254 : 0);
-  });
   for (let i = 0; i < paint.length; i++) {
     if (!paint[i] || gids[i] !== TEMP_SAMPLE_SLOT || (ownership.tags[i] >>> 16) !== (ownership.epoch & 0xffff)) continue;
-    const index = indices ? indices[ownership.tags[i] & 0xffff] : ownership.primary[i];
+    const index = previewSourceIndices?.[ownership.tags[i] & 65535] ?? ownership.primary[i];
     if (!index) continue;
     const isSecondary = ownership.primary[i] !== paint[i];
     paint[i] = index;
-    // Ordinary Sample keeps its authored bands and animation; only the ink
-    // palette changes. Unresolve additionally aligns the source positions.
-    if (indices) {
-      phases[i] = 0;
+    // Keep distance-authored bands for both inks. Normalizing by total stroke
+    // length would stretch the gradient during preview and again on release.
+    if (speedByte !== undefined) {
+      // Bristles use this phase for strand identity; both inks retain it.
+      if (!preservePhase) phases[i] = 0;
       flows[i] = 1;
     }
     if (speedByte !== undefined) speeds[i] = speedByte;

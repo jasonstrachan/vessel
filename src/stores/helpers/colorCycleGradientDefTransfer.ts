@@ -17,6 +17,7 @@ const cloneDef = (
   def: TransferredColorCycleGradientDef
 ): TransferredColorCycleGradientDef => ({
   ...def,
+  sampledPath: def.sampledPath ? { ...def.sampledPath } : undefined,
   stops: cloneStops(def.stops),
   sourceStops: def.sourceStops ? cloneStops(def.sourceStops) : undefined,
 });
@@ -24,6 +25,7 @@ const cloneDef = (
 const definitionIdentity = (def: TransferredColorCycleGradientDef): string => JSON.stringify({
   hash: def.hash,
   sourceStops: def.sourceStops ?? null,
+  sampledPath: def.sampledPath ?? null,
   seamProfile: def.seamProfile ?? 'hard',
   speedCps: def.speedCps ?? null,
 });
@@ -308,6 +310,7 @@ export const mergeTransferredColorCycleGradientDefs = ({
   const existingById = new Map(nextStore.map((entry) => [entry.id, entry]));
   const existingByIdentity = new Map<string, TransferredColorCycleGradientDef>();
   nextStore.forEach((entry) => {
+    if (entry.sampledPath) return;
     const identity = definitionIdentity(entry);
     if (!existingByIdentity.has(identity)) {
       existingByIdentity.set(identity, entry);
@@ -329,13 +332,15 @@ export const mergeTransferredColorCycleGradientDefs = ({
     }
 
     const exactById = existingById.get(sourceId);
-    if (exactById && definitionIdentity(exactById) === definitionIdentity(sourceDef)) {
+    // Sampled rows animate using their owning pixels' speed. Identical colours
+    // do not make an incoming stroke interchangeable with existing paint.
+    if (!sourceDef.sampledPath && exactById && definitionIdentity(exactById) === definitionIdentity(sourceDef)) {
       remap.set(sourceId, sourceId);
       continue;
     }
 
-    const exactByIdentity = existingByIdentity.get(definitionIdentity(sourceDef));
-    if (exactByIdentity) {
+    const exactByIdentity = sourceDef.sampledPath ? undefined : existingByIdentity.get(definitionIdentity(sourceDef));
+    if (!sourceDef.sampledPath && exactByIdentity) {
       remap.set(sourceId, exactByIdentity.id);
       continue;
     }
@@ -362,7 +367,7 @@ export const mergeTransferredColorCycleGradientDefs = ({
     });
     nextStore.push(nextDef);
     existingById.set(targetId, nextDef);
-    existingByIdentity.set(definitionIdentity(nextDef), nextDef);
+    if (!nextDef.sampledPath) existingByIdentity.set(definitionIdentity(nextDef), nextDef);
     remap.set(sourceId, targetId);
     storeChanged = true;
   }

@@ -25,7 +25,7 @@ export const decodeColorCycleSpeedByte = (
 
 export const resolveGobletFlowMode = (flowMode) => {
   // Legacy morph documents retain their distance index in the phase channel.
-  if (flowMode === 4) return 4;
+  if (flowMode === 4 || flowMode === 5) return flowMode;
   if (flowMode === GOBLET_FLOW_MODE_REVERSE) {
     return GOBLET_FLOW_MODE_REVERSE;
   }

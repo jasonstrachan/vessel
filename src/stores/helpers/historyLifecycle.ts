@@ -237,6 +237,7 @@ const cloneLayerForHistory = (
             createdAtMs: entry.createdAtMs,
             slot: entry.slot,
             speedCps: entry.speedCps,
+            sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
           }))
         : undefined,
       nextGradientDefId: existingColorCycleData.nextGradientDefId,

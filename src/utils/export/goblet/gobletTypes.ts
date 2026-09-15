@@ -1,4 +1,5 @@
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
+import type { SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 import type { LayerTransform } from '@/utils/layerAlignment';
 import type {
   AdjustmentLayerData,
@@ -119,6 +120,7 @@ export type SerializedGradientDefinition = {
   id: number;
   stops: SerializedGradientStops;
   seamProfile?: GradientSeamProfile;
+  sampledPath?: SampledPathPalette;
 };
 
 export type NumericExportBuffer = number[] | Uint8Array | Uint16Array | string;

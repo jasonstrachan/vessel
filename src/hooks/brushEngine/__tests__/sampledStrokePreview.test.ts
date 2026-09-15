@@ -10,7 +10,7 @@ import { bindLayerStrokeBuffersToAnimator, createLayerStrokeState } from '../col
 import { createSampledStrokePreview } from '../sampledStrokePreview';
 import { createStampDitherRuntime, finalizeStampDither, type StampDitherAlgorithm } from '../strokeStampDither';
 
-it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].flatMap((unresolve) => (['sierra-lite', 'bayer', 'pattern'] as StampDitherAlgorithm[]).map((algorithm) => ({ source, unresolve, algorithm })))) )('previews committed $source $algorithm inks with Unresolve $unresolve without touching authoring', ({ source: gradientSource, unresolve, algorithm }) => {
+it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].flatMap((unresolve) => (['sierra-lite', 'bayer', 'pattern'] as StampDitherAlgorithm[]).flatMap((algorithm) => [false, true].map(bristles => ({ source, unresolve, algorithm, bristles }))))) )('previews committed $source $algorithm inks with Unresolve $unresolve and Bristles $bristles without touching authoring', ({ source: gradientSource, unresolve, algorithm, bristles }) => {
   const layer: Layer = {
     id: 'preview-inks', name: 'Inks', visible: true, opacity: 1, blendMode: 'source-over',
     locked: false, transparencyLocked: false, order: 0, imageData: null,
@@ -23,7 +23,7 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
   useAppStore.setState((state) => ({ layers: [layer], activeLayerId: layer.id,
     tools: { ...state.tools, brushSettings: { ...state.tools.brushSettings,
       colorCycleStampDitherEnabled: true, colorCycleStampDitherBgFill: true,
-      colorCyclePencilEnabled: false, colorCycleBristlesEnabled: false, colorCyclePickupEnabled: false,
+      colorCyclePencilEnabled: false, colorCycleBristlesEnabled: bristles, colorCyclePickupEnabled: false,
       ccGradientRangeContrast: 40, ditherPaletteSpread: 50, colorCycleBandSpacingPx: 20,
       colorCycleGradientSeamProfile: 'soft',
     } },
@@ -31,15 +31,6 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
   const source = [{ position: 0, color: '#606060' }, { position: 1, color: '#a08080' }];
   const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: gradientSource, stops: source });
   if (!session) throw new Error('Missing session');
-  expect(session.source).toBe(gradientSource);
-  expect(session.sampledPairedInks).toBe(true);
-  expect(session.sampledSourceSeamProfile).toBe('soft');
-  expect(session.seamProfile).toBe('hard');
-  if (gradientSource !== 'sampled') {
-    expect(session.previewStopsStored).toEqual(source);
-    expect(session.sampledAlignment).toBeUndefined();
-    expect(session.speedCps).toBeUndefined();
-  }
   session.previewStopsStored = source;
   const stroke = createLayerStrokeState({ bufferSize: 4, strokeCycleSpeed: 0.05, strokeSpeedByte: 8 });
   const animator = new ColorCycleAnimator({ width: 4, height: 1, forceCanvas2D: true });
@@ -52,7 +43,7 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
   stroke.buffers.spd.fill(8);
   stroke.stampDither = { stampDitherTag: new Uint32Array([65537, 65537, 65538, 0]),
     stampDitherPrimaryBuffer: new Uint8Array([20, 20, 100, 0]),
-    stampSourceDistances: [0, 0, 100], stampDitherStrokeEpoch: 1, stampDitherStampSeq: 2,
+    stampDitherStrokeEpoch: 1, stampDitherStampSeq: 2,
     stampDitherBounds: { minX: 0, minY: 0, maxX: 2, maxY: 0 } };
   const original = Object.fromEntries(Object.entries(stroke.buffers).map(([key, buffer]) => [key, [...buffer]]));
   const setDefIdData = jest.spyOn(animator, 'setDefIdData');
@@ -62,16 +53,26 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
   let mapped: Uint8Array | undefined;
   let mappedGid: Uint8Array | undefined;
   try {
+    expect(session.source).toBe(gradientSource);
+    expect(session.sampledPairedInks).toBe(true);
+    expect(session.sampledSourceSeamProfile).toBe('soft');
+    expect(session.seamProfile).toBe('hard');
+    if (gradientSource !== 'sampled') {
+      expect(session.previewStopsStored).toEqual(source);
+      expect(session.sampledAlignment).toBeUndefined();
+      expect(session.speedCps).toBeUndefined();
+    }
     const preview = createSampledStrokePreview(layer.id, animator, stroke, 1, () => dither);
     expect(preview).toBeDefined();
     preview!(() => {
       const { data: paint, gid } = animator.getIndexBuffers();
       mapped = paint.slice();
       mappedGid = gid!.slice();
+      if (bristles) expect([...animator.getIndexBuffers().phase!]).toEqual(original.phase);
       expect(paint).not.toBe(stroke.buffers.paint);
       expect([...stroke.buffers.paint]).toEqual(original.paint);
       expect(gid![3]).toBe(3);
-      expect(paint[0]).toBe(paint[1]);
+      expect([...paint]).toEqual([20, 20, 100, 9]);
       expect(paint[3]).toBe(9);
       expect([...setDefIdData.mock.calls.at(-1)![0]!]).toEqual([0, 0, 0, 7]);
     });
@@ -79,6 +80,15 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
     expect(() => preview!(() => { throw new Error('render failed'); })).toThrow('render failed');
     expect(setDefIdData.mock.calls.at(-1)![0]).toBe(stroke.buffers.def);
     expect(Object.fromEntries(Object.entries(stroke.buffers).map(([key, buffer]) => [key, [...buffer]]))).toEqual(original);
+    if (gradientSource === 'sampled' && unresolve && !bristles) {
+      stroke.stampDither.stampSourceDistances = [0, 0, 600];
+      const sourcePreview = createSampledStrokePreview(layer.id, animator, stroke, 2, () => dither);
+      sourcePreview!(() => {
+        expect([...animator.getIndexBuffers().data]).toEqual([5, 5, 255, 9]);
+        expect([...stroke.buffers.paint]).toEqual(original.paint);
+      });
+      delete stroke.stampDither.stampSourceDistances;
+    }
     finalizeStampDither({ ...dither, animator, width: 4, height: 1, flowSlot: 254, state: {
       ...stroke.stampDither, paint: stroke.buffers.paint, gradientIdBuffer: stroke.buffers.gid,
       gradientDefIdBuffer: stroke.buffers.def, speedBuffer: stroke.buffers.spd,
@@ -90,7 +100,7 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
       paintBuffer: stroke.buffers.paint.buffer as ArrayBuffer,
       gradientIdBuffer: stroke.buffers.gid.buffer as ArrayBuffer,
     }, { tags: stroke.stampDither.stampDitherTag!, primary: stroke.stampDither.stampDitherPrimaryBuffer!,
-      distances: stroke.stampDither.stampSourceDistances!, epoch: 1 }, final.sampledAlignment?.bandPx,
+      epoch: 1 },
     { slot: 5, defId: 12 });
     expect(mapped).toEqual(new Uint8Array(aligned.paintBuffer));
     expect(mappedGid).toEqual(new Uint8Array(aligned.gradientIdBuffer!).map((slot) => slot === 5 ? 255 : slot));

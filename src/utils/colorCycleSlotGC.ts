@@ -291,7 +291,7 @@ export const rebuildGradientSlotUsageAndGC = (args: {
     const needsSlot: typeof defStore = [];
     usedDefIds.forEach((id) => {
       const def = defById.get(id);
-      if (!def) return;
+      if (!def || def.sampledPath) return;
       if (typeof def.slot === 'number') {
         const slot = clampSlot(def.slot);
         usedDefSlots.add(slot);

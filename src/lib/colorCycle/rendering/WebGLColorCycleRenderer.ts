@@ -783,7 +783,7 @@ export class WebGLColorCycleRenderer {
             dir = -dirForward;
           }
         }
-        float shift = dir * phase * u_paletteSize;
+        float shift = fFlow > 4.5 && fFlow < 5.5 ? 0.0 : dir * phase * u_paletteSize;
 
         float pIdx = mod(base + shift + u_paletteSize * 4.0, u_paletteSize);
         float pBase = floor(pIdx);
