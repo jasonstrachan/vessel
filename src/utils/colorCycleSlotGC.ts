@@ -163,6 +163,7 @@ export const rebuildGradientSlotUsageAndGC = (args: {
   layerId?: string;
   reservedSlots?: Set<number>;
   activeSessionSlots?: Set<number>;
+  retainedDefIdsByLayer?: ReadonlyMap<string, ReadonlySet<number>>;
   nowMs?: number;
 }): GradientSlotRebuildResult | null => {
   const scope = args.scope ?? 'layer';
@@ -218,7 +219,8 @@ export const rebuildGradientSlotUsageAndGC = (args: {
       pixelsScanned += layerPixels;
     }
     usedDefsCount += usedDefIdsForLayer.size;
-    const usedDefIds = scope === 'project' ? (globalUsedDefIds ?? new Set<number>()) : usedDefIdsForLayer;
+    const usedDefIds = new Set(scope === 'project' ? globalUsedDefIds : usedDefIdsForLayer);
+    args.retainedDefIdsByLayer?.get(layer.id)?.forEach((id) => usedDefIds.add(id));
 
     if (usedDefIdsForLayer.size === 0 && defStore.length === 0) {
       continue;

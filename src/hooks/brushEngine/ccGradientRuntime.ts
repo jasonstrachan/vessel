@@ -82,7 +82,7 @@ const resolveSlotSeamProfile = (
   session: MarkGradientSession | null,
 ): GradientSeamProfile => {
   if (session) {
-    const sampledSlot = session.source === 'sampled' ? TEMP_SAMPLE_SLOT : null;
+    const sampledSlot = (session.source === 'sampled' || session.sampledPairedInks) ? TEMP_SAMPLE_SLOT : null;
     if (session.binding?.slot === slot || sampledSlot === slot) {
       return resolveSessionSeamProfile(session);
     }
@@ -185,7 +185,7 @@ export const buildRuntimeSnapshot = (
     hasPreviewStops: Boolean(activeSession?.previewStopsStored?.length),
     hasFallbackStops: Boolean(activeSession?.fallbackStopsStored?.length),
   });
-  if (activeSession?.source === 'sampled') {
+  if (activeSession?.source === 'sampled' || activeSession?.sampledPairedInks) {
     const sampledStops =
       activeSession.previewStopsStored && activeSession.previewStopsStored.length >= 2
         ? activeSession.previewStopsStored

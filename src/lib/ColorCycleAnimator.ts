@@ -217,6 +217,26 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     this.setIndexBufferFromArray(data, gid, spd, flow, phase);
   }
 
+  /** Present transient indices without writing through shared authoring buffers. */
+  withPreviewIndexBuffer(preview: IndexBuffer, defIds: Uint16Array, draw: () => void): void {
+    const original = this.indexBuffer;
+    const originalDefs = this.defIdData;
+    try {
+      this.indexBuffer = preview;
+      // GPU textures belong to the previously rendered buffer, so a local
+      // dirty rectangle cannot describe this whole-buffer replacement.
+      preview.markDirty();
+      this._glIndexDirty = true;
+      this.setDefIdData(defIds, { forceDirty: true });
+      draw();
+    } finally {
+      this.indexBuffer = original;
+      original.markDirty();
+      this._glIndexDirty = true;
+      this.setDefIdData(originalDefs, { forceDirty: true });
+    }
+  }
+
   rebuild(snapshot: ColorCycleLayerDocumentSnapshot, version: number): void {
     const layerBaseSpeedCps = snapshot.layerBaseSpeedCps;
     this.layerSpeedMultiplier = sanitizeColorCycleLayerSpeedMultiplier(layerBaseSpeedCps);

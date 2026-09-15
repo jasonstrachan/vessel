@@ -25,6 +25,51 @@ const makeAnimator = (renderToCanvas2D: jest.Mock): ColorCycleAnimator => ({
 } as unknown as ColorCycleAnimator);
 
 describe('ColorCyclePresenter', () => {
+  it('refreshes a static preview and restores the committed frame without a document edit', () => {
+    const target = makeCanvas();
+    document.body.appendChild(target);
+    const presenter = new ColorCyclePresenter(target);
+    const render = jest.fn();
+    const layer: ColorCyclePresenterCompositeLayer = {
+      layerId: 'static-preview', animator: makeAnimator(render),
+      documentRead: makeDocumentRead(1), tier: 'static',
+    };
+    const preview = jest.fn((draw: () => void) => draw());
+    presenter.renderCompositeLayers([layer], 'test');
+    presenter.renderCompositeLayers([{ ...layer, renderPreview: preview }], 'test');
+    presenter.renderCompositeLayers([{ ...layer, renderPreview: preview }], 'test');
+    expect(preview).toHaveBeenCalledTimes(2);
+    presenter.renderCompositeLayers([layer], 'test');
+    expect(render).toHaveBeenCalledTimes(4);
+    expect(layer.animator.forceRender).toHaveBeenCalledTimes(4);
+    presenter.renderCompositeLayers([layer], 'test');
+    expect(render).toHaveBeenCalledTimes(4);
+    target.remove();
+  });
+
+  it.each(['direct', 'composite'] as const)('renders %s preview pixels before restoring the authoring surface', (path) => {
+    const target = makeCanvas();
+    document.body.appendChild(target);
+    const presenter = new ColorCyclePresenter(target);
+    const events: string[] = [];
+    const animator = makeAnimator(jest.fn(() => { events.push('draw'); }));
+    animator.forceRender = jest.fn(() => { events.push('render'); return true; });
+    const renderPreview = (draw: () => void) => {
+      events.push('preview');
+      try { draw(); } finally { events.push('restore'); }
+    };
+    if (path === 'direct') {
+      presenter.renderDirectToCanvas({ targetCanvas: target, ctx: target.getContext('2d')!,
+        layerId: 'preview', animator, documentRead: makeDocumentRead(1),
+        hasRenderableContent: true, preserveExternalBase: false, renderPreview });
+    } else {
+      presenter.renderCompositeLayers([{ layerId: 'preview', animator,
+        documentRead: makeDocumentRead(1), tier: 'animated', renderPreview }], 'preview');
+    }
+    expect(events).toEqual(['preview', 'render', 'draw', 'restore']);
+    target.remove();
+  });
+
   it('flushes versioned dirty batches to the scheduled render callback', () => {
     const target = makeCanvas();
     document.body.appendChild(target);

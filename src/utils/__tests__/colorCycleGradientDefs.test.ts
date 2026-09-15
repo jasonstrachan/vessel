@@ -388,6 +388,33 @@ describe('colorCycleGradientDefs', () => {
     ).toHaveLength(254);
   });
 
+  it('retains the pending primary ink while allocating the second ink at capacity', () => {
+    const gradientDefStore = Array.from({ length: 253 }, (_, slot) => ({
+      id: slot + 1, slot, kind: 'linear' as const, source: 'sampled' as const,
+      createdAtMs: 0, stops: baseStops, hash: `occupied-${slot}`,
+    }));
+    const layer = createLayer({
+      colorCycleData: attachLegacyColorCycleTopLevelBuffers({
+        gradientDefStore, nextGradientDefId: 254, gradientDefs: [],
+        slotPalettes: gradientDefStore.map((def) => ({ slot: def.slot, stops: def.stops })),
+      }, { gradientDefIdBuffer: Uint16Array.from(gradientDefStore.map((def) => def.id)).buffer }),
+    });
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const primary = ensureGradientDefForStops({ layerId: layer.id, kind: 'linear', stops: altStops, source: 'sampled' });
+    expect(primary?.slot).toBe(253);
+    const secondary = ensureGradientDefForStops({
+      layerId: layer.id, kind: 'linear', source: 'sampled',
+      stops: [{ position: 0, color: '#0000ff' }, { position: 1, color: '#ffff00' }],
+      retainedDefIds: [primary!.def.id], sampledCapacityFallback: 'reuse-nearest-compatible',
+    });
+    expect(secondary?.reusedForCapacity).toBe(true);
+    const updated = useAppStore.getState().layers[0].colorCycleData!;
+    expect(updated.gradientDefStore?.find((def) => def.id === primary!.def.id)?.slot).toBe(253);
+    expect(updated.slotPalettes?.find((palette) => palette.slot === 253)?.stops).toEqual(altStops);
+    expect(updated.gradientDefStore).toHaveLength(254);
+    expect(updated.gradientDefStore?.slice(0, 253).map((def) => def.stops)).toEqual(gradientDefStore.map((def) => def.stops));
+  });
+
   it('stores seam profile per def and treats soft/hard variants as distinct defs', () => {
     const layer = createLayer();
     useAppStore.setState({ layers: [layer], activeLayerId: layer.id });

@@ -188,12 +188,14 @@ const reportDefIdAllocationFailure = (layerId: string) => {
   logError('[CC] Gradient def id allocation failed', { layerId });
 };
 
-const runProjectSlotRebuild = (layerId: string) => {
+const runProjectSlotRebuild = (layerId: string, retainedDefIds?: number[]) => {
   const state = useAppStore.getState();
   const result = rebuildGradientSlotUsageAndGC({
     layers: state.layers,
     scope: 'project',
     reservedSlots: buildDefaultReservedSlots(),
+    retainedDefIdsByLayer: retainedDefIds?.length
+      ? new Map([[layerId, new Set(retainedDefIds)]]) : undefined,
   });
   if (!result) {
     return null;
@@ -223,6 +225,7 @@ export const ensureGradientDefForStops = (params: {
   speedCps?: number;
   seamProfile?: GradientSeamProfile;
   sampledCapacityFallback?: 'reuse-nearest-compatible';
+  retainedDefIds?: number[];
   updateOptions?: {
     skipColorCycleSync?: boolean;
   };
@@ -414,7 +417,7 @@ export const ensureGradientDefForStops = (params: {
       }
       return null;
     },
-    runRebuild: () => runProjectSlotRebuild(params.layerId),
+    runRebuild: () => runProjectSlotRebuild(params.layerId, params.retainedDefIds),
     throttleKey: `cc-slot-rebuild:${params.layerId}`,
     throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
   });

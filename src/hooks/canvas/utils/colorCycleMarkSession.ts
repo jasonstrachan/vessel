@@ -1,3 +1,4 @@
+import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { buildSampledInkPalettes } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
 import studioExtension from '@/extensions/studioExtension';
 import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
@@ -45,6 +46,9 @@ export type MarkGradientSession = {
   isRuntimePalette?: boolean;
   sampledMotion?: ColorCycleSampledMotion;
   sampledAlignment?: { bandPx: number; pairedInks: boolean; speedCps: number };
+  sampledPairedInks?: boolean;
+  sampledSourceSeamProfile?: GradientSeamProfile;
+  sampledPrimaryCoverage?: number;
   sampledSecondaryStops?: StoredStop[];
   rawStopsStored?: StoredStop[];
   frozenStopsStored: StoredStop[];
@@ -105,6 +109,25 @@ export const registerMarkGradientPointerDownRef = (
 };
 let markCounter = 0;
 
+export const resolveSampledStrokeInkPalettes = (
+  session: Pick<MarkGradientSession, 'ditherRenderConfig' | 'sampledRepresentativeColor' | 'sampledPrimaryCoverage' | 'source' | 'sampledSourceSeamProfile'>,
+  stops: StoredStop[],
+  rangeContrast = session.ditherRenderConfig?.rangeContrast,
+): ReturnType<typeof buildSampledInkPalettes> => {
+  let targets = applyCcGradientContrast(stops, rangeContrast, session.sampledRepresentativeColor);
+  if (targets.length > 1) {
+    // Split the colours actually traversed by playback, not just authored nodes.
+    // Bake the source seam before splitting: blending separate inks afterwards
+    // does not preserve their linear-light mixture. Output palettes use a hard seam.
+    const { rgba } = ensurePalette({ stops: targets, seamProfile: session.sampledSourceSeamProfile });
+    targets = Array.from({ length: 256 }, (_, i) => ({
+      position: i / 255,
+      color: `rgba(${rgba[i * 4]}, ${rgba[i * 4 + 1]}, ${rgba[i * 4 + 2]}, ${rgba[i * 4 + 3] / 255})`,
+    }));
+  }
+  return buildSampledInkPalettes(targets, session.ditherRenderConfig?.spread, session.sampledPrimaryCoverage);
+};
+
 const nextMarkId = () => {
   markCounter += 1;
   return `cc-mark-${markCounter}`;
@@ -143,13 +166,12 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
     session.rawStopsStored,
     { rangeContrast: liveGradientContrast },
   );
-  if (session.sampledAlignment?.pairedInks) {
-    const baseStops = applyCcGradientContrast(
+  if (session.sampledPairedInks) {
+    const inks = resolveSampledStrokeInkPalettes(
+      session,
       session.rawStopsStored,
       liveGradientContrast,
-      session.sampledRepresentativeColor,
     );
-    const inks = buildSampledInkPalettes(baseStops, session.ditherRenderConfig?.spread);
     session.frozenStopsStored = inks.primary;
     session.sampledSecondaryStops = inks.secondary;
   }
@@ -199,7 +221,7 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
 export const resolveMarkSessionRuntimeStops = (
   session: Pick<
     MarkGradientSession,
-    'ditherRenderConfig' | 'source' | 'sampledRepresentativeColor' | 'isRuntimePalette'
+    'ditherRenderConfig' | 'source' | 'sampledRepresentativeColor' | 'isRuntimePalette' | 'sampledPairedInks'
   > | null | undefined,
   stops: StoredStop[],
   liveOverrides?: {
@@ -213,6 +235,15 @@ export const resolveMarkSessionRuntimeStops = (
   },
 ): StoredStop[] => {
   const clonedStops = cloneStops(stops);
+  if (session?.sampledPairedInks) {
+    // These inputs are raw sampled colours even though their committed output
+    // is a runtime palette. Contrast must also apply while the mark is active.
+    return applyCcGradientContrast(
+      clonedStops,
+      liveOverrides?.rangeContrast ?? session.ditherRenderConfig?.rangeContrast,
+      session.sampledRepresentativeColor,
+    );
+  }
   if (session?.isRuntimePalette) {
     return clonedStops;
   }
@@ -327,31 +358,34 @@ export const beginMarkGradientSession = (params: {
     }
   }
   const alignment = studioExtension.sampledStrokeAlignment?.(params.layerId);
-  const sampledAlignment = !colourPickup && params.markKind === 'stroke' &&
+  const sampledDitherStroke = !colourPickup && params.markKind === 'stroke' &&
         state.tools.brushSettings.colorCycleStampDitherEnabled &&
-        !state.tools.brushSettings.colorCyclePencilEnabled && !state.tools.brushSettings.colorCycleBristlesEnabled &&
-        alignment
+        !state.tools.brushSettings.colorCyclePencilEnabled && !state.tools.brushSettings.colorCycleBristlesEnabled;
+  const sampledPairedInks = Boolean(sampledDitherStroke && state.tools.brushSettings.colorCycleStampDitherBgFill !== false);
+  const sampledAlignment = params.source === 'sampled' && sampledDitherStroke && alignment
         ? { bandPx: state.tools.brushSettings.colorCycleBandSpacingPx ?? 20, speedCps: alignment.speedCps,
             pairedInks: state.tools.brushSettings.colorCycleStampDitherBgFill !== false } : undefined;
-  if (params.source === 'sampled' || colourPickup) {
+  if (params.source === 'sampled' || colourPickup || sampledPairedInks) {
     const session: MarkGradientSession = {
       markId: nextMarkId(),
       colourPickup,
       layerId: params.layerId,
       markKind: params.markKind,
       gradientKind: params.gradientKind,
-      source: 'sampled',
-      seamProfile,
-      isRuntimePalette: isRuntimePalette || (!colourPickup && params.markKind === 'stroke' &&
+      source: colourPickup ? 'sampled' : params.source,
+      seamProfile: sampledPairedInks ? 'hard' : seamProfile,
+      sampledSourceSeamProfile: sampledPairedInks ? seamProfile : undefined,
+      isRuntimePalette: isRuntimePalette || sampledPairedInks || (!colourPickup && params.markKind === 'stroke' &&
         studioExtension.preserveSampledStrokePalette === true),
       sampledMotion,
       sampledAlignment,
+      sampledPairedInks,
       rawStopsStored: cloneStops(frozenStops),
       frozenStopsStored: frozenStops,
       frozenHash: '',
       binding: null,
       speedCps: sampledAlignment?.speedCps ?? params.speedCps,
-      previewStopsStored: null,
+      previewStopsStored: params.source !== 'sampled' && !colourPickup ? cloneStops(frozenStops) : null,
       previewHash: '',
       fallbackStopsStored: colourPickup ? cloneStops(colourPickup.baseStops) : [],
       samples: [],
@@ -408,7 +442,7 @@ export const finalizeMarkGradientSession = (layerId: string): MarkGradientSessio
     isFinalizingSession = true;
   }
   try {
-    if (session?.source === 'sampled') {
+    if (session?.source === 'sampled' || session?.sampledPairedInks) {
       finalizeSampledSession(session);
     }
     sessionsByLayer.delete(layerId);
@@ -425,7 +459,8 @@ export const cancelMarkGradientSession = (layerId: string): void => {
     ccWarn('cancel during active mark', { layerId, stack: new Error().stack ?? null });
     return;
   }
-  if (sessionsByLayer.get(layerId)?.source === 'sampled') {
+  const session = sessionsByLayer.get(layerId);
+  if (session?.source === 'sampled' || session?.sampledPairedInks) {
     sampledTempSlotStateByLayer.set(layerId, 'abandoned');
   }
   sessionsByLayer.delete(layerId);
@@ -434,7 +469,7 @@ export const cancelMarkGradientSession = (layerId: string): void => {
 export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradientResult | null => {
   const session = sessionsByLayer.get(layerId);
   if (session) {
-    if (session.source === 'sampled') {
+    if (session.source === 'sampled' || session.sampledPairedInks) {
       const sampledStops =
         session.previewStopsStored && session.previewStopsStored.length >= 2
           ? session.previewStopsStored
@@ -451,7 +486,7 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
         return null;
       }
       return {
-        source: 'sampled',
+        source: session.source,
         phase: session.binding ? 'final' : 'sampling',
         stopsStored: session.colourPickup ? cloneStops(sampledStops) : applyCcGradientContrast(
           sampledStops,

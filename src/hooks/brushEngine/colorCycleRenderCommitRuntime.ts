@@ -13,8 +13,10 @@ import type {
   ColorCyclePresenterDirectRenderParams,
 } from './colorCyclePresenter';
 import type { LayerStrokeState, SerializedLayerColorCycleMeta } from './colorCycleCanvas2DTypes';
+import { createSampledStrokePreview, type SampledStrokePreviewDither } from './sampledStrokePreview';
 
 export type ColorCycleRenderCommitContext = {
+  getSampledStrokePreviewDither?: (stroke: LayerStrokeState) => SampledStrokePreviewDither;
   renderCompositeLayers(layers: ColorCyclePresenterCompositeLayer[], reason: string): boolean;
   cancelScheduledRender(): void;
   notifyFrameRendered(dirtyBatches: ColorCycleLayerDirtyBatch[]): void;
@@ -65,6 +67,8 @@ export function renderColorCycleFrame(
       layerId,
       animator,
       documentRead: context.getLayerDocumentRead(layerId),
+      renderPreview: createSampledStrokePreview(layerId, animator, strokeData,
+        context.getLayerDocumentRead(layerId)?.version, context.getSampledStrokePreviewDither),
       tier: context.isAnimating() ? 'animated' : 'static',
       prepare: () => {
         const defs = context.getLayerColorCycleMeta(layerId)?.gradientDefStore as Array<{
@@ -180,6 +184,8 @@ const renderColorCycleLayerToCanvas = (
     layerId,
     animator,
     documentRead,
+    renderPreview: createSampledStrokePreview(layerId, animator, strokeData, documentRead?.version,
+      context.getSampledStrokePreviewDither),
     hasRenderableContent,
     preserveExternalBase: Boolean(strokeData?.externalBase.hasExternalBase),
     applyMask: applyColorCycleMask,

@@ -1,7 +1,28 @@
-import { alignSampledStampPositions, buildSampledInkPalettes } from '../alignSampledStroke';
+import { alignSampledStampPositions, buildSampledInkPalettes, measureSampledInkCoverage } from '../alignSampledStroke';
 import { OKLabConverter } from '@/lib/colorCycle/colorSpace/OKLabConverter';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
+
+it.each([25, 50, 100])('keeps neighbouring near-neutral samples continuous at spread %s', (spread) => {
+  for (const channel of [0, 1, 2]) {
+    let previous: ReturnType<typeof buildSampledInkPalettes> | undefined;
+    for (let value = 110; value <= 150; value++) {
+      const rgb = [128, 128, 128];
+      rgb[channel] = value;
+      const next = buildSampledInkPalettes([{ position: 0, color: `rgb(${rgb.join(',')})` }], spread);
+      if (previous) {
+        for (const key of ['primary', 'secondary'] as const) {
+          const before = parseCssColorToRgba(previous[key][0].color);
+          const after = parseCssColorToRgba(next[key][0].color);
+          const a = OKLabConverter.rgbToOKLab({ r: before[0], g: before[1], b: before[2] });
+          const b = OKLabConverter.rgbToOKLab({ r: after[0], g: after[1], b: after[2] });
+          expect(Math.hypot(a.L - b.L, a.a - b.a, a.b - b.b)).toBeLessThan(0.025);
+        }
+      }
+      previous = next;
+    }
+  }
+});
 
 it('maps the whole sampled sequence once, preserves the ink mask, and leaves other strokes alone', () => {
   const paint = new Uint8Array([1, 65, 80, 144, 150, 214, 0, 9]);
@@ -29,7 +50,7 @@ it('uses owning stamps at crossings, with distance-sized groups instead of repea
   expect([...new Uint8Array(result.paintBuffer)]).toEqual([255, 26, 26]);
 });
 
-it('separates sampled inks perceptually from identical colours to colourful opposing hues', () => {
+it('increases ink separation within the target colour gamut', () => {
   const stops = ['#6080a0', '#808080', '#101010', '#eeeeee', '#ce3420'].map((color, i) => ({
     position: i / 4, color, opacity: 0.5,
   }));
@@ -47,14 +68,9 @@ it('separates sampled inks perceptually from identical colours to colourful oppo
   expect(zero.primary).toEqual(stops);
   expect(zero.secondary).toEqual(stops);
   for (let i = 0; i < stops.length; i++) {
-    const dark = toLab(full.primary[i].color);
-    const light = toLab(full.secondary[i].color);
-    expect(distance(full.primary[i].color, full.secondary[i].color)).toBeGreaterThan(0.45);
+    expect(distance(full.primary[i].color, full.secondary[i].color)).toBeGreaterThan(0.01);
     expect(distance(full.primary[i].color, full.secondary[i].color))
       .toBeGreaterThan(distance(middle.primary[i].color, middle.secondary[i].color));
-    expect(Math.hypot(dark.a, dark.b)).toBeGreaterThan(0.04);
-    expect(Math.hypot(light.a, light.b)).toBeGreaterThan(0.04);
-    expect(dark.a * light.a + dark.b * light.b).toBeLessThan(0);
     expect(full.primary[i].position).toBe(stops[i].position);
     expect(full.secondary[i].opacity).toBe(0.5);
   }
@@ -70,4 +86,76 @@ it('preserves CSS alpha and clamps spread without mutating sampled stops', () =>
   expect(buildSampledInkPalettes(stops, 200)).toEqual(result);
   expect(buildSampledInkPalettes(stops, NaN)).toEqual(buildSampledInkPalettes(stops, 0));
   expect(JSON.stringify(stops)).toBe(original);
+});
+
+it('assigns ordinary Sample inks without changing band positions, speed, flow or phase', () => {
+  const snapshot = {
+    paintBuffer: new Uint8Array([20, 147, 80, 207, 0, 9]).buffer,
+    gradientIdBuffer: new Uint8Array([254, 254, 254, 254, 254, 3]).buffer,
+    phaseBuffer: new Uint8Array([1, 2, 3, 4, 5, 6]).buffer,
+    speedBuffer: new Uint8Array([10, 11, 12, 13, 14, 15]).buffer,
+    flowBuffer: new Uint8Array([2, 2, 3, 3, 1, 1]).buffer,
+  };
+  const result = alignSampledStampPositions(snapshot, {
+    tags: new Uint32Array([65537, 65537, 65538, 65538, 0, 0]),
+    epoch: 1, distances: [0, 0, 100], primary: new Uint8Array([20, 20, 80, 80, 0, 0]),
+  }, undefined, { slot: 5, defId: 11 });
+  expect([...new Uint8Array(result.paintBuffer)]).toEqual([20, 20, 80, 80, 0, 9]);
+  expect([...new Uint8Array(result.gradientIdBuffer!)]).toEqual([254, 5, 254, 5, 254, 3]);
+  expect([...new Uint16Array(result.gradientDefIdBuffer!)]).toEqual([0, 11, 0, 11, 0, 0]);
+  expect(result.phaseBuffer).toEqual(snapshot.phaseBuffer);
+  expect(result.speedBuffer).toEqual(snapshot.speedBuffer);
+  expect(result.flowBuffer).toEqual(snapshot.flowBuffer);
+});
+
+const linear = (byte: number) => byte <= 10.31475 ? byte / 3294.6 : ((byte / 255 + 0.055) / 1.055) ** 2.4;
+const encoded = (value: number) => 255 * (value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055);
+
+it.each([0.1, 0.25, 0.5, 0.75, 0.9])('reconstructs sampled colours with primary area %s at every spread', (coverage) => {
+  for (const spread of [0, 25, 50, 75, 100]) {
+    for (const r of [0, 16, 64, 128, 224, 255]) {
+      for (const g of [0, 64, 128, 255]) {
+        for (const b of [0, 64, 128, 255]) {
+          const inks = buildSampledInkPalettes([{ position: 0, color: `rgb(${r},${g},${b})` }], spread, coverage);
+          const a = parseCssColorToRgba(inks.primary[0].color);
+          const other = parseCssColorToRgba(inks.secondary[0].color);
+          [r, g, b].forEach((target, channel) => {
+            const mixed = encoded(coverage * linear(a[channel]) + (1 - coverage) * linear(other[channel]));
+            expect(Math.abs(mixed - target)).toBeLessThanOrEqual(1);
+          });
+        }
+      }
+    }
+  }
+});
+
+it('uses only this stroke’s visible ink area, including asymmetric masks', () => {
+  expect(measureSampledInkCoverage(new Uint8Array([20, 20, 84, 84, 0, 20]),
+    new Uint8Array([254, 254, 254, 3, 254, 254]), {
+      tags: new Uint32Array([65537, 65537, 65537, 65537, 65537, 131073]),
+      primary: new Uint8Array(6).fill(20), epoch: 1,
+    })).toBeCloseTo(2 / 3);
+});
+
+it.each([0, 1])('retains the target when only one ink is visible (%s)', (coverage) => {
+  const stops = [{ position: 0, color: '#6080a0' }];
+  expect(buildSampledInkPalettes(stops, 100, coverage)).toEqual({ primary: stops, secondary: stops });
+});
+
+it('adapts the opposing ink axis to red, green and blue targets', () => {
+  for (let dominant = 0; dominant < 3; dominant++) {
+    const rgb = [96, 96, 96];
+    rgb[dominant] = 160;
+    const pair = buildSampledInkPalettes([{ position: 0, color: `rgb(${rgb.join(',')})` }], 80);
+    const a = parseCssColorToRgba(pair.primary[0].color);
+    const b = parseCssColorToRgba(pair.secondary[0].color);
+    expect(a[dominant]).toBeLessThan(rgb[dominant]);
+    expect(b[dominant]).toBeGreaterThan(rgb[dominant]);
+  }
+});
+
+it.each(['#6080a0', '#a06060', '#60a060', '#808080'])('uses the available ink separation at full spread for %s', (color) => {
+  const full = buildSampledInkPalettes([{ position: 0, color }], 100);
+  const channels = [full.primary[0], full.secondary[0]].flatMap(stop => parseCssColorToRgba(stop.color).slice(0, 3));
+  expect(channels.some(value => value === 0 || value === 255)).toBe(true);
 });

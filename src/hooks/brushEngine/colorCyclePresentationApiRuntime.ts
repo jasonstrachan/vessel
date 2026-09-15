@@ -51,6 +51,7 @@ type ColorCyclePresentationPlaybackOptions = Omit<
 >;
 
 export type ColorCyclePresentationApiRuntimeDeps = {
+  getSampledStrokePreviewDither?: ColorCycleRenderCommitContext['getSampledStrokePreviewDither'];
   ensureAnimator(layerId: string): ColorCycleAnimator;
   getStrokeState(layerId: string): LayerStrokeState | undefined;
   restoreRuntimeFromDocument(
@@ -398,6 +399,7 @@ export class ColorCyclePresentationApiRuntime {
 
   private getRenderCommitContext(): ColorCycleRenderCommitContext {
     return {
+      getSampledStrokePreviewDither: this.deps.getSampledStrokePreviewDither,
       renderCompositeLayers: (layers, reason) => this.renderPresenterCompositeLayers(layers, reason),
       cancelScheduledRender: () => this.cancelPresenterScheduledRender(),
       notifyFrameRendered: (dirtyBatches) => this.notifyPresenterFrameRendered(dirtyBatches),

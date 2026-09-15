@@ -1,4 +1,5 @@
 import { ColorCycleAnimator } from '../ColorCycleAnimator';
+import { IndexBuffer } from '../IndexBuffer';
 import {
   ColorCycleLayerDocument,
   isDerivedSurfaceStale,
@@ -364,6 +365,29 @@ describe('ColorCycleAnimator WebGL uploads', () => {
     };
     const last = mock.__uploads[mock.__uploads.length - 1];
     expect(last?.rect).toEqual({ x: 2, y: 3, width: 1, height: 1 });
+  });
+
+  it('uploads the whole buffer when entering and leaving a transient preview', () => {
+    const animator = new ColorCycleAnimator({ width: 8, height: 8, gradientStops: TEST_GRADIENT });
+    animator.setIndex(2, 3, 1);
+    animator.forceRender();
+    const preview = new IndexBuffer(8, 8);
+    preview.setPalette(Array.from({ length: 256 }, () => '#ffffff'));
+    preview.clearDirtyBounds();
+    preview.setPixel(1, 1, 100);
+    // A pending small authoring edit must not restrict restoration of the preview.
+    animator.setIndex(2, 3, 2);
+    const mock = jest.requireMock('@/lib/colorCycle/rendering/RendererWebGL') as {
+      __uploads: Array<{ rect?: { x: number; y: number; width: number; height: number } }>;
+    };
+    mock.__uploads.length = 0;
+    animator.withPreviewIndexBuffer(preview, new Uint16Array(64), () => animator.forceRender());
+    animator.forceRender();
+    expect(mock.__uploads.map(({ rect }) => rect)).toEqual([
+      { x: 0, y: 0, width: 8, height: 8 },
+      { x: 0, y: 0, width: 8, height: 8 },
+    ]);
+    animator.cleanup();
   });
 
   it('records the document version that rebuilt the GPU index surface', () => {

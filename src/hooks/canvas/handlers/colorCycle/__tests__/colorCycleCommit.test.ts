@@ -17,6 +17,7 @@ import type { Layer } from '@/types';
 
 jest.mock('@/hooks/canvas/utils/colorCycleMarkSession', () => ({
   finalizeMarkGradientSession: jest.fn(),
+  getActiveMarkGradientSession: jest.fn(),
 }));
 
 const createLayer = (): Layer =>

@@ -338,3 +338,18 @@ describe('ccGradientRuntime', () => {
     expect(snapshot.slotPalettes[0]?.stops).toEqual(session.frozenStopsStored);
   });
 });
+
+it.each(['manual', 'fg'] as const)('routes paired %s strokes through the transient slot with source colours intact', (source) => {
+  const layer = makeLayer();
+  const stops = [{ position: 0, color: '#a06060' }, { position: 1, color: '#6060a0' }];
+  const session: MarkGradientSession = { markId: 'paired', layerId: layer.id, source,
+    markKind: 'stroke', gradientKind: 'linear', frozenStopsStored: stops, frozenHash: '',
+    previewStopsStored: stops, sampledPairedInks: true, binding: null, seamProfile: 'soft',
+  };
+  __setActiveMarkSessionGetterForTests(() => session);
+  try {
+    const snapshot = buildRuntimeSnapshot(layer, makeBrushSettings({ ccGradientRangeContrast: 70 }));
+    expect(snapshot.paintSlot).toBe(TEMP_SAMPLE_SLOT);
+    expect(snapshot.slotPalettes[0]).toMatchObject({ slot: TEMP_SAMPLE_SLOT, stops, seamProfile: 'soft' });
+  } finally { __setActiveMarkSessionGetterForTests(null); }
+});

@@ -1,5 +1,5 @@
 import { commitColorCycleLayerStroke } from '@/hooks/canvas/handlers/colorCycle/colorCycleCommit';
-import { finalizeMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
+import { finalizeMarkGradientSession, getActiveMarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 import { useAppStore } from '@/stores/useAppStore';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
@@ -8,9 +8,10 @@ import type { Layer } from '@/types';
 
 jest.mock('@/hooks/canvas/utils/colorCycleMarkSession', () => ({
   finalizeMarkGradientSession: jest.fn(),
+  getActiveMarkGradientSession: jest.fn(),
 }));
 
-it('keeps compacted palette slots when allocating the secondary sampled ink', async () => {
+it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].flatMap((unresolve) => [false, true].map((atCapacity) => ({ source, unresolve, atCapacity })))) )('keeps $source ink slots with Unresolve $unresolve and capacity fallback $atCapacity', async ({ source, unresolve, atCapacity }) => {
   const canvas = document.createElement('canvas');
   canvas.width = 8;
   canvas.height = 8;
@@ -35,11 +36,14 @@ it('keeps compacted palette slots when allocating the secondary sampled ink', as
     paintBuffer: new Uint8Array(64).fill(1).buffer,
     gradientIdBuffer: gids.buffer, gradientDefIdBuffer: new Uint16Array(64).buffer,
   };
-  const allocatorSpy = jest.spyOn(gradientDefs, 'ensureGradientDefForStops').mockImplementation(() => {
+  const reusedStops = [{ position: 0, color: '#eeeecc' }, { position: 1, color: '#eeddaa' }];
+  const allocatorSpy = jest.spyOn(gradientDefs, 'ensureGradientDefForStops').mockImplementation((params) => {
+    if (atCapacity && params.sampledCapacityFallback !== 'reuse-nearest-compatible') return null;
     // Slot allocation may compact the existing runtime and definition store.
     gids.fill(8, 1);
     primaryDef.slot = 7;
-    return { slot: 9, hash: 'secondary', def: { ...primaryDef, id: 23, slot: 9 } };
+    return { slot: 9, hash: 'secondary', reusedForCapacity: atCapacity,
+      def: { ...primaryDef, id: 23, slot: 9, stops: atCapacity ? reusedStops : stops } };
   });
   const brush = {
     commitCurrentStroke: jest.fn(), finalizeCurrentStroke: jest.fn(),
@@ -55,12 +59,14 @@ it('keeps compacted palette slots when allocating the secondary sampled ink', as
   };
   const applySnapshot = jest.fn();
   registerColorCycleBrushLayerSnapshotRuntime(brush, { apply: applySnapshot });
-  jest.mocked(finalizeMarkGradientSession).mockReturnValue({
-    markId: 'sampled', layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: 'sampled',
+  const activeSession: NonNullable<ReturnType<typeof finalizeMarkGradientSession>> = {
+    markId: 'sampled', layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source,
     frozenStopsStored: stops, frozenHash: 'sampled', binding: { kind: 'def', defId: 22, slot: 6 },
-    sampledAlignment: { bandPx: 1, pairedInks: true, speedCps: 0.063 },
-    sampledSecondaryStops: stops, speedCps: 0.063,
-  });
+    sampledAlignment: unresolve ? { bandPx: 1, pairedInks: true, speedCps: 0.063 } : undefined,
+    sampledSecondaryStops: stops, speedCps: 0.063, sampledPairedInks: true,
+  };
+  jest.mocked(finalizeMarkGradientSession).mockReturnValue(activeSession);
+  jest.mocked(getActiveMarkGradientSession).mockReturnValue(activeSession);
   try {
     await commitColorCycleLayerStroke({
       layer, drawingCanvas: canvas, brushSettings: { opacity: 1 } as never,
@@ -71,8 +77,12 @@ it('keeps compacted palette slots when allocating the secondary sampled ink', as
       perfMark: jest.fn(), perfMeasure: jest.fn(), startFinalizeVisibleTimer: jest.fn(),
       endFinalizeVisibleTimer: jest.fn(), dispatchFrameUpdate: jest.fn(),
     });
+    expect(activeSession.sampledPrimaryCoverage).toBe(1);
+    expect(allocatorSpy).toHaveBeenCalledWith(expect.objectContaining({ source }));
     expect(allocatorSpy).toHaveBeenCalledTimes(1);
+    expect(allocatorSpy).toHaveBeenCalledWith(expect.objectContaining({ retainedDefIds: [22] }));
     expect(applySnapshot).toHaveBeenCalledTimes(1);
+    expect(brush.setGradientSlotStops).toHaveBeenCalledWith(layer.id, 9, atCapacity ? reusedStops : stops, undefined);
     const applied = applySnapshot.mock.calls[0][1];
     expect([...new Uint8Array(applied.gradientIdBuffer)]).toEqual([TEMP_SAMPLE_SLOT, ...Array(63).fill(8)]);
     expect(brush.bindGradientDefIdToSlot).toHaveBeenCalledWith(layer.id, 22, 7, undefined, TEMP_SAMPLE_SLOT);

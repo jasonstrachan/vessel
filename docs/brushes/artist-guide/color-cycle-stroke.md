@@ -24,7 +24,7 @@ attention, signal, time, or any boundary that should remain active.
 | Man Grad | Uses editable authored stops, positions, and opacity. |
 | Sample / Hard seam | Derives colours from the canvas and chooses whether the loop join pulses or blends. |
 | Contrast | Increases separation across the sampled or derived gradient. |
-| Ink Spd | Separates the two stamp-dither inks along the gradient: 0 uses neighbouring colours, 100 uses colours half a cycle apart. Applies to new strokes with BG Fill on; Contrast stays independent. |
+| Ink Spd | For Palette, FG Grad, Sample and Unresolve, 0 uses identical inks and 100 increases their separation within gamut while preserving their combined colour. Applies to new stamp-dither strokes with BG Fill on; Contrast stays independent. |
 | Stamp Dither | Converts the animated tip into a dithered texture. |
 | Algorithm / Pattern | Distribution of pixels within a dithered stamp. |
 | Res / Pres Res / Max | Base stamp cell size, pressure linkage, and largest linked cell. |
@@ -65,22 +65,40 @@ it does not repeat the complete sampled sequence every few bands. At Resolve,
 light and dark regions follow the source along the stroke. Each stamp keeps its
 shape, including at overlaps and crossings.
 
-The original dither mask selects between two palettes at the same sample position:
-a pair controlled by Ink Spd. At 0 both inks match the sampled colour; increasing
-spread separates them in OKLab. At 100 they use saturated opposing hues with a
-dark/light separation, including a blue/yellow pair for neutral samples. Strong
-spread intentionally departs from the sampled colour's average tone. Gradient
-Contrast is applied before splitting the inks, independently of Ink Spd.
-The palettes move together throughout playback, with no crossfade or layout morph.
-Both use the shared clock speed from the first finished stroke, before Apply.
-The existing narrow gradient smoothing and loop seam remain fixed.
+For Palette, FG Grad, Sample and Unresolve, the original dither mask selects between two palettes at the same colour position:
+a pair controlled by Ink Spd. At 0 both inks match the contrast-adjusted target; increasing
+spread separates a pair within the displayable colour range. The pair follows the
+target hue smoothly; neutral targets use a cool/warm axis. Their
+area-weighted linear-light mixture preserves the gradient target, including at
+100. The actual visible dither mask supplies the ink proportions. Near black,
+white and saturated colours, separation is limited to keep that target accurate.
+Gradient Contrast uses 0 for a flat range, 70 for the original source range,
+and 100 for an expanded range. It adjusts the target before the inks are calculated; Spread
+changes the individual inks, not that target. Both palettes move together during
+playback. Coarse cells and locally uneven patterns remain individually visible;
+colour matching is assessed over an area containing both inks.
+Sample retains its ordinary band positions, speed, direction and phase. Unresolve
+uses the shared clock speed from the first finished stroke, before Apply.
+The selected loop seam is applied to the target gradient before the inks are
+split, so a soft join preserves the same colour match throughout playback.
 
 This mapping currently applies to native stamp-dither strokes; Pickup, Pencil,
-Bristles and shape fills retain their own paths. The live drawing preview remains
-approximate; source alignment is committed when the stroke finishes. Existing
+Bristles and shape fills retain their own paths. The live drawing preview uses
+the same Contrast, Ink Spread and dither-mask mapping as the finished stroke.
+All four modes split the complete 256-colour playback gradient, including colours
+between source points. Palette and FG Grad freeze their source on pointer-down. Sample and
+Unresolve still update as the path grows; their complete source sequence is frozen
+when the stroke finishes. Existing
 strokes cannot gain this alignment because their original stamp positions were
 not retained. Draw a new stroke to use it.
 
+FG Grad, Palette, Sample and Unresolve form one choice group. Choosing Unresolve
+selects sampling and enables shared playback for the selected layer; choosing
+another option disables Unresolve. Motion, easing and Resolve settings remain
+under Effects → Unresolve. Switching off cancels an active preview and returns
+the layer to ordinary CC playback without erasing strokes or their palettes. Apply commits the preview to the
+shared Unresolve clock. Global speed controls this clock; individual layer speeds
+do not separate its layers. Native save/load and Goblet2 use the same sequence.
 Older morph strokes retain their distance-band indices in the phase channel;
 playback uses those indices directly and ignores the discarded source layout.
 Their stored palette colours are retained. New strokes use the ordinary indexed

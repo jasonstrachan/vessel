@@ -1,5 +1,6 @@
+import { ensurePalette } from '@/lib/colorCycle/paletteService';
+import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import studioExtension from '@/extensions/studioExtension';
-import { buildSampledInkPalettes } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
 import { applyCcSampledRangeContrast } from '@/utils/colorCycle/ccSampledRangeContrast';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
@@ -10,6 +11,7 @@ import {
   finalizeMarkGradientSession,
   getPreviewGradientForActiveMark,
   resolveMarkSessionRuntimeStops,
+  resolveSampledStrokeInkPalettes,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { useAppStore } from '@/stores/useAppStore';
 import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
@@ -58,6 +60,7 @@ describe('colorCycleMarkSession rebuild', () => {
         brushSettings: {
           ...state.tools.brushSettings,
           ditherEnabled: false,
+          colorCycleStampDitherEnabled: false,
           ditherPaletteSpread: 0,
           ccGradientRangeContrast: 70,
           ccFlatCycleDither: false,
@@ -95,11 +98,11 @@ describe('colorCycleMarkSession rebuild', () => {
     }
   });
 
-  it.each([0, 50, 100])('freezes sampled ink spread %s and applies gradient contrast to both inks once', (spread) => {
+  it.each([0, 50, 100].flatMap((spread) => [false, true].map((unresolve) => ({ spread, unresolve }))))('freezes sampled ink spread $spread with Unresolve $unresolve and applies contrast once', ({ spread, unresolve }) => {
     const previous = studioExtension.sampledStrokeAlignment;
     const previousPalette = studioExtension.preserveSampledStrokePalette;
-    studioExtension.sampledStrokeAlignment = () => ({ speedCps: 0.063 });
-    studioExtension.preserveSampledStrokePalette = true;
+    studioExtension.sampledStrokeAlignment = () => unresolve ? { speedCps: 0.063 } : undefined;
+    studioExtension.preserveSampledStrokePalette = unresolve;
     const source = [{ position: 0, color: '#5070a0' }, { position: 1, color: '#b05030' }];
     const layer = createLayer();
     try {
@@ -115,9 +118,11 @@ describe('colorCycleMarkSession rebuild', () => {
         gradientKind: 'linear', source: 'sampled', stops: source });
       if (!session) throw new Error('Expected sampled session');
       session.previewStopsStored = source;
+      expect(resolveMarkSessionRuntimeStops(session, source, { rangeContrast: 40 }))
+        .toEqual(applyCcSampledRangeContrast(source, 40));
       useAppStore.getState().setBrushSettings({ ditherPaletteSpread: 100 - spread });
       const result = finalizeMarkGradientSession(layer.id);
-      const expected = buildSampledInkPalettes(applyCcSampledRangeContrast(source, 40), spread);
+      const expected = resolveSampledStrokeInkPalettes(session, source, 40);
       expect(result?.frozenStopsStored).toEqual(expected.primary);
       expect(result?.sampledSecondaryStops).toEqual(expected.secondary);
       expect(result?.rawStopsStored).toEqual(source);
@@ -127,6 +132,37 @@ describe('colorCycleMarkSession rebuild', () => {
       studioExtension.preserveSampledStrokePalette = previousPalette;
     }
   });
+
+  it.each((['sampled', 'manual', 'fg'] as const).flatMap(source =>
+    (['hard', 'soft'] as const).map(seamProfile => ({ source, seamProfile }))))(
+    'preserves the rendered target throughout the $source $seamProfile loop', ({ source, seamProfile }) => {
+      const layer = createLayer();
+      const stops = [{ position: 0, color: '#a06060' }, { position: 1, color: '#6060a0' }];
+      useAppStore.setState(state => ({ layers: [layer], activeLayerId: layer.id,
+        tools: { ...state.tools, brushSettings: { ...state.tools.brushSettings,
+          colorCyclePickupEnabled: false, colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherBgFill: true, colorCyclePencilEnabled: false,
+          colorCycleBristlesEnabled: false, ditherPaletteSpread: 100,
+          colorCycleGradientSeamProfile: seamProfile,
+        } },
+      }));
+      const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke',
+        gradientKind: 'linear', source, stops });
+      if (!session) throw new Error('Missing session');
+      session.previewStopsStored = stops;
+      const result = finalizeMarkGradientSession(layer.id)!;
+      const expected = ensurePalette({ stops, seamProfile }).rgba;
+      const primary = ensurePalette({ stops: result.frozenStopsStored, seamProfile: result.seamProfile }).rgba;
+      const secondary = ensurePalette({ stops: result.sampledSecondaryStops!, seamProfile: result.seamProfile }).rgba;
+      const linear = (byte: number) => byte <= 10.31475 ? byte / 3294.6 : ((byte / 255 + 0.055) / 1.055) ** 2.4;
+      let maxError = 0;
+      for (let i = 0; i < expected.length; i++) {
+        if (i % 4 === 3) continue;
+        maxError = Math.max(maxError, Math.abs((linear(primary[i]) + linear(secondary[i])) / 2 - linear(expected[i])));
+      }
+      expect(maxError).toBeLessThan(0.004);
+    },
+  );
 
   it('commits the complete sampled stroke when all moves arrive inside the preview throttle', () => {
     const layer = createLayer();
@@ -820,4 +856,41 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(session.fallbackStopsStored).toEqual([]);
     expect(getPreviewGradientForActiveMark(layer.id)).toBeNull();
   });
+});
+
+it.each([0, 40, 70, 100])('preserves the contrast-adjusted mixture at Contrast %s', (contrast) => {
+  const stops = [{ position: 0, color: '#405060' }, { position: 1, color: '#a09080' }];
+  const expected = applyCcSampledRangeContrast(stops, contrast);
+  const linear = (byte: number) => byte <= 10.31475 ? byte / 3294.6 : ((byte / 255 + 0.055) / 1.055) ** 2.4;
+  for (const spread of [0, 50, 100]) {
+    const pair = resolveSampledStrokeInkPalettes({ source: 'sampled', sampledPrimaryCoverage: 0.25,
+      ditherRenderConfig: { enabled: true, pairBandCount: 2, spread, rangeContrast: contrast },
+    }, stops);
+    expected.forEach((stop, i) => {
+      const target = parseCssColorToRgba(stop.color);
+      const a = parseCssColorToRgba(pair.primary[i * 255].color);
+      const b = parseCssColorToRgba(pair.secondary[i * 255].color);
+      for (let channel = 0; channel < 3; channel++) {
+        expect(Math.abs(0.25 * linear(a[channel]) + 0.75 * linear(b[channel]) - linear(target[channel])))
+          .toBeLessThan(0.004);
+      }
+    });
+  }
+});
+
+it.each(['manual', 'fg'] as const)('reconstructs colours between sparse %s gradient nodes', (source) => {
+  const stops = [{ position: 0, color: '#a06060' }, { position: 1, color: '#6060a0' }];
+  const pair = resolveSampledStrokeInkPalettes({ source, sampledPrimaryCoverage: 0.5,
+    ditherRenderConfig: { enabled: true, pairBandCount: 2, spread: 100, rangeContrast: 70 },
+  }, stops);
+  const linear = (byte: number) => byte <= 10.31475 ? byte / 3294.6 : ((byte / 255 + 0.055) / 1.055) ** 2.4;
+  expect(pair.primary).toHaveLength(256);
+  for (let i = 0; i < 256; i++) {
+    const a = parseCssColorToRgba(pair.primary[i].color);
+    const b = parseCssColorToRgba(pair.secondary[i].color);
+    const target = [Math.round(160 - 64 * i / 255), 96, Math.round(96 + 64 * i / 255)];
+    target.forEach((value, channel) => {
+      expect(Math.abs((linear(a[channel]) + linear(b[channel])) / 2 - linear(value))).toBeLessThan(0.004);
+    });
+  }
 });

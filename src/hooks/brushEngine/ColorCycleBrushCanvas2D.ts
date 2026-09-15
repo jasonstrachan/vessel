@@ -109,6 +109,16 @@ export class ColorCycleBrushCanvas2D {
     logGradientBrushPath: (event, data) => logCcGradientBrushPath(event, data),
   });
   private readonly presentationApi: ColorCyclePresentationApiRuntime = new ColorCyclePresentationApiRuntime({
+    getSampledStrokePreviewDither: (stroke) => ({
+      config: this.settingsApi.createStampDitherConfig({
+        patterns: getAppStoreState().project?.ccCustomTilePatterns,
+        seed: stroke.stampDither?.stampDitherSeed ?? 0,
+        diversity: stroke.stampDither?.stampDitherDiversity ?? 1,
+      }),
+      runtime: this.settingsApi.getStampDitherRuntime(),
+      ditherStrength: this.shapeFillApi.getDitherStrength(),
+      cycleSpeed: this.strokeCoordinatorApi.getWriteCycleSpeed(stroke),
+    }),
     ensureAnimator: (layerId) => this.animatorApi.ensureFullResolution(layerId, 'restore'),
     getStrokeState: (layerId) => this.layerDocumentApi.getStrokeState(layerId),
     restoreRuntimeFromDocument: (layerId, animator, documentRead) => this.layerDocumentApi.restoreRuntimeFromDocument(layerId, animator, documentRead),

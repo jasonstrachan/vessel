@@ -1,5 +1,5 @@
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
-import { alignSampledStampPositions, type SampledStampPositions } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
+import { alignSampledStampPositions, measureSampledInkCoverage, type SampledStampPositions } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { takeCanvasProgress } from '@/utils/canvasAuthoringObserver';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
@@ -30,6 +30,7 @@ import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/
 import type { BrushSettings, CanvasSnapshot, Layer } from '@/types';
 import {
   finalizeMarkGradientSession,
+  getActiveMarkGradientSession,
   type MarkGradientSession,
 } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
@@ -744,6 +745,17 @@ export const commitColorCycleLayerStroke = async (
         }
       }
 
+      const sampledSession = getActiveMarkGradientSession(targetLayerId);
+      if (sampledSession?.sampledPairedInks) {
+        const ownership = brush.getSampledStrokePositions?.(targetLayerId);
+        const snapshot = snapshotAfterTransparencyLock ?? readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
+        if (ownership && snapshot?.gradientIdBuffer) {
+          sampledSession.sampledPrimaryCoverage = measureSampledInkCoverage(
+            new Uint8Array(snapshot.paintBuffer), new Uint8Array(snapshot.gradientIdBuffer), ownership,
+          );
+        }
+      }
+
       committedSession = strokeFinalizeProbeTimeSync(
         'commitColorCycleLayerStroke:finalizeMarkGradientSession',
         () => finalizeMarkGradientSession(targetLayerId),
@@ -762,15 +774,17 @@ export const commitColorCycleLayerStroke = async (
         });
       }
 
-      if (committedSession?.sampledAlignment) {
+      if (committedSession && (committedSession.sampledAlignment || committedSession.sampledSecondaryStops)) {
         const ownership = brush.getSampledStrokePositions?.(targetLayerId);
         if (ownership) {
-          const secondaryStops = committedSession.sampledAlignment.pairedInks
-            ? committedSession.sampledSecondaryStops ?? null : null;
+          const secondaryStops = committedSession.sampledSecondaryStops ?? null;
           const secondary = secondaryStops ? ensureGradientDefForStops({
             layerId: targetLayerId, kind: committedSession.gradientKind,
-            stops: secondaryStops, source: 'sampled', seamProfile: committedSession.seamProfile,
+            stops: secondaryStops, source: committedSession.source, seamProfile: committedSession.seamProfile,
             speedCps: committedSession.speedCps ?? undefined,
+            sampledCapacityFallback: 'reuse-nearest-compatible',
+            // Primary pixels still use the preview slot until both inks exist.
+            retainedDefIds: committedSession.binding ? [committedSession.binding.defId] : undefined,
             updateOptions: { skipColorCycleSync: true },
           }) : null;
           if (secondaryStops && !secondary) throw new Error('No colour-cycle palette slot is available for the sampled dither inks.');
@@ -783,11 +797,12 @@ export const commitColorCycleLayerStroke = async (
           const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
           if (!snapshot?.gradientIdBuffer) throw new Error('The sampled stroke pixels are unavailable.');
           if (secondary && secondaryStops) {
-            brush.setGradientSlotStops?.(targetLayerId, secondary.slot, secondaryStops, committedSession.seamProfile);
+            brush.setGradientSlotStops?.(targetLayerId, secondary.slot, secondary.def.stops, committedSession.seamProfile);
           }
-          const aligned = alignSampledStampPositions(snapshot, ownership, committedSession.sampledAlignment.bandPx,
+          const aligned = alignSampledStampPositions(snapshot, ownership, committedSession.sampledAlignment?.bandPx,
             secondary ? { slot: secondary.slot, defId: secondary.def.id } : undefined,
-            encodeColorCycleSpeedByte(committedSession.sampledAlignment.speedCps));
+            committedSession.sampledAlignment
+              ? encodeColorCycleSpeedByte(committedSession.sampledAlignment.speedCps) : undefined);
           if (!applyColorCycleBrushLayerSnapshotToRuntime(brush, targetLayerId, aligned, undefined, 'snapshot-apply')) {
             throw new Error('The sampled stroke positions could not be committed.');
           }
@@ -812,7 +827,7 @@ export const commitColorCycleLayerStroke = async (
       }
 
       // Bind the remaining primary pixels; aligned secondary inks already own their palette.
-      const sampledCommitNeedsFullRebind = committedSession?.source === 'sampled';
+      const sampledCommitNeedsFullRebind = committedSession?.source === 'sampled' || committedSession?.sampledPairedInks === true;
       let binding: ColorCycleCommittedLayerStateOptions['binding'] = committedSession?.binding
         ? {
             defId: committedSession.binding.defId,

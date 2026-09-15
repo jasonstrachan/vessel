@@ -24,6 +24,7 @@ export type ColorCyclePresenterLayerCanvasParams = {
   animator: ColorCycleAnimator;
   documentRead?: ColorCycleLayerDocumentRead;
   applyMask?: (layerId: string, ctx: CanvasRenderingContext2D) => void;
+  renderPreview?: (draw: () => void) => void;
 };
 
 export type ColorCyclePresenterDirectRenderParams = ColorCyclePresenterLayerCanvasParams & {
@@ -41,6 +42,7 @@ export type ColorCyclePresenterCompositeLayer = {
   documentRead?: ColorCycleLayerDocumentRead;
   tier?: 'static' | 'animated';
   prepare?: () => void;
+  renderPreview?: (draw: () => void) => void;
 };
 
 export type ColorCyclePresentationFlushOptions = {
@@ -301,20 +303,23 @@ export class ColorCyclePresenter {
     const staticLayers = layers.filter((layer) => layer.tier === 'static');
     const animatedLayers = layers.filter((layer) => layer.tier !== 'static');
     const nextStaticTierKey = this.createStaticTierKey(staticLayers);
+    const hasStaticPreview = staticLayers.some((layer) => Boolean(layer.renderPreview));
 
-    if (nextStaticTierKey !== this.staticTierKey) {
+    if (hasStaticPreview || nextStaticTierKey !== this.staticTierKey) {
       this.staticTierCtx.clearRect(0, 0, this.width, this.height);
       staticLayers.forEach((layer) => {
         this.prepareCompositeLayer(layer, label);
-        layer.animator.renderToCanvas2D(this.staticTierCtx);
+        this.renderCompositeLayer(layer, this.staticTierCtx, true);
       });
-      this.staticTierKey = nextStaticTierKey;
+      // Preview palettes can change without a document edit. Do not cache them
+      // or reuse their pixels when the transient preview ends.
+      this.staticTierKey = hasStaticPreview ? null : nextStaticTierKey;
     }
 
     this.clearAnimatedOverlay();
     animatedLayers.forEach((layer) => {
       this.prepareCompositeLayer(layer, label);
-      layer.animator.renderToCanvas2D(this.animatedOverlayCtx);
+      this.renderCompositeLayer(layer, this.animatedOverlayCtx);
     });
 
     this.clearComposite();
@@ -328,6 +333,19 @@ export class ColorCyclePresenter {
   private prepareCompositeLayer(layer: ColorCyclePresenterCompositeLayer, label: string): void {
     layer.prepare?.();
     this.rebuildScheduler.assertFreshForRender(layer.layerId, layer.animator, layer.documentRead, label);
+  }
+
+  private renderCompositeLayer(
+    layer: ColorCyclePresenterCompositeLayer,
+    ctx: CanvasRenderingContext2D,
+    forceRender = false,
+  ): void {
+    const draw = () => {
+      if (forceRender || layer.renderPreview) this.rebuildScheduler.forceRender(layer.animator);
+      layer.animator.renderToCanvas2D(ctx);
+    };
+    if (layer.renderPreview) layer.renderPreview(draw);
+    else draw();
   }
 
   private createStaticTierKey(layers: ColorCyclePresenterCompositeLayer[]): string {
@@ -385,7 +403,6 @@ export class ColorCyclePresenter {
         params.documentRead,
         'ColorCyclePresenter.renderDirectToCanvas',
       );
-      this.rebuildScheduler.forceRender(animator);
     } else {
       const isCurrent = this.rebuildScheduler.isCurrentForPresentation(
         layerId,
@@ -416,7 +433,12 @@ export class ColorCyclePresenter {
       scratchCtx.globalAlpha = 1;
       scratchCtx.imageSmoothingEnabled = false;
       scratchCtx.clearRect(0, 0, this.directRenderCanvas.width, this.directRenderCanvas.height);
-      this.renderAnimatorToContext(animator, scratchCtx, this.directRenderCanvas);
+      const draw = () => {
+        if (forceRender || params.renderPreview) this.rebuildScheduler.forceRender(animator);
+        this.renderAnimatorToContext(animator, scratchCtx, this.directRenderCanvas);
+      };
+      if (params.renderPreview) params.renderPreview(draw);
+      else draw();
       applyMask?.(layerId, scratchCtx);
     } finally {
       scratchCtx.restore();
