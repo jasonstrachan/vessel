@@ -3741,3 +3741,23 @@ describe('pointerHandlers main flows', () => {
     });
   });
 });
+
+it('finalizes a cancelled CC stroke before clearing its session so playback cleanup runs', async () => {
+  const { deps, dynamicDepsRef } = createDeps();
+  const tools = { ...dynamicDepsRef.current.tools, currentTool: 'brush' as const, shapeMode: false,
+    brushSettings: { ...dynamicDepsRef.current.tools.brushSettings, brushShape: BrushShape.COLOR_CYCLE } };
+  dynamicDepsRef.current.tools = tools;
+  deps.tools = tools;
+  deps.interaction.state.isDrawing = true;
+  let finish!: () => void;
+  (deps.drawingHandlers.finalizeDrawing as jest.Mock).mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+  const handlers = createPointerHandlers(deps);
+  handlers.handlePointerCancel(makePointerEvent({ clientX: 10, clientY: 10 }));
+  expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledWith(false);
+  expect(deps.drawingHandlers.clearStrokeSession).not.toHaveBeenCalled();
+  expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'DRAWING_END' });
+  expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
+  finish();
+  await Promise.resolve();
+  expect(deps.stateMachine.finalizationComplete).toHaveBeenCalledTimes(1);
+});

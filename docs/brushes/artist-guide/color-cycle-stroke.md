@@ -124,6 +124,9 @@ playback uses those indices directly and ignores the discarded source layout.
 Their stored palette colours are retained. New strokes use the ordinary indexed
 playback format, without source-remapping buffers or captured frames.
 Use global Play/Pause to animate or pause strokes and active Unresolve previews.
+Painting a CC brush stroke temporarily holds playback until the stroke commits.
+Lifting or cancelling the pointer releases that hold; an explicit Pause stays paused.
+The hold preserves the current playback position and other active interaction holds.
 After Apply, global Play runs the committed strokes.
 Saved projects retain the shared playback position. Older Unresolve files,
 including the original captured-frame format, join at the resolved position

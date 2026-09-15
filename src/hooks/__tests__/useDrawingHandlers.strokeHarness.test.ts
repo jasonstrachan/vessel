@@ -24,6 +24,8 @@ const mockColorCycleBrushManager = {
 
 // Minimal store mock
 const storeState = {
+  suspendColorCycle: jest.fn(),
+  resumeColorCycle: jest.fn(),
   project: { width: 64, height: 64 },
   canvas: { width: 64, height: 64, scale: 1, zoom: 1 },
   tools: {

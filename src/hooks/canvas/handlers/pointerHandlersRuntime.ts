@@ -4798,7 +4798,17 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     releasePointerCaptureSafely(event);
 
     drawingHandlers.endStrokeSession(Date.now());
-    drawingHandlers.clearStrokeSession();
+    const finishCancelledCcStroke = interaction.state.isDrawing && !cancelTools.shapeMode &&
+      cancelTools.currentTool === 'brush' && (isColorCycleBrush(cancelTools.brushSettings.brushShape) ||
+        (cancelTools.brushSettings.brushShape === BrushShape.CUSTOM && cancelTools.brushSettings.customBrushColorCycle));
+    if (finishCancelledCcStroke) {
+      interaction.dispatch({ type: 'DRAWING_END' });
+      compositeCanvasDirtyRef.current = true;
+      // Complete the visible partial stroke before releasing its playback hold.
+      void drawingHandlers.finalizeDrawing(false).finally(() => stateMachine.finalizationComplete());
+    } else {
+      drawingHandlers.clearStrokeSession();
+    }
 
     pointerInsideCanvas = isPointerWithinCanvas(event.clientX, event.clientY);
     updateBrushCursorVisibility();

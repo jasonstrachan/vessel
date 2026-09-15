@@ -86,10 +86,6 @@ export const pauseColorCycleForNonCCInteraction = ({
   }
 
   const isPlaying = getEffectiveColorCyclePlaying();
-  if (!isPlaying && !recolorWasAnimatingRef.current) {
-    return;
-  }
-
   const state = storeRef.current;
   const shape = state.tools.brushSettings.brushShape;
   const isCCBrush =
@@ -98,7 +94,10 @@ export const pauseColorCycleForNonCCInteraction = ({
     shape === BrushShape.COLOR_CYCLE_SHAPE ||
     (shape === BrushShape.CUSTOM && !!state.tools.brushSettings.customBrushColorCycle);
 
-  if (isCCBrush) {
+  const isCcPainting = isCCBrush && reason === 'brush-stroke';
+  if (!isCcPainting && !isPlaying && !recolorWasAnimatingRef.current) return;
+
+  if (isCCBrush && !isCcPainting) {
     ccLog('pauseColorCycleForNonCCInteraction skipped (cc brush)', { shape });
     return;
   }
@@ -116,10 +115,12 @@ export const pauseColorCycleForNonCCInteraction = ({
 
   const wasPlaying = isPlaying;
   ccLog('pauseColorCycleForNonCCInteraction', { wasPlaying, reason });
-  const pausedAny = pauseAllBrushCCAnimationsNow();
+  // The shared playback controller owns CC timing. Suspend it without changing
+  // layer animation flags or stopping/resetting the brush's clock.
+  const pausedAny = isCCBrush ? false : pauseAllBrushCCAnimationsNow();
   ccLog('pauseColorCycleForNonCCInteraction -> pauseAllBrush', { pausedAny });
 
-  if (wasPlaying) {
+  if (wasPlaying || isCcPainting) {
     shouldResumeRef.current = true;
     ccLog('pauseColorCycleForNonCCInteraction: suspending playback', { reason });
     storeRef.current.suspendColorCycle(reason);
@@ -147,14 +148,8 @@ export const resumeColorCycleAfterInteraction = async ({
   shouldResumeRef.current = false;
 
   const st = storeRef.current;
-  const suspendDepth = selectColorCycleSuspendDepth(st);
-  if (suspendDepth > 1) {
-    st.forceResumeColorCycle('shape-preview');
-    ccLog('forceResumeColorCycle', { suspendDepth });
-  } else {
-    st.resumeColorCycle('shape-preview');
-    ccLog('resumeColorCycle', { suspendDepth });
-  }
+  st.resumeColorCycle('brush-stroke');
+  ccLog('resumeColorCycle', { suspendDepth: selectColorCycleSuspendDepth(st) });
   ccGroupEnd();
 };
 

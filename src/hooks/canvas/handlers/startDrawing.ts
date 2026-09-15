@@ -78,6 +78,10 @@ export const startDrawingHandler = ({
     return;
   }
 
+  if (ccFlags.isAny && currentTool === 'brush') {
+    samplingCanvas.pauseColorCycleForNonCCInteraction('brush-stroke');
+  }
+
   const toolStrokeStarted = startDrawingToolStroke({
     ...toolStroke,
     currentState,

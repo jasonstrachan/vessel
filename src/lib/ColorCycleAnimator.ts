@@ -136,7 +136,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
   private forceCanvas2D: boolean = false;
   private strokeTracker: StrokeOrderTracker;
   private defIdData: Uint16Array | null = null;
-  private sampledPathPalettes = new Map<number, { source: Uint8Array; offset: number; rgba: Uint8ClampedArray; speed: number }>();
+  private sampledPathPalettes = new Map<number, { source: Uint8Array; offset: number; rgba: Uint8ClampedArray; speed: number; lastPhase?: number }>();
   private sampledPathSpeedsDirty = true;
   private defPalettesById: Map<number, Uint32Array> | null = null;
   private defPaletteRGBAById: Map<number, PaletteRGBA> | null = null;
@@ -920,12 +920,16 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
           }
           this.sampledPathSpeedsDirty = false;
         }
+        let palettesChanged = false;
         for (const [id, path] of this.sampledPathPalettes) {
           const phase = baseTime * path.speed;
+          if (path.lastPhase === phase) continue;
           renderSampledPathPalette(path.source, path.offset, phase, path.rgba);
+          path.lastPhase = phase;
+          palettesChanged = true;
           this.defPaletteSignaturesById!.set(id, `sampled:${phase}`);
         }
-        this.defPaletteCacheDirty = true;
+        if (palettesChanged) this.defPaletteCacheDirty = true;
       }
 
 
