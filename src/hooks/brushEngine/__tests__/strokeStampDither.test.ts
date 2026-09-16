@@ -1,3 +1,4 @@
+import { BAYER_4x4_MATRIX } from '@/utils/ditherAlgorithms';
 import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import { PRESSURE_RESOLUTION_MAX_PX } from '@/utils/pressureResolution';
@@ -12,6 +13,18 @@ import { getStampDitherTile } from '../strokeStampDither/tile';
 import type { StampDitherState } from '../strokeStampDither';
 
 describe('strokeStampDither', () => {
+  it('uses a repeating 4×4 matrix for stamp and replay masks', () => {
+    const runtime = createStampDitherRuntime(0);
+    const tile = getStampDitherTile(runtime, 32, 1, 64, 'bayer-4x4', 'dots');
+    const legacy = getStampDitherTile(runtime, 32, 1, 64, 'bayer', 'dots');
+    for (let y = 0; y < 64; y += 1) {
+      for (let x = 0; x < 64; x += 1) {
+        expect(tile[y * 64 + x]).toBe(Math.round(BAYER_4x4_MATRIX[y % 4][x % 4] * 255));
+      }
+    }
+    expect(tile).not.toEqual(legacy);
+  });
+
   const buildAnimator = (width: number, height: number) => {
     const handle = {
       data: new Uint8Array(width * height),
@@ -28,6 +41,39 @@ describe('strokeStampDither', () => {
       handle,
     };
   };
+
+  it.each([
+    { algorithm: 'bayer-4x4', bgFill: true, pixelSize: 1, diversity: 0 },
+    { algorithm: 'bayer-4x4', bgFill: false, pixelSize: 1, diversity: 0 },
+    { algorithm: 'bayer-4x4', bgFill: true, pixelSize: 2, diversity: 1 },
+    { algorithm: 'bayer-4x4', bgFill: false, pixelSize: 2, diversity: 1 },
+    { algorithm: 'bayer', bgFill: true, pixelSize: 1, diversity: 1 },
+    { algorithm: 'blue-noise', bgFill: true, pixelSize: 1, diversity: 1 },
+    { algorithm: 'void-and-cluster', bgFill: true, pixelSize: 1, diversity: 1 },
+  ] as const)('keeps $algorithm unchanged through recompose and release ($bgFill, $pixelSize)', (settings) => {
+    const animator = buildAnimator(32, 32);
+    const state: stampDither.StampDitherStrokeData = { paint: animator.handle.data };
+    const runtime = stampDither.createStampDitherRuntime(0);
+    const config: stampDither.StampDitherConfig = { ...settings, pressureLinked: false, seed: 17 };
+    const brushAnimator = animator as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'];
+    stampDither.applyStampDitherStamp({
+      animator: brushAnimator, state, config, runtime,
+      stampShape: 'square', x: 16, y: 16, pressure: 1, pressureSize: 24,
+      primaryIndex: 200, flowSlot: 1, cycleSpeed: 1, width: 32, height: 32, isAnimating: false,
+    });
+    const live = animator.handle.data.slice();
+    expect(live.some((value) => value === 200)).toBe(true);
+    stampDither.recomposeStampDitherOverlay({
+      animator: brushAnimator, state, config, runtime,
+      flowSlot: 1, cycleSpeed: 1, tileScale: config.pixelSize,
+    });
+    expect(animator.handle.data).toEqual(live);
+    expect(stampDither.finalizeStampDither({
+      animator: brushAnimator, state, config, runtime,
+      width: 32, height: 32, flowSlot: 1, cycleSpeed: 1, ditherStrength: 1,
+    })).toBe(true);
+    expect(animator.handle.data).toEqual(live);
+  });
 
   it('changes the secondary ink without changing stamp coverage or dither placement', () => {
     const draw = (inkOffset: number) => {

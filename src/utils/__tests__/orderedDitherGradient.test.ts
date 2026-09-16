@@ -14,6 +14,20 @@ describe('orderedDitherGradient', () => {
   const bg: [number, number, number, number] = [0, 0, 255, 255];
   const palette = buildFgBgPalette(fg, bg);
 
+  it('selects a 4×4 threshold tile independently of an existing 8×8 tile', () => {
+    const params = {
+      width: 32, height: 16,
+      axis: computeGradientAxisFromPolygon([{ x: 0, y: 0 }, { x: 32, y: 0 }]),
+      paletteRGBA: palette,
+      tile: getBayerTile(8), tileSize: 8,
+      origin: { x: -3, y: 5 },
+    };
+    const actual = renderDitherGradientToImageData({ ...params, algorithm: 'bayer-4x4' });
+    const expected = renderOrderedDitherGradientToImageData({ ...params, tile: getBayerTile(4), tileSize: 4 });
+    expect(actual.data).toEqual(expected.data);
+    expect(actual.data).not.toEqual(renderDitherGradientToImageData({ ...params, algorithm: 'bayer' }).data);
+  });
+
   it('uses cursor distance to set a centered gradient axis in the chosen direction', () => {
     const axis = computeGradientAxisFromDirection(
       [

@@ -196,6 +196,7 @@ export type DitherAlgorithm =
   | 'sierra-lite'
   | 'atkinson'
   | 'bayer'
+  | 'bayer-4x4'
   | 'blue-noise'
   | 'void-and-cluster'
   | 'pattern';
@@ -604,7 +605,7 @@ export const applyBayerDither = (
 
   // Select Bayer matrix based on size
   let matrix: number[][];
-  switch (settings.bayerMatrixSize) {
+  switch (settings.algorithm === 'bayer-4x4' ? 4 : settings.bayerMatrixSize) {
     case 2:
       matrix = BAYER_2x2_MATRIX;
       break;
@@ -1318,6 +1319,7 @@ export const applyPressureDither = (
     case 'sierra-2':
       return applySierra2Dither(imageData, settings);
     case 'bayer':
+    case 'bayer-4x4':
       return applyBayerDither(imageData, settings);
     case 'sierra-lite':
       return applySierraLitePressureDither(imageData, settings);

@@ -739,6 +739,7 @@ export interface SequentialBrushSnapshot {
       | 'sierra-lite'
       | 'atkinson'
       | 'bayer'
+      | 'bayer-4x4'
       | 'blue-noise'
       | 'void-and-cluster'
       | 'pattern'
@@ -785,6 +786,7 @@ export interface SequentialBrushSnapshot {
     | 'sierra-lite'
     | 'atkinson'
     | 'bayer'
+    | 'bayer-4x4'
     | 'blue-noise'
     | 'void-and-cluster'
     | 'pattern';
@@ -1545,6 +1547,7 @@ export interface BrushSettings {
     | 'sierra-lite'
     | 'atkinson'
     | 'bayer'
+    | 'bayer-4x4'
     | 'blue-noise'
     | 'void-and-cluster'
     | 'pattern';

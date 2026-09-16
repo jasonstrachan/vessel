@@ -30,6 +30,17 @@ const createEvent = (eventId: string, strokeId: string, frameIndex: number, time
 });
 
 describe('SequentialStrokeChunk', () => {
+  it('preserves Bayer 4×4 through recorded-stroke encoding and normalization', () => {
+    const event = createEvent('bayer4', 'stroke-bayer4', 0, 0);
+    event.brush.ditherAlgorithm = 'bayer-4x4';
+    event.brush.pluginBrushId = 'dither-brush';
+    event.brush.pluginConfig = { ditherAlgorithm: 'bayer-4x4' };
+    const encoded = encodeSequentialEventsToChunks({ layerId: 'layer-seq', fps: 12, frameCount: 1, events: [event] });
+    const [decoded] = decodeSequentialChunksToEvents(encoded);
+    expect(decoded.brush.ditherAlgorithm).toBe('bayer-4x4');
+    expect(decoded.brush.pluginConfig?.ditherAlgorithm).toBe('bayer-4x4');
+  });
+
   it('encodes and decodes sequential events with stable event boundaries', () => {
     const pluginEvent = createEvent('event-2', 'stroke-b', 3, 130);
     const sourceEvents: SequentialStrokeEvent[] = [

@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import DitherControls, { DITHER_OPTIONS } from '../DitherControls';
 import type { BrushSettings } from '@/types';
 
@@ -58,12 +59,26 @@ describe('DitherControls', () => {
     expect(screen.getByText(/Sierra Lite/i)).toBeInTheDocument();
   });
 
-  it('orders Bayer and Pattern directly after Sierra 3-row', () => {
-    expect(DITHER_OPTIONS.map((option) => option.value).slice(0, 5)).toEqual([
+  it('selects Bayer 4×4 and can return to the existing Bayer option', async () => {
+    const user = userEvent.setup();
+    const onChange = jest.fn();
+    const { rerender } = render(<DitherControls settings={baseSettings} onChange={onChange} />);
+    await user.click(screen.getByText('Sierra Lite'));
+    await user.click(screen.getByRole('option', { name: 'Bayer 4×4' }));
+    expect(onChange).toHaveBeenLastCalledWith({ ditherAlgorithm: 'bayer-4x4' });
+    rerender(<DitherControls settings={{ ...baseSettings, ditherAlgorithm: 'bayer-4x4' }} onChange={onChange} />);
+    await user.click(screen.getByText('Bayer 4×4'));
+    await user.click(screen.getByRole('option', { name: 'Bayer ordered' }));
+    expect(onChange).toHaveBeenLastCalledWith({ ditherAlgorithm: 'bayer' });
+  });
+
+  it('orders both Bayer choices and Pattern directly after Sierra 3-row', () => {
+    expect(DITHER_OPTIONS.map((option) => option.value).slice(0, 6)).toEqual([
       'sierra-lite',
       'sierra-2',
       'sierra-3',
       'bayer',
+      'bayer-4x4',
       'pattern',
     ]);
   });

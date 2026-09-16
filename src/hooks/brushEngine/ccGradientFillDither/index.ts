@@ -11,6 +11,7 @@ export type FillDitherAlgorithm =
   | 'sierra-lite'
   | 'atkinson'
   | 'bayer'
+  | 'bayer-4x4'
   | 'blue-noise'
   | 'void-and-cluster'
   | 'pattern';

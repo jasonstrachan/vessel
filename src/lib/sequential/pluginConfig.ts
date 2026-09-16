@@ -13,6 +13,7 @@ type SequentialDitherAlgorithm =
   | 'sierra-lite'
   | 'atkinson'
   | 'bayer'
+  | 'bayer-4x4'
   | 'blue-noise'
   | 'void-and-cluster'
   | 'pattern';
@@ -35,6 +36,7 @@ const DITHER_ALGORITHM_SET = new Set<SequentialDitherAlgorithm>([
   'sierra-lite',
   'atkinson',
   'bayer',
+  'bayer-4x4',
   'blue-noise',
   'void-and-cluster',
   'pattern',

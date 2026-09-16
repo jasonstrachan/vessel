@@ -512,6 +512,22 @@ describe('SequentialCpuMaterializer', () => {
     expect(Array.from(pluginDither)).not.toEqual(Array.from(standard));
   });
 
+  it('replays Bayer 4×4 with the 4×4 matrix even when the stored matrix size is 8', () => {
+    const render = (algorithm: 'bayer' | 'bayer-4x4', matrixSize: 4 | 8) =>
+      materializeFrameToPixels(new SequentialCpuMaterializer({ tileSize: 16 }), {
+        width: 32, height: 32, frameIndex: 0,
+        events: [createEvent({
+          id: 'bayer-matrix', frameIndex: 0, x: 16, y: 16, size: 28, color: '#ffffff',
+          pluginBrushId: 'dither-brush',
+          pluginConfig: { ditherAlgorithm: algorithm, ditherIntensity: 50, ditherBayerMatrixSize: matrixSize },
+        })],
+      });
+    const actual = render('bayer-4x4', 8);
+    expect(sumAlpha(actual)).toBeGreaterThan(0);
+    expect(actual).toEqual(render('bayer', 4));
+    expect(actual).not.toEqual(render('bayer', 8));
+  });
+
   it('uses dither plugin config to vary deterministic replay output', () => {
     const materializer = new SequentialCpuMaterializer({ tileSize: 16 });
     const inputBase = {

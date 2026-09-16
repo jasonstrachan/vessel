@@ -28,6 +28,7 @@ export type StampDitherAlgorithm =
   | 'sierra-lite'
   | 'atkinson'
   | 'bayer'
+  | 'bayer-4x4'
   | 'blue-noise'
   | 'void-and-cluster'
   | 'pattern';
@@ -74,6 +75,7 @@ export const nowMs = () => (typeof performance !== 'undefined' ? performance.now
 export const isTileMaskAlgorithm = (algo?: StampDitherAlgorithm): boolean => {
   switch (algo) {
     case 'bayer':
+    case 'bayer-4x4':
     case 'blue-noise':
     case 'void-and-cluster':
     case 'pattern':

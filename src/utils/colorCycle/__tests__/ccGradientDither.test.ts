@@ -6,7 +6,7 @@ import {
   resolveCcSampledFlatPatternPayload,
   resolveSampledFlatPositionMix,
 } from '@/utils/colorCycle/ccGradientDither';
-import type { PatternStyle } from '@/utils/ditherAlgorithms';
+import { BAYER_4x4_MATRIX, type PatternStyle } from '@/utils/ditherAlgorithms';
 import type { CumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import {
   fillFlatPatternMode,
@@ -23,6 +23,40 @@ describe('fillCcGradientDither', () => {
     { x: 4, y: 4 },
     { x: 0, y: 4 },
   ];
+
+  it.each(['gradient', 'flat'] as const)('uses the 4×4 Bayer thresholds in %s mode', async (mode) => {
+    const render = async (algorithm: 'bayer' | 'bayer-4x4' | 'pattern') => {
+      const out = new Uint8Array(16 * 16);
+      const pattern = { patternStyle: 'image-tile' as const, imageTileThresholdResolver: (x: number, y: number) => BAYER_4x4_MATRIX[y & 3][x & 3] };
+      if (mode === 'flat') {
+        fillFlatPatternMode({
+          algorithm, ...pattern, tone: 0.32, flatPosition: 0.5, flatMix: 0.32,
+          gridW: 16, gridH: 16, fillBackground: true, baseOffset: 0,
+          phaseX: -3, phaseY: 5,
+          writeCellIndex: (i, index) => { out[i] = index; },
+        });
+      } else {
+        await fillCcGradientDither({
+          vertices: [{ x: 0, y: 0 }, { x: 16, y: 0 }, { x: 16, y: 16 }, { x: 0, y: 16 }],
+          minX: 0, minY: 0, maxX: 15, maxY: 15,
+          pixelSize: 1, levels: 2, baseOffset: 0, algorithm, ...pattern,
+          sampleNormalized: () => 0.32,
+          writeIndex: (x, y, index) => { out[y * 16 + x] = index; },
+        });
+      }
+      return out;
+    };
+    const actual = await render('bayer-4x4');
+    expect(new Set(actual).size).toBe(2);
+    expect(actual).toEqual(await render('pattern'));
+    for (let y = 0; mode === 'flat' && y < 12; y += 1) {
+      for (let x = 0; x < 12; x += 1) {
+        expect(actual[y * 16 + x]).toBe(actual[y * 16 + x + 4]);
+        expect(actual[y * 16 + x]).toBe(actual[(y + 4) * 16 + x]);
+      }
+    }
+    expect(actual).not.toEqual(await render('bayer'));
+  });
 
   it('maps the top slice of 2-level mode to a cyclic mid index instead of endpoint 255', async () => {
     const width = 5;

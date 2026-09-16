@@ -37,7 +37,7 @@ export const applyDithering = (
   const offsetX = phaseOffset?.x ?? 0;
   const offsetY = phaseOffset?.y ?? 0;
   const hasPhaseOffset = (offsetX | 0) !== 0 || (offsetY | 0) !== 0;
-  const orderedPhaseAlgorithms = new Set(['bayer', 'pattern', 'void-and-cluster', 'blue-noise']);
+  const orderedPhaseAlgorithms = new Set(['bayer', 'bayer-4x4', 'pattern', 'void-and-cluster', 'blue-noise']);
 
   const shiftImageData = (source: ImageData, shiftX: number, shiftY: number): ImageData => {
     const { width, height, data } = source;

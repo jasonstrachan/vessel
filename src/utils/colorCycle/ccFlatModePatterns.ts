@@ -1,4 +1,5 @@
 import {
+  BAYER_4x4_MATRIX,
   BAYER_8x8_MATRIX,
   BLUE_NOISE_16x16,
   VOID_CLUSTER_8x8,
@@ -160,6 +161,9 @@ const resolveOrderedThreshold = (
   tone?: number,
   imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): number => {
+  if (algorithm === 'bayer-4x4') {
+    return BAYER_4x4_MATRIX[y & 3][x & 3];
+  }
   if (algorithm === 'bayer') {
     return BAYER_8x8_MATRIX[y & 7][x & 7];
   }

@@ -140,7 +140,7 @@ export const recomposeStampDitherOverlay = (args: {
   const baseTag = state.stampDitherBaseTag;
   if (!bounds || !tag || !primary) return;
   const rawAlgo = config.algorithm || 'sierra-lite';
-  const algo = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
+  const algo = isTileMaskAlgorithm(rawAlgo) ? rawAlgo : 'sierra-lite';
   const bucket = state.stampDitherLockedBucket ?? STAMP_DITHER_FLAT_BUCKET;
   const coverage = resolveStampDitherBucketCoverage(bucket);
   const seed = config.seed ?? 0;
@@ -205,7 +205,7 @@ export const recomposeStampDitherOverlay = (args: {
           pixelBucket,
           seqScale,
           baseSize,
-          algo === 'pattern' ? 'pattern' : 'sierra-lite',
+          algo,
           config.patternStyle ?? 'dots',
           config.imageTileThresholdResolver,
           diversity,

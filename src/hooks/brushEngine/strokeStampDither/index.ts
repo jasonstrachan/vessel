@@ -3,6 +3,7 @@ import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
 import type { StampDitherRuntime } from './runtime';
 import {
+  isTileMaskAlgorithm,
   nowMs,
   resolvePressureLinkedTileScale,
   resolveStampDitherBucketCoverage,
@@ -284,7 +285,7 @@ export const applyStampDitherStamp = (args: {
     ensureStampDitherBaseBuffers(state, width, height);
   }
   const rawAlgo = config.algorithm || 'sierra-lite';
-  const algo: StampDitherAlgorithm = rawAlgo === 'pattern' ? 'pattern' : 'sierra-lite';
+  const algo: StampDitherAlgorithm = isTileMaskAlgorithm(rawAlgo) ? rawAlgo : 'sierra-lite';
   const isMarkTonePattern = algo === 'pattern' &&
     isCumulativeThresholdResolver(config.imageTileThresholdResolver) &&
     config.imageTileThresholdResolver.coveragePolicy === 'mark-tone-map';

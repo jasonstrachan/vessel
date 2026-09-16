@@ -1,4 +1,5 @@
 import {
+  BAYER_4x4_MATRIX,
   BAYER_8x8_MATRIX,
   BLUE_NOISE_16x16,
   VOID_CLUSTER_8x8,
@@ -706,7 +707,7 @@ type ErrorDiffusionProfile = {
   jitterBase: number;
 };
 
-const ERROR_DIFFUSION_KERNELS: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionKernel>> = {
+const ERROR_DIFFUSION_KERNELS: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'bayer-4x4' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionKernel>> = {
   'floyd-steinberg': {
     taps: [
       { dx: 1, dy: 0, weight: 7 },
@@ -818,7 +819,7 @@ const ERROR_DIFFUSION_KERNELS: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' 
   },
 };
 
-const ERROR_DIFFUSION_PROFILES: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionProfile>> = {
+const ERROR_DIFFUSION_PROFILES: Readonly<Record<Exclude<DitherAlgorithm, 'bayer' | 'bayer-4x4' | 'blue-noise' | 'void-and-cluster' | 'pattern'>, ErrorDiffusionProfile>> = {
   'floyd-steinberg': { threshold: 0.5, jitterBase: 0.04 },
   'jarvis-judice-ninke': { threshold: 0.46, jitterBase: 0.02 },
   stucki: { threshold: 0.48, jitterBase: 0.02 },
@@ -837,6 +838,9 @@ const resolveOrderedThreshold = (
   tone?: number,
   imageTileThresholdResolver?: (x: number, y: number) => number | null
 ): number => {
+  if (algorithm === 'bayer-4x4') {
+    return BAYER_4x4_MATRIX[y & 3][x & 3];
+  }
   if (algorithm === 'bayer') {
     return BAYER_8x8_MATRIX[y & 7][x & 7];
   }

@@ -17,6 +17,7 @@ import {
   BAYER_2x2_MATRIX,
   DitherSettings
 } from '../ditherAlgorithms';
+import { applyDithering } from '@/hooks/brushEngine/dithering';
 import { resolveLostEdgeTileSize } from '../ditherConstants';
 
 // Mock ImageData for Node.js environment
@@ -75,6 +76,20 @@ describe('Dithering Algorithms', () => {
     return new globalThis.ImageData(data, width, height);
   };
   
+  it('renders the 4×4 algorithm with the existing matrix and preserves ordered phase', () => {
+    const image = createTestImageData(31, 29);
+    const settings: DitherSettings = {
+      algorithm: 'bayer', pressure: 0.5, intensity: 1,
+      bayerMatrixSize: 4, palette: createGrayscalePalette(2),
+      phaseOffset: { x: -3, y: 5 },
+    };
+    const expected = applyBayerDither(image, settings);
+    const actual = applyPressureDither(image, { ...settings, algorithm: 'bayer-4x4', bayerMatrixSize: 8 });
+    expect(actual.data).toEqual(expected.data);
+    expect(applyDithering(image, 2, 'bayer-4x4', undefined, ['#000000', '#ffffff'], settings.phaseOffset).data).toEqual(expected.data);
+    expect(actual.data).not.toEqual(applyPressureDither(image, { ...settings, bayerMatrixSize: 8 }).data);
+  });
+
   describe('calculatePressureDitherThreshold', () => {
     it('should return low threshold for light pressure', () => {
       const threshold = calculatePressureDitherThreshold(0.1, 1.0);

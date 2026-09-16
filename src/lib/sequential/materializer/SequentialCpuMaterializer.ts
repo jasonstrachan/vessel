@@ -101,6 +101,7 @@ type SequentialMosaicRuntime = {
 type ResolvedDitherTextureConfig = {
   algorithm:
     | 'bayer'
+    | 'bayer-4x4'
     | 'blue-noise'
     | 'void-and-cluster'
     | 'pattern'
@@ -944,7 +945,7 @@ const shouldKeepTexturedPixel = ({
       });
       return sample >= 0.5;
     }
-    const threshold = resolveDitherMatrixThreshold({ x, y, matrixSize: config.matrixSize });
+    const threshold = resolveDitherMatrixThreshold({ x, y, matrixSize: config.algorithm === 'bayer-4x4' ? 4 : config.matrixSize });
     return coverage >= threshold;
   }
   const noise = hash2D01(x, y);
@@ -1123,6 +1124,7 @@ const resolveDitherTextureConfig = ({
     ? config.patternStyle
     : 'dots';
   const algorithm =
+    normalizedAlgorithm === 'bayer-4x4' ||
     normalizedAlgorithm === 'pattern' ||
     normalizedAlgorithm === 'blue-noise' ||
     normalizedAlgorithm === 'void-and-cluster' ||

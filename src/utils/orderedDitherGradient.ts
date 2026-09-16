@@ -505,6 +505,9 @@ export function renderDitherGradientToImageData(params: DitherGradientRenderPara
   const origin = params.origin ?? { x: 0, y: 0 };
   const algorithm: DitherAlgorithm = params.algorithm ?? 'bayer';
 
+  if (algorithm === 'bayer-4x4') {
+    return renderOrderedDitherGradientToImageData({ ...params, tile: getBayerTile(4), tileSize: 4 });
+  }
   if (algorithm === 'bayer') {
     return renderOrderedDitherGradientToImageData(params);
   }

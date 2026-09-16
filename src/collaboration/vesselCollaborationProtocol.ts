@@ -33,6 +33,7 @@ export type VesselCollaborationDitherAlgorithm =
   | 'sierra-lite'
   | 'atkinson'
   | 'bayer'
+  | 'bayer-4x4'
   | 'blue-noise'
   | 'void-and-cluster'
   | 'pattern';
@@ -646,6 +647,7 @@ const DITHER_ALGORITHMS = new Set<VesselCollaborationDitherAlgorithm>([
   'sierra-lite',
   'atkinson',
   'bayer',
+  'bayer-4x4',
   'blue-noise',
   'void-and-cluster',
   'pattern',

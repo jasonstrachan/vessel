@@ -1,5 +1,6 @@
 import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import {
+  BAYER_4x4_MATRIX,
   BAYER_8x8_MATRIX,
   BLUE_NOISE_16x16,
   VOID_CLUSTER_8x8,
@@ -120,6 +121,10 @@ const buildBaseStampDitherTile = (
     }
   };
 
+  if (algo === 'bayer-4x4') {
+    fillFromMatrix(BAYER_4x4_MATRIX);
+    return result;
+  }
   if (algo === 'bayer') {
     fillFromMatrix(BAYER_8x8_MATRIX);
     return result;
