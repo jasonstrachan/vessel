@@ -72,11 +72,9 @@ describe('DitherControls', () => {
     expect(onChange).toHaveBeenLastCalledWith({ ditherAlgorithm: 'bayer' });
   });
 
-  it('orders both Bayer choices and Pattern directly after Sierra 3-row', () => {
-    expect(DITHER_OPTIONS.map((option) => option.value).slice(0, 6)).toEqual([
+  it('orders both Bayer choices and Pattern directly after Sierra Lite', () => {
+    expect(DITHER_OPTIONS.map((option) => option.value).slice(0, 4)).toEqual([
       'sierra-lite',
-      'sierra-2',
-      'sierra-3',
       'bayer',
       'bayer-4x4',
       'pattern',

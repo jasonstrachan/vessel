@@ -197,8 +197,6 @@ export const DitherBrushControls: React.FC<DitherBrushControlsProps> = ({
           className="w-full bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-white"
         >
           <option value="sierra-lite">Sierra Lite</option>
-          <option value="sierra-2">Sierra 2-row</option>
-          <option value="sierra-3">Sierra 3-row</option>
           <option value="bayer">Bayer ordered</option>
           <option value="pattern">Pattern</option>
           <option value="floyd-steinberg">Floyd-Steinberg</option>

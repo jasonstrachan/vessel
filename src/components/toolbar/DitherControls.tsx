@@ -30,8 +30,6 @@ export { PATTERN_STYLES };
 
 export const DITHER_OPTIONS: { value: DitherAlgorithm; label: string }[] = [
   { value: 'sierra-lite', label: 'Sierra Lite' },
-  { value: 'sierra-2', label: 'Sierra 2-row' },
-  { value: 'sierra-3', label: 'Sierra 3-row' },
   { value: 'bayer', label: 'Bayer ordered' },
   { value: 'bayer-4x4', label: 'Bayer 4×4' },
   { value: 'pattern', label: 'Pattern' },
