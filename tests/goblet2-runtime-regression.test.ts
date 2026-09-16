@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { getColorCyclePlaybackTime } from '@/lib/colorCycle/playbackClock';
+import { getColorCyclePlaybackTime, getColorCyclePlaybackOpacity } from '@/lib/colorCycle/playbackClock';
 
 const rootDir = process.cwd();
 
@@ -23,6 +23,40 @@ const loadRuntimeSeamProfileHelper = (runtime: string): ApplyGradientSeamProfile
 };
 
 describe('Goblet 2 runtime export regression guard', () => {
+  it('uses the same presentation opacity in both exports, including saved offset and export speed', () => {
+    for (const path of ['public/goblet/goblet.js', 'public/goblet2/goblet2.js']) {
+      const source = read(path);
+      const start = source.indexOf('  getCanvas() {');
+      const end = source.indexOf('\n  destroy() {', start);
+      const player = new Function('toFiniteNumberOrNull', 'clamp', `return ({ ${source.slice(start, end)} });`)(
+        (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null,
+        (value: number, low: number, high: number) => Math.max(low, Math.min(high, value)),
+      );
+      player.canvas = document.createElement('canvas');
+      player.layer = { colorCycle: { playbackClock: { timeSeconds: 1, speedScale: 2,
+        opacityCurve: { durationSeconds: 8, samples: [1, 0, 1] } } } };
+      player.baseTimeSeconds = 0;
+      const output = player.getCanvas();
+      const ctx = output.getContext('2d');
+      const draws: number[] = [];
+      const draw = jest.spyOn(ctx, 'drawImage').mockImplementation(() => { draws.push(ctx.globalAlpha); });
+      try {
+        for (const elapsed of [0, 0.5, 1, 2.5, 3, 4]) {
+          player.baseTimeSeconds = elapsed;
+          const result = player.getCanvas();
+          const clock = player.layer.colorCycle.playbackClock;
+          const expected = getColorCyclePlaybackOpacity({ ...clock, timeSeconds: 1 + elapsed * 2 });
+          if (expected === 1) expect(result).toBe(player.canvas);
+          else expect(draws.at(-1)).toBeCloseTo(expected);
+        }
+        player.baseTimeSeconds = 1.5;
+        draws.length = 0;
+        player.getCanvas();
+        expect(draws).toEqual([]);
+      } finally { draw.mockRestore(); }
+    }
+  });
+
   it('uses the same shared clock in both Goblet players and preserves legacy timing when absent', () => {
     for (const path of ['public/goblet/goblet.js', 'public/goblet2/goblet2.js']) {
       const source = read(path);

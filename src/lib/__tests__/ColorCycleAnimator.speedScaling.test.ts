@@ -8,6 +8,36 @@ const readPixel = (animator: ColorCycleAnimator): [number, number, number, numbe
 };
 
 describe('ColorCycleAnimator speed scaling', () => {
+  it('applies authored opacity only when presenting, preserving the native pixels and caller alpha', () => {
+    const clock: ColorCyclePlaybackClock = { timeSeconds: 0, speedScale: 1,
+      opacityCurve: { durationSeconds: 4, samples: [1, 0, 1] } };
+    const unregister = registerColorCyclePlaybackClock({ read: () => clock, snapshotProject: project => project });
+    const animator = new ColorCycleAnimator({ width: 1, height: 1, layerId: 'a', forceCanvas2D: true,
+      gradientStops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#ff0000' }] });
+    animator.setIndex(0, 0, 1); animator.forceRender();
+    const native = readPixel(animator);
+    const target = document.createElement('canvas');
+    const ctx = target.getContext('2d')!;
+    try {
+      clock.timeSeconds = 2;
+      const hidden = animator.getCanvas();
+      expect(hidden.getContext('2d')!.getImageData(0, 0, 1, 1).data[3]).toBe(0);
+      expect(readPixel(animator)).toEqual(native);
+      const surface = hidden.getContext('2d')!;
+      const draws: number[] = [];
+      const draw = jest.spyOn(surface, 'drawImage').mockImplementation(() => { draws.push(surface.globalAlpha); });
+      clock.timeSeconds = 1;
+      animator.getCanvas();
+      expect(draws).toEqual([0.5]);
+      ctx.globalAlpha = 0.4;
+      animator.drawTo(ctx);
+      expect(ctx.globalAlpha).toBeCloseTo(0.4, 2);
+      clock.timeSeconds = 4;
+      expect(animator.getCanvas().getContext('2d')!.getImageData(0, 0, 1, 1).data[3]).toBe(native[3]);
+      draw.mockRestore();
+    } finally { unregister(); animator.cleanup(); }
+  });
+
   it('renders shared-clock layers identically despite different native clocks and multipliers', () => {
     const clock: ColorCyclePlaybackClock = { timeSeconds: 0, speedScale: 2 };
     const unregister = registerColorCyclePlaybackClock({

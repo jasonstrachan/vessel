@@ -1,3 +1,5 @@
+import studioExtension from '@/extensions/studioExtension';
+
 import ButtonGroup from '@/components/ui/ButtonGroup';
 
 export type CcGradientModeValue = 'fg' | 'manual' | 'sample';
@@ -16,13 +18,16 @@ const CC_GRADIENT_SOURCE_OPTIONS = [
 export const CcGradientSourceModeControl = ({
   value,
   onChange,
-}: CcGradientSourceModeControlProps) => (
-  <div className="mb-2">
-    <ButtonGroup
-      options={CC_GRADIENT_SOURCE_OPTIONS}
-      value={value}
-      onChange={onChange}
-      size="sm"
-    />
-  </div>
-);
+}: CcGradientSourceModeControlProps) => {
+  const SourceControls = studioExtension.ColorCycleSourceControls;
+  return (
+    <div className="mb-2 flex w-full min-w-0" role="group" aria-label="Colour source and effects">
+      {SourceControls ? <SourceControls value={value} onChange={onChange} /> : <ButtonGroup
+        options={CC_GRADIENT_SOURCE_OPTIONS}
+        value={value}
+        onChange={onChange}
+        size="sm"
+      />}
+    </div>
+  );
+};

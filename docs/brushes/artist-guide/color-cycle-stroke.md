@@ -112,6 +112,16 @@ Length sets a complete cycle from 1–60 seconds
 in 0.5-second steps, including the full out-and-back for Pendulum and Breathe.
 Pendulum and Breathe travel a full colour cycle in each direction: both eased turning points
 are resolved positions.
+Effects → Unresolve starts with **One state / Two states**. One state uses the
+existing resolve/unresolve cycle. Two states adds **State A / State B**: select
+a state to pause at its resolved position and paint that drawing. B starts blank;
+**Copy A to B** replaces its paint with an independent copy of A and supports
+Undo. The drawings use separate CC layers, so their strokes and erasing stay
+independent. Play blends the cycling drawings from resolved A through unresolved
+colours to resolved B and back. Switching to One state keeps B for later; returning
+to Two states restores it. Save/load and Goblet retain both drawings and their
+shared timing. Layer visibility, opacity and ordering still apply normally.
+
 Changing Length keeps the current cycle position. It is saved with the project
 and exported with playback; Global Speed scales the chosen duration (2× plays
 a 12-second cycle in 6 seconds). Older projects retain their original duration.

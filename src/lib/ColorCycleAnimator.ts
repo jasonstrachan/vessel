@@ -29,7 +29,7 @@ import {
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
 import type { ColorCycleLayerDocumentSnapshot, DerivedSurface } from '@/lib/colorCycle/document';
 import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
-import { getColorCyclePlaybackClock, getColorCyclePlaybackTime } from '@/lib/colorCycle/playbackClock';
+import { getColorCyclePlaybackClock, getColorCyclePlaybackTime, getColorCyclePlaybackOpacity } from '@/lib/colorCycle/playbackClock';
 
 type GPUFillMode = 'concentric' | 'linear';
 
@@ -1799,13 +1799,25 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     this.onFrameCallbacks.delete(callback);
   }
 
-  /**
-   * Get canvas
-   */
+  private opacityCanvas: HTMLCanvasElement | null = null;
+
+  /** Get the presented canvas without changing canonical paint or palette alpha. */
   getCanvas(): HTMLCanvasElement {
-    return this.renderPath === 'gpu' && this.hasUsableWebGLRenderer() && this.glCanvas
+    const source = this.renderPath === 'gpu' && this.hasUsableWebGLRenderer() && this.glCanvas
       ? this.glCanvas
       : this.renderer2D.getCanvas();
+    const opacity = getColorCyclePlaybackOpacity(getColorCyclePlaybackClock(this.diagnosticLayerId));
+    if (opacity === 1) return source;
+    const canvas = this.opacityCanvas ?? (this.opacityCanvas = document.createElement('canvas'));
+    if (canvas.width !== source.width) canvas.width = source.width;
+    if (canvas.height !== source.height) canvas.height = source.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('The playback opacity surface is unavailable.');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = opacity;
+    if (opacity > 0) ctx.drawImage(source, 0, 0);
+    ctx.globalAlpha = 1;
+    return canvas;
   }
 
   /**
@@ -1819,10 +1831,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    * Draw to another context
    */
   drawTo(ctx: CanvasRenderingContext2D, x: number = 0, y: number = 0) {
-    const src = this.renderPath === 'gpu' && this.hasUsableWebGLRenderer() && this.glCanvas
-      ? this.glCanvas
-      : this.renderer2D.getCanvas();
-    ctx.drawImage(src, x, y);
+    ctx.drawImage(this.getCanvas(), x, y);
   }
 
   /**
@@ -2123,6 +2132,7 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
     this.disposeGlRenderer();
 
     this.renderer2D.cleanup();
+    this.opacityCanvas = null;
   }
 
   /**

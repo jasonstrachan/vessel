@@ -3485,10 +3485,33 @@ class ColorCycleLayerPlayer {
   }
 
   getCanvas() {
-    return this.canvas;
+    const clock = this.layer.colorCycle?.playbackClock;
+    const curve = clock?.opacityCurve;
+    if (!curve || !(curve.durationSeconds > 0) || !Number.isFinite(curve.durationSeconds)
+      || !Array.isArray(curve.samples) || curve.samples.length < 2) return this.canvas;
+    const time = Math.max(0, toFiniteNumberOrNull(clock.timeSeconds) ?? 0)
+      + this.baseTimeSeconds * Math.max(0, toFiniteNumberOrNull(clock.speedScale) ?? 1);
+    const position = ((time % curve.durationSeconds + curve.durationSeconds) % curve.durationSeconds)
+      / curve.durationSeconds * (curve.samples.length - 1);
+    const index = Math.min(Math.floor(position), curve.samples.length - 2);
+    const start = curve.samples[index], end = curve.samples[index + 1];
+    const opacity = Number.isFinite(start) && Number.isFinite(end)
+      ? clamp(start + (end - start) * (position - index), 0, 1) : 1;
+    if (opacity === 1) return this.canvas;
+    const canvas = this.opacityCanvas ?? (this.opacityCanvas = document.createElement('canvas'));
+    if (canvas.width !== this.canvas.width) canvas.width = this.canvas.width;
+    if (canvas.height !== this.canvas.height) canvas.height = this.canvas.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('The playback opacity surface is unavailable.');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = opacity;
+    if (opacity > 0) ctx.drawImage(this.canvas, 0, 0);
+    ctx.globalAlpha = 1;
+    return canvas;
   }
 
   destroy() {
+    this.opacityCanvas = null;
     this.isAnimating = false;
     this.indexBuffer = null;
     this.gradientIdBuffer = null;

@@ -45,6 +45,10 @@ export interface VesselStudioExtension {
   ToolbarItems?: React.ComponentType;
   PlaybackSettings?: React.ComponentType;
   UnresolveSettings?: React.ComponentType;
+  ColorCycleSourceControls?: React.ComponentType<{
+    value: string;
+    onChange: (value: string) => void;
+  }>;
   PlaybackControls?: React.ComponentType<{ children: React.ReactElement<React.ButtonHTMLAttributes<HTMLButtonElement>> }>;
   ExportControls?: React.ComponentType;
   ExportResultControls?: React.ComponentType<{ artifact: GobletArtifact }>;
