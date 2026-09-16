@@ -4,13 +4,14 @@
  * to ensure they share the same gradient settings
  */
 
+import { clampForegroundContrast, clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import { logError } from '@/utils/debug';
 import { useAppStore } from '@/stores/useAppStore';
 import { DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import { rgbToHsl, hslToRgb } from '@/utils/imageProcessing';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
-import type { DerivedGradientSpec } from '@/types';
+import type { BrushSettings, DerivedGradientSpec } from '@/types';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
 import { cancelGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
@@ -121,16 +122,7 @@ export const ensureForegroundGradientSlot = (layerId: string): ForegroundSlotRes
   const brushSettings = state.tools.brushSettings;
   const palette = state.palette;
   const baseColor = palette?.foregroundColor ?? brushSettings.color ?? '#ffffff';
-  const bands = clampForegroundDerivedBands(brushSettings.colorCycleFgStops);
-  const derivedSpec = buildForegroundDerivedGradientSpec({
-    baseColor,
-    lightness: brushSettings.colorCycleFgLightness,
-    variance: brushSettings.colorCycleFgVariance,
-    hueShift: brushSettings.colorCycleFgHueShift,
-    saturationShift: brushSettings.colorCycleFgSaturationShift,
-    opacity: brushSettings.colorCycleFgOpacity,
-    bands,
-  });
+  const derivedSpec = buildForegroundColorRampSpec(baseColor, brushSettings);
   const derivedStops = deriveForegroundGradientStops(derivedSpec);
   if (!derivedStops || derivedStops.length < 2) {
     return null;
@@ -502,8 +494,26 @@ export const clampForegroundDerivedBands = (bands: number | undefined): number =
   return clamp(Math.round(bands), 2, FG_DERIVED_MAX_BANDS);
 };
 
+export const buildForegroundColorRampSpec = (
+  baseColor: string,
+  settings: Pick<BrushSettings, 'colorCycleFgContrast' | 'colorCycleFgColors'>,
+): DerivedGradientSpec => {
+  const contrast = clampForegroundContrast(settings.colorCycleFgContrast);
+  const bands = clampForegroundColors(settings.colorCycleFgColors);
+  return {
+    mode: 'fg-derived',
+    baseColor,
+    contrast,
+    lightness: 50,
+    bands,
+    algoVersion: 4,
+    key: JSON.stringify(['fg', 4, baseColor, contrast, bands]),
+  };
+};
+
 export const buildForegroundDerivedGradientSpec = (params: {
   baseColor: string;
+  backgroundColor?: string;
   lightness?: number;
   variance?: number;
   hueShift?: number;
@@ -512,6 +522,17 @@ export const buildForegroundDerivedGradientSpec = (params: {
   bands?: number;
   algoVersion?: number;
 }): DerivedGradientSpec => {
+  if (params.backgroundColor !== undefined) {
+    return {
+      mode: 'fg-derived',
+      baseColor: params.baseColor,
+      backgroundColor: params.backgroundColor,
+      lightness: 50,
+      bands: 2,
+      algoVersion: 3,
+      key: JSON.stringify(['fg', 3, params.baseColor, params.backgroundColor]),
+    };
+  }
   const parsed = parseCssColor(params.baseColor, { r: 255, g: 255, b: 255, a: 255 });
   const normalizedBase = rgbToHex(parsed.r, parsed.g, parsed.b);
   const lightness = clamp(Math.round(params.lightness ?? DEFAULT_FG_DERIVED_LIGHTNESS), 0, 100);
@@ -594,6 +615,32 @@ export const buildForegroundDerivedGradientSpec = (params: {
 };
 
 export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<{ position: number; color: string; opacity?: number }> => {
+  if (spec.algoVersion === 4) {
+    const parsed = parseCssColor(spec.baseColor);
+    const [hue, saturation, lightness] = rgbToHsl(parsed.r, parsed.g, parsed.b);
+    const range = clampForegroundContrast(spec.contrast);
+    const count = clampForegroundColors(spec.bands);
+    // Shift the whole range at the extremes instead of clipping individual tones.
+    // The endpoints depend only on contrast and the selected colour, never count.
+    const low = clamp(lightness - range / 2, 0, 100 - range);
+    const stops: Array<{ position: number; color: string; opacity?: number }> = [];
+    for (let index = 0; index < count; index += 1) {
+      const [r, g, b] = hslToRgb(hue, saturation, low + range * index / (count - 1));
+      const color = parsed.a === 255
+        ? rgbToHex(r, g, b)
+        : `rgba(${r}, ${g}, ${b}, ${parsed.a / 255})`;
+      // Adjacent equal-position stops encode discrete tones in both Vessel and Goblet.
+      stops.push({ position: index / count, color });
+      stops.push({ position: (index + 1) / count, color });
+    }
+    return stops;
+  }
+  if (spec.backgroundColor !== undefined) {
+    return [
+      { position: 0, color: spec.baseColor },
+      { position: 1, color: spec.backgroundColor },
+    ];
+  }
   const parsed = parseCssColor(spec.baseColor, { r: 255, g: 255, b: 255, a: 255 });
   const [baseH, baseS, baseL] = rgbToHsl(parsed.r, parsed.g, parsed.b);
   const bands = Math.max(2, Math.round(spec.bands));

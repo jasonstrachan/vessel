@@ -34,8 +34,7 @@ import {
 } from '@/utils/pressureResolution';
 import {
   DEFAULT_COLOR_CYCLE_GRADIENT,
-  buildForegroundDerivedGradientSpec,
-  clampForegroundDerivedBands,
+  buildForegroundColorRampSpec,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import {
@@ -3127,17 +3126,7 @@ export const createShapeToolHandler = (
               brushNow.color ??
               '#000';
             const derivedSpec = useForegroundDerived
-              ? buildForegroundDerivedGradientSpec({
-                  baseColor: fgBaseColor,
-                  lightness: brushNow.colorCycleFgLightness,
-                  variance: brushNow.colorCycleFgVariance,
-                  hueShift: brushNow.colorCycleFgHueShift,
-                  saturationShift: brushNow.colorCycleFgSaturationShift,
-                  opacity: brushNow.colorCycleFgOpacity,
-                  bands: clampForegroundDerivedBands(
-                    brushNow.colorCycleFgStops
-                  ),
-                })
+              ? buildForegroundColorRampSpec(fgBaseColor, brushNow)
               : null;
             const derivedStops = derivedSpec
               ? deriveForegroundGradientStops(derivedSpec)
@@ -3156,17 +3145,7 @@ export const createShapeToolHandler = (
             const preserveSourceStops =
               ccPreview?.source === 'sampled' &&
               resolveCcDitherInkMode(brushNow).pairBandCount <= 0;
-            const foregroundDerivedKey = derivedSpec
-              ? [
-                  fgBaseColor,
-                  brushNow.colorCycleFgLightness ?? 0,
-                  brushNow.colorCycleFgVariance ?? 0,
-                  brushNow.colorCycleFgHueShift ?? 0,
-                  brushNow.colorCycleFgSaturationShift ?? 0,
-                  brushNow.colorCycleFgOpacity ?? 100,
-                  clampForegroundDerivedBands(brushNow.colorCycleFgStops),
-                ].join(':')
-              : 'none';
+            const foregroundDerivedKey = derivedSpec?.key ?? 'none';
             const basePixelSize = Math.max(1, Math.round(brushNow.fillResolution ?? 1));
             const usePressure =
               Boolean(brushNow.pressureLinkedFillResolution) &&
@@ -3327,7 +3306,9 @@ export const createShapeToolHandler = (
                       ditherGradPreviewState.ccPreparedGradientKey === preparedGradientKey &&
                       ditherGradPreviewState.ccPreparedGradient
                         ? ditherGradPreviewState.ccPreparedGradient
-                        : prepareCcShapePreviewGradient({
+                        : useForegroundDerived
+                          ? { renderStops: effectiveStops, sortedStops: normalizePreparedPreviewStops(effectiveStops) }
+                          : prepareCcShapePreviewGradient({
                             effectiveStops,
                             // Flat-cycle previews sample the base gradient; its
                             // weave already encodes the dither texture.

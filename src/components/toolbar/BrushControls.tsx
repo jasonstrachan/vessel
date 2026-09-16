@@ -1,5 +1,6 @@
 "use client";
 
+import { clampForegroundContrast, clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog } from '@/utils/debug';
 // Simple brush controls for proof of concept
@@ -56,8 +57,7 @@ import {
   getPresetStops
 } from '@/utils/gradientPresets';
 import {
-  buildForegroundDerivedGradientSpec,
-  clampForegroundDerivedBands,
+  buildForegroundColorRampSpec,
   deriveForegroundGradientStops,
   getShapeModeForBrush,
   isColorCycleBrush,
@@ -681,29 +681,6 @@ const BrushControls = () => {
     setActiveSettings({ spacing: next });
   });
 
-  const clampFgLightness = React.useCallback(
-    (next: number) => Math.max(0, Math.min(100, Math.round(next))),
-    []
-  );
-  const clampFgHueShift = React.useCallback(
-    (next: number) => Math.max(-320, Math.min(320, Math.round(next))),
-    []
-  );
-  const clampFgSatShift = React.useCallback(
-    (next: number) => Math.max(-45, Math.min(45, Math.round(next))),
-    []
-  );
-
-  const fgOpacitySlider = useCommittedSliderValue(fgDerivedOpacity, (nextRaw) => {
-    const next = Math.max(0, Math.min(100, Math.round(nextRaw)));
-    setActiveSettings({ colorCycleFgOpacity: next });
-  });
-
-  const fgStopsSlider = useCommittedSliderValue(activeSettings.colorCycleFgStops ?? 2, (nextRaw) => {
-    const next = Math.max(2, Math.min(6, Math.round(nextRaw)));
-    setActiveSettings({ colorCycleFgStops: next });
-  });
-
   const setColorCycleSpeed = React.useCallback((nextRaw: number) => {
     const next = sanitizeBrushColorCycleSpeed(nextRaw);
     setActiveSettings({ colorCycleSpeed: next });
@@ -733,18 +710,20 @@ const BrushControls = () => {
     const next = Math.max(0, Math.min(100, Math.round(nextRaw)));
     setActiveSettings({ lostEdge: next });
   });
-  const fgDerivedBands = clampForegroundDerivedBands(activeSettings.colorCycleFgStops);
+  const fgContrast = clampForegroundContrast(activeSettings.colorCycleFgContrast);
+  const fgColors = clampForegroundColors(activeSettings.colorCycleFgColors);
+  const fgContrastSlider = useCommittedSliderValue(fgContrast, (value) => {
+    setActiveSettings({ colorCycleFgContrast: clampForegroundContrast(value) });
+  });
+  const fgColorsSlider = useCommittedSliderValue(fgColors, (value) => {
+    setActiveSettings({ colorCycleFgColors: clampForegroundColors(value) });
+  });
   const foregroundDerivedSpec = React.useMemo(
-    () =>
-      buildForegroundDerivedGradientSpec({
-        baseColor: fgColor,
-        lightness: fgDerivedLightness,
-        hueShift: fgDerivedHueShift,
-        saturationShift: fgDerivedSaturationShift,
-        opacity: fgDerivedOpacity,
-        bands: fgDerivedBands,
-      }),
-    [fgColor, fgDerivedBands, fgDerivedLightness, fgDerivedHueShift, fgDerivedSaturationShift, fgDerivedOpacity]
+    () => buildForegroundColorRampSpec(fgColor, {
+      colorCycleFgContrast: fgContrast,
+      colorCycleFgColors: fgColors,
+    }),
+    [fgColor, fgContrast, fgColors],
   );
   const foregroundDerivedStops = React.useMemo(
     () => deriveForegroundGradientStops(foregroundDerivedSpec),
@@ -755,7 +734,7 @@ const BrushControls = () => {
       return 'none';
     }
     return `linear-gradient(to right, ${foregroundDerivedStops
-      .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
+      .map((stop) => `${stop.color} ${stop.position * 100}%`)
       .join(', ')})`;
   }, [foregroundDerivedStops]);
 
@@ -1303,7 +1282,7 @@ const BrushControls = () => {
     );
   }, [handleRemoveSavedGradient, savedGradients]);
 
-  const ccGradientColorsControl = isColorCycleGradientPreset && !isColorCycleFlatDitherPreset ? (
+  const ccGradientColorsControl = !useForegroundDerivedGradient && isColorCycleGradientPreset && !isColorCycleFlatDitherPreset ? (
     <div className="flex items-center gap-2 mt-2">
       <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
         Inks
@@ -1747,23 +1726,25 @@ const BrushControls = () => {
           onChange={handleGradientSourceChange}
         />
 
-        <div className="mb-2 flex items-center gap-2">
-          <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-            Seam
-          </label>
-          <ButtonGroup
-            options={[
-              { label: 'Hard', value: 'hard' },
-              { label: 'Soft', value: 'soft' },
-            ]}
-            value={activeSettings.colorCycleGradientSeamProfile ?? 'hard'}
-            onChange={(value) => setActiveSettings({
-              colorCycleGradientSeamProfile: value as GradientSeamProfile,
-            })}
-            className="flex-1"
-            size="sm"
-          />
-        </div>
+        {!useForegroundDerivedGradient && (
+          <div className="mb-2 flex items-center gap-2">
+            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+              Seam
+            </label>
+            <ButtonGroup
+              options={[
+                { label: 'Hard', value: 'hard' },
+                { label: 'Soft', value: 'soft' },
+              ]}
+              value={activeSettings.colorCycleGradientSeamProfile ?? 'hard'}
+              onChange={(value) => setActiveSettings({
+                colorCycleGradientSeamProfile: value as GradientSeamProfile,
+              })}
+              className="flex-1"
+              size="sm"
+            />
+          </div>
+        )}
 
         {isColorCycleGradientPreset && (
           <div className="mb-2">
@@ -1793,20 +1774,10 @@ const BrushControls = () => {
           <CcForegroundGradientControls
             fgColor={fgColor}
             foregroundDerivedCss={foregroundDerivedCss}
-            showColorCycleBands={showColorCycleBands}
-            bandsSlider={bandsSlider}
-            fgDerivedLightness={fgDerivedLightness}
-            fgDerivedHueShift={fgDerivedHueShift}
-            fgDerivedSaturationShift={fgDerivedSaturationShift}
-            fgOpacitySlider={fgOpacitySlider}
-            fgStopsSlider={fgStopsSlider}
-            NonCcSlider={NonCcSlider}
+            contrastSlider={fgContrastSlider}
+            colorsSlider={fgColorsSlider}
             labelClassName={CONTROL_LABEL_CLASS}
             labelStyle={CONTROL_LABEL_STYLE}
-            setActiveSettings={setActiveSettings}
-            clampFgLightness={clampFgLightness}
-            clampFgHueShift={clampFgHueShift}
-            clampFgSatShift={clampFgSatShift}
           />
         ) : isGradientSampleMode ? (
           <div className="mb-3">
@@ -1828,6 +1799,7 @@ const BrushControls = () => {
                         ccGradientSource: resolvedGradientSource,
                         fgParams: {
                         fgColorHex: fgColor,
+                        bgColorHex: bgColor,
                         fgLightness: fgDerivedLightness,
                         fgVariance: activeSettings.colorCycleFgVariance,
                         fgHueShift: fgDerivedHueShift,
@@ -1882,7 +1854,7 @@ const BrushControls = () => {
           </div>
         ) : null}
 
-        {(isColorCycleStrokePreset || isColorCycleGradientPreset) && (
+        {!useForegroundDerivedGradient && (isColorCycleStrokePreset || isColorCycleGradientPreset) && (
           <div className="flex items-center gap-2 mt-2 mb-2">
             <label
               className={`${CONTROL_LABEL_CLASS} whitespace-nowrap text-[11px]`}
@@ -1906,7 +1878,7 @@ const BrushControls = () => {
           </div>
         )}
 
-        {isColorCycleStrokePreset && (
+        {isColorCycleStrokePreset && !useForegroundDerivedGradient && (
           <div className="flex items-center gap-2 mt-2 mb-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Ink Spread">
               Ink Spd
@@ -1941,7 +1913,7 @@ const BrushControls = () => {
               showPxlEdgeToggle={isColorCycleGradientPreset}
               hideLostEdge
               beforeResolution={
-                isColorCycleGradientPreset ? (
+                isColorCycleGradientPreset && !useForegroundDerivedGradient ? (
                   <>
                     <div className="flex items-center gap-2 mt-2">
                       <label

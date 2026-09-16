@@ -200,6 +200,7 @@ import {
   MIN_RECOLOR_COLOR_CYCLE_SPEED
 } from '@/constants/colorCycle';
 import { isFgPending } from '@/utils/colorCycleGradients';
+import { clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import {
   flushGradientApply,
   requestGradientApply,
@@ -1995,11 +1996,15 @@ export const useBrushEngineSimplified = () => {
           ? getActiveLayerSettingsSurfaceBrush()
           : null
       ),
-      gradientBands: tools.brushSettings.gradientBands,
+      gradientBands: tools.brushSettings.colorCycleUseForegroundGradient
+        ? clampForegroundColors(tools.brushSettings.colorCycleFgColors)
+        : tools.brushSettings.gradientBands,
       renderBrushToLayerCanvas,
     });
   }, [
     tools.brushSettings.gradientBands,
+    tools.brushSettings.colorCycleUseForegroundGradient,
+    tools.brushSettings.colorCycleFgColors,
     getActiveLayerSettingsSurfaceBrush,
     activeLayerId,
     ensureColorCycleBrushInitialized,

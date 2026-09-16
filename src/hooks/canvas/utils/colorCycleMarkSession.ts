@@ -270,7 +270,7 @@ export const resolveMarkSessionRuntimeStops = (
       session.sampledRepresentativeColor,
     );
   }
-  if (session?.isRuntimePalette) {
+  if (session?.isRuntimePalette || session?.source === 'fg') {
     return clonedStops;
   }
   const config = session?.ditherRenderConfig;
@@ -327,7 +327,7 @@ export const beginMarkGradientSession = (params: {
   if (!layer || layer.layerType !== 'color-cycle') {
     return null;
   }
-  const seamProfile: GradientSeamProfile = normalizeGradientSeamProfile(
+  const seamProfile: GradientSeamProfile = params.source === 'fg' ? 'hard' : normalizeGradientSeamProfile(
     state.tools.brushSettings.colorCycleGradientSeamProfile,
   );
   const hasSampledRuntimePalette =
@@ -384,7 +384,7 @@ export const beginMarkGradientSession = (params: {
     }
   }
   const alignment = studioExtension.sampledStrokeAlignment?.(params.layerId);
-  const sampledDitherStroke = !colourPickup && params.markKind === 'stroke' &&
+  const sampledDitherStroke = params.source !== 'fg' && !colourPickup && params.markKind === 'stroke' &&
         state.tools.brushSettings.colorCycleStampDitherEnabled &&
         !state.tools.brushSettings.colorCyclePencilEnabled;
   const sampledPairedInks = Boolean(sampledDitherStroke && state.tools.brushSettings.colorCycleStampDitherBgFill !== false);

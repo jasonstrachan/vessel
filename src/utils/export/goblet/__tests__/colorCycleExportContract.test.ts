@@ -1,3 +1,5 @@
+import { GradientPalette } from '@/lib/GradientPalette';
+import { buildForegroundColorRampSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { buildGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadBuilder';
 import { resolveGobletColorCycleExportSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import {
@@ -322,6 +324,24 @@ describe('Goblet color-cycle export contract boundaries', () => {
       const indexBuffer = payload.colorCycle?.brushState?.indexBuffer as ArrayLike<number>;
       expect(Array.from(indexBuffer)).toEqual([1, 2, 3, 4]);
     }
+  });
+
+  it('exports the exact FG tones and hard boundaries from the committed definition', async () => {
+    const stops = deriveForegroundGradientStops(buildForegroundColorRampSpec('rgba(51, 102, 153, 0.4)', {
+      colorCycleFgContrast: 60, colorCycleFgColors: 6,
+    }));
+    const layer = createLayer({
+      gradientDefStore: [{ id: 1, kind: 'linear', stops, hash: 'fg-ramp', source: 'fg',
+        seamProfile: 'hard', createdAtMs: 1 }],
+      brushState: { canonicalPaint: true, schemaVersion: 1,
+        layers: [{ layerId: 'cc-layer', strokeData: createCompleteStrokeData() }] },
+    });
+    const payload = await serializeColorCycleDataFromResolvedLayer(layer, project);
+    const exported = payload?.colorCycle?.gradientDefStore?.[0];
+    expect(exported?.seamProfile).toBe('hard');
+    expect(exported?.stops.map(stop => stop.position)).toEqual(stops.map(stop => stop.position));
+    expect(new GradientPalette(exported?.stops).getPaletteColors())
+      .toEqual(new GradientPalette(stops).getPaletteColors());
   });
 
   it.each([1, 3])('exports all source bands and per-pixel timing for %s sampled-path sections without a Studio clock', async (sections) => {

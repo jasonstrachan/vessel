@@ -57,6 +57,8 @@ export interface CcBrushDitherSelectionPayload {
 }
 
 export interface GlobalBrushSettingsPayload {
+  colorCycleFgContrast?: number;
+  colorCycleFgColors?: number;
   ccGradientSource?: BrushSettings['ccGradientSource'];
   globalBrushSize?: number;
   brushSpecificSettings?: StoredBrushMap;
@@ -147,6 +149,12 @@ export const saveGlobalBrushSettings = (payload: GlobalBrushSettingsPayload): vo
 
   try {
     const sanitized: GlobalBrushSettingsPayload = {};
+    if (typeof payload.colorCycleFgContrast === 'number' && Number.isFinite(payload.colorCycleFgContrast)) {
+      sanitized.colorCycleFgContrast = Math.max(0, Math.min(100, Math.round(payload.colorCycleFgContrast)));
+    }
+    if (typeof payload.colorCycleFgColors === 'number' && Number.isFinite(payload.colorCycleFgColors)) {
+      sanitized.colorCycleFgColors = Math.max(2, Math.min(16, Math.round(payload.colorCycleFgColors)));
+    }
     if (payload.ccGradientSource === 'manual' || payload.ccGradientSource === 'sampled' || payload.ccGradientSource === 'fg') {
       sanitized.ccGradientSource = payload.ccGradientSource;
     }

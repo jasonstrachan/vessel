@@ -29,6 +29,7 @@ describe('resolveCcDitherBandMode', () => {
 describe('CC dither ink settings', () => {
   it('defaults and clamps the dedicated ink count independently of gradient bands', () => {
     expect(resolveCcDitherInkColorCount({})).toBe(16);
+    expect(resolveCcDitherInkColorCount({ colorCycleUseForegroundGradient: true, colorCycleFgColors: 6, ccDitherInkColors: 1, gradientBands: 2 })).toBe(6);
     expect(resolveCcDitherInkColorCount({ gradientBands: 64 })).toBe(64);
     expect(resolveCcDitherInkColorCount({ ccDitherInkColors: 9 })).toBe(9);
     expect(resolveCcDitherInkColorCount({ ccDitherInkColors: 99 })).toBe(16);

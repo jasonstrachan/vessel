@@ -45,6 +45,13 @@ describe('brushSettingsStorage', () => {
     expect(loadGlobalBrushSettings()?.ccGradientSource).toBe(ccGradientSource);
   });
 
+  it('round-trips the shared FG recipe independently of the selected brush', () => {
+    saveGlobalBrushSettings({ colorCycleFgContrast: 63, colorCycleFgColors: 6, lastBrushId: 'mosaic' });
+    expect(loadGlobalBrushSettings()).toMatchObject({ colorCycleFgContrast: 63, colorCycleFgColors: 6 });
+    saveGlobalBrushSettings({ colorCycleFgContrast: 200, colorCycleFgColors: 0 });
+    expect(loadGlobalBrushSettings()).toMatchObject({ colorCycleFgContrast: 100, colorCycleFgColors: 2 });
+  });
+
   it('loads stored payload', () => {
     storage.setItem('vessel:brush-settings', JSON.stringify({
       globalBrushSize: 18,

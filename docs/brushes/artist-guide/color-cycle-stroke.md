@@ -19,12 +19,12 @@ attention, signal, time, or any boundary that should remain active.
 | Spacing / Vel | Stamp interval and optional response to drawing speed. Tight spacing makes flow; open spacing exposes pulses. |
 | Speed / Vel | Cycle rate and optional velocity linkage. Use speed as narrative tempo, not a universal special effect. |
 | Band px | Canvas distance before the next colour band. Changes the stamp ink pair without changing tip geometry, stamp spacing, or dither resolution. |
-| FG Grad | Builds related stops from the foreground colour. |
-| Light / Hue / Sat / Opacity / Stops | Defines variation across a foreground-derived gradient. |
+| FG Grad | Builds a tonal palette from the selected foreground colour, retaining its hue, saturation and opacity. |
+| FG Contrast / Colours | Contrast sets the light/dark range; Colours selects 2–16 distinct tones within it. Changing colour or CC brush retains the recipe, including after reopening Vessel. Zero contrast collapses all tones to the selected colour. |
 | Man Grad | Uses editable authored stops, positions, and opacity. |
 | Sample / Hard seam | Derives colours from the canvas and chooses whether the loop join pulses or blends. |
-| Contrast | Increases separation across the sampled or derived gradient. |
-| Ink Spd | For Palette, FG Grad, Sample and Unresolve, 0 uses identical inks and 100 increases their separation within gamut while preserving their combined colour. Applies to new stamp-dither strokes with BG Fill on; Contrast stays independent. |
+| Contrast | In Palette/Sample, adjusts separation across the source gradient. FG uses its own tonal Contrast control. |
+| Ink Spd | For Palette, Sample and Unresolve, 0 uses identical inks and 100 increases their separation within gamut while preserving their combined colour. Applies to new stamp-dither strokes with BG Fill on; Contrast stays independent. |
 | Stamp Dither | Converts the animated tip into a dithered texture. |
 | Algorithm / Pattern | Distribution of pixels within a dithered stamp. |
 | Res / Pres Res / Max | Base stamp cell size, pressure linkage, and largest linked cell. |
@@ -68,7 +68,7 @@ dither inks, including at overlaps and crossings. The drawing preview approximat
 the growing source sequence; release stores every source band. Existing strokes
 retain their saved mapping and need redrawing to use this repair.
 
-For Palette, FG Grad, Sample and Unresolve, the original dither mask selects between two palettes at the same colour position:
+For Palette, Sample and Unresolve, the original dither mask selects between two palettes at the same colour position:
 a pair controlled by Ink Spd. At 0 both inks match the contrast-adjusted target; increasing
 spread separates a pair within the displayable colour range. The pair follows the
 target hue smoothly; neutral targets use a cool/warm axis. Their
@@ -96,7 +96,7 @@ Unresolve, so their weighted mixture follows that strand’s intended colour.
 Very short strands and coarse dither cells may not contain the stroke-wide
 proportion of both inks; assess their colour over an area containing both. The live drawing preview uses
 the same Contrast, Ink Spread and dither-mask mapping as the finished stroke.
-Palette, FG Grad and ordinary Sample split the complete 256-colour playback
+Palette and ordinary Sample split the complete 256-colour playback
 gradient, including colours between source points. Fixed-distance Unresolve
 splits every source band in its full sequence. Palette and FG Grad freeze their source on pointer-down. Sample and
 Unresolve still update as the path grows; their complete source sequence is frozen
@@ -184,3 +184,8 @@ Use `0.055–0.060` only for selective focal accents; never exceed `0.08`.
 
 If every contour cycles, none of them feels alive. Reserve motion for the paths
 where time or energy is part of the meaning.
+
+FG Grad uses its finished tonal palette directly. Ink Spread and the extra source
+contrast/ink-count controls are hidden in FG mode; dither selects from the chosen
+tones without inventing a second palette. Changing Colours preserves the range
+endpoints. Near black or white, the range shifts inward to avoid clipped tones.

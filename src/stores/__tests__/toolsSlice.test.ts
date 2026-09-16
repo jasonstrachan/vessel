@@ -57,6 +57,19 @@ describe('tools slice', () => {
     resetToolsState();
   });
 
+  it('shares the foreground recipe across CC and regular preset switches', () => {
+    useAppStore.getState().setBrushSettings({ colorCycleFgContrast: 63, colorCycleFgColors: 6 });
+    for (const id of ['color-cycle-stroke', 'color-cycle-gradient', 'color-cycle-flat-dither', 'color-cycle-triangle', 'color-cycle-shape', 'checkered', 'mosaic', 'color-cycle-stroke']) {
+      const preset = brushPresets.find(entry => entry.id === id)!;
+      expect(preset).toBeDefined();
+      useAppStore.getState().setBrushPreset(preset, true);
+      useAppStore.getState().setPaletteColor('foreground', '#775533');
+      expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+        colorCycleFgContrast: 63, colorCycleFgColors: 6,
+      });
+    }
+  });
+
   it('updates pressure settings and palette via setBrushSettings', () => {
     const store = useAppStore.getState();
     store.setBrushSettings({

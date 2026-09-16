@@ -1,3 +1,4 @@
+import { clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import {
   BrushShape,
   type BrushSettings,
@@ -56,6 +57,8 @@ type SharedArgs<TBrush extends ColorCycleFillBrush> = {
     BrushSettings,
     | 'ditherEnabled'
     | 'gradientBands'
+    | 'colorCycleUseForegroundGradient'
+    | 'colorCycleFgColors'
     | 'ccDitherInkColors'
     | 'brushShape'
     | 'gridSnapEnabled'
@@ -121,7 +124,9 @@ const resolveFillSettings = ({
 }) => {
   const ccGradientMode = isCCGradientActiveLayer;
   const wantDither = ccGradientMode && !!brushSettings.ditherEnabled;
-  const bands = Math.max(1, Math.min(254, Math.round(brushSettings.gradientBands ?? 12)));
+  const bands = brushSettings.colorCycleUseForegroundGradient
+    ? clampForegroundColors(brushSettings.colorCycleFgColors)
+    : Math.max(1, Math.min(254, Math.round(brushSettings.gradientBands ?? 12)));
   const spacing = clampColorCycleBandSpacing(
     useShapeSpacing
       ? brushSettings.colorCycleBandSpacingPx ?? brushSettings.spacing ?? defaultBandSpacing

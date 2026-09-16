@@ -19,17 +19,17 @@ transformation, depth, and forms whose animation needs a spatial axis.
 | Spacing / Vel | Boundary sampling interval and optional velocity response. |
 | Speed / Vel | Animation rate and optional link to drawing velocity. |
 | Drawing shape | Free, Rect, Oval, Line, Click Line, Tri, or Poly. Selects how the bounded geometry is constructed. |
-| FG Grad / Man Grad / Sample | Uses foreground-derived, authored, or sampled colours. |
-| Foreground controls | Bands, Light, Hue, Sat, Opacity, and Stops define the generated palette. |
+| FG Grad / Man Grad / Sample | Uses tones of the selected foreground colour, authored stops, or sampled colours. |
+| Foreground controls | Contrast sets the light/dark range around the selected colour; Colours sets 2–16 distinct tones within that same range. Hue, saturation and opacity come from the selected foreground colour. The recipe is shared across CC brushes and saved between sessions. Previously painted strokes retain their colours. |
 | Manual gradient controls | Edit stop colour, position, opacity, and saved gradient choices. |
 | Sample controls / Soft seam | Capture canvas colours and choose a continuous or pulsing loop join. |
 | Grad / Stroke / Concentric | Chooses linear, gesture-following, or radial colour placement. |
-| Contrast | Increases separation across the gradient. |
+| Contrast | In FG mode, sets the tonal range independently of Colours. In Palette/Sample, adjusts separation across the source gradient. |
 | Dither / Algorithm / Pattern | Enables and selects the texture distributing colours. |
 | Res / Pres Res / Max | Base dither-cell size, pressure response, and largest linked cell. |
 | Pxl Edge | Keeps the cell boundary hard. |
 | Variety | Introduces controlled variation within the gradient field. |
-| Ink Spread | Expands colour distribution through the region. |
+| Ink Spread | Separates the two inks around each source colour: 0 uses identical inks; 100 reaches their available colour range. Palette, Sample and Unresolve share this calculation. |
 | BG Fill | Makes dither gaps opaque with background colour or porous to existing paint. |
 | Pressure / Min / Max | Varies boundary gesture size. |
 | Rotation | Turns asymmetric drawing components. |

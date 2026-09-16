@@ -4,8 +4,7 @@ import { debugLog, logError } from '@/utils/debug';
 import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
 import {
   setFgPending,
-  buildForegroundDerivedGradientSpec,
-  clampForegroundDerivedBands,
+  buildForegroundColorRampSpec,
   deriveForegroundGradientStops,
   EDITOR_SLOT,
 } from '@/utils/colorCycleGradients';
@@ -108,6 +107,7 @@ export const runProjectSlotRebuild = (layerId: string) => {
 
 export const getFgParamsFromState = (state: AppState) => ({
   fgColorHex: state.palette.foregroundColor,
+  bgColorHex: state.palette.backgroundColor,
   fgLightness: state.tools.brushSettings.colorCycleFgLightness,
   fgVariance: state.tools.brushSettings.colorCycleFgVariance,
   fgHueShift: state.tools.brushSettings.colorCycleFgHueShift,
@@ -202,16 +202,7 @@ export const ensureActiveColorCycleGradientSlot = ({
     (brush as { setPreserveGradientPhase: (enabled: boolean) => void }).setPreserveGradientPhase(preserveGradientPhase);
   }
   const foregroundColor = state.palette.foregroundColor ?? brushSettings.color ?? '#ffffff';
-  const bands = clampForegroundDerivedBands(brushSettings.colorCycleFgStops);
-  const derivedSpec = buildForegroundDerivedGradientSpec({
-    baseColor: foregroundColor,
-    lightness: brushSettings.colorCycleFgLightness,
-    variance: brushSettings.colorCycleFgVariance,
-    hueShift: brushSettings.colorCycleFgHueShift,
-    saturationShift: brushSettings.colorCycleFgSaturationShift,
-    opacity: brushSettings.colorCycleFgOpacity,
-    bands,
-  });
+  const derivedSpec = buildForegroundColorRampSpec(foregroundColor, brushSettings);
   const prevKey = layer.colorCycleData?.fgDerivedKey ?? null;
   const nextKey = derivedSpec.key;
   if (prevKey !== nextKey) {

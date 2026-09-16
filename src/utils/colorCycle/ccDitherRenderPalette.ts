@@ -1,3 +1,4 @@
+import { clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import { parseColor } from '@/hooks/brushEngine/colorUtils';
 import {
   buildSpreadInkPalette,
@@ -432,8 +433,11 @@ export const DEFAULT_CC_DITHER_INK_COLORS = 16;
 export const MAX_CC_DITHER_INK_COLORS = 16;
 
 export const resolveCcDitherInkColorCount = (
-  settings: Pick<BrushSettings, 'ccDitherInkColors' | 'gradientBands'>,
+  settings: Pick<BrushSettings, 'ccDitherInkColors' | 'gradientBands' | 'colorCycleUseForegroundGradient' | 'colorCycleFgColors'>,
 ): number => {
+  if (settings.colorCycleUseForegroundGradient) {
+    return clampForegroundColors(settings.colorCycleFgColors);
+  }
   const value = settings.ccDitherInkColors;
   if (typeof value === 'number' && Number.isFinite(value)) {
     return Math.max(1, Math.min(MAX_CC_DITHER_INK_COLORS, Math.round(value)));
@@ -445,7 +449,7 @@ export const resolveCcDitherInkColorCount = (
 };
 
 export const resolveCcDitherInkMode = (
-  settings: Pick<BrushSettings, 'ccDitherInkColors' | 'gradientBands'>,
+  settings: Pick<BrushSettings, 'ccDitherInkColors' | 'gradientBands' | 'colorCycleUseForegroundGradient' | 'colorCycleFgColors'>,
 ): CcDitherBandMode => resolveCcDitherBandMode(resolveCcDitherInkColorCount(settings));
 
 export const resolveCcDitherBandMode = (colors: number | undefined): CcDitherBandMode => {

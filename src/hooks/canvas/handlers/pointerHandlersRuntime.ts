@@ -7,8 +7,7 @@ import React from 'react';
 import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
   DEFAULT_COLOR_CYCLE_GRADIENT,
-  buildForegroundDerivedGradientSpec,
-  clampForegroundDerivedBands,
+  buildForegroundColorRampSpec,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
 import {
@@ -1560,15 +1559,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         brushSettings.color ??
         '#000';
       const derivedSpec = useForegroundDerived
-        ? buildForegroundDerivedGradientSpec({
-            baseColor: fgBaseColor,
-            lightness: brushSettings.colorCycleFgLightness,
-            variance: brushSettings.colorCycleFgVariance,
-            hueShift: brushSettings.colorCycleFgHueShift,
-            saturationShift: brushSettings.colorCycleFgSaturationShift,
-            opacity: brushSettings.colorCycleFgOpacity,
-            bands: clampForegroundDerivedBands(brushSettings.colorCycleFgStops),
-          })
+        ? buildForegroundColorRampSpec(fgBaseColor, brushSettings)
         : null;
       const derivedStops = derivedSpec ? deriveForegroundGradientStops(derivedSpec) : null;
       const stops =

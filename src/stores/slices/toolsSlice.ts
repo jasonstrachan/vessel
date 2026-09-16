@@ -2007,6 +2007,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       ...presetDefaults,               // 2. Apply the preset settings (which now includes user overrides).
 
       // 3. Finally, preserve the settings that carry over between any brush.
+      colorCycleFgContrast: currentSettings.colorCycleFgContrast,
+      colorCycleFgColors: currentSettings.colorCycleFgColors,
       color: currentSettings.color,
       blendMode: currentSettings.blendMode,
       size: appropriateSize            // Use appropriate size based on brush type

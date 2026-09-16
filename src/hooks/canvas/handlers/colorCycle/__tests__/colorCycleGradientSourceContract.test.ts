@@ -1,3 +1,5 @@
+import { buildForegroundColorRampSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
+import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
   resolveColorCycleGradientRenderSession,
   resolveColorCycleGradientSource,
@@ -151,6 +153,7 @@ describe('colorCycleGradientSourceContract', () => {
       }),
       fgParams: {
         fgColorHex: '#808080',
+        bgColorHex: '#123456',
         fgStops: 2,
       },
       ccGradientSource: 'fg',
@@ -163,8 +166,8 @@ describe('colorCycleGradientSourceContract', () => {
 
   it.each([
     { requestedStops: 1, expectedMinimumStops: 2 },
-    { requestedStops: 4, expectedMinimumStops: 4 },
-  ])('resolves foreground source matrix coverage for requested $requestedStops stop mode', ({
+    { requestedStops: 4, expectedMinimumStops: 2 },
+  ])('uses the shared tonal recipe despite legacy $requestedStops stop setting', ({
     requestedStops,
     expectedMinimumStops,
   }) => {
@@ -176,6 +179,7 @@ describe('colorCycleGradientSourceContract', () => {
       }),
       fgParams: {
         fgColorHex: '#808080',
+        bgColorHex: '#123456',
         fgStops: requestedStops,
       },
       ccGradientSource: 'fg',
@@ -183,7 +187,16 @@ describe('colorCycleGradientSourceContract', () => {
 
     expect(result.source).toBe('fg');
     expect(result.behavior.usesSampledStops).toBe(false);
+    expect(result.activeStops).toEqual(deriveForegroundGradientStops(buildForegroundColorRampSpec('#808080', {})));
+    expect(new Set(result.activeStops.map(stop => stop.color)).size).toBe(4);
     expect(result.activeStops.length).toBeGreaterThanOrEqual(expectedMinimumStops);
+  });
+
+  it('keeps FG colours intact despite stored contrast and dither palette settings', () => {
+    const stops = deriveForegroundGradientStops(buildForegroundColorRampSpec('#336699', {}));
+    expect(resolveMarkSessionRuntimeStops({ source: 'fg', ditherRenderConfig: {
+      enabled: true, pairBandCount: 2, spread: 100, rangeContrast: 0, algorithm: 'bayer',
+    } }, stops)).toEqual(stops);
   });
 
   it('resolves dither runtime stops through the shared render-session contract', () => {

@@ -54,6 +54,14 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
   let mappedGid: Uint8Array | undefined;
   try {
     expect(session.source).toBe(gradientSource);
+    if (gradientSource === 'fg') {
+      expect(session.sampledPairedInks).toBeUndefined();
+      expect(session.seamProfile).toBe('hard');
+      expect(createSampledStrokePreview(layer.id, animator, stroke, 1, () => dither)).toBeUndefined();
+      expect(finalizeMarkGradientSession(layer.id)!.frozenStopsStored).toEqual(source);
+      expect(Object.fromEntries(Object.entries(stroke.buffers).map(([key, buffer]) => [key, [...buffer]]))).toEqual(original);
+      return;
+    }
     expect(session.sampledPairedInks).toBe(true);
     expect(session.sampledSourceSeamProfile).toBe('soft');
     expect(session.seamProfile).toBe('hard');

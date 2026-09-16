@@ -1,3 +1,4 @@
+import { buildForegroundColorRampSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 import studioExtension from '@/extensions/studioExtension';
@@ -133,7 +134,33 @@ describe('colorCycleMarkSession rebuild', () => {
     }
   });
 
-  it.each((['sampled', 'manual', 'fg'] as const).flatMap(source =>
+  it.each(['standard', 'bristles', 'pencil'])(
+    'freezes the FG %s tones without a second contrast, ink palette or soft seam', (mode) => {
+      const layer = createLayer();
+      const tones = deriveForegroundGradientStops(buildForegroundColorRampSpec('#336699', {
+        colorCycleFgContrast: 60, colorCycleFgColors: 6,
+      }));
+      useAppStore.setState(state => ({ layers: [layer], activeLayerId: layer.id,
+        tools: { ...state.tools, brushSettings: { ...state.tools.brushSettings,
+          colorCyclePickupEnabled: false, colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherBgFill: true, colorCyclePencilEnabled: mode === 'pencil',
+          colorCycleBristlesEnabled: mode === 'bristles', ditherPaletteSpread: 100,
+          ccGradientRangeContrast: 0, colorCycleGradientSeamProfile: 'soft',
+        } },
+      }));
+      const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke',
+        gradientKind: 'linear', source: 'fg', stops: tones });
+      expect(session?.frozenStopsStored).toEqual(tones);
+      expect(session?.sampledPairedInks).toBeFalsy();
+      const result = finalizeMarkGradientSession(layer.id)!;
+      expect(result.frozenStopsStored).toEqual(tones);
+      expect(result.seamProfile).toBe('hard');
+      expect(result.sampledSecondaryStops).toBeUndefined();
+      cancelMarkGradientSession(layer.id);
+    },
+  );
+
+  it.each((['sampled', 'manual'] as const).flatMap(source =>
     (['hard', 'soft'] as const).map(seamProfile => ({ source, seamProfile }))))(
     'preserves the rendered target throughout the $source $seamProfile loop', ({ source, seamProfile }) => {
       const layer = createLayer();
@@ -323,7 +350,7 @@ describe('colorCycleMarkSession rebuild', () => {
     ]);
   });
 
-  it.each(['manual', 'fg'] as const)(
+  it.each(['manual'] as const)(
     'applies gradient contrast to %s source stops',
     (source) => {
       const runtimeStops = resolveMarkSessionRuntimeStops(
@@ -915,7 +942,7 @@ it.each([0, 40, 70, 100])('preserves the contrast-adjusted mixture at Contrast %
   }
 });
 
-it.each(['manual', 'fg'] as const)('reconstructs colours between sparse %s gradient nodes', (source) => {
+it.each(['manual'] as const)('reconstructs colours between sparse %s gradient nodes', (source) => {
   const stops = [{ position: 0, color: '#a06060' }, { position: 1, color: '#6060a0' }];
   const pair = resolveSampledStrokeInkPalettes({ source, sampledPrimaryCoverage: 0.5,
     ditherRenderConfig: { enabled: true, pairBandCount: 2, spread: 100, rangeContrast: 70 },

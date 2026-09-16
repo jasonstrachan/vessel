@@ -5,7 +5,7 @@ import { useDrawingHandlers } from '../useDrawingHandlers';
 import type { BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import {
-  buildForegroundDerivedGradientSpec,
+  buildForegroundColorRampSpec,
   clampForegroundDerivedBands,
   deriveForegroundGradientStops,
 } from '@/utils/colorCycleGradients';
@@ -396,15 +396,7 @@ describe('useDrawingHandlers stroke harness', () => {
     const layerId = 'layer-cc-1';
     const fgColor = '#33aa88';
     const bands = clampForegroundDerivedBands(4);
-    const derivedSpec = buildForegroundDerivedGradientSpec({
-      baseColor: fgColor,
-      lightness: 50,
-      variance: 0,
-      hueShift: 0,
-      saturationShift: 0,
-      opacity: 100,
-      bands,
-    });
+    const derivedSpec = buildForegroundColorRampSpec(fgColor, {});
     const fgSlot = 2;
     const fgStops = deriveForegroundGradientStops(derivedSpec);
 

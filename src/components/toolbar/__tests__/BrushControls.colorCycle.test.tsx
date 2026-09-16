@@ -818,7 +818,25 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
 
     await user.click(screen.getByRole('button', { name: 'FG Grad' }));
     expect(screen.getByText('Foreground Gradient')).toBeInTheDocument();
-    expect(screen.getByRole('slider', { name: 'Foreground Gradient Lightness' })).toBeInTheDocument();
+    expect(screen.getByText('#336699')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('slider', { name: 'Foreground Gradient Contrast' }), { target: { value: '60' } });
+    fireEvent.blur(screen.getByRole('slider', { name: 'Foreground Gradient Contrast' }));
+    fireEvent.change(screen.getByRole('slider', { name: 'Foreground Gradient Colours' }), { target: { value: '6' } });
+    fireEvent.blur(screen.getByRole('slider', { name: 'Foreground Gradient Colours' }));
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({ colorCycleFgContrast: 60, colorCycleFgColors: 6 });
+    expect(screen.queryByRole('slider', { name: 'Gradient Contrast' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Seam')).not.toBeInTheDocument();
+    const before = screen.getByLabelText('Foreground gradient preview').style.background;
+    for (const control of ['Lightness', 'Hue Shift', 'Saturation Shift', 'Opacity', 'Stops']) {
+      expect(screen.queryByRole('slider', { name: `Foreground Gradient ${control}` })).not.toBeInTheDocument();
+    }
+
+    act(() => {
+      useAppStore.setState((state) => ({
+        palette: { ...state.palette, backgroundColor: '#112233' },
+      }));
+    });
+    expect(screen.getByLabelText('Foreground gradient preview').style.background).toBe(before);
 
     await user.click(screen.getByRole('button', { name: 'Sample' }));
     expect(screen.getByText('Sampled Gradient')).toBeInTheDocument();
@@ -867,6 +885,12 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
         brushSettings: {
           ...state.tools.brushSettings,
           brushShape: 'color_cycle' as BrushSettings['brushShape'],
+          colorCycleUseForegroundGradient: false,
+          colorCyclePickupEnabled: false,
+          colorCycleGradientIsRuntimePalette: false,
+          colorCycleStampDitherEnabled: true,
+          colorCycleStampDitherBgFill: true,
+          colorCyclePencilEnabled: false,
           ccGradientRangeContrast: 70,
           ditherPaletteSpread: 24,
         },
@@ -1529,7 +1553,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
     expect(useAppStore.getState().tools.brushSettings.ccGradientRangeContrast).toBe(22);
   });
 
-  it('shows gradient contrast when CC gradient dithering is off for manual and foreground sources', () => {
+  it('shows the appropriate contrast control with dithering off for Palette and FG', () => {
     (['manual', 'fg'] as const).forEach((ccGradientSource) => {
       useAppStore.setState((state) => ({
         ...state,
@@ -1541,6 +1565,9 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
             brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
             customBrushColorCycle: false,
             customBrushColorCycleMode: 'tip',
+            colorCycleUseForegroundGradient: ccGradientSource === 'fg',
+            colorCyclePickupEnabled: false,
+            colorCycleGradientIsRuntimePalette: false,
             ditherEnabled: false,
             ccGradientRangeContrast: 100,
           },
@@ -1551,7 +1578,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
 
       const { unmount } = render(<BrushControls />);
 
-      expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
+      expect(screen.getByLabelText(ccGradientSource === 'fg' ? 'Foreground Gradient Contrast' : 'Gradient Contrast')).toBeInTheDocument();
       expect(screen.queryByLabelText('Ink Spread')).not.toBeInTheDocument();
 
       unmount();

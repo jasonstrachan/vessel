@@ -1,3 +1,4 @@
+import { clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import { logError } from '@/utils/debug';
 import { BrushShape, type BrushSettings } from '@/types';
 import { MAX_CC_LAYER_SPEED_SCALE, MIN_CC_LAYER_SPEED_SCALE } from '@/constants/colorCycle';
@@ -157,7 +158,9 @@ export const initializeColorCycleBrushForActiveLayer = <TBrush extends BrushLike
       settingsPatch.playbackSpeedScale = layerSpeedScale;
     } catch {}
 
-    if (brushSettings.gradientBands) {
+    if (brushSettings.colorCycleUseForegroundGradient) {
+      settingsPatch.gradientBands = clampForegroundColors(brushSettings.colorCycleFgColors);
+    } else if (brushSettings.gradientBands) {
       settingsPatch.gradientBands = brushSettings.gradientBands;
     }
 

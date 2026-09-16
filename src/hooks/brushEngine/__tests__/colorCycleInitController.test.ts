@@ -77,7 +77,7 @@ describe('colorCycleInitController', () => {
     expect(initColorCycleForLayer).not.toHaveBeenCalled();
   });
 
-  it('initializes and configures brush for active color-cycle layer', () => {
+  it.each([undefined, 2, 6, 16])('initializes and configures the brush with FG count %s', (colors) => {
     const brush = makeBrush();
     const initColorCycleForLayer = jest.fn();
     const requestGradientApply = jest.fn();
@@ -92,6 +92,8 @@ describe('colorCycleInitController', () => {
         colorCycleFPS: 24,
         colorCycleSpeed: 6,
         gradientBands: 16,
+        colorCycleUseForegroundGradient: colors !== undefined,
+        colorCycleFgColors: colors,
         ditherEnabled: true,
         fillResolution: 3,
         pxlEdge: true,
@@ -118,7 +120,7 @@ describe('colorCycleInitController', () => {
     expect(brush.setFPS).toHaveBeenCalledWith(24);
     expect(brush.setSpeed).toHaveBeenCalledWith(6);
     expect(brush.setLayerBaseSpeed).toHaveBeenCalledWith(1);
-    expect(brush.setGradientBands).toHaveBeenCalledWith(16);
+    expect(brush.setGradientBands).toHaveBeenCalledWith(colors ?? 16);
     expect(brush.setDitherEnabled).toHaveBeenCalledWith(true);
     expect(brush.setDitherPixelSize).toHaveBeenCalledWith(3);
     expect(brush.setPxlEdgeEnabled).toHaveBeenCalledWith(true);

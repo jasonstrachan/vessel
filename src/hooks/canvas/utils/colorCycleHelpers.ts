@@ -1,9 +1,10 @@
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import type { BrushSettings, Layer } from '@/types';
-import { buildForegroundDerivedGradientSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
+import { buildForegroundColorRampSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 export type GradientStop = { position: number; color: string; opacity?: number };
 export type ForegroundGradientParams = {
   fgColorHex?: string;
+  bgColorHex?: string;
   fgLightness?: number;
   fgVariance?: number;
   fgHueShift?: number;
@@ -84,16 +85,7 @@ export const resolveActiveColorCycleGradient = (
   );
   const activePalette = slotPalettes.find((entry) => entry.slot === activeSlot);
   const derivedStops = useForegroundGradient && fgParams?.fgColorHex
-    ? deriveForegroundGradientStops(buildForegroundDerivedGradientSpec({
-        baseColor: fgParams.fgColorHex,
-        lightness: fgParams.fgLightness,
-        variance: fgParams.fgVariance,
-        hueShift: fgParams.fgHueShift,
-        saturationShift: fgParams.fgSaturationShift,
-        opacity: fgParams.fgOpacity,
-        bands: fgParams.fgStops,
-        algoVersion: fgParams.fgAlgoVersion,
-      }))
+    ? deriveForegroundGradientStops(buildForegroundColorRampSpec(fgParams.fgColorHex, brushSettings))
     : null;
   const activeStops =
     derivedStops && derivedStops.length >= 2

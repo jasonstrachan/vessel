@@ -1176,6 +1176,18 @@ const hydrateGlobalBrushSettings = (): void => {
       nextTools = applyPressureToTools(nextTools, nextPressure);
     }
 
+    if (payload.colorCycleFgContrast !== undefined || payload.colorCycleFgColors !== undefined) {
+      nextTools = {
+        ...nextTools,
+        brushSettings: {
+          ...nextTools.brushSettings,
+          colorCycleFgContrast: Number.isFinite(payload.colorCycleFgContrast)
+            ? Math.max(0, Math.min(100, Math.round(payload.colorCycleFgContrast!))) : 40,
+          colorCycleFgColors: Number.isFinite(payload.colorCycleFgColors)
+            ? Math.max(2, Math.min(16, Math.round(payload.colorCycleFgColors!))) : 4,
+        },
+      };
+    }
     const storedSource = payload.ccGradientSource ?? (payload.lastBrushId
       ? payload.brushSpecificSettings?.[payload.lastBrushId]?.ccGradientSource : undefined);
     if (storedSource === 'manual' || storedSource === 'sampled' || storedSource === 'fg') {
@@ -1248,6 +1260,8 @@ const subscribeToGlobalBrushPersistence = (): void => {
     (state) => ({
       brushSpecificSettings: state.brushSpecificSettings,
       ccGradientSource: state.tools.ccGradientSource,
+      colorCycleFgContrast: state.tools.brushSettings.colorCycleFgContrast,
+      colorCycleFgColors: state.tools.brushSettings.colorCycleFgColors,
       ccBrushDitherSelection: state.ccBrushDitherSelection,
       shapeModeByBrush: state.shapeModeByBrush,
       globalBrushSize: state.globalBrushSize,
@@ -1258,6 +1272,8 @@ const subscribeToGlobalBrushPersistence = (): void => {
       if (
         next.brushSpecificSettings === prev.brushSpecificSettings &&
         next.ccGradientSource === prev.ccGradientSource &&
+        next.colorCycleFgContrast === prev.colorCycleFgContrast &&
+        next.colorCycleFgColors === prev.colorCycleFgColors &&
         next.ccBrushDitherSelection === prev.ccBrushDitherSelection &&
         next.shapeModeByBrush === prev.shapeModeByBrush &&
         next.globalBrushSize === prev.globalBrushSize &&
@@ -1271,6 +1287,8 @@ const subscribeToGlobalBrushPersistence = (): void => {
         globalBrushSize: next.globalBrushSize,
         brushSpecificSettings: next.brushSpecificSettings,
         ccGradientSource: next.ccGradientSource,
+        colorCycleFgContrast: next.colorCycleFgContrast,
+        colorCycleFgColors: next.colorCycleFgColors,
         ccBrushDitherSelection: next.ccBrushDitherSelection,
         shapeModeByBrush: next.shapeModeByBrush,
         pressureSettings: next.pressureSettings,
@@ -1281,6 +1299,8 @@ const subscribeToGlobalBrushPersistence = (): void => {
       equalityFn: (a, b) =>
         a.brushSpecificSettings === b.brushSpecificSettings &&
         a.ccGradientSource === b.ccGradientSource &&
+        a.colorCycleFgContrast === b.colorCycleFgContrast &&
+        a.colorCycleFgColors === b.colorCycleFgColors &&
         a.ccBrushDitherSelection === b.ccBrushDitherSelection &&
         a.shapeModeByBrush === b.shapeModeByBrush &&
         a.globalBrushSize === b.globalBrushSize &&

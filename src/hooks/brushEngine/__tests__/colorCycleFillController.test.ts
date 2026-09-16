@@ -17,6 +17,24 @@ const createBrush = () => ({
 });
 
 describe('colorCycleFillController', () => {
+  it.each([fillColorCycleLinear, fillColorCycleConcentric])('uses the FG colour count for fill bands and dither levels', async (fill) => {
+    const brush = createBrush();
+    await fill({
+      vertices: [{ x: 0, y: 0 }, { x: 32, y: 0 }, { x: 32, y: 32 }],
+      direction: { x: 1, y: 0 },
+      initializeColorCycleBrush: () => brush as unknown as ColorCycleFillBrush,
+      activeLayerId: 'layer-1', isCCGradientActiveLayer: true,
+      brushSettings: { colorCycleUseForegroundGradient: true, colorCycleFgColors: 6,
+        gradientBands: 2, ccDitherInkColors: 1, ditherEnabled: true, spacing: 1, gridSnapEnabled: false },
+      defaultBandSpacing: 12, clampColorCycleBandSpacing: value => value ?? 12,
+      requestGradientApply: jest.fn(), flushGradientApply: jest.fn(), renderBrushToLayerCanvas: jest.fn(),
+    });
+    expect(brush.setGradientBands).toHaveBeenCalledWith(6);
+    expect(brush.fillShapeDispatch).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({ ditherLevels: 6 }),
+    }));
+  });
+
   it('dispatches linear fill payload and renders layer', async () => {
     const brush = createBrush();
     const renderBrushToLayerCanvas = jest.fn();

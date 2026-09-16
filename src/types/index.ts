@@ -690,6 +690,8 @@ export interface Project {
 }
 
 export type DerivedGradientSpec = {
+  contrast?: number; // Version 4 foreground tonal range, 0-100
+  backgroundColor?: string;
   mode: 'fg-derived';
   baseColor: string;
   lightness: number;
@@ -1705,6 +1707,8 @@ export interface BrushSettings {
   ccGradientSource?: 'manual' | 'fg' | 'sampled';
   // Foreground-derived gradient controls for Color Cycle brushes
   colorCycleUseForegroundGradient?: boolean; // true = derive gradient from foreground color per stroke
+  colorCycleFgContrast?: number; // Shared FG tonal range, 0-100
+  colorCycleFgColors?: number; // Shared FG colour count, 2-16
   colorCycleFgLightness?: number; // 0-100 center lightness for derived gradient
   colorCycleFgVariance?: number; // 0-100 lightness variance for derived gradient (legacy)
   colorCycleFgHueShift?: number; // -60 to 60 hue shift for derived gradient
