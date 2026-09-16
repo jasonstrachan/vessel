@@ -9,6 +9,78 @@ import {
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { resolveFlatInkSetForPosition } from '@/utils/colorCycle/ccFlatModePatterns';
 
+const linear = (byte: number) => byte / 255 <= 0.04045 ? byte / 255 / 12.92 : ((byte / 255 + 0.055) / 1.055) ** 2.4;
+
+describe('CC sampled ink tonal balance', () => {
+  it.each([2, 9])('preserves dark, middle and light sample averages with %i source stops', (stopCount) => {
+    for (const color of ['#000000', '#080808', '#202020', '#808080', '#e0e0e0', '#f8f8f8', '#ffffff', '#204060', '#0080c0']) {
+      const target = parseColor(color);
+      const baseStops = Array.from({ length: stopCount }, (_, index) => ({
+        position: index / (stopCount - 1), color,
+      }));
+      for (const spread of [35, 80, 100]) {
+        const result = buildCcDitherRenderPalette({ baseStops, bands: 4, spread });
+        const inkCount = 2;
+        // Each band's inks must remain centred on the reference sample even
+        // when spreading a dark/light sample reaches the RGB gamut boundary.
+        const inks = result.renderStops.slice(0, inkCount).map(stop => parseColor(stop.color));
+        for (let channel = 0; channel < 3; channel += 1) {
+          const mean = inks.reduce((sum, rgb) => sum + linear(rgb[channel]), 0) / inkCount;
+          expect(Math.abs(mean - linear(target[channel]))).toBeLessThanOrEqual(0.005);
+        }
+      }
+    }
+  });
+
+  it('retains separation in other channels when one channel is saturated', () => {
+    const result = buildCcDitherRenderPalette({
+      baseStops: [{ position: 0, color: '#0080c0' }, { position: 1, color: '#0080c0' }],
+      bands: 4,
+      spread: 80,
+    });
+    const [low, high] = result.renderStops.slice(0, 2).map(stop => parseColor(stop.color));
+    expect(low[0]).toBe(0);
+    expect(high[0]).toBe(0);
+    expect(Math.abs(high[1] - low[1])).toBeGreaterThan(20);
+  });
+
+  it.each([35, 100])('preserves flat sample averages at spread %i with zero bands', (spread) => {
+    const color = '#102030';
+    const result = buildCcDitherRenderPalette({
+      baseStops: [{ position: 0, color }, { position: 1, color }],
+      bands: 0,
+      spread,
+    });
+    const inks = result.renderStops.slice(0, 2).map(stop => parseColor(stop.color));
+    parseColor(color).forEach((target, channel) => {
+      const mean = inks.reduce((sum, rgb) => sum + linear(rgb[channel]), 0) / inks.length;
+      expect(Math.abs(mean - linear(target))).toBeLessThanOrEqual(0.005);
+    });
+  });
+
+  it.each([
+    { spread: 80, inkCount: 2, targets: [36, 151] },
+    { spread: 100, inkCount: 2, targets: [36, 151] },
+  ])('preserves each changing gradient band at spread $spread', ({ spread, inkCount, targets }) => {
+    const baseStops = [
+      { position: 0, color: '#080808', opacity: 0.25 },
+      { position: 0.5, color: '#404040', opacity: 0.5 },
+      { position: 1, color: '#eeeeee', opacity: 1 },
+    ];
+    const original = baseStops.map(stop => ({ ...stop }));
+    const result = buildCcDitherRenderPalette({ baseStops, bands: 2, spread });
+    targets.forEach((target, band) => {
+      const inks = result.renderStops.slice(band * inkCount, (band + 1) * inkCount)
+        .map(stop => parseColor(stop.color));
+      for (let channel = 0; channel < 3; channel += 1) {
+        const mean = inks.reduce((sum, rgb) => sum + linear(rgb[channel]), 0) / inkCount;
+        expect(Math.abs(mean - linear(target))).toBeLessThanOrEqual(0.005);
+      }
+    });
+    expect(baseStops).toEqual(original);
+  });
+});
+
 describe('resolveCcDitherBandMode', () => {
   it('treats 1 color as flat dither and shifts gradient bands up by one', () => {
     expect(resolveCcDitherBandMode(1)).toEqual({
@@ -91,29 +163,16 @@ describe('buildCcDitherRenderPalette', () => {
     expect(strongDistance).toBeGreaterThan(subtleDistance);
   });
 
-  it('emits a triad per band at max spread so CC dither can match dither-shape energy', () => {
-    const baseStops = [
-      { position: 0, color: '#7a7f88' },
-      { position: 1, color: '#7a7f88' },
-    ];
-
-    const strong = buildCcDitherRenderPalette({
-      baseStops,
-      bands: 2,
-      spread: 100,
-    });
-
-    expect(strong.bandCount).toBe(2);
-    expect(strong.renderStops).toHaveLength(6);
-    expect(strong.renderStops[0].position).toBe(0);
-    expect(strong.renderStops[1].position).toBe(0.25);
-    expect(strong.renderStops[2].position).toBe(0.5);
-    expect(strong.renderStops[3].position).toBe(0.5);
-    expect(strong.renderStops[4].position).toBe(0.75);
-    expect(strong.renderStops[5].position).toBe(1);
-
-    const distinct = new Set(strong.renderStops.map((stop) => stop.color));
-    expect(distinct.size).toBeGreaterThanOrEqual(3);
+  it('keeps two inks per band through maximum spread without a threshold jump', () => {
+    const baseStops = [{ position: 0, color: '#7a7f88' }, { position: 1, color: '#7a7f88' }];
+    const results = [94, 95, 96, 100].map(spread => buildCcDitherRenderPalette({ baseStops, bands: 2, spread }));
+    for (const result of results) {
+      expect(result.renderStops.map(stop => stop.position)).toEqual([0, 0.25, 0.5, 0.75]);
+      expect(new Set(result.renderStops.map(stop => stop.color)).size).toBe(2);
+    }
+    const before = parseColor(results[0].renderStops[0].color);
+    const after = parseColor(results[1].renderStops[0].color);
+    expect(Math.max(...before.map((v, i) => Math.abs(v - after[i])))).toBeLessThan(5);
   });
 
   it('preserves ordered colors for multi-stop gradients', () => {
@@ -131,9 +190,9 @@ describe('buildCcDitherRenderPalette', () => {
 
     expect(palette.bandCount).toBe(2);
     expect(palette.renderStops).toEqual([
-      { position: 0, color: 'rgb(255, 0, 0)' },
+      { position: 0, color: 'rgb(128, 128, 0)' },
       { position: 0.25, color: 'rgb(128, 128, 0)' },
-      { position: 0.5, color: 'rgb(0, 255, 0)' },
+      { position: 0.5, color: 'rgb(0, 128, 128)' },
       { position: 0.75, color: 'rgb(0, 128, 128)' },
     ]);
   });
@@ -221,11 +280,10 @@ describe('buildCcDitherRenderPalette', () => {
     });
 
     expect(flat.bandCount).toBe(0);
-    expect(flat.renderStops).toHaveLength(3);
+    expect(flat.renderStops).toHaveLength(2);
     expect(flat.renderStops[0].position).toBe(0);
     expect(flat.renderStops[1].position).toBe(0.5);
-    expect(flat.renderStops[2].position).toBe(1);
-    expect(new Set(flat.renderStops.map((stop) => stop.color)).size).toBeGreaterThanOrEqual(3);
+    expect(new Set(flat.renderStops.map((stop) => stop.color)).size).toBe(2);
   });
 });
 
@@ -252,7 +310,7 @@ describe('buildCcDitherRuntimePalette', () => {
     expect(uniqueColors.size).toBeGreaterThanOrEqual(8);
   });
 
-  it('keeps legacy flat palette behavior for non-Sierra algorithms', () => {
+  it('uses the same two inks for non-Sierra algorithms', () => {
     const runtime = buildCcDitherRuntimePalette({
       baseStops: [
         { position: 0, color: '#446688' },
@@ -264,7 +322,7 @@ describe('buildCcDitherRuntimePalette', () => {
     });
 
     expect(runtime.bandCount).toBe(0);
-    expect(runtime.renderStops).toHaveLength(3);
+    expect(runtime.renderStops).toHaveLength(2);
   });
 
   it('can preserve source stops for flat runtime playback across algorithms', () => {

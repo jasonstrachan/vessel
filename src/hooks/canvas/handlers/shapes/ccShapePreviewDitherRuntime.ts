@@ -1,3 +1,4 @@
+import { createCcFixedInkPreview } from '@/utils/colorCycle/ccInkSpread';
 import { buildCcPickupShapeStops, type CcColourPickup } from '@/utils/colorCycle/ccColourPickup';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
@@ -14,7 +15,6 @@ import {
   buildCcDitherRuntimePalette,
   resolveCcDitherBandMode,
   resolveCcDitherInkColorCount,
-  resolveCcDitherInkMode,
 } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import {
@@ -1026,6 +1026,7 @@ export const runCcDitherPreviewRuntime = (args: {
       width: renderW,
       height: renderH,
     });
+    const fixedInkPreview = createCcFixedInkPreview(preparedGradient.renderStops, brushSettings);
     const sortedStops = preparedGradient.sortedStops;
     const sampleGradient = (t: number): [number, number, number, number] => {
       const tt = Math.max(0, Math.min(1, t));
@@ -1163,13 +1164,14 @@ export const runCcDitherPreviewRuntime = (args: {
             fillBackground,
             pxlEdge: brushSettings.pxlEdge,
             flatCycle: brushSettings.ccFlatCycleDither === true,
+            pairedInkPalettes: Boolean(fixedInkPreview),
             flatCycleBands: brushSettings.ccFlatCycleBands,
             yieldIfNeeded,
             sampleNormalized,
-            writeIndex: (x, y, index) => {
+            writeIndex: (x, y, index, _phaseByte, secondaryInk) => {
               if (index <= 0) return;
               const t = (index - 1) / 254;
-              const [r, g, b, a] = sampleGradient(t);
+              const [r, g, b, a] = fixedInkPreview ? fixedInkPreview(index, secondaryInk) : sampleGradient(t);
               const px = (y * renderW + x) * 4;
               data[px] = Math.round(r);
               data[px + 1] = Math.round(g);
@@ -1691,8 +1693,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           inkColors: resolveCcDitherInkColorCount(sampledBrushSettings),
           ditherPaletteSpread: sampledBrushSettings.ditherPaletteSpread,
           ditherAlgorithm: sampledBrushSettings.ditherAlgorithm,
-          preserveSourceStops:
-            resolveCcDitherInkMode(sampledBrushSettings).pairBandCount <= 0,
+          preserveSourceStops: false,
           useDitherRenderPalette: !pickup && sampledBrushSettings.ccFlatCycleDither !== true,
           fillBackground:
             (sampledBrushSettings.ditherGradBgFill ??
@@ -1709,6 +1710,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           scaledVertices,
           previewPolygon,
         } = sampledGeometry;
+        const fixedInkPreview = createCcFixedInkPreview(preparedGradient.renderStops, sampledBrushSettings);
         const sortedStops = preparedGradient.sortedStops;
         const sampleGradient = (t: number): [number, number, number, number] => {
           const tt = Math.max(0, Math.min(1, t));
@@ -1826,14 +1828,16 @@ export const runSampledCcDitherPreviewRuntime = (args: {
         let writeIndexCalls = 0;
         let positiveIndexWrites = 0;
         let skippedIndexWrites = 0;
-        const writePreviewIndex = (x: number, y: number, index: number) => {
+        const writePreviewIndex = (x: number, y: number, index: number, _phaseByte?: number, secondaryInk?: boolean) => {
           writeIndexCalls += 1;
           if (index <= 0) {
             skippedIndexWrites += 1;
             return;
           }
           positiveIndexWrites += 1;
-          const [r, g, b, a] = sampleGradient((index - 1) / 254);
+          const [r, g, b, a] = fixedInkPreview
+            ? fixedInkPreview(index, secondaryInk)
+            : sampleGradient((index - 1) / 254);
           const px = (y * renderW + x) * 4;
           data[px] = Math.round(r);
           data[px + 1] = Math.round(g);
@@ -1882,6 +1886,7 @@ export const runSampledCcDitherPreviewRuntime = (args: {
           fillBackground: (sampledBrushSettings.ditherGradBgFill ?? sampledBrushSettings.ditherBackgroundFill) !== false,
           pxlEdge: sampledBrushSettings.pxlEdge,
           flatCycle: sampledBrushSettings.ccFlatCycleDither === true,
+          pairedInkPalettes: Boolean(fixedInkPreview),
           flatCycleBands: sampledBrushSettings.ccFlatCycleBands,
           yieldIfNeeded,
           sampleNormalized,

@@ -41,6 +41,7 @@ export type FillOptions = {
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
+  secondaryInkBinding?: { slot: number; defId: number };
   shapePhaseSeedMarkId?: string | null;
   sampledMotionOverride?: ColorCycleSampledMotion;
   roi?: { x: number; y: number; width: number; height: number };

@@ -2271,3 +2271,25 @@ describe('fillCcGradientDither flat-cycle mode', () => {
     expect(inkCount).toBeGreaterThan(0);
   });
 });
+
+
+describe('Fixed paired ink palettes', () => {
+  it.each(['sierra-lite', 'bayer', 'floyd-steinberg'] as const)('keeps index and weave stable as spread changes for %s', async algorithm => {
+    const render = async (spread: number, fillBackground = true) => {
+      const pixels: Array<[number, number, number, boolean]> = [];
+      await fillCcGradientDither({
+        vertices: [{ x: 0, y: 0 }, { x: 16, y: 0 }, { x: 16, y: 16 }, { x: 0, y: 16 }],
+        minX: 0, minY: 0, maxX: 15, maxY: 15, pixelSize: 1, levels: 4,
+        baseOffset: 0, algorithm, flatCycle: true, pairedInkPalettes: true,
+        flatPairSpread: spread, fillBackground, sampleNormalized: () => 0.5,
+        writeIndex: (x, y, index, _phase, secondary) => { pixels.push([x, y, index, Boolean(secondary)]); },
+      });
+      return pixels.filter(pixel => pixel[2] > 0);
+    };
+    const zero = await render(0);
+    expect(await render(100)).toEqual(zero);
+    expect(new Set(zero.map(p => p[2])).size).toBe(1);
+    expect(new Set(zero.map(p => p[3]))).toEqual(new Set([true, false]));
+    expect((await render(100, false)).every(p => !p[3])).toBe(true);
+  });
+});

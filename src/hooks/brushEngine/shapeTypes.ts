@@ -25,6 +25,7 @@ export type GradientDitherOptions = {
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
+  secondaryInkBinding?: { slot: number; defId: number };
   shapePhaseSeedMarkId?: string | null;
   sampledMotionOverride?: ColorCycleSampledMotion;
   roi?: RoiRect;

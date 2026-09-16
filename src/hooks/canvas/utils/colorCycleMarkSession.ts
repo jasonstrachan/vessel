@@ -48,6 +48,8 @@ export type MarkGradientSession = {
   source: GradientDefSource;
   seamProfile?: GradientSeamProfile;
   isRuntimePalette?: boolean;
+  // Fresh samples skip ink generation, but still need Contrast applied once.
+  preserveSourcePalette?: boolean;
   sampledMotion?: ColorCycleSampledMotion;
   sampledAlignment?: { speedCps: number; bandPx?: number };
   sampledPathStops?: StoredStop[];
@@ -160,7 +162,7 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
     const sampled = buildSampledStops({
       markKind: session.markKind,
       pickup: session.colourPickup,
-      preserveSingleSampleColor: session.isRuntimePalette,
+      preserveSingleSampleColor: session.isRuntimePalette || session.preserveSourcePalette,
       sourcePts: session.sampledStrokePoints,
       sampleColor: session.sampledStrokeColorAt,
       allowTiny: true,
@@ -247,7 +249,7 @@ export const captureFrozenCcDitherRenderConfig = (): FrozenCcDitherRenderConfig 
 export const resolveMarkSessionRuntimeStops = (
   session: Pick<
     MarkGradientSession,
-    'ditherRenderConfig' | 'source' | 'sampledRepresentativeColor' | 'isRuntimePalette' | 'sampledPairedInks'
+    'ditherRenderConfig' | 'source' | 'sampledRepresentativeColor' | 'isRuntimePalette' | 'sampledPairedInks' | 'preserveSourcePalette'
   > | null | undefined,
   stops: StoredStop[],
   liveOverrides?: {
@@ -280,7 +282,7 @@ export const resolveMarkSessionRuntimeStops = (
     liveOverrides?.rangeContrast ?? config?.rangeContrast,
     session?.sampledRepresentativeColor,
   );
-  if (!enabled) {
+  if (!enabled || session?.preserveSourcePalette) {
     return contrastStops;
   }
   const bands = liveOverrides?.pairBandCount ?? config?.pairBandCount ?? 0;
@@ -288,13 +290,7 @@ export const resolveMarkSessionRuntimeStops = (
   const algorithm = liveOverrides?.algorithm ?? config?.algorithm;
   const useDitherRenderPalette =
     liveOverrides?.useDitherRenderPalette ?? config?.useDitherRenderPalette ?? true;
-  const preserveSourceStops =
-    !useDitherRenderPalette ||
-    (
-      bands <= 0 &&
-      algorithm === 'sierra-lite' &&
-      session?.source !== 'sampled'
-    );
+  const preserveSourceStops = !useDitherRenderPalette;
   const runtimeStops = buildCcDitherRuntimePalette({
     baseStops: contrastStops,
     bands,
@@ -400,8 +396,9 @@ export const beginMarkGradientSession = (params: {
       source: colourPickup ? 'sampled' : params.source,
       seamProfile: sampledPairedInks ? 'hard' : seamProfile,
       sampledSourceSeamProfile: sampledPairedInks ? seamProfile : undefined,
-      isRuntimePalette: isRuntimePalette || sampledPairedInks || (!colourPickup && params.markKind === 'stroke' &&
-        studioExtension.preserveSampledStrokePalette === true),
+      isRuntimePalette: isRuntimePalette || sampledPairedInks,
+      preserveSourcePalette: !colourPickup && params.markKind === 'stroke' &&
+        studioExtension.preserveSampledStrokePalette === true,
       sampledMotion,
       sampledAlignment,
       sampledPairedInks,
@@ -514,11 +511,10 @@ export const getPreviewGradientForActiveMark = (layerId: string): PreviewGradien
       return {
         source: session.source,
         phase: session.binding ? 'final' : 'sampling',
-        stopsStored: session.colourPickup ? cloneStops(sampledStops) : applyCcGradientContrast(
+        stopsStored: resolveMarkSessionRuntimeStops(
+          session,
           sampledStops,
-          getAppStoreState().tools.brushSettings.ccGradientRangeContrast ??
-            session.ditherRenderConfig?.rangeContrast,
-          session.sampledRepresentativeColor,
+          { enabled: false, rangeContrast: getAppStoreState().tools.brushSettings.ccGradientRangeContrast },
         ),
         defIdPlanned: session.binding?.defId,
       };

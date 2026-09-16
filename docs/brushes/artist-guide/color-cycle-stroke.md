@@ -189,3 +189,10 @@ FG Grad uses its finished tonal palette directly. Ink Spread and the extra sourc
 contrast/ink-count controls are hidden in FG mode; dither selects from the chosen
 tones without inventing a second palette. Changing Colours preserves the range
 endpoints. Near black or white, the range shifts inward to avoid clipped tones.
+
+Ink Spread uses the same two-ink calculation as CC Tonal Dither and CC Fixed
+Dither. Zero leaves the source colour intact; increasing it separates the inks
+while preserving their average in linear light. The control is hidden for Pencil,
+Pickup, captured runtime palettes, FG Grad, and strokes with dithering or BG Fill
+off. Fixed dither also hides it with BG Fill off. Tonal dither keeps it because it
+still changes the painted ink. Existing marks keep their stored colours.

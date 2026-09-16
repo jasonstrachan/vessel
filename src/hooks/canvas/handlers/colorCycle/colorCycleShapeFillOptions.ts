@@ -9,6 +9,7 @@ type ShapeFillRenderSession = Pick<
   'source' | 'frozenStopsStored' | 'binding'
 > & {
   sourceStopsStored?: MarkGradientSession['frozenStopsStored'];
+  secondaryBinding?: { slot: number; defId: number };
 } | null | undefined;
 
 export type ColorCycleShapeFillSourceOptions = {
@@ -16,6 +17,7 @@ export type ColorCycleShapeFillSourceOptions = {
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
+  secondaryInkBinding?: { slot: number; defId: number };
   shapePhaseSeedMarkId: string | null;
   sampledMotionOverride?: ColorCycleSampledMotion;
 };
@@ -51,6 +53,7 @@ export const resolveColorCycleShapeFillSourceOptions = ({
     ditherBaseOffsetOverride: behavior ? 0 : undefined,
     paintSlotOverride: renderSession?.binding?.slot,
     paintDefIdOverride: renderSession?.binding?.defId,
+    secondaryInkBinding: renderSession?.secondaryBinding,
     shapePhaseSeedMarkId: session?.markId ?? null,
     ...(sampledMotionOverride ? { sampledMotionOverride } : {}),
   };

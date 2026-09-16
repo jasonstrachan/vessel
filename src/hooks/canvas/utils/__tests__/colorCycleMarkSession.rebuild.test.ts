@@ -73,6 +73,72 @@ describe('colorCycleMarkSession rebuild', () => {
     }));
   });
 
+  it.each(['standard', 'bristles', 'pencil', 'both'].flatMap(mode =>
+    [0, 40, 70, 100].map(contrast => ({ mode, contrast }))))(
+    'keeps Studio sampled $mode preview, runtime and final contrast equal at $contrast', ({ mode, contrast }) => {
+      const previous = studioExtension.preserveSampledStrokePalette;
+      studioExtension.preserveSampledStrokePalette = true;
+      const layer = createLayer();
+      const source = [
+        { position: 0, color: 'rgba(80, 112, 160, 0.25)' },
+        { position: 1, color: 'rgba(176, 80, 48, 0.5)', opacity: 0.5 },
+      ];
+      try {
+        useAppStore.setState(state => ({ layers: [layer], activeLayerId: layer.id, tools: {
+          ...state.tools, brushSettings: {
+            ...state.tools.brushSettings, colorCyclePickupEnabled: false,
+            colorCycleGradientIsRuntimePalette: false, colorCycleStampDitherEnabled: false,
+            colorCyclePencilEnabled: mode === 'pencil' || mode === 'both',
+            colorCycleBristlesEnabled: mode === 'bristles' || mode === 'both',
+            ccGradientRangeContrast: 70,
+            // Preserving source colours must still suppress ink generation.
+            ditherEnabled: true, ditherPaletteSpread: 100,
+          },
+        } }));
+        const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke',
+          gradientKind: 'linear', source: 'sampled', stops: source });
+        if (!session) throw new Error('Expected sampled session');
+        session.previewStopsStored = source;
+        useAppStore.getState().setBrushSettings({ ccGradientRangeContrast: contrast });
+        const expected = applyCcSampledRangeContrast(source, contrast);
+        expect(resolveMarkSessionRuntimeStops(session, source, { rangeContrast: contrast })).toEqual(expected);
+        expect(getPreviewGradientForActiveMark(layer.id)?.stopsStored).toEqual(expected);
+        const finalized = finalizeMarkGradientSession(layer.id);
+        expect(finalized?.frozenStopsStored).toEqual(expected);
+        expect(useAppStore.getState().layers[0].colorCycleData?.gradientDefStore?.[0]?.stops).toEqual(expected);
+      } finally {
+        cancelMarkGradientSession(layer.id);
+        studioExtension.preserveSampledStrokePalette = previous;
+      }
+    },
+  );
+
+  it('keeps a single Studio sample unchanged by ink generation in preview and finalisation', () => {
+    const previous = studioExtension.preserveSampledStrokePalette;
+    studioExtension.preserveSampledStrokePalette = true;
+    const layer = createLayer();
+    try {
+      useAppStore.setState(state => ({ layers: [layer], activeLayerId: layer.id, tools: {
+        ...state.tools, brushSettings: {
+          ...state.tools.brushSettings, colorCyclePickupEnabled: false,
+          colorCycleGradientIsRuntimePalette: false, colorCycleStampDitherEnabled: false,
+          ditherEnabled: true, ditherPaletteSpread: 100, ccGradientRangeContrast: 0,
+        },
+      } }));
+      const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke',
+        gradientKind: 'linear', source: 'sampled', stops });
+      if (!session) throw new Error('Expected sampled session');
+      updateCcSampledSession({ session, sourcePts: [{ x: 0, y: 0 }], now: 200,
+        lastUpdateRef: { current: 0 }, sampleColor: () => '#5070a0', allowTiny: true });
+      const expected = [{ position: 0, color: '#5070a0' }, { position: 1, color: '#5070a0' }];
+      expect(getPreviewGradientForActiveMark(layer.id)?.stopsStored).toEqual(expected);
+      expect(finalizeMarkGradientSession(layer.id)?.frozenStopsStored).toEqual(expected);
+    } finally {
+      cancelMarkGradientSession(layer.id);
+      studioExtension.preserveSampledStrokePalette = previous;
+    }
+  });
+
   it('freezes shared cycle speed only for enabled sampled dither strokes', () => {
     const previous = studioExtension.sampledStrokeAlignment;
     const previousPalette = studioExtension.preserveSampledStrokePalette;

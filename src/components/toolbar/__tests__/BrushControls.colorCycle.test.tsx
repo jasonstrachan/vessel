@@ -877,6 +877,32 @@ describe('BrushControls – Color Cycle stroke essentials', () => {
     expect(useAppStore.getState().tools.brushSettings.ccGradientRangeContrast).toBe(42);
   });
 
+  it.each([
+    { colorCyclePencilEnabled: true },
+    { colorCycleStampDitherEnabled: false },
+    { colorCycleStampDitherBgFill: false },
+    { colorCyclePickupEnabled: true },
+    { colorCycleGradientIsRuntimePalette: true },
+  ])('hides inactive stroke ink controls for %j', (settings) => {
+    const previous = useAppStore.getState().tools;
+    useAppStore.setState(state => ({
+      tools: { ...state.tools, ccGradientSource: 'manual', brushSettings: {
+        ...state.tools.brushSettings, brushShape: 'color_cycle' as BrushSettings['brushShape'],
+        colorCycleUseForegroundGradient: false, colorCycleStampDitherEnabled: true,
+        colorCycleStampDitherBgFill: true, colorCyclePencilEnabled: false,
+        colorCyclePickupEnabled: false, colorCycleGradientIsRuntimePalette: false, ...settings,
+      } },
+      currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['currentBrushPreset'],
+    }));
+    const { unmount } = render(<BrushControls />);
+    expect(screen.queryByLabelText('Ink Spread')).not.toBeInTheDocument();
+    if ('colorCycleGradientIsRuntimePalette' in settings) {
+      expect(screen.queryByLabelText('Gradient Contrast')).not.toBeInTheDocument();
+    } else expect(screen.getByLabelText('Gradient Contrast')).toBeInTheDocument();
+    unmount();
+    useAppStore.setState({ tools: previous });
+  });
+
   it('exposes ink spread independently of gradient contrast for CC Stroke', () => {
     useAppStore.setState((state) => ({
       ...state,

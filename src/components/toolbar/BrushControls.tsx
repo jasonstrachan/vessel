@@ -1,5 +1,6 @@
 "use client";
 
+import { canUseCcInkSpread } from '@/utils/colorCycle/ccInkSpread';
 import { clampForegroundContrast, clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugLog } from '@/utils/debug';
@@ -1854,7 +1855,9 @@ const BrushControls = () => {
           </div>
         ) : null}
 
-        {!useForegroundDerivedGradient && (isColorCycleStrokePreset || isColorCycleGradientPreset) && (
+        {!useForegroundDerivedGradient &&
+          !(resolvedGradientSource === 'manual' && activeSettings.colorCycleGradientIsRuntimePalette) &&
+          (isColorCycleStrokePreset || isColorCycleGradientPreset) && (
           <div className="flex items-center gap-2 mt-2 mb-2">
             <label
               className={`${CONTROL_LABEL_CLASS} whitespace-nowrap text-[11px]`}
@@ -1878,7 +1881,7 @@ const BrushControls = () => {
           </div>
         )}
 
-        {isColorCycleStrokePreset && !useForegroundDerivedGradient && (
+        {isColorCycleStrokePreset && canUseCcInkSpread(activeSettings, resolvedGradientSource, 'stroke') && (
           <div className="flex items-center gap-2 mt-2 mb-2">
             <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE} title="Ink Spread">
               Ink Spd
@@ -1915,7 +1918,7 @@ const BrushControls = () => {
               beforeResolution={
                 isColorCycleGradientPreset && !useForegroundDerivedGradient ? (
                   <>
-                    <div className="flex items-center gap-2 mt-2">
+                    {canUseCcInkSpread(activeSettings, resolvedGradientSource, 'shape') && <div className="flex items-center gap-2 mt-2">
                       <label
                         className={CONTROL_LABEL_CLASS}
                         style={CONTROL_LABEL_STYLE}
@@ -1936,7 +1939,7 @@ const BrushControls = () => {
                         aria-label="Ink Spread"
                         className="flex-1"
                       />
-                    </div>
+                    </div>}
                     {activeSettings.ccFlatCycleDither === true && (
                       <div className="flex items-center gap-2 mt-2">
                         <label

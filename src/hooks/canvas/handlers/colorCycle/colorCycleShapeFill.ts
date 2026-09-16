@@ -54,6 +54,7 @@ type ColorCycleShapeFillRuntimeOptions = {
   ditherBaseOffsetOverride?: number;
   paintSlotOverride?: number;
   paintDefIdOverride?: number;
+  secondaryInkBinding?: { slot: number; defId: number };
   shapePhaseSeedMarkId?: string | null;
   sampledMotionOverride?: ColorCycleSampledMotion;
   roi?: { x: number; y: number; width: number; height: number };
@@ -393,7 +394,13 @@ const applyResolvedShapeFillRuntimeBinding = ({
   applyRuntimeToBrush(brush, layerId, {
     layerId,
     paintSlot: renderSession.binding.slot,
-    slotPalettes: [{ slot: renderSession.binding.slot, stops: frozenStops, seamProfile: renderSession.seamProfile }],
+    slotPalettes: [
+      { slot: renderSession.binding.slot, stops: frozenStops, seamProfile: renderSession.seamProfile },
+      ...(renderSession.secondaryBinding && renderSession.secondaryStopsStored ? [{
+        slot: renderSession.secondaryBinding.slot, stops: renderSession.secondaryStopsStored,
+        seamProfile: renderSession.seamProfile,
+      }] : []),
+    ],
     flowMode: layer?.colorCycleData?.flowMode,
   });
 };
@@ -401,7 +408,7 @@ const applyResolvedShapeFillRuntimeBinding = ({
 const resolveSampledShapePersistStops = (
   renderSession: ColorCycleGradientRenderSession
 ): StoredStop[] => (
-  renderSession.source === 'sampled' && renderSession.sourceStopsStored?.length
+  !renderSession.secondaryBinding && renderSession.source === 'sampled' && renderSession.sourceStopsStored?.length
     ? renderSession.sourceStopsStored
     : renderSession.frozenStopsStored
 );

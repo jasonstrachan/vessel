@@ -235,7 +235,7 @@ export const updateCcSampledSession = (args: CcSampledUpdateArgs): CcSampledUpda
   const result = buildSampledStops({
     markKind: args.session.markKind,
     pickup: args.session.colourPickup,
-    preserveSingleSampleColor: args.session.isRuntimePalette,
+    preserveSingleSampleColor: args.session.isRuntimePalette || args.session.preserveSourcePalette,
     sourcePts: args.sourcePts,
     sampleColor: args.sampleColor,
     allowTiny: Boolean(args.allowTiny),

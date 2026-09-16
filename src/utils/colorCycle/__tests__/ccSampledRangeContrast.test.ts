@@ -2,8 +2,32 @@ import {
   applyCcSampledRangeContrast,
   resolveCcSampledRangeContrastAmount,
 } from '@/utils/colorCycle/ccSampledRangeContrast';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 
 describe('ccSampledRangeContrast', () => {
+  it('retains named-colour parsing when changing contrast', () => {
+    const adjusted = applyCcSampledRangeContrast([
+      { position: 0, color: 'red' },
+      { position: 1, color: 'blue' },
+    ], 0);
+    expect(adjusted.map(stop => stop.color)).toEqual(['rgb(128, 0, 128)', 'rgb(128, 0, 128)']);
+  });
+
+  it.each([0, 40, 70, 100])('preserves CSS alpha and separate opacity at contrast %s', (contrast) => {
+    const stops = [
+      { position: 0, color: 'rgba(80, 112, 160, 0.25)', opacity: 0.5 },
+      { position: 0.3, color: '#b0503080' },
+      { position: 0.7, color: 'transparent' },
+      { position: 1, color: '#ac48', opacity: 0.75 },
+    ];
+    const result = applyCcSampledRangeContrast(stops, contrast);
+    expect(result.map(stop => parseCssColor(stop.color).a))
+      .toEqual(stops.map(stop => parseCssColor(stop.color).a));
+    expect(result.map(stop => stop.opacity)).toEqual(stops.map(stop => stop.opacity));
+    expect(result.map(stop => stop.position)).toEqual(stops.map(stop => stop.position));
+    expect(stops[0].color).toBe('rgba(80, 112, 160, 0.25)');
+  });
+
   it('preserves sampled stops at the source-range point', () => {
     const stops = [
       { position: 0, color: '#000000' },

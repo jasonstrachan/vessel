@@ -309,6 +309,7 @@ export async function runColorCycleConcentricShapeFill(
   if (activeSlot !== 0) {
     animator.markGradientSlotUsed(activeSlot);
   }
+  if (options?.secondaryInkBinding) animator.markGradientSlotUsed(options.secondaryInkBinding.slot);
   const concentricBuffer = directConcentricHandle.data;
   bindIndexedAuthoringBuffer(id, concentricBuffer);
   const concentricGradientId = directConcentricHandle.gradientId;
@@ -329,7 +330,8 @@ export async function runColorCycleConcentricShapeFill(
     x: number,
     y: number,
     colorIndex: number,
-    phaseByte: number = sampledPhaseOverride ?? 0
+    phaseByte: number = sampledPhaseOverride ?? 0,
+    secondaryInk = false
   ) => {
     if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
       return;
@@ -339,12 +341,14 @@ export async function runColorCycleConcentricShapeFill(
     recordIndexedAuthoringPixel(concentricBuffer, idx);
     concentricBuffer[idx] = clamped;
     context.markStrokeStateContentWritten(strokeData);
-    concentricGradientId[idx] = clamped === 0 ? 0 : flowSlot;
+    concentricGradientId[idx] = clamped === 0 ? 0 : secondaryInk && options?.secondaryInkBinding
+      ? options.secondaryInkBinding.slot : flowSlot;
     concentricSpeedData[idx] = clamped === 0 ? 0 : speedByte;
     concentricFlowData[idx] = clamped === 0 ? 0 : flowByte;
     concentricPhaseData[idx] = clamped === 0 ? 0 : phaseByte;
     if (activeDefId !== null && concentricDefData && concentricDefData.length === concentricBuffer.length) {
-      concentricDefData[idx] = clamped === 0 ? 0 : activeDefId;
+      concentricDefData[idx] = clamped === 0 ? 0 : secondaryInk && options?.secondaryInkBinding
+        ? options.secondaryInkBinding.defId : activeDefId;
     }
     const localX = x - bbox.minX;
     const localY = y - bbox.minY;
@@ -500,6 +504,7 @@ export async function runColorCycleConcentricShapeFill(
         fillBackground: options?.ditherBackgroundFill !== false,
         pxlEdge: context.isPxlEdgeEnabled(),
         flatCycle: options?.ditherFlatCycle === true,
+        pairedInkPalettes: Boolean(options?.secondaryInkBinding),
         flatCycleBands: options?.ditherFlatCycleBands,
         sampleNormalized: (x, y) => {
           let minDistSq = Infinity;
@@ -519,9 +524,9 @@ export async function runColorCycleConcentricShapeFill(
           }
           return Math.min(1, Math.sqrt(Math.max(0, minDistSq)) / safeMaxDist);
         },
-        writeIndex: (x, y, index, phaseByte) => {
+        writeIndex: (x, y, index, phaseByte, secondaryInk) => {
           context.logSetIndexSample(id, x, y);
-          writeConcentricIndex(x, y, index, phaseByte ?? 0);
+          writeConcentricIndex(x, y, index, phaseByte ?? 0, secondaryInk);
         },
         writePhase: (x, y, phaseByte) => {
           if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {

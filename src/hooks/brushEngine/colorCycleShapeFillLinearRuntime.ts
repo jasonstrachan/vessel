@@ -372,6 +372,7 @@ export async function runColorCycleLinearShapeFill(
   if (activeSlot !== 0) {
     animator.markGradientSlotUsed(activeSlot);
   }
+  if (options?.secondaryInkBinding) animator.markGradientSlotUsed(options.secondaryInkBinding.slot);
   const linearBuffer = directLinearHandle.data;
   bindIndexedAuthoringBuffer(id, linearBuffer);
   const linearGradientId = directLinearHandle.gradientId;
@@ -392,7 +393,8 @@ export async function runColorCycleLinearShapeFill(
     x: number,
     y: number,
     colorIndex: number,
-    phaseByte: number = sampledPhaseOverride ?? 0
+    phaseByte: number = sampledPhaseOverride ?? 0,
+    secondaryInk = false
   ) => {
     if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
       return;
@@ -402,12 +404,14 @@ export async function runColorCycleLinearShapeFill(
     recordIndexedAuthoringPixel(linearBuffer, idx);
     linearBuffer[idx] = clamped;
     context.markStrokeStateContentWritten(strokeData);
-    linearGradientId[idx] = clamped === 0 ? 0 : flowSlot;
+    linearGradientId[idx] = clamped === 0 ? 0 : secondaryInk && options?.secondaryInkBinding
+      ? options.secondaryInkBinding.slot : flowSlot;
     linearSpeedData[idx] = clamped === 0 ? 0 : speedByte;
     linearFlowData[idx] = clamped === 0 ? 0 : flowByte;
     linearPhaseData[idx] = clamped === 0 ? 0 : phaseByte;
     if (activeDefId !== null && linearDefData && linearDefData.length === linearBuffer.length) {
-      linearDefData[idx] = clamped === 0 ? 0 : activeDefId;
+      linearDefData[idx] = clamped === 0 ? 0 : secondaryInk && options?.secondaryInkBinding
+        ? options.secondaryInkBinding.defId : activeDefId;
     }
     const localX = x - bbox.minX;
     const localY = y - bbox.minY;
@@ -500,13 +504,14 @@ export async function runColorCycleLinearShapeFill(
         fillBackground: options?.ditherBackgroundFill !== false,
         pxlEdge: context.isPxlEdgeEnabled(),
         flatCycle: options?.ditherFlatCycle === true,
+        pairedInkPalettes: Boolean(options?.secondaryInkBinding),
         flatCycleBands: options?.ditherFlatCycleBands,
         sampleNormalized: (x, y) => {
           const proj = (x - centerX) * dirX + (y - centerY) * dirY;
           return clamp01((proj - paddedMinProjection) / safeProjectionRange);
         },
-        writeIndex: (x, y, index, phaseByte) => {
-          writeLinearIndex(x, y, index, phaseByte ?? 0);
+        writeIndex: (x, y, index, phaseByte, secondaryInk) => {
+          writeLinearIndex(x, y, index, phaseByte ?? 0, secondaryInk);
         },
         writePhase: (x, y, phaseByte) => {
           if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {

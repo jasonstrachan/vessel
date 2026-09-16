@@ -1,41 +1,18 @@
 import { clampForegroundColors } from '@/utils/colorCycle/foregroundGradientSettings';
 import { parseColor } from '@/hooks/brushEngine/colorUtils';
-import {
-  buildSpreadInkPalette,
-  resolveStrokeDitherPalette,
-  spreadPaletteColors,
-} from '@/hooks/brushEngine/engineShared';
+import { buildCcInkPalettes } from '@/utils/colorCycle/ccInkSpread';
 import type { BrushSettings } from '@/types';
 import {
   resolveFlatInkSetForBand,
   resolveFlatInkSetForPosition,
-  resolveFlatPairContrastStrength,
 } from '@/utils/colorCycle/ccFlatModePatterns';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-const luminance = (rgb: [number, number, number]): number =>
-  0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-
-const mixRgb = (a: [number, number, number], b: [number, number, number]): [number, number, number] => ([
-  Math.round((a[0] + b[0]) / 2),
-  Math.round((a[1] + b[1]) / 2),
-  Math.round((a[2] + b[2]) / 2),
-]);
-
-const rgbDistance = (a: [number, number, number], b: [number, number, number]): number => {
-  const dr = a[0] - b[0];
-  const dg = a[1] - b[1];
-  const db = a[2] - b[2];
-  return Math.sqrt(dr * dr + dg * dg + db * db);
-};
-
 const formatRgb = (rgb: [number, number, number]): string =>
   `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
-
-const rgbToCss = (rgb: [number, number, number]): string => formatRgb(rgb);
 
 const resolveStopOpacity = (stop: StoredStop): number => {
   const cssAlpha = parseCssColor(stop.color).a / 255;
@@ -298,127 +275,6 @@ export const resolveFlatSierraBestBandForTarget = ({
   return bestBand;
 };
 
-const pickInkPair = (
-  target: [number, number, number],
-  palette: string[]
-): { low: string; high: string } => {
-  const parsed = palette.map((color) => ({
-    color,
-    rgb: parseColor(color),
-  }));
-  if (parsed.length <= 1) {
-    const fallback = parsed[0]?.color ?? formatRgb(target);
-    return { low: fallback, high: fallback };
-  }
-
-  let bestPair = {
-    low: parsed[0].color,
-    high: parsed[1].color,
-    score: Number.NEGATIVE_INFINITY,
-  };
-
-  for (let i = 0; i < parsed.length; i += 1) {
-    for (let j = i + 1; j < parsed.length; j += 1) {
-      const first = parsed[i];
-      const second = parsed[j];
-      const midpoint = mixRgb(first.rgb, second.rgb);
-      const midpointError = rgbDistance(midpoint, target);
-      const pairDistance = rgbDistance(first.rgb, second.rgb);
-      const score = pairDistance - midpointError * 1.35;
-      if (score <= bestPair.score) {
-        continue;
-      }
-      const firstLum = luminance(first.rgb);
-      const secondLum = luminance(second.rgb);
-      bestPair = firstLum <= secondLum
-        ? { low: first.color, high: second.color, score }
-        : { low: second.color, high: first.color, score };
-    }
-  }
-
-  const lowRgb = parseColor(bestPair.low);
-  const highRgb = parseColor(bestPair.high);
-  const midpoint = mixRgb(lowRgb, highRgb);
-  const shift: [number, number, number] = [
-    target[0] - midpoint[0],
-    target[1] - midpoint[1],
-    target[2] - midpoint[2],
-  ];
-  const recenter = (rgb: [number, number, number]): [number, number, number] => ([
-    Math.max(0, Math.min(255, rgb[0] + shift[0])),
-    Math.max(0, Math.min(255, rgb[1] + shift[1])),
-    Math.max(0, Math.min(255, rgb[2] + shift[2])),
-  ]);
-  const shiftedLow = recenter(lowRgb);
-  const shiftedHigh = recenter(highRgb);
-  const lowLum = luminance(shiftedLow);
-  const highLum = luminance(shiftedHigh);
-
-  return lowLum <= highLum
-    ? { low: formatRgb(shiftedLow), high: formatRgb(shiftedHigh) }
-    : { low: formatRgb(shiftedHigh), high: formatRgb(shiftedLow) };
-};
-
-const pickInkTriad = (
-  target: [number, number, number],
-  palette: string[]
-): { low: string; mid: string; high: string } | null => {
-  const parsed = palette.map((color) => ({
-    color,
-    rgb: parseColor(color),
-    lum: luminance(parseColor(color)),
-  }));
-  if (parsed.length < 3) {
-    return null;
-  }
-
-  const byLum = [...parsed].sort((a, b) => a.lum - b.lum);
-  const low = byLum[0];
-  const high = byLum[byLum.length - 1];
-  const middleCandidates = parsed.filter((entry) => entry.color !== low.color && entry.color !== high.color);
-  const middleSource = middleCandidates.length > 0
-    ? middleCandidates.reduce((best, current) => {
-        const currentError = rgbDistance(current.rgb, target);
-        const bestError = rgbDistance(best.rgb, target);
-        return currentError < bestError ? current : best;
-      }, middleCandidates[0])
-    : parsed.reduce((best, current) => {
-        const currentError = rgbDistance(current.rgb, target);
-        const bestError = rgbDistance(best.rgb, target);
-        return currentError < bestError ? current : best;
-      }, parsed[1]);
-
-  const triad = [low.rgb, middleSource.rgb, high.rgb] as const;
-  const average: [number, number, number] = [
-    Math.round((triad[0][0] + triad[1][0] + triad[2][0]) / 3),
-    Math.round((triad[0][1] + triad[1][1] + triad[2][1]) / 3),
-    Math.round((triad[0][2] + triad[1][2] + triad[2][2]) / 3),
-  ];
-  const shift: [number, number, number] = [
-    target[0] - average[0],
-    target[1] - average[1],
-    target[2] - average[2],
-  ];
-  const recenter = (rgb: [number, number, number]): [number, number, number] => ([
-    Math.max(0, Math.min(255, rgb[0] + shift[0])),
-    Math.max(0, Math.min(255, rgb[1] + shift[1])),
-    Math.max(0, Math.min(255, rgb[2] + shift[2])),
-  ]);
-
-  const shifted = triad.map(recenter);
-  const shiftedEntries = shifted.map((rgb) => ({ rgb, lum: luminance(rgb) }));
-  const ordered = [...shiftedEntries].sort((a, b) => a.lum - b.lum);
-  const lowRgb = ordered[0].rgb;
-  const highRgb = ordered[ordered.length - 1].rgb;
-  const midRgb = ordered[1].rgb;
-
-  return {
-    low: formatRgb(lowRgb),
-    mid: formatRgb(midRgb),
-    high: formatRgb(highRgb),
-  };
-};
-
 export type CcDitherRenderPalette = {
   bandCount: number;
   renderStops: StoredStop[];
@@ -477,147 +333,24 @@ export const buildCcDitherRenderPalette = ({
   spread: Pick<BrushSettings, 'ditherPaletteSpread'>['ditherPaletteSpread'];
 }): CcDitherRenderPalette => {
   const bandCount = Math.max(0, Math.floor(bands || 0));
-  const spreadStrength = clamp01((spread ?? 0) / 100);
-  const useTriadStops = spreadStrength >= 0.95;
-  const preservesOrderedStops = baseStops.length > 2;
-  if (!baseStops.length) {
-    return { bandCount: 0, renderStops: baseStops.slice() };
-  }
-
-  if (bandCount <= 0) {
-    const targetRgb = sampleGradientColor(baseStops, 0.5);
-    const targetHex = formatRgb(targetRgb);
-    const palette = useTriadStops
-      ? buildSpreadInkPalette({
-          color: targetHex,
-          spreadPercent: spread ?? 0,
-        })
-      : resolveStrokeDitherPalette({
-          color: targetHex,
-          spreadPercent: spread ?? 0,
-          ditherBackgroundFill: false,
-        }).palette;
-    const triad = useTriadStops ? pickInkTriad(targetRgb, palette) : null;
-    if (triad) {
-      return {
-        bandCount: 0,
-        renderStops: [
-          makeRenderStop(baseStops, 0, triad.low),
-          makeRenderStop(baseStops, 0.5, triad.mid),
-          makeRenderStop(baseStops, 1, triad.high),
-        ],
-      };
-    }
-    const { low, high } = pickInkPair(targetRgb, palette);
-    return {
-      bandCount: 0,
-      renderStops: [
-        makeRenderStop(baseStops, 0, low),
-        makeRenderStop(baseStops, 0.5, high),
-        makeRenderStop(baseStops, 1, high),
-      ],
-    };
-  }
-
+  if (!baseStops.length) return { bandCount: 0, renderStops: [] };
   const renderStops: StoredStop[] = [];
-  for (let band = 0; band < bandCount; band += 1) {
-    const segmentStart = band / bandCount;
-    const center = clamp01((band + 0.5) / bandCount);
-    const segmentEnd = (band + 1) / bandCount;
-    if (preservesOrderedStops) {
-      const sourceColors = useTriadStops
-        ? [
-            rgbToCss(sampleGradientColor(baseStops, segmentStart)),
-            rgbToCss(sampleGradientColor(baseStops, center)),
-            rgbToCss(sampleGradientColor(baseStops, segmentEnd)),
-          ]
-        : [
-            rgbToCss(sampleGradientColor(baseStops, segmentStart)),
-            rgbToCss(sampleGradientColor(baseStops, center)),
-          ];
-      const spreadColors = spreadPaletteColors(sourceColors, spread ?? 0);
-      if (useTriadStops && spreadColors.length >= 3) {
-        renderStops.push(makeRenderStop(baseStops, segmentStart, spreadColors[0]));
-        renderStops.push(makeRenderStop(baseStops, center, spreadColors[1]));
-        renderStops.push(makeRenderStop(baseStops, segmentEnd, spreadColors[2]));
-        continue;
-      }
-
-      renderStops.push(makeRenderStop(
-        baseStops,
-        segmentStart,
-        spreadColors[0] ?? sourceColors[0],
-      ));
-      renderStops.push(makeRenderStop(
-        baseStops,
-        center,
-        spreadColors[1] ?? sourceColors[1],
-      ));
-      continue;
-    }
-
-    const targetRgb = sampleGradientColor(baseStops, center);
-    const targetHex = formatRgb(targetRgb);
-    const palette = useTriadStops
-      ? buildSpreadInkPalette({
-          color: targetHex,
-          spreadPercent: spread ?? 0,
-        })
-      : resolveStrokeDitherPalette({
-          color: targetHex,
-          spreadPercent: spread ?? 0,
-          ditherBackgroundFill: false,
-        }).palette;
-    const triad = useTriadStops ? pickInkTriad(targetRgb, palette) : null;
-    if (triad) {
-      renderStops.push(makeRenderStop(baseStops, segmentStart, triad.low));
-      renderStops.push(makeRenderStop(baseStops, center, triad.mid));
-      renderStops.push(makeRenderStop(baseStops, segmentEnd, triad.high));
-      continue;
-    }
-    const { low, high } = pickInkPair(targetRgb, palette);
-    const lowPos = (band * 2) / (bandCount * 2);
-    const highPos = (band * 2 + 1) / (bandCount * 2);
-    renderStops.push(makeRenderStop(baseStops, lowPos, low));
-    renderStops.push(makeRenderStop(baseStops, highPos, high));
+  const count = Math.max(1, bandCount);
+  for (let band = 0; band < count; band += 1) {
+    const start = band / count;
+    const center = (band + 0.5) / count;
+    const target = formatRgb(sampleGradientColor(baseStops, center));
+    const inks = buildCcInkPalettes([{ position: center, color: target }], spread);
+    renderStops.push(
+      makeRenderStop(baseStops, start, inks.primary[0].color),
+      makeRenderStop(baseStops, center, inks.secondary[0].color),
+    );
   }
-
-  return {
-    bandCount,
-    renderStops: completeRenderAlphaBounds(baseStops, renderStops),
-  };
+  return { bandCount, renderStops: completeRenderAlphaBounds(baseStops, renderStops) };
 };
 
 const SIERRA_FLAT_BANDS = 5;
-const clampColorChannel = (value: number): number => Math.max(0, Math.min(255, Math.round(value)));
-
 const toPalettePosition = (index: number): number => clamp01((index - 1) / 254);
-
-const buildContrastInkPairForTarget = ({
-  target,
-  spreadDistance,
-}: {
-  target: [number, number, number];
-  spreadDistance: number;
-}): { low: [number, number, number]; high: [number, number, number] } => {
-  const spreadStrength = resolveFlatPairContrastStrength(spreadDistance);
-  const contrast = 2 + Math.round(Math.pow(spreadStrength, 1.25) * 98);
-
-  const low: [number, number, number] = [
-    clampColorChannel(target[0] - contrast),
-    clampColorChannel(target[1] - contrast),
-    clampColorChannel(target[2] - contrast),
-  ];
-
-  const high: [number, number, number] = [
-    clampColorChannel(target[0] + contrast),
-    clampColorChannel(target[1] + contrast),
-    clampColorChannel(target[2] + contrast),
-  ];
-  const lowLum = luminance(low);
-  const highLum = luminance(high);
-  return lowLum <= highLum ? { low, high } : { low: high, high: low };
-};
 
 export const buildCcFlatSierraContrastRenderPalette = ({
   baseStops,
@@ -634,15 +367,12 @@ export const buildCcFlatSierraContrastRenderPalette = ({
     const centerPos = clamp01((band + 0.5) / SIERRA_FLAT_BANDS);
     const indices = resolveFlatInkSetForPosition(centerPos, 2, 0, spread).indices;
     const targetRgb = sampleGradientColor(baseStops, centerPos);
-    const { low, high } = buildContrastInkPairForTarget({
-      target: targetRgb,
-      spreadDistance: Math.max(1, indices[1] - indices[0]),
-    });
+    const inks = buildCcInkPalettes([{ position: centerPos, color: formatRgb(targetRgb) }], spread);
     const lowPosition = toPalettePosition(indices[0]);
     const highPosition = toPalettePosition(indices[1]);
     renderStops.push(
-      makeRenderStop(baseStops, lowPosition, formatRgb(low)),
-      makeRenderStop(baseStops, highPosition, formatRgb(high)),
+      makeRenderStop(baseStops, lowPosition, inks.primary[0].color),
+      makeRenderStop(baseStops, highPosition, inks.secondary[0].color),
     );
   }
   renderStops.sort((a, b) => a.position - b.position);

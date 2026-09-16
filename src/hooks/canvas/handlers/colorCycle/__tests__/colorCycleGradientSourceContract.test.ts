@@ -1,3 +1,6 @@
+import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
+import { useAppStore } from '@/stores/useAppStore';
+import { buildCcCycleInkPalettes } from '@/utils/colorCycle/ccInkSpread';
 import { buildForegroundColorRampSpec, deriveForegroundGradientStops } from '@/utils/colorCycleGradients';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import {
@@ -49,6 +52,32 @@ const makeBrushSettings = (overrides?: Partial<BrushSettings>): BrushSettings =>
 } as BrushSettings);
 
 describe('colorCycleGradientSourceContract', () => {
+  it('retains both Fixed inks when the second allocation triggers palette cleanup', () => {
+    const previous = useAppStore.getState();
+    const stops = [{ position: 0, color: '#808080' }, { position: 1, color: '#808080' }];
+    const defs = Array.from({ length: 253 }, (_, slot) => ({
+      id: slot + 1, slot, kind: 'linear' as const, source: 'manual' as const,
+      createdAtMs: 0, stops, hash: hashStops(stops, 'linear'),
+    }));
+    const layer = makeLayer({ colorCycleData: attachLegacyColorCycleTopLevelBuffers({
+      gradientDefStore: defs, nextGradientDefId: 254, gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+      slotPalettes: defs.map(def => ({ slot: def.slot, stops: def.stops })),
+    }, { gradientDefIdBuffer: new Uint16Array([1]).buffer }) as Layer['colorCycleData'] });
+    try {
+      useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+      const result = resolveColorCycleGradientRenderSession({
+        layerId: layer.id,
+        session: makeMarkSession({ rawStopsStored: stops, frozenStopsStored: stops, source: 'manual' }),
+        brushSettings: makeBrushSettings({ ditherEnabled: true, ccFlatCycleDither: true,
+          ditherPaletteSpread: 100, ditherGradBgFill: true }),
+      })!;
+      const stored = useAppStore.getState().layers[0].colorCycleData!.gradientDefStore!;
+      expect(result.binding!.slot).not.toBe(result.secondaryBinding!.slot);
+      expect(stored.find(def => def.id === result.binding!.defId)).toMatchObject({ slot: result.binding!.slot, stops: result.frozenStopsStored });
+      expect(stored.find(def => def.id === result.secondaryBinding!.defId)).toMatchObject({ slot: result.secondaryBinding!.slot, stops: result.secondaryStopsStored });
+    } finally { useAppStore.setState(previous, true); }
+  });
+
   it('resolves sampled, foreground, and manual source priority from UI state flags', () => {
     expect(resolveColorCycleGradientSource({
       ccGradientSource: 'sampled',
@@ -248,6 +277,7 @@ describe('colorCycleGradientSourceContract', () => {
       },
     });
 
+    useAppStore.setState({ layers: [makeLayer()] });
     const result = resolveColorCycleGradientRenderSession({
       layerId: 'layer-1',
       session,
@@ -259,7 +289,8 @@ describe('colorCycleGradientSourceContract', () => {
       }),
     });
 
-    expect(result?.frozenStopsStored).toEqual(contrastedStops);
+    expect(result?.frozenStopsStored).toEqual(buildCcCycleInkPalettes(contrastedStops, 0, session.seamProfile).primary);
+    expect(result?.secondaryBinding).toBeDefined();
     expect(result?.sourceStopsStored).toEqual(contrastedStops);
   });
 

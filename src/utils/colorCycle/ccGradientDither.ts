@@ -75,13 +75,14 @@ export type CcGradientDitherOptions = {
    * color cycling reads as continuous motion under a fixed pattern.
    */
   flatCycle?: boolean;
+  pairedInkPalettes?: boolean;
   /**
    * Optional flat-cycle banding: snap pair centers to this many bands so
    * regions share one crisp pair. < 2 (or unset) keeps the fully smooth slide.
    */
   flatCycleBands?: number;
   sampleNormalized: (x: number, y: number) => number;
-  writeIndex: (x: number, y: number, index: number, phaseByte?: number) => void;
+  writeIndex: (x: number, y: number, index: number, phaseByte?: number, secondaryInk?: boolean) => void;
   writePhase?: (x: number, y: number, phaseByte: number) => void;
   resolvePhaseByte?: (x: number, y: number, index: number, normalized: number) => number;
   logSetIndexSample?: (x: number, y: number) => void;
@@ -880,6 +881,7 @@ export const fillCcGradientDither = async ({
   fillBackground = true,
   pxlEdge = false,
   flatCycle = false,
+  pairedInkPalettes = false,
   flatCycleBands,
   sampleNormalized,
   writeIndex,
@@ -915,7 +917,9 @@ export const fillCcGradientDither = async ({
   const activeCells: number[] = [];
   const cellSeen = new Uint8Array(gridW);
   const shouldWritePerPixelPhase = algorithm === 'sierra-lite' && Boolean(writePhase);
-  const writePixel = (x: number, y: number, index: number) => {
+  const writePixel = (x: number, y: number, encodedIndex: number) => {
+    const secondaryInk = pairedInkPalettes && encodedIndex > 255;
+    const index = secondaryInk ? encodedIndex & 255 : encodedIndex;
     let phaseByte = 0;
     if (shouldWritePerPixelPhase && index > 0) {
       const normalizedRaw = sampleNormalized(x + 0.5, y + 0.5);
@@ -929,7 +933,7 @@ export const fillCcGradientDither = async ({
           );
       phaseByte = Number.isFinite(resolvedPhaseByte) ? resolvedPhaseByte : 0;
     }
-    writeIndex(x, y, index, phaseByte);
+    writeIndex(x, y, index, phaseByte, secondaryInk);
     if (!writePhase) {
       return;
     }
@@ -1002,12 +1006,18 @@ export const fillCcGradientDither = async ({
     // (pow easing + allocations) out of the per-cell hot loop.
     const clampedFlatCycleBands = Math.floor(flatCycleBands ?? 0);
     const bandSteps = clampedFlatCycleBands > 1 ? clampedFlatCycleBands - 1 : 0;
-    const flatCycleLowLut = new Uint8Array(256);
+    const flatCycleLowLut = new Uint16Array(256);
     const flatCycleHighLut = new Uint8Array(256);
     for (let coverage = 0; coverage < 256; coverage += 1) {
       let position = coverage / 255;
       if (bandSteps > 0) {
         position = Math.round(position * bandSteps) / bandSteps;
+      }
+      if (pairedInkPalettes) {
+        const index = indexFromNormalized(position, baseOffset);
+        flatCycleLowLut[coverage] = index | 256;
+        flatCycleHighLut[coverage] = index;
+        continue;
       }
       const { indices } = resolveFlatCycleInkSetForPosition(
         position,

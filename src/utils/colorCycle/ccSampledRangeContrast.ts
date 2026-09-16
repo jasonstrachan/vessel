@@ -1,12 +1,17 @@
 import { parseColor } from '@/hooks/brushEngine/colorUtils';
+import { parseCssColor } from '@/utils/color/parseCssColor';
 import type { StoredStop } from '@/utils/colorCycleGradientDefs';
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 const SOURCE_RANGE_POINT = 70;
 const MAX_RANGE_MULTIPLIER = 1.75;
 
-const formatRgb = (rgb: [number, number, number]): string =>
-  `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+const parseContrastColor = (color: string) => {
+  const [r, g, b] = parseColor(color);
+  const fallback = { r, g, b, a: 255 };
+  const parsed = parseCssColor(color, fallback);
+  return Number.isFinite(parsed.r + parsed.g + parsed.b + parsed.a) ? parsed : fallback;
+};
 
 const mixChannel = (center: number, value: number, amount: number): number =>
   Math.max(0, Math.min(255, Math.round(center + (value - center) * amount)));
@@ -28,10 +33,10 @@ export const resolveRepresentativeSampledColor = (stops: StoredStop[]): [number,
     return [0, 0, 0];
   }
   const total = stops.reduce<[number, number, number]>((acc, stop) => {
-    const rgb = parseColor(stop.color);
-    acc[0] += rgb[0];
-    acc[1] += rgb[1];
-    acc[2] += rgb[2];
+    const rgb = parseContrastColor(stop.color);
+    acc[0] += rgb.r;
+    acc[1] += rgb.g;
+    acc[2] += rgb.b;
     return acc;
   }, [0, 0, 0]);
   return [
@@ -53,26 +58,29 @@ export const applyCcSampledRangeContrast = (
   if (Math.abs(amount - 1) < 0.001) {
     return stops.map((stop) => ({ ...stop }));
   }
-  const representative = representativeColor
-    ? parseColor(representativeColor)
+  const representativeRgba = representativeColor ? parseContrastColor(representativeColor) : null;
+  const representative = representativeRgba
+    ? [representativeRgba.r, representativeRgba.g, representativeRgba.b]
     : resolveRepresentativeSampledColor(stops);
   return stops.map((stop) => {
-    const rgb = parseColor(stop.color);
+    const { r, g, b, a } = parseContrastColor(stop.color);
     const compressed: [number, number, number] = [
-      mixChannel(representative[0], rgb[0], amount),
-      mixChannel(representative[1], rgb[1], amount),
-      mixChannel(representative[2], rgb[2], amount),
+      mixChannel(representative[0], r, amount),
+      mixChannel(representative[1], g, amount),
+      mixChannel(representative[2], b, amount),
     ];
     if (
-      compressed[0] === rgb[0]
-      && compressed[1] === rgb[1]
-      && compressed[2] === rgb[2]
+      compressed[0] === r
+      && compressed[1] === g
+      && compressed[2] === b
     ) {
       return { ...stop };
     }
     return {
       ...stop,
-      color: formatRgb(compressed),
+      color: a === 255
+        ? `rgb(${compressed.join(', ')})`
+        : `rgba(${compressed.join(', ')}, ${a / 255})`,
     };
   });
 };

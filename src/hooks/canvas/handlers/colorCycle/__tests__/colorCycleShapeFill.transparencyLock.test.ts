@@ -6,7 +6,7 @@ import {
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import * as colorCycleGradients from '@/utils/colorCycleGradients';
 import * as colorCycleGradientDefs from '@/utils/colorCycleGradientDefs';
-import { buildCcDitherRenderPalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { buildCcDitherRenderPalette, buildCcDitherRuntimePalette, resolveCcDitherBandMode } from '@/utils/colorCycle/ccDitherRenderPalette';
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -448,10 +448,11 @@ describe('colorCycleShapeFill transparency lock', () => {
       bindGradientDefIdToSlot,
       renderDirectToCanvas,
     };
-    const frozenStops: StoredStop[] = [
+    const rawStops: StoredStop[] = [
       { position: 0, color: '#111111' },
       { position: 1, color: '#eeeeee' },
     ];
+    const frozenStops = buildCcDitherRuntimePalette({ baseStops: rawStops, bands: 0, spread: 0, algorithm: 'sierra-lite' }).renderStops;
     const runtimeHash = hashStops(frozenStops, 'linear');
 
     await finalizeColorCycleShapeFillLinear(
@@ -463,6 +464,7 @@ describe('colorCycleShapeFill transparency lock', () => {
           gradientKind: 'linear',
           source: 'manual',
           seamProfile: 'hard',
+          rawStopsStored: rawStops,
           frozenStopsStored: frozenStops,
           frozenHash: runtimeHash,
           binding: { kind: 'def', defId: 11, slot: 7 },

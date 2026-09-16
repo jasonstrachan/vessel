@@ -1,3 +1,4 @@
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { GradientDefSource } from '@/utils/colorCycleGradientDefs';
 import { ensureGradientDefForStops, hashStops } from '@/utils/colorCycleGradientDefs';
 import {
@@ -8,6 +9,7 @@ import type { BrushSettings, Layer } from '@/types';
 import type { MarkGradientSession } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveMarkSessionRuntimeStops } from '@/hooks/canvas/utils/colorCycleMarkSession';
 import { resolveCcDitherInkMode } from '@/utils/colorCycle/ccDitherRenderPalette';
+import { buildCcCycleInkPalettes, canUseCcInkSpread } from '@/utils/colorCycle/ccInkSpread';
 
 export type ColorCycleGradientSourceBehavior = {
   source: GradientDefSource;
@@ -26,6 +28,8 @@ export type ColorCycleGradientRenderSession = Pick<
   'binding' | 'frozenStopsStored' | 'frozenHash' | 'source' | 'gradientKind' | 'speedCps' | 'seamProfile'
 > & {
   sourceStopsStored?: MarkGradientSession['frozenStopsStored'];
+  secondaryBinding?: { kind: 'def'; defId: number; slot: number };
+  secondaryStopsStored?: MarkGradientSession['frozenStopsStored'];
 };
 
 export const resolveColorCycleGradientSource = ({
@@ -119,6 +123,37 @@ export const resolveColorCycleGradientRenderSession = ({
   const rawStops = session.rawStopsStored?.length
     ? session.rawStopsStored
     : session.frozenStopsStored;
+  if (brushSettings.ditherEnabled && brushSettings.ccFlatCycleDither &&
+      session.source !== 'fg' && !session.isRuntimePalette && !session.colourPickup) {
+    const sourceStops = resolveMarkSessionRuntimeStops(session, rawStops, {
+      enabled: false, rangeContrast: brushSettings.ccGradientRangeContrast,
+    });
+    const inks = buildCcCycleInkPalettes(sourceStops,
+      canUseCcInkSpread(brushSettings, session.source, 'shape') ? brushSettings.ditherPaletteSpread : 0,
+      session.seamProfile);
+    const allocate = (stops: typeof sourceStops, retainedDefIds?: number[]) => ensureGradientDefForStops({
+      layerId, kind: session.gradientKind, stops, source: session.source,
+      speedCps: session.speedCps ?? undefined, seamProfile: 'hard', retainedDefIds,
+      updateOptions: { skipColorCycleSync: true },
+    });
+    const primary = allocate(inks.primary);
+    const secondary = primary ? allocate(inks.secondary, [primary.def.id]) : null;
+    if (!primary || !secondary) throw new Error('No gradient slots available for the dither ink pair.');
+    // Slot cleanup may compact the primary while allocating the second ink.
+    const primarySlot = getAppStoreState().layers.find(layer => layer.id === layerId)
+      ?.colorCycleData?.gradientDefStore?.find(def => def.id === primary.def.id)?.slot;
+    if (primarySlot === undefined) throw new Error('The primary dither ink binding was lost.');
+    return {
+      ...session,
+      binding: { kind: 'def', defId: primary.def.id, slot: primarySlot },
+      secondaryBinding: { kind: 'def', defId: secondary.def.id, slot: secondary.slot },
+      frozenStopsStored: inks.primary,
+      secondaryStopsStored: inks.secondary,
+      sourceStopsStored: sourceStops,
+      frozenHash: primary.hash,
+      seamProfile: 'hard',
+    };
+  }
   const sampledSourceStops = session.source === 'sampled'
     ? resolveMarkSessionRuntimeStops(session, rawStops, {
         enabled: false,
