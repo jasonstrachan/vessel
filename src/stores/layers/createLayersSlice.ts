@@ -98,6 +98,17 @@ export const createLayersSlice = (
     });
 
     const groupVisibilitySnapshotByGroupId = new Map<string, Map<string, boolean>>();
+    const rememberLayerVisibility = (layerId: string, visible: boolean) => {
+      const state = get();
+      const groupId = state.layers.find((layer) => layer.id === layerId)?.groupId;
+      if (!groupId || !state.hiddenLayerGroupIds.includes(groupId)) {
+        return;
+      }
+      // Explicit member edits supersede the visibility saved when the group was hidden.
+      const snapshot = new Map(groupVisibilitySnapshotByGroupId.get(groupId));
+      snapshot.set(layerId, visible);
+      groupVisibilitySnapshotByGroupId.set(groupId, snapshot);
+    };
     const pruneGroupVisibilitySnapshots = (validGroupIds: Set<string>) => {
       groupVisibilitySnapshotByGroupId.forEach((_, existingGroupId) => {
         if (!validGroupIds.has(existingGroupId)) {
@@ -188,6 +199,7 @@ export const createLayersSlice = (
       syncPercentOffsetsFromPixels,
       trackLayerChanges,
       getVesselWindow,
+      rememberLayerVisibility,
     });
     const layerAdjustmentActions = createLayerAdjustmentActions({
       set,
@@ -206,6 +218,7 @@ export const createLayersSlice = (
       createLayerTransferCanvas,
       hasValidFramebuffer,
       pruneGroupVisibilitySnapshots,
+      rememberLayerVisibility,
       scheduleSlotRebuild: layerColorCycleSlotActions.scheduleColorCycleSlotRebuild,
     });
     const layerColorCycleEditActions = createLayerColorCycleEditActions({

@@ -1185,7 +1185,8 @@ const LayersPanel: React.FC = () => {
           const shouldRenderCollapsedGroupDropBelow = Boolean(
             shouldRenderGroupHeader
             && isGroupCollapsed
-            && isDropBelow
+            && layerDropTarget?.targetGroupId === groupId
+            && layerDropTarget.edge === 'below'
             && layerDropTarget?.boundaryIndex !== displayedLayerIds.length,
           );
           const shouldRenderRowDropBelow = isDropBelow

@@ -32,6 +32,7 @@ export interface LayerUpdateActionDeps {
   syncPercentOffsetsFromPixels: (layers: Layer[], project: Project | null) => Layer[];
   trackLayerChanges: (...args: unknown[]) => void;
   getVesselWindow: () => VesselWindow | undefined;
+  rememberLayerVisibility: (layerId: string, visible: boolean) => void;
 }
 
 const omitUndefinedEntries = <T extends Record<string, unknown>>(value: T): Partial<T> => {
@@ -45,10 +46,14 @@ export const createLayerUpdateActions = ({
   syncPercentOffsetsFromPixels,
   trackLayerChanges,
   getVesselWindow,
+  rememberLayerVisibility,
 }: LayerUpdateActionDeps): LayerUpdateActions => ({
   updateLayer: (id, updates, options?: UpdateLayerOptions) => {
     const stateBeforeUpdate = get();
     const originalLayerForAudit = stateBeforeUpdate.layers.find((layer) => layer.id === id) ?? null;
+    if (typeof updates.visible === 'boolean') {
+      rememberLayerVisibility(id, updates.visible);
+    }
     const beforeAudit = summarizeColorCycleLayer(originalLayerForAudit);
     if ('layerType' in updates && updates.layerType !== 'sequential') {
       clearSequentialLayerRendererLayer(id);

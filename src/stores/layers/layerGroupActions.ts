@@ -524,6 +524,10 @@ export const setLayerGroupVisibilityAction = (
   if (!stateBeforeChange.layerGroups.some((group) => group.id === groupId)) {
     return;
   }
+  const isGroupHidden = stateBeforeChange.hiddenLayerGroupIds.includes(groupId);
+  if (visible && !isGroupHidden) {
+    return;
+  }
 
   const memberIds = stateBeforeChange.layers
     .filter((layer: Layer) => layer.groupId === groupId)
@@ -554,7 +558,12 @@ export const setLayerGroupVisibilityAction = (
         return { ...layer, visible: restoredVisibility };
       }
 
-      nextVisibilityByLayerId.set(layer.id, layer.visible);
+      nextVisibilityByLayerId.set(
+        layer.id,
+        isGroupHidden && previousVisibilityByLayerId.has(layer.id)
+          ? Boolean(previousVisibilityByLayerId.get(layer.id))
+          : layer.visible,
+      );
       if (!layer.visible) {
         return layer;
       }

@@ -871,6 +871,47 @@ describe('LayersPanel interactions', () => {
     ]);
   });
 
+  it('previews a drop below a collapsed group at its header', () => {
+    state.layers = [
+      createLayer({ id: 'outside', order: 0, visible: true }),
+      { ...createLayer({ id: 'layer-a', order: 1, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-b', order: 2, visible: true }), groupId: 'group-1' },
+      { ...createLayer({ id: 'layer-c', order: 3, visible: true }), groupId: 'group-2' },
+      { ...createLayer({ id: 'layer-d', order: 4, visible: true }), groupId: 'group-2' },
+    ];
+    state.layerGroups = [
+      { id: 'group-1', name: 'One' },
+      { id: 'group-2', name: 'Two' },
+    ];
+    render(<LayersPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse group: One' }));
+
+    const sourceHeader = screen.getByText('Two').closest('div') as HTMLDivElement;
+    const targetHeader = screen.getByText('One').closest('div') as HTMLDivElement;
+    const dataTransfer = {
+      effectAllowed: 'move',
+      dropEffect: 'move',
+      setData: jest.fn(),
+      getData: jest.fn(() => 'group:group-2'),
+    };
+    fireEvent.dragStart(sourceHeader, { dataTransfer });
+    mockRowBounds(targetHeader);
+    const dragOverEvent = createEvent.dragOver(targetHeader, { dataTransfer });
+    Object.defineProperty(dragOverEvent, 'clientY', { value: 30 });
+    fireEvent(targetHeader, dragOverEvent);
+
+    const indicator = screen.getByTestId('layer-drop-indicator');
+    expect(targetHeader).toContainElement(indicator);
+    expect(indicator).toHaveClass('-bottom-px');
+
+    const dropEvent = createEvent.drop(targetHeader, { dataTransfer });
+    Object.defineProperty(dropEvent, 'clientY', { value: 30 });
+    fireEvent(targetHeader, dropEvent);
+    expect(state.layers.map((layer) => layer.id)).toEqual([
+      'outside', 'layer-c', 'layer-d', 'layer-a', 'layer-b',
+    ]);
+  });
+
   it('moves a top group to the bottom drop slot', () => {
     state.layers = [
       createLayer({ id: 'layer-a', order: 0, visible: true }),

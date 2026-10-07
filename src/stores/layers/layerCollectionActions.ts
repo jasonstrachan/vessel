@@ -76,6 +76,7 @@ export interface LayerCollectionActionDeps {
     framebuffer: HTMLCanvasElement | OffscreenCanvas | null | undefined,
   ) => framebuffer is HTMLCanvasElement | OffscreenCanvas;
   pruneGroupVisibilitySnapshots: (validGroupIds: Set<string>) => void;
+  rememberLayerVisibility: (layerId: string, visible: boolean) => void;
   scheduleSlotRebuild: (reason: string) => void;
 }
 
@@ -90,6 +91,7 @@ export const createLayerCollectionActions = ({
   createLayerTransferCanvas,
   hasValidFramebuffer,
   pruneGroupVisibilitySnapshots,
+  rememberLayerVisibility,
   scheduleSlotRebuild,
 }: LayerCollectionActionDeps): LayerCollectionActions => ({
       setLayers: (incomingLayers) => {
@@ -520,6 +522,8 @@ export const createLayerCollectionActions = ({
       return;
     }
 
+    targetIds.forEach((id) => rememberLayerVisibility(id, visible));
+
     let didChange = false;
     set((state) => {
       const targetIdSet = new Set(targetIds);
@@ -557,6 +561,12 @@ export const createLayerCollectionActions = ({
     if (targetIds.length === 0) {
       return;
     }
+
+    stateBeforeChange.layers.forEach((layer) => {
+      if (targetIds.includes(layer.id)) {
+        rememberLayerVisibility(layer.id, !layer.visible);
+      }
+    });
 
     let didChange = false;
     set((state) => {
