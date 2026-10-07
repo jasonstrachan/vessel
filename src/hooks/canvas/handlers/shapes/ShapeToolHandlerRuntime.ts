@@ -53,7 +53,11 @@ import { recordSampledCcShapeBreadcrumb } from '@/hooks/canvas/utils/sampledCcSh
 import { hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { simplifyToVertexLimit } from '@/utils/polygonSimplify';
 import { isDitherShapeMode } from '@/utils/brushCategories';
-import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
+import { calculatePressureAwareGridSpacing, snapToGridPure } from '@/hooks/brushEngine/utilities';
+import {
+  buildCcGradientDrawingGeometry,
+  isDragDefinedCcGradientShape,
+} from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 import {
   appendCcGradientClickLinePoint,
   isCcGradientClickLineDrawingShapeMode,
@@ -1250,7 +1254,13 @@ export const createShapeToolHandler = (
         }
       : { x: 0, y: 0 };
     const scale = canvas?.zoom || 1;
-    return pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
+    const worldPos = pan.screenToWorld(pointerPos.x, pointerPos.y, scale);
+    const { brushSettings } = getAppStoreState().tools;
+    if (brushSettings.brushShape === BrushShape.DITHER_GRADIENT && brushSettings.gridSnapEnabled) {
+      const spacing = calculatePressureAwareGridSpacing(brushSettings, computePointerPressure(event));
+      return snapToGridPure(worldPos.x, worldPos.y, spacing);
+    }
+    return worldPos;
   };
 
   const resetPolygonAdjustmentState = () => {
@@ -1272,6 +1282,7 @@ export const createShapeToolHandler = (
     getAppStoreState().setPolygonGradientState({
       drawingState: 'idle',
       points: [],
+      drawingStartPos: undefined,
       vertices: undefined,
       fillColor: undefined,
       adjustmentStartPos: undefined,
@@ -1322,6 +1333,7 @@ export const createShapeToolHandler = (
     getAppStoreState().setPolygonGradientState({
       drawingState: 'drawing',
       points: [{ x: worldPos.x, y: worldPos.y, color }],
+      drawingStartPos: { x: worldPos.x, y: worldPos.y },
       previewPath: undefined,
       vertices: undefined,
       fillColor: color,
@@ -1341,11 +1353,33 @@ export const createShapeToolHandler = (
     drawingHandlers.updateDitherGradSamples?.([{ x: worldPos.x, y: worldPos.y }]);
   };
 
-  const appendPolygonGradientPoint = (worldPos: { x: number; y: number }) => {
+  const appendPolygonGradientPoint = (worldPos: { x: number; y: number }, constrainAspect = false) => {
     const state = getAppStoreState();
     const polygonState = state.polygonGradientState;
     if (polygonState.drawingState !== 'drawing') {
       return false;
+    }
+
+    const brushSettings = state.tools.brushSettings;
+    const drawingShape = brushSettings.ditherGradDrawingShape;
+    if (brushSettings.brushShape === BrushShape.DITHER_GRADIENT &&
+        drawingShape && drawingShape !== 'freehand') {
+      const start = polygonState.drawingStartPos;
+      if (!start) return false;
+      const geometry = buildCcGradientDrawingGeometry({
+        drawingShape,
+        start,
+        end: worldPos,
+        brushSettings,
+        constrainAspect,
+      });
+      const nextPoints = (geometry?.shapePoints ?? [start]).map(point => ({
+        ...point,
+        color: resolvePolygonPointColor(point),
+      }));
+      state.setPolygonGradientState({ points: nextPoints });
+      drawingHandlers.updateDitherGradSamples?.(nextPoints);
+      return true;
     }
 
     const points = polygonState.points;
@@ -2887,11 +2921,13 @@ export const createShapeToolHandler = (
       }
     }
 
-    const isDragDefinedCcGradientShapeMode =
-      isCcGradientPreset(context.deps.dynamicDepsRef.current.currentBrushPresetId) &&
-      liveBrushForMove.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
-      isDragDefinedCcGradientShape(liveBrushForMove.ccGradientDrawingShape);
-    if (event.shiftKey && !isDragDefinedCcGradientShapeMode) {
+    const isDragDefinedGradientShapeMode =
+      (liveBrushForMove.brushShape === BrushShape.DITHER_GRADIENT &&
+        isDragDefinedCcGradientShape(liveBrushForMove.ditherGradDrawingShape)) ||
+      (isCcGradientPreset(context.deps.dynamicDepsRef.current.currentBrushPresetId) &&
+        liveBrushForMove.brushShape === BrushShape.COLOR_CYCLE_SHAPE &&
+        isDragDefinedCcGradientShape(liveBrushForMove.ccGradientDrawingShape));
+    if (event.shiftKey && !isDragDefinedGradientShapeMode) {
       const polygonState = getPolygonState();
       const points = (isPolygonGradient || isContourPolygon)
         ? polygonState.points
@@ -2993,7 +3029,7 @@ export const createShapeToolHandler = (
         drawingHandlers.isDrawingShapeRef.current &&
         isActivelyDrawing;
     } else if (isPolygonGradient || isContourPolygon) {
-      shouldShowPreview = appendPolygonGradientPoint(previewWorld);
+      shouldShowPreview = appendPolygonGradientPoint(previewWorld, event.shiftKey);
     } else {
       shouldShowPreview = tools.shapeMode && drawingHandlers.isDrawingShapeRef.current;
     }
@@ -3059,6 +3095,10 @@ export const createShapeToolHandler = (
 
       if (pts.length >= 3) {
         const previewModel = buildPolygonPreviewModel(pts, previewPoint);
+        if (brushNow.brushShape === BrushShape.DITHER_GRADIENT &&
+            isDragDefinedCcGradientShape(brushNow.ditherGradDrawingShape)) {
+          previewModel.guideSegment = null;
+        }
         const committedPolygon = getClosedCommittedPolygon(previewModel.committedPolygon);
         const anchorPoints = getPolygonPreviewAnchors(previewModel);
         const previewStrokePalette = getPreviewStrokePalette(tools.brushSettings.color);
@@ -3789,7 +3829,7 @@ export const createShapeToolHandler = (
     const liveBrushForUp = getAppStoreState().tools.brushSettings;
     const isDitherGradient = liveBrushForUp.brushShape === BrushShape.DITHER_GRADIENT;
     if (isDitherGradient) {
-      appendPolygonGradientPoint(computeWorldPointer(event));
+      appendPolygonGradientPoint(computeWorldPointer(event), event.shiftKey);
       const nowTs =
         typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? performance.now()

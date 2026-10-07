@@ -57,6 +57,16 @@ describe('tools slice', () => {
     resetToolsState();
   });
 
+  it('restores the Dither Grad drawing shape after switching brushes', () => {
+    const preset = brushPresets.find(entry => entry.id === 'dither-grad')!;
+    useAppStore.getState().setBrushPreset(preset, true);
+    useAppStore.getState().setBrushSettings({ ditherGradDrawingShape: 'ellipse' });
+    expect(useAppStore.getState().brushSpecificSettings['dither-grad'].ditherGradDrawingShape).toBe('ellipse');
+    useAppStore.getState().setBrushPreset(brushPresets[0], true);
+    useAppStore.getState().setBrushPreset(preset, true);
+    expect(useAppStore.getState().tools.brushSettings.ditherGradDrawingShape).toBe('ellipse');
+  });
+
   it('shares the foreground recipe across CC and regular preset switches', () => {
     useAppStore.getState().setBrushSettings({ colorCycleFgContrast: 63, colorCycleFgColors: 6 });
     for (const id of ['color-cycle-stroke', 'color-cycle-gradient', 'color-cycle-flat-dither', 'color-cycle-triangle', 'color-cycle-shape', 'checkered', 'mosaic', 'color-cycle-stroke']) {

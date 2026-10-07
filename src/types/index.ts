@@ -1537,6 +1537,7 @@ export interface BrushSettings {
   ditherGradStops?: string[];
   /** Dither Gradient only: sample stops from the canvas along shape points */
   ditherGradSampleEnabled?: boolean;
+  ditherGradDrawingShape?: 'freehand' | 'rectangle' | 'ellipse' | 'triangle';
   /** Dither Gradient only: number of trailing colors to make transparent (0-6). */
   trans?: number;
   ditherAlgorithm?:
@@ -1935,6 +1936,7 @@ export interface PolygonGradientPoint {
 export interface PolygonGradientState {
   drawingState: 'idle' | 'drawing' | 'completed' | 'adjustingRotation' | 'adjustingSpacing' | 'adjustingSize';
   points: PolygonGradientPoint[];
+  drawingStartPos?: { x: number; y: number };
   previewPath?: Path2D;
   // For cross-hatch / flow interactive adjustment
   vertices?: Array<{ x: number; y: number }>;

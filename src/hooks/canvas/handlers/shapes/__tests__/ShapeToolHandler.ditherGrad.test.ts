@@ -92,8 +92,106 @@ describe('ShapeToolHandler dither gradient sampling', () => {
   beforeEach(() => {
     storeState.tools.brushSettings.brushShape = BrushShape.DITHER_GRADIENT;
     storeState.tools.shapeMode = false;
+    storeState.tools.brushSettings.gridSnapEnabled = false;
+    delete storeState.tools.brushSettings.ditherGradDrawingShape;
     storeState.polygonGradientState = { drawingState: 'idle', points: [] };
     storeState.setPolygonGradientState.mockClear();
+  });
+
+  it.each(['rectangle', 'ellipse', 'triangle'] as const)(
+    'constructs a %s from drag bounds through recreated handlers and enters direction selection',
+    (drawingShape) => {
+      storeState.tools.brushSettings.ditherGradDrawingShape = drawingShape;
+      const deps = createDeps();
+      const makeHandler = () => createShapeToolHandler({
+        deps,
+        overlayPreviewFrameMs: 16,
+        getLastOverlayPreviewTs: () => 0,
+        setLastOverlayPreviewTs: jest.fn(),
+      }, {});
+      const event = {
+        button: 0, buttons: 1, clientX: 80, clientY: 70,
+        pointerType: 'mouse', pressure: 0.5, shiftKey: false, ctrlKey: false,
+        preventDefault: jest.fn(), stopPropagation: jest.fn(), target: deps.canvasRef.current,
+      };
+      makeHandler().handlePointerDown(event as unknown as Parameters<ReturnType<typeof makeHandler>['handlePointerDown']>[0]);
+      makeHandler().handlePointerMove({ ...event, clientX: 30, clientY: 35 } as unknown as Parameters<ReturnType<typeof makeHandler>['handlePointerMove']>[0]);
+      makeHandler().handlePointerUp({ ...event, buttons: 0, clientX: 20, clientY: 10, pressure: 0 } as unknown as Parameters<ReturnType<typeof makeHandler>['handlePointerUp']>[0]);
+      const points: { x: number; y: number }[] = deps.drawingHandlers.shapePointsRef.current;
+      if (drawingShape === 'ellipse') {
+        expect(points.length).toBeGreaterThanOrEqual(12);
+      } else {
+        expect(points.length).toBe(drawingShape === 'rectangle' ? 4 : 3);
+      }
+      expect(Math.min(...points.map(point => point.x))).toBe(20);
+      expect(Math.max(...points.map(point => point.x))).toBe(80);
+      expect(Math.min(...points.map(point => point.y))).toBe(10);
+      expect(Math.max(...points.map(point => point.y))).toBe(70);
+      expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
+      expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    }
+  );
+
+  it('constrains a rectangle to a square with Shift, including on pointer up', () => {
+    storeState.tools.brushSettings.ditherGradDrawingShape = 'rectangle';
+    const deps = createDeps();
+    const handler = createShapeToolHandler({ deps, overlayPreviewFrameMs: 16,
+      getLastOverlayPreviewTs: () => 0, setLastOverlayPreviewTs: jest.fn() }, {});
+    const event = {
+      button: 0, buttons: 1, clientX: 10, clientY: 10, pointerType: 'mouse',
+      pressure: 0.5, shiftKey: false, ctrlKey: false, preventDefault: jest.fn(),
+      stopPropagation: jest.fn(), target: deps.canvasRef.current,
+    };
+    handler.handlePointerDown(event as unknown as Parameters<typeof handler.handlePointerDown>[0]);
+    handler.handlePointerUp({ ...event, buttons: 0, clientX: 50, clientY: 25, shiftKey: true } as unknown as Parameters<typeof handler.handlePointerUp>[0]);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
+      { x: 10, y: 10 }, { x: 50, y: 10 }, { x: 50, y: 50 }, { x: 10, y: 50 },
+    ]);
+  });
+
+  it.each(['rectangle', 'ellipse', 'triangle'] as const)(
+    'cancels a zero-area %s without entering direction selection',
+    (drawingShape) => {
+      storeState.tools.brushSettings.ditherGradDrawingShape = drawingShape;
+      const deps = createDeps();
+      const handler = createShapeToolHandler({
+        deps, overlayPreviewFrameMs: 16, getLastOverlayPreviewTs: () => 0,
+        setLastOverlayPreviewTs: jest.fn(),
+      }, {});
+      const event = {
+        button: 0, buttons: 1, clientX: 10, clientY: 20, pointerType: 'mouse',
+        pressure: 0.5, shiftKey: false, ctrlKey: false,
+        preventDefault: jest.fn(), stopPropagation: jest.fn(), target: deps.canvasRef.current,
+      };
+      handler.handlePointerDown(event as unknown as Parameters<typeof handler.handlePointerDown>[0]);
+      handler.handlePointerUp({ ...event, buttons: 0, clientX: 40 } as unknown as Parameters<typeof handler.handlePointerUp>[0]);
+      expect(storeState.polygonGradientState.drawingState).toBe('idle');
+      expect(storeState.polygonGradientState.points).toEqual([]);
+      expect(storeState.polygonGradientState.drawingStartPos).toBeUndefined();
+      expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+      expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    }
+  );
+
+  it('snaps both rectangle endpoints to the configured grid before constructing its boundary', () => {
+    Object.assign(storeState.tools.brushSettings, {
+      ditherGradDrawingShape: 'rectangle', gridSnapEnabled: true, gridSnapSize: 16,
+    });
+    const deps = createDeps();
+    const handler = createShapeToolHandler({
+      deps, overlayPreviewFrameMs: 16, getLastOverlayPreviewTs: () => 0,
+      setLastOverlayPreviewTs: jest.fn(),
+    }, {});
+    const event = {
+      button: 0, buttons: 1, clientX: 11, clientY: 19, pointerType: 'mouse',
+      pressure: 0.5, shiftKey: false, ctrlKey: false,
+      preventDefault: jest.fn(), stopPropagation: jest.fn(), target: deps.canvasRef.current,
+    };
+    handler.handlePointerDown(event as unknown as Parameters<typeof handler.handlePointerDown>[0]);
+    handler.handlePointerUp({ ...event, buttons: 0, clientX: 43, clientY: 53 } as unknown as Parameters<typeof handler.handlePointerUp>[0]);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
+      { x: 16, y: 16 }, { x: 48, y: 16 }, { x: 48, y: 48 }, { x: 16, y: 48 },
+    ]);
   });
 
   it('calls updateDitherGradSamples on polygon start', () => {

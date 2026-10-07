@@ -244,6 +244,7 @@ const getSerializableBrushSettings = (settings: BrushSettings): Partial<BrushSet
   ditherGradBgFill: settings.ditherGradBgFill,
   ditherGradStops: settings.ditherGradStops,
   ditherGradSampleEnabled: settings.ditherGradSampleEnabled,
+  ditherGradDrawingShape: settings.ditherGradDrawingShape,
   trans: settings.trans,
   pressureEnabled: settings.pressureEnabled,
   minPressure: settings.minPressure,
@@ -947,6 +948,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       }
       if (settings.ditherGradSampleEnabled !== undefined) {
         settingsToSave.ditherGradSampleEnabled = newSettings.ditherGradSampleEnabled;
+      }
+      if (settings.ditherGradDrawingShape !== undefined) {
+        settingsToSave.ditherGradDrawingShape = newSettings.ditherGradDrawingShape;
       }
       if (settings.trans !== undefined) {
         settingsToSave.trans = newSettings.trans;

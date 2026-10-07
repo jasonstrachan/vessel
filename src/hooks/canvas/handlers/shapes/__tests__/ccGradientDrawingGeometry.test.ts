@@ -18,6 +18,15 @@ const brushSettings = (overrides: Partial<BrushSettings> = {}) =>
   }) as BrushSettings;
 
 describe('ccGradientDrawingGeometry', () => {
+  it.each([buildRectangleGeometry, buildEllipseGeometry, buildTriangleGeometry])(
+    'rejects zero-width and zero-height filled shapes',
+    (buildGeometry) => {
+      expect(buildGeometry({ start: { x: 10, y: 20 }, end: { x: 40, y: 20 } })).toBeNull();
+      expect(buildGeometry({ start: { x: 10, y: 20 }, end: { x: 10, y: 50 } })).toBeNull();
+      expect(buildGeometry({ start: { x: 10, y: 20 }, end: { x: 40, y: 20 }, constrainAspect: true })).not.toBeNull();
+    }
+  );
+
   it('builds rectangle points with stable bounds and diagonal sample source', () => {
     const geometry = buildRectangleGeometry({
       start: { x: 30, y: 40 },

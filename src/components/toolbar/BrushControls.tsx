@@ -3610,6 +3610,22 @@ const BrushControls = () => {
     const transValue = Math.min(activeSettings.trans ?? 0, maxTransparent);
     return (
       <div className="p-4">
+        <div className="mb-2" role="group" aria-label="Dither Gradient drawing shape">
+          <ButtonGroup
+            options={[
+              { label: 'Free', value: 'freehand', title: 'Draw a freehand boundary' },
+              { label: 'Rect', value: 'rectangle', title: 'Drag a rectangle; Shift for a square' },
+              { label: 'Oval', value: 'ellipse', title: 'Drag an ellipse; Shift for a circle' },
+              { label: 'Tri', value: 'triangle', title: 'Drag a triangle' },
+            ]}
+            value={activeSettings.ditherGradDrawingShape ?? 'freehand'}
+            onChange={(value) => setActiveSettings({
+              ditherGradDrawingShape: value as NonNullable<BrushSettings['ditherGradDrawingShape']>,
+            })}
+            className="justify-start"
+            size="sm"
+          />
+        </div>
         {/* Dither settings (toggle kept to allow background transparency control) */}
         {canDitherForShape(activeSettings.brushShape) && (
           <DitherControls

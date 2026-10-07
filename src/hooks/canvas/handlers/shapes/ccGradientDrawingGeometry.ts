@@ -137,14 +137,14 @@ export const buildRectangleGeometry = ({
   const endpoints = resolveDragEndpoints(start, end, constrainAspect);
   const resolvedStart = endpoints.start;
   const resolvedEnd = endpoints.end;
-  if (Math.hypot(resolvedEnd.x - resolvedStart.x, resolvedEnd.y - resolvedStart.y) < MIN_DRAG_DISTANCE) {
-    return null;
-  }
 
   const minX = Math.min(resolvedStart.x, resolvedEnd.x);
   const maxX = Math.max(resolvedStart.x, resolvedEnd.x);
   const minY = Math.min(resolvedStart.y, resolvedEnd.y);
   const maxY = Math.max(resolvedStart.y, resolvedEnd.y);
+  if (maxX - minX < MIN_DRAG_DISTANCE || maxY - minY < MIN_DRAG_DISTANCE) {
+    return null;
+  }
   const shapePoints = [
     { x: minX, y: minY },
     { x: maxX, y: minY },
@@ -217,14 +217,14 @@ export const buildTriangleGeometry = ({
   const endpoints = resolveDragEndpoints(start, end, constrainAspect);
   const resolvedStart = endpoints.start;
   const resolvedEnd = endpoints.end;
-  if (Math.hypot(resolvedEnd.x - resolvedStart.x, resolvedEnd.y - resolvedStart.y) < MIN_DRAG_DISTANCE) {
-    return null;
-  }
 
   const minX = Math.min(resolvedStart.x, resolvedEnd.x);
   const maxX = Math.max(resolvedStart.x, resolvedEnd.x);
   const minY = Math.min(resolvedStart.y, resolvedEnd.y);
   const maxY = Math.max(resolvedStart.y, resolvedEnd.y);
+  if (maxX - minX < MIN_DRAG_DISTANCE || maxY - minY < MIN_DRAG_DISTANCE) {
+    return null;
+  }
   const points =
     resolvedEnd.y >= resolvedStart.y
       ? [

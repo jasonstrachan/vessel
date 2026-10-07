@@ -12,6 +12,7 @@ colour, graphic depth, or a transition that should remain visibly digital.
 
 | Control | Effect and use |
 | --- | --- |
+| Drawing shape | Free draws a gesture boundary; Rect, Oval, and Tri construct a shape by dragging between opposite corners. Hold Shift for a square or circle. |
 | Colors | Chooses 2–6 gradient stops. Fewer stops make a clear value statement; more create a longer chromatic progression. |
 | Colour inputs | Sets each stop explicitly when not sampling from the canvas. |
 | Algorithm / Pattern | Chooses the dither distribution; Pattern adds authored repeat controls. |
@@ -30,6 +31,9 @@ Dithering is intrinsic to this preset. It begins with Bayer, two colours,
 approximately Res 6, BG Fill on, and sampling off.
 
 ## Painting with it
+
+Choose a drawing shape, drag its boundary, then move the pointer to orient
+the gradient and click to commit. Escape cancels before committing.
 
 - Orient the gradient along the actual direction of light, depth, or movement.
   A technically attractive ramp in the wrong direction weakens the form.

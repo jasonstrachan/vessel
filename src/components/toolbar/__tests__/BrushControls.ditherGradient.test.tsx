@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { create } from 'zustand';
+import { create, useStore } from 'zustand';
 import BrushControls from '../BrushControls';
 import { type BrushSettings } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
@@ -182,8 +182,8 @@ function createStore() {
 
 jest.mock('@/stores/useAppStore', () => {
   const store = createStore();
-  const useAppStore = (selector?: any) =>
-    typeof selector === 'function' ? selector(store.getState()) : store.getState();
+  const useAppStore = (selector?: (state: StoreState) => unknown) =>
+    useStore(store, selector ?? ((state: StoreState) => state));
   (useAppStore as any).getState = store.getState;
   (useAppStore as any).setState = store.setState;
   (useAppStore as any).subscribe = store.subscribe;
@@ -218,6 +218,16 @@ describe('BrushControls – Dither Gradient', () => {
     });
     const storeState = storeApi.getState();
     (storeState.setBrushSettings as jest.Mock).mockClear();
+  });
+
+  it('offers freehand and basic shapes and updates the Dither Grad setting', () => {
+    render(<BrushControls />);
+    expect(screen.getByRole('button', { name: 'Free' })).toHaveAttribute('aria-pressed', 'true');
+    for (const [label, shape] of [['Rect', 'rectangle'], ['Oval', 'ellipse'], ['Tri', 'triangle'], ['Free', 'freehand']]) {
+      fireEvent.click(screen.getByRole('button', { name: label }));
+      expect(useAppStore.getState().tools.brushSettings.ditherGradDrawingShape).toBe(shape);
+      expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'true');
+    }
   });
 
   it('toggles sample flag', () => {
