@@ -37,8 +37,10 @@ let adjustmentViewportCanvas: HTMLCanvasElement | null = null;
 const ensureAdjustmentViewportCanvas = (width: number, height: number): HTMLCanvasElement | null => {
   if (typeof document === 'undefined') return null;
   const canvas = adjustmentViewportCanvas ?? document.createElement('canvas');
-  canvas.width = Math.max(1, Math.ceil(width));
-  canvas.height = Math.max(1, Math.ceil(height));
+  const targetWidth = Math.max(1, Math.ceil(width));
+  const targetHeight = Math.max(1, Math.ceil(height));
+  if (canvas.width !== targetWidth) canvas.width = targetWidth;
+  if (canvas.height !== targetHeight) canvas.height = targetHeight;
   adjustmentViewportCanvas = canvas;
   return canvas;
 };
@@ -202,6 +204,9 @@ export const drawAdjustmentCompositeStack = ({
             width: project?.width ?? renderRect.width,
             height: project?.height ?? renderRect.height,
           });
+        }
+        if (liveLayerOverlay?.layerId === member.id && liveLayerOverlay.mode === 'replace') {
+          source = liveLayerOverlay.canvas;
         }
         return source
           ? [{ source, opacity: member.opacity, blendMode: member.blendMode }]

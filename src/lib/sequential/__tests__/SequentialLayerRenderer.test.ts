@@ -390,6 +390,33 @@ describe('SequentialLayerRenderer', () => {
     }
   });
 
+  it('preserves untouched pixels when an erase is appended to a cached frame', () => {
+    const paint = createEvent('paint', 0, '#ff0000');
+    const erase: SequentialStrokeEvent = {
+      ...createEvent('erase', 0, '#000000'),
+      brush: { ...paint.brush, tool: 'eraser', blendMode: 'destination-out', size: 2 },
+      stamps: [{ x: 9, y: 8, pressure: 1, rotation: 0, size: 2, alpha: 1 }],
+    };
+    const layer = createLayer([paint]);
+    const first = getSequentialLayerRenderCanvas({ layer, width: 16, height: 16, frameIndex: 0 });
+    expect(readPixel(first!, 6, 8)).toEqual([255, 0, 0, 255]);
+
+    const appended = {
+      ...layer,
+      sequentialData: { ...layer.sequentialData!, events: [paint, erase] },
+    };
+    const cached = getSequentialLayerRenderCanvas({ layer: appended, width: 16, height: 16, frameIndex: 0 });
+    const untouched = readPixel(cached!, 6, 8);
+    const erased = readPixel(cached!, 9, 8);
+    clearSequentialLayerRendererAll();
+    const replayed = getSequentialLayerRenderCanvas({ layer: appended, width: 16, height: 16, frameIndex: 0 });
+
+    expect(untouched).toEqual([255, 0, 0, 255]);
+    expect(erased[3]).toBe(0);
+    expect(untouched).toEqual(readPixel(replayed!, 6, 8));
+    expect(erased).toEqual(readPixel(replayed!, 9, 8));
+  });
+
   it('defers committed append patching during active sequential preview capture', () => {
     const materializeRectSpy = jest.spyOn(
       SequentialCpuMaterializer.prototype,

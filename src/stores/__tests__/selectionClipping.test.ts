@@ -49,6 +49,39 @@ const getPixel = (img: ImageData | null | undefined, x: number, y: number): [num
 };
 
 describe('selection-based clipping', () => {
+  it.each(['rectangle', 'mask'] as const)(
+    'preserves unselected pixels when an eraser replaces a region with a %s selection',
+    async (selectionType) => {
+      const layer = createLayer('erase-layer', 4, 4);
+      const baseCtx = layer.framebuffer!.getContext('2d') as CanvasRenderingContext2D;
+      baseCtx.fillStyle = '#ff3300';
+      baseCtx.fillRect(0, 0, 4, 4);
+      layer.imageData = baseCtx.getImageData(0, 0, 4, 4);
+      const source = document.createElement('canvas');
+      source.width = 4;
+      source.height = 4;
+      const mask = new ImageData(2, 2);
+      mask.data[3] = 255;
+      useAppStore.setState({
+        project: createProject(layer), layers: [layer], activeLayerId: layer.id,
+        selectionStart: { x: 1, y: 1 }, selectionEnd: { x: 2, y: 2 },
+        selectionMask: selectionType === 'mask' ? mask : null,
+        selectionMaskBounds: selectionType === 'mask'
+          ? { x: 1, y: 1, width: 2, height: 2 } : null,
+      });
+
+      await useAppStore.getState().captureCanvasToActiveLayer(
+        source, { x: 1, y: 0, width: 3, height: 4 }, { mode: 'replace' },
+      );
+
+      const updated = useAppStore.getState().layers[0].imageData;
+      expect(getPixel(updated, 1, 1)[3]).toBe(0);
+      for (const [x, y] of [[0, 0], [1, 0], [2, 1], [3, 3]]) {
+        expect(getPixel(updated, x, y)).toEqual([255, 51, 0, 255]);
+      }
+    },
+  );
+
   afterEach(() => {
     useAppStore.setState({
       project: null,

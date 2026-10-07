@@ -127,74 +127,6 @@ export const captureCanvasToActiveLayerAction = async (
         () => ctx.getImageData(captureX, captureY, regionWidth, regionHeight),
         probeMeta
       );
-      const { selectionMask, selectionMaskBounds, selectionStart, selectionEnd } = state;
-      if (selectionMask && selectionMaskBounds) {
-        strokeFinalizeProbeTimeSync('captureCanvasToActiveLayer:applySelectionMask', () => {
-          const maskData = selectionMask.data;
-          const mb = selectionMaskBounds;
-          const stride = regionWidth * 4;
-          for (let y = 0; y < regionHeight; y += 1) {
-            const globalY = captureY + y;
-            const localY = globalY - mb.y;
-            const rowOffset = y * stride;
-            if (localY < 0 || localY >= mb.height) {
-              for (let x = 0; x < regionWidth; x += 1) {
-                const idx = rowOffset + x * 4;
-                capturedImageData.data[idx] = 0;
-                capturedImageData.data[idx + 1] = 0;
-                capturedImageData.data[idx + 2] = 0;
-                capturedImageData.data[idx + 3] = 0;
-              }
-              continue;
-            }
-            for (let x = 0; x < regionWidth; x += 1) {
-              const globalX = captureX + x;
-              const localX = globalX - mb.x;
-              const destIdx = rowOffset + x * 4;
-              if (localX < 0 || localX >= mb.width) {
-                capturedImageData.data[destIdx] = 0;
-                capturedImageData.data[destIdx + 1] = 0;
-                capturedImageData.data[destIdx + 2] = 0;
-                capturedImageData.data[destIdx + 3] = 0;
-                continue;
-              }
-              const maskIdx = (Math.floor(localY) * mb.width + Math.floor(localX)) * 4 + 3;
-              if (maskData[maskIdx] === 0) {
-                capturedImageData.data[destIdx] = 0;
-                capturedImageData.data[destIdx + 1] = 0;
-                capturedImageData.data[destIdx + 2] = 0;
-                capturedImageData.data[destIdx + 3] = 0;
-              }
-            }
-          }
-        }, probeMeta);
-      } else if (selectionStart && selectionEnd) {
-        strokeFinalizeProbeTimeSync('captureCanvasToActiveLayer:applySelectionRect', () => {
-          const minX = Math.min(selectionStart.x, selectionEnd.x);
-          const maxX = Math.max(selectionStart.x, selectionEnd.x);
-          const minY = Math.min(selectionStart.y, selectionEnd.y);
-          const maxY = Math.max(selectionStart.y, selectionEnd.y);
-
-          const stride = regionWidth * 4;
-          for (let y = 0; y < regionHeight; y += 1) {
-            const globalY = captureY + y;
-            const rowOffset = y * stride;
-            for (let x = 0; x < regionWidth; x += 1) {
-              const globalX = captureX + x;
-              const destIdx = rowOffset + x * 4;
-              const inside =
-                globalX >= minX && globalX < maxX && globalY >= minY && globalY < maxY;
-              if (!inside) {
-                capturedImageData.data[destIdx] = 0;
-                capturedImageData.data[destIdx + 1] = 0;
-                capturedImageData.data[destIdx + 2] = 0;
-                capturedImageData.data[destIdx + 3] = 0;
-              }
-            }
-          }
-        }, probeMeta);
-      }
-
       const activeLayerId = state.activeLayerId || state.layers[0]?.id;
       if (!activeLayerId) {
         return;
@@ -251,7 +183,8 @@ export const captureCanvasToActiveLayerAction = async (
             captureY,
             targetWidth,
             targetHeight,
-            compositeMode
+            compositeMode,
+            state,
           ),
           {
             ...probeMeta,

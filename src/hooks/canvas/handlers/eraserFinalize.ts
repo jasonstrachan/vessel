@@ -191,6 +191,8 @@ export const finalizeEraserStroke = async (
       eraserSettings: {
         ...store.tools.brushSettings,
         ...store.tools.eraserSettings,
+        // The diff mask already includes pressure, opacity and overlapping stamps.
+        opacity: 1,
         blendMode: 'destination-out',
       },
       timestampMs,

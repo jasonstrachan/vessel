@@ -204,6 +204,7 @@ export interface ColorCycleRuntimeMetadata {
 export interface ColorCycleSerializationResult {
   colorCycle?: WebGLSerializedColorCycle;
   runtime?: ColorCycleRuntimeMetadata;
+  fullyErased?: boolean;
 }
 
 export interface WebGLSerializedAlphaMask {

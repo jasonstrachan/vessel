@@ -1,5 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ColorCycleLayerDocument } from '@/lib/colorCycle/document';
+import type { Layer, Project } from '@/types';
+import { buildGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadBuilder';
+import { serializeColorCycleDataFromResolvedLayer } from '@/utils/export/goblet/gobletColorCycleSerializer';
 import { __TESTING__ } from '../webglExporter';
 import { decodeColorCycleSpeedByte, encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 
@@ -305,6 +308,46 @@ describe('webglExporter helpers', () => {
 
     expect(result?.colorCycle?.brushState?.indexBuffer).toEqual([1, 2, 3, 4]);
     expect(result?.colorCycle?.alphaMask).toBeUndefined();
+  });
+
+  it.each([128, 255])('preserves live CC erase alpha %s during Goblet brush export', async (alpha) => {
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = 2;
+    eraseMask.height = 2;
+    const maskCtx = eraseMask.getContext('2d')!;
+    maskCtx.fillStyle = `rgba(0, 0, 0, ${alpha / 255})`;
+    maskCtx.fillRect(0, 0, 2, 2);
+    const documentState = createExportDocument('live-full-erase');
+    const layer = {
+      id: 'live-full-erase',
+      name: 'Erased CC',
+      layerType: 'color-cycle',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      framebuffer: eraseMask,
+      colorCycleData: {
+        mode: 'brush',
+        hasContent: true,
+        eraseMask,
+        gradient: [
+          { position: 0, color: '#000000' },
+          { position: 1, color: '#ffffff' },
+        ],
+        colorCycleBrush: { getColorCycleLayerDocument: () => documentState },
+      },
+    } as unknown as Layer;
+    const project = { width: 2, height: 2 } as Project;
+    const result = await serializeColorCycleData(layer, project);
+
+    expect(result?.colorCycle?.brushState?.indexBuffer).toEqual(alpha === 255 ? [0, 0, 0, 0] : [1, 2, 3, 4]);
+    expect(Boolean(result?.fullyErased)).toBe(alpha === 255);
+    expect(result?.colorCycle?.alphaMask).toBeDefined();
+    expect(Array.from(new Uint8Array(documentState.read().snapshot.paintBuffer!))).toEqual([1, 2, 3, 4]);
+    const payloadResult = await buildGobletColorCyclePayload(layer, project, {
+      serializeResolvedLayer: serializeColorCycleDataFromResolvedLayer,
+    });
+    expect(payloadResult.ok).toBe(true);
   });
 
   it('uses document gradient and motion data instead of stale animator metadata', async () => {

@@ -221,7 +221,7 @@ export const drawVisibleCompositeStack = ({
 
   const sortedLayers = [...layerMap.values()].sort((a, b) => a.order - b.order);
   if (
-    hasVisibleAdjustmentLayers(sortedLayers)
+    (hasVisibleAdjustmentLayers(sortedLayers) || liveLayerOverlay?.mode === 'replace')
     && drawAdjustmentCompositeStack({
       ctx,
       visibleRect,

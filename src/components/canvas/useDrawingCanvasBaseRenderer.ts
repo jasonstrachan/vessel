@@ -334,6 +334,7 @@ export const useDrawingCanvasBaseRenderer = ({
         layersNeedRecomposition?: boolean;
       };
       const isSequentialCaptureDrawing =
+        currentTool !== 'eraser' &&
         activeLayer?.layerType === 'sequential' &&
         runtimeState.activeLayerId === activeLayer.id &&
         Boolean(runtimeState.sequentialRecord?.isPointerDown);
@@ -377,7 +378,8 @@ export const useDrawingCanvasBaseRenderer = ({
       const overlayEligibleForSplit = overlayActive && !isActivelyErasing;
       const floatingPasteActive = Boolean(floatingPaste && floatingPaste.imageData);
       const adjustmentsVisible = hasVisibleAdjustmentLayers(layers);
-      const drawingLiveLayerOverlay = adjustmentsVisible && overlayActive && activeLayer && overlayCanvasElement
+      const drawingLiveLayerOverlay = (adjustmentsVisible || (currentTool === 'eraser' && isActiveLayerOverlaySeeded))
+        && overlayActive && activeLayer && overlayCanvasElement
         ? {
             layerId: activeLayer.id,
             canvas: overlayCanvasElement,
@@ -572,7 +574,7 @@ export const useDrawingCanvasBaseRenderer = ({
         activeLayer,
         visibleRect,
         overlayCanvasElement,
-        overlayActive: Boolean(overlayActive && !adjustmentsVisible),
+        overlayActive: Boolean(overlayActive && !liveLayerOverlay),
         isDrawing,
         colorCycleManager: colorCycleManagerRef.current,
         selectionStart,

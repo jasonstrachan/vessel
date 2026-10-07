@@ -208,7 +208,8 @@ export const buildSequentialDestinationOutEvent = ({
       blendMode: 'destination-out',
       rotation: 0,
       spacing: 1,
-      color: eraserSettings.color ?? '#ffffff',
+      // Erase coverage comes from the mask, independent of the brush tint alpha.
+      color: '#ffffff',
     },
     stamps,
   };

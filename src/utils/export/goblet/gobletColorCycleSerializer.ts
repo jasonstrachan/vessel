@@ -1329,12 +1329,18 @@ const resolveExportSlotPalettes = (
   return resolveDefBoundSlotPalettes({ data, brushState, slotPalettes });
 };
 
-const resolveColorCycleMaskImage = (layer: Layer): ImageData | undefined => {
+const resolveColorCycleMaskImage = (layer: Layer): { imageData: ImageData; isLive: boolean } | undefined => {
   const data = layer.colorCycleData;
   if (!data) {
     return undefined;
   }
-  return captureCanvasImageData(data.eraseMask ?? null) ?? data.eraseMaskImageData;
+  const liveMask = captureCanvasImageData(data.eraseMask ?? null);
+  if (liveMask) {
+    return { imageData: liveMask, isLive: true };
+  }
+  return data.eraseMaskImageData
+    ? { imageData: data.eraseMaskImageData, isLive: false }
+    : undefined;
 };
 
 const resolveColorCycleSoftEdgeMaskImage = (layer: Layer): ImageData | undefined => {
@@ -1403,7 +1409,7 @@ const captureColorCycleMaskDataset = (
   layer: Layer,
   width: number,
   height: number
-): ColorCycleMaskDataset | undefined => {
+): (ColorCycleMaskDataset & { isLive: boolean }) | undefined => {
   const maskSource = resolveColorCycleMaskImage(layer);
   if (!maskSource) {
     return undefined;
@@ -1411,7 +1417,7 @@ const captureColorCycleMaskDataset = (
 
   const normalizedWidth = Math.max(1, Math.floor(width));
   const normalizedHeight = Math.max(1, Math.floor(height));
-  const values = resampleAlphaChannel(maskSource, normalizedWidth, normalizedHeight);
+  const values = resampleAlphaChannel(maskSource.imageData, normalizedWidth, normalizedHeight);
 
   let hasCoverage = false;
   let minX = normalizedWidth;
@@ -1450,6 +1456,7 @@ const captureColorCycleMaskDataset = (
     : undefined;
 
   return {
+    isLive: maskSource.isLive,
     width: normalizedWidth,
     height: normalizedHeight,
     values,
@@ -1507,7 +1514,7 @@ const deriveCoverageFromIndexBufferWithMask = (
     if (!Number.isFinite(value) || value === 0) {
       continue;
     }
-    if (maskValues && maskValues[index] > 0) {
+    if (maskValues && maskValues[index] === 255) {
       continue;
     }
     const y = Math.floor(index / normalizedWidth);
@@ -1636,7 +1643,7 @@ const applyAlphaMaskToNumericIndexBuffer = (indices: Uint8Array | undefined, mas
   }
   const length = Math.min(indices.length, mask.length);
   for (let i = 0; i < length; i += 1) {
-    if (mask[i] > 0) {
+    if (mask[i] === 255) {
       indices[i] = 0;
     }
   }
@@ -1653,7 +1660,7 @@ const numericAlphaMaskWouldEraseAllPaint = (indices: Uint8Array | undefined, mas
       continue;
     }
     hasPaint = true;
-    if (mask[index] === 0) {
+    if (mask[index] !== 255) {
       return false;
     }
   }
@@ -2032,10 +2039,15 @@ export const serializeColorCycleDataFromResolvedLayer = async (
     maskDimensions.height,
     softEdgeMaskDataset
   );
+  let fullyErased = false;
   if (alphaMaskResult) {
     if (brushState) {
       const indexBufferForMask = numericArrayInputToUint8Array(brushState.indexBuffer);
-      if (numericAlphaMaskWouldEraseAllPaint(indexBufferForMask, alphaMaskResult.values) && data.hasContent === true) {
+      const erasesAllPaint = numericAlphaMaskWouldEraseAllPaint(indexBufferForMask, alphaMaskResult.values);
+      // A live erase mask is authoritative even when it removes the last painted pixel.
+      if (!alphaMaskDataset?.isLive
+        && erasesAllPaint
+        && data.hasContent === true) {
         debugWarn('raw-console', '[webglExporter] Ignoring stale color-cycle alpha mask that would erase all animated brush paint during Goblet export.', {
           layerId: layer.id,
           maskWidth: alphaMaskResult.payload.width,
@@ -2043,6 +2055,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
         });
         alphaMaskResult = undefined;
       } else if (indexBufferForMask) {
+        fullyErased = Boolean(alphaMaskDataset?.isLive && erasesAllPaint);
         applyAlphaMaskToNumericIndexBuffer(indexBufferForMask, alphaMaskResult.values);
         brushState = {
           ...brushState,
@@ -2350,6 +2363,7 @@ export const serializeColorCycleDataFromResolvedLayer = async (
   }
 
   return {
+    ...(fullyErased ? { fullyErased: true } : {}),
     colorCycle: serialized,
     runtime: runtimeBrushState
       ? { brushState: runtimeBrushState, sourceCropPx, sourceCropBasis }

@@ -79,7 +79,7 @@ export const buildGobletColorCyclePayload = async (
 
   const validation = validateGobletColorCyclePayload(payload?.colorCycle, {
     layerId: layer.id,
-    hasContent: source.layer.colorCycleData?.hasContent,
+    hasContent: payload?.fullyErased ? false : source.layer.colorCycleData?.hasContent,
   });
   const diagnostics = [
     ...source.diagnostics,

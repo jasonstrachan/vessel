@@ -11,6 +11,8 @@ import {
 import type { EraseStrategy } from './strategies/types';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import { observeCanvasAuthoring, type CanvasAuthoringObservation } from '@/utils/canvasAuthoringObserver';
+import type { SelectionRasterScopeInput } from '@/stores/helpers/selectionRoi';
+import { getSelectionMaskContourPath } from '@/utils/selectionMaskContourPath';
 
 export type CanvasPoint = { x: number; y: number };
 
@@ -24,6 +26,7 @@ export interface StrokeTool {
 
 export interface EraserToolOptions {
   opacity: number;
+  selection?: SelectionRasterScopeInput;
 }
 
 export interface EraserToolDeps {
@@ -74,6 +77,10 @@ export class EraserTool implements StrokeTool {
     const target = this.layer.layerType === 'color-cycle' ? this.layer : this.deps.overlayCtx;
     const ctx = this.strategy.begin(target, { opacity: this.options.opacity });
     this.activeContext = ctx;
+    if (ctx) {
+      // Clip the authoring target, so raster pixels, CC masks and sequence diffs agree.
+      this.applySelectionClip(ctx);
+    }
     if (ctx && this.stampSource) {
       this.stampSource.begin(ctx, point, pressure);
     } else if (ctx) {
@@ -111,6 +118,26 @@ export class EraserTool implements StrokeTool {
 
   getROI(): ROI | null {
     return this.roi.rect();
+  }
+
+  private applySelectionClip(ctx: CanvasRenderingContext2D): void {
+    const selection = this.options.selection;
+    if (!selection) return;
+    const { selectionMask, selectionMaskBounds, selectionStart, selectionEnd } = selection;
+    if (selectionMask && selectionMaskBounds) {
+      ctx.translate(selectionMaskBounds.x, selectionMaskBounds.y);
+      ctx.clip(getSelectionMaskContourPath(selectionMask));
+      ctx.translate(-selectionMaskBounds.x, -selectionMaskBounds.y);
+    } else if (selectionStart && selectionEnd) {
+      ctx.beginPath();
+      ctx.rect(
+        Math.min(selectionStart.x, selectionEnd.x),
+        Math.min(selectionStart.y, selectionEnd.y),
+        Math.abs(selectionEnd.x - selectionStart.x),
+        Math.abs(selectionEnd.y - selectionStart.y),
+      );
+      ctx.clip();
+    }
   }
 
   private recordROI(from: CanvasPoint | null, to: CanvasPoint): void {

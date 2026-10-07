@@ -1,4 +1,5 @@
-import type { CaptureROI } from '../useAppStore';
+import type { SelectionRasterScopeInput } from '@/stores/helpers/selectionRoi';
+import type { CaptureROI } from '@/stores/useAppStore';
 
 export type CompositeMode = 'alpha' | 'replace';
 
@@ -38,7 +39,8 @@ export const alphaCompositeImageDataRegion = (
   offsetY: number,
   fullWidth: number,
   fullHeight: number,
-  mode: CompositeMode = 'alpha'
+  mode: CompositeMode = 'alpha',
+  selection?: SelectionRasterScopeInput,
 ): ImageData => {
   const targetWidth = Math.max(1, fullWidth);
   const targetHeight = Math.max(1, fullHeight);
@@ -61,6 +63,16 @@ export const alphaCompositeImageDataRegion = (
 
   const src = region.data;
   const srcStride = region.width * 4;
+  const mask = selection?.selectionMask;
+  const maskBounds = selection?.selectionMaskBounds;
+  const selectionRect = selection?.selectionStart && selection.selectionEnd
+    ? {
+        minX: Math.min(selection.selectionStart.x, selection.selectionEnd.x),
+        maxX: Math.max(selection.selectionStart.x, selection.selectionEnd.x),
+        minY: Math.min(selection.selectionStart.y, selection.selectionEnd.y),
+        maxY: Math.max(selection.selectionStart.y, selection.selectionEnd.y),
+      }
+    : null;
 
   for (let row = 0; row < region.height; row += 1) {
     const dstRow = offsetY + row;
@@ -72,6 +84,20 @@ export const alphaCompositeImageDataRegion = (
       const dstCol = offsetX + col;
       if (dstCol < 0 || dstCol >= targetWidth) {
         continue;
+      }
+
+      if (mask && maskBounds) {
+        const maskX = Math.floor(dstCol - maskBounds.x);
+        const maskY = Math.floor(dstRow - maskBounds.y);
+        if (maskX < 0 || maskY < 0 || maskX >= mask.width || maskY >= mask.height ||
+            mask.data[(maskY * mask.width + maskX) * 4 + 3] === 0) {
+          continue;
+        }
+      } else if (selectionRect) {
+        if (dstCol < selectionRect.minX || dstCol >= selectionRect.maxX ||
+            dstRow < selectionRect.minY || dstRow >= selectionRect.maxY) {
+          continue;
+        }
       }
 
       const srcIndex = row * srcStride + col * 4;

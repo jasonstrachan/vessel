@@ -76,7 +76,15 @@ export const startEraserStroke = ({
     const eraserOpacity = currentState.tools.eraserSettings.opacity ?? 1;
     const tool = new EraserTool(
       activeLayer,
-      { opacity: eraserOpacity },
+      {
+        opacity: eraserOpacity,
+        selection: {
+          selectionStart: currentState.selectionStart,
+          selectionEnd: currentState.selectionEnd,
+          selectionMask: currentState.selectionMask,
+          selectionMaskBounds: currentState.selectionMaskBounds,
+        },
+      },
       {
         overlayCtx: drawCtx,
         maskManager,

@@ -680,7 +680,8 @@ export const getSequentialLayerRenderCanvas = ({
               width,
               height,
               frameIndex: appendedFrameIndex,
-              events: frameEvents,
+              // materializeRect replaces complete tiles; reconstruct their prior paint too.
+              events: runtime.eventLog.getLayerFrameEventsReadonly(layer.id, appendedFrameIndex),
               eventsAreFrameScoped: true,
               rect: patchRect,
             });

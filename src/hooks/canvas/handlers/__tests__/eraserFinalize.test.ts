@@ -119,7 +119,7 @@ describe('finalizeEraserStroke history ROI alignment', () => {
     expect(finalizeResolved).toBe(true);
   });
 
-  it('commits sequential eraser edits as undoable frame events', async () => {
+  it.each([0, 128])('commits sequential eraser coverage with remaining alpha %s as undoable frame events', async (remainingAlpha) => {
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 4;
@@ -170,6 +170,10 @@ describe('finalizeEraserStroke history ROI alignment', () => {
         : state.project,
       layers: [layer],
       activeLayerId: layer.id,
+      tools: {
+        ...state.tools,
+        eraserSettings: { ...state.tools.eraserSettings, opacity: 0.5, color: 'rgba(255, 255, 255, 0.1)' },
+      },
       sequentialRecord: {
         ...state.sequentialRecord,
         currentFrame: 0,
@@ -196,6 +200,9 @@ describe('finalizeEraserStroke history ROI alignment', () => {
     expect(drawingCtx).not.toBeNull();
     drawingCtx!.drawImage(beforeCanvas as CanvasImageSource, 0, 0);
     drawingCtx!.clearRect(1, 1, 1, 1);
+    if (remainingAlpha > 0) {
+      drawingCtx!.putImageData(new ImageData(new Uint8ClampedArray([0, 0, 0, remainingAlpha]), 1, 1), 1, 1);
+    }
 
     const committed = await finalizeEraserStroke(
       {
@@ -220,6 +227,8 @@ describe('finalizeEraserStroke history ROI alignment', () => {
     expect(committed).toBe(true);
     const afterFinalize = useAppStore.getState().layers.find((entry) => entry.id === layer.id);
     expect(afterFinalize?.sequentialData?.events).toHaveLength(2);
+    expect(afterFinalize?.sequentialData?.events[1].brush.opacity).toBe(1);
+    expect(afterFinalize?.sequentialData?.events[1].brush.color).toBe('#ffffff');
     expect(historyManager.entries()).toHaveLength(1);
     const renderedAfterFinalize = getSequentialLayerRenderCanvas({
       layer: afterFinalize!,
@@ -233,7 +242,8 @@ describe('finalizeEraserStroke history ROI alignment', () => {
     if (!renderedCtx || !('getImageData' in renderedCtx)) {
       throw new Error('Expected a 2d rendering context with getImageData');
     }
-    expect(renderedCtx.getImageData(1, 1, 1, 1).data[3]).toBe(0);
+    expect(renderedCtx.getImageData(1, 1, 1, 1).data[3]).toBe(remainingAlpha);
+    expect(renderedCtx.getImageData(0, 0, 1, 1).data[3]).toBe(255);
 
     await useAppStore.getState().undo();
     const afterUndo = useAppStore.getState().layers.find((entry) => entry.id === layer.id);

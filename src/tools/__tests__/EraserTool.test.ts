@@ -5,6 +5,48 @@ import type { MaskManager } from '@/layers/MaskManager';
 import type { BrushStampSource } from '@/tools/stamps/BrushStampSource';
 
 describe('EraserTool', () => {
+  it.each(['normal', 'sequential', 'color-cycle'] as const)(
+    'clips the %s authoring target before the first erase stamp',
+    (layerType) => {
+      const overlay = document.createElement('canvas');
+      const mask = document.createElement('canvas');
+      const overlayCtx = overlay.getContext('2d')!;
+      const targetCtx = layerType === 'color-cycle' ? mask.getContext('2d')! : overlayCtx;
+      const clip = jest.spyOn(targetCtx, 'clip');
+      const rect = jest.spyOn(targetCtx, 'rect');
+      const restore = jest.spyOn(targetCtx, 'restore');
+      const stamp = jest.fn(() => expect(clip).toHaveBeenCalledTimes(1));
+      const fill = jest.spyOn(targetCtx, 'fillRect');
+      const tool = new EraserTool({ id: 'selected', layerType } as Layer, {
+        opacity: 1,
+        selection: {
+          selectionStart: { x: 12, y: 10 }, selectionEnd: { x: 2, y: 4 },
+          selectionMask: null, selectionMaskBounds: null,
+        },
+      }, {
+        overlayCtx,
+        maskManager: { getMask: () => mask, bumpVersion: jest.fn() } as unknown as MaskManager,
+        createStampSource: () => ({ begin: stamp, end: jest.fn() } as unknown as BrushStampSource),
+        brushHalfSize: () => 2,
+        getBrushSettings: () => ({
+          size: 4, pressureEnabled: false, minPressure: 0, maxPressure: 100,
+          brushShape: BrushShape.SQUARE,
+        }),
+      });
+
+      tool.begin({ x: 8, y: 8 });
+      expect(rect).toHaveBeenCalledWith(2, 4, 10, 6);
+      expect(clip).toHaveBeenCalledTimes(1);
+      if (layerType === 'color-cycle') {
+        expect(clip.mock.invocationCallOrder[0]).toBeLessThan(fill.mock.invocationCallOrder[0]);
+      } else {
+        expect(stamp).toHaveBeenCalled();
+      }
+      tool.end();
+      expect(restore).toHaveBeenCalled();
+    },
+  );
+
   it('applies an initial stamp on begin for color-cycle layers', () => {
     const overlayCanvas = document.createElement('canvas');
     overlayCanvas.width = 24;
