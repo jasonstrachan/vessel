@@ -51,6 +51,7 @@ export const applyLostEdgeFromWrittenMask = (options: {
   bbox: RegionBox;
   lostEdge: number;
   tileSize?: number;
+  onRejectPixel?: (index: number) => void;
 }): void => {
   const {
     writtenMask,
@@ -113,6 +114,7 @@ export const applyLostEdgeFromWrittenMask = (options: {
       const keepIndex = (row + keepOffsetY) * keepWidth + col + keepOffsetX;
       if (keep[keepIndex] >= 128) continue;
       const dst = dstRow + col;
+      options.onRejectPixel?.(dst);
       recordIndexedAuthoringPixel(paint, dst, false);
       paint[dst] = prevIdx[p];
       gid[dst] = prevGid[p];

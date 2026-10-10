@@ -1,6 +1,7 @@
 import { beginIndexedAuthoring } from '@/utils/indexedAuthoringObserver';
 import { createColorCycleStrokePaintMask } from './colorCycleStrokePaintMask';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
+import type { ColorCycleLayerDocumentRead } from '@/lib/colorCycle/document';
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { debugLog, debugWarn } from '@/utils/debug';
@@ -52,6 +53,12 @@ export type ColorCycleStartStrokeContext = {
   getPerfStroke: () => StrokePerf | null;
   isHistoryRestore: () => boolean;
   ensureFullResolution: (layerId: string, reason: 'stroke') => ColorCycleAnimator;
+  getLayerDocumentRead: (layerId: string) => ColorCycleLayerDocumentRead | undefined;
+  restoreRuntimeFromDocument: (
+    layerId: string,
+    animator: ColorCycleAnimator,
+    documentRead: ColorCycleLayerDocumentRead,
+  ) => LayerStrokeState;
   getStrokeData: (layerId: string) => LayerStrokeState | undefined;
   getResolvedWriteCycleSpeed: () => number;
   bindStrokeBuffersToAnimator: (strokeData: LayerStrokeState, animator: ColorCycleAnimator) => void;
@@ -90,6 +97,12 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
   const strokeCounter = context.incrementStrokeCounter();
 
   const animator = context.ensureFullResolution(id, 'stroke');
+  const documentRead = context.getLayerDocumentRead(id);
+  if (documentRead && animator.builtFromVersion !== documentRead.version) {
+    // Establish the committed base before authoring; a later presentation rebuild
+    // would otherwise replace the first live stamp with the older document.
+    context.restoreRuntimeFromDocument(id, animator, documentRead);
+  }
   if (typeof animator.startStroke === 'function') {
     animator.startStroke();
   }
@@ -113,6 +126,8 @@ export const startColorCycleStroke = (context: ColorCycleStartStrokeContext): vo
     strokeData.contentIsOptimistic = true;
   }
   if (strokeData) {
+    strokeData.lostEdge = undefined;
+    strokeData.finalizedPaintMask = null;
     strokeData.paintMask = createColorCycleStrokePaintMask(id, context.width(), context.height(), strokeData.buffers.paint);
     const expected = context.width() * context.height();
     if (strokeData.buffers.paint.length === expected) {

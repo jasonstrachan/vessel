@@ -228,6 +228,7 @@ export const applyStampDitherStamp = (args: {
   config: StampDitherConfig;
   runtime: StampDitherRuntime;
   stampShape: StampDitherShape;
+  rotation?: number;
   x: number;
   y: number;
   pressure: number;
@@ -395,6 +396,7 @@ export const applyStampDitherStamp = (args: {
     config.bgFill,
     fusedWriter,
     args.acceptsPixel,
+    args.rotation,
   );
   const maskMs = Math.max(0, nowMs() - maskStart);
   if (stampBounds) {

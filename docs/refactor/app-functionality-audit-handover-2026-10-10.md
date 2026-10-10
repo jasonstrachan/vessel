@@ -1,4 +1,47 @@
-# Vessel whole-app audit handover — 10 October 2026, session 34
+# Vessel whole-app audit handover — 10 October 2026, session 36
+
+## Current continuation — Session36, Area17 complete
+
+FIRST READ output/playwright/area17-root-facts-session36.md, then the Session36
+final signoff in the inventory. Areas01–17 software-verified and locally committed;
+18–65 pending. Exact newest commit is in area17-commit-receipt-session36.json.
+A17-01–05 repairs cover first stamps, Rotation, LostEdge, sparse Undo and exact
+erase healing (including zero-coverage no-ops).107follow-up native cases/743checks
+and15effect comparisons pass. Finalartifact44f6abc8... checks13erasedcontacts/142checks.
+
+Final isolated candidate kyxl16k6 passes fulltype/lint/599suites5708tests, one existing
+skipped suite/test and one passing snapshot. Productionbuild/diff review pass.
+27source/testfiles+2ledgers committed;3mixed originalowners retain earlierworking
+hunks;44otheroriginalpaths and original3-file stagedpatch remain exact. Never rerun
+historical commit scripts or restore historical whole-file backups.
+
+NEXT Area18 then19–65. Read area18-owner-trace-session36.md and
+area18-controls-session36.json. Native Palette/FG/Sample controls inventoried; no18
+painting/runtime proof or source edits. Initial18boundary twoledgers/ignoredevidence.
+The named auditbrowser is closed with exactcleanup; productionserver/studio watcher
+retained. No pending test/browser/source writers. Continue without renewedpermission,
+push/deploy, branch/worktree changes, or substitute-modelagents. Authorized local
+continuation chats before70%context remain available. Earlier headers are historical.
+
+
+## Current continuation — Session35, Area17 partial
+
+FIRST READ `output/playwright/area17-root-facts-session35.md`, then
+`area17-owner-trace-session35.md` and `area17-native-coverage-session35.json`.
+16/65areas complete;17active/uncommitted;18–65pending. A17-01 first-stamp loss repaired
+and exact-native verified. A17-02 Rotation ignored and A17-03 Lost Edge ignored are
+reproduced, unpatched. Continue their owner repairs and remaining Area17 checks;
+then isolated completed-area gate/localcommit and18–65. No renewed permission.
+
+Current5source/test task edits plus2auditdocs; all47original user paths and original
+3-file staged patch exact. No partial-area commit.126completed native cases /802
+basic checks pass; separate effect oracle has16pass/5fail across the two open
+defects.4focused suites86tests,fulltype/lint,previewbuild/diff pass. FullJest pending.
+Artifact and browser/process status in rootfacts. Native session CLOSED with exact
+cleanup. Existing production server/watcher retained; no test/browser/source writers.
+No push/deploy/branch/worktree change or substitute-model agents. Continuation chat
+authorization is retained below; older headers are historical.
+
 
 ## Current continuation — Session34, Area16 complete
 

@@ -44,6 +44,8 @@ export function refreshColorCycleShapeFillWriteSpeed(params: {
   }
   // Shape authoring starts its own write scope, independent of the preceding stroke.
   strokeData.paintMask = null;
+  strokeData.finalizedPaintMask = null;
+  strokeData.lostEdge = null;
   strokeData.strokeCounter = params.strokeCounter;
   strokeData.strokeCycleSpeed = params.resolvedSpeed;
   strokeData.strokeSpeedByte = encodeColorCycleSpeedByte(params.resolvedSpeed);

@@ -1,3 +1,4 @@
+import type { ColorCycleStrokeLostEdge } from './colorCycleStrokeLostEdge';
 import type { GradientStop } from '@/lib/GradientPalette';
 import type { StudioStrokePaintMask } from '@/extensions/studioExtensionTypes';
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
@@ -64,6 +65,9 @@ export type LayerStrokeState = {
   pencilPressureStroke?: boolean;
   /** Ephemeral authoring constraint, never serialized into artwork/playback state. */
   paintMask?: StudioStrokePaintMask | null;
+  /** Current gesture only; never serialized into the layer document. */
+  lostEdge?: ColorCycleStrokeLostEdge | null;
+  finalizedPaintMask?: import('@/lib/colorCycle/document').ColorCyclePaintMask | null;
   buffers: {
     paint: Uint8Array;
     gid: Uint8Array;

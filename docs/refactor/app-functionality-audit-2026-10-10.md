@@ -34,8 +34,8 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 14 | Dither Stroke: algorithm, pattern, size, spacing, pressure, palette/alpha | strokeDitherRegion, brush controls | software-verified (Session34;192 native configurations/1,104checks; full gate passed) |
 | 15 | Dither Shape: geometry, silhouette preview/final fill, dither settings, fill/cancel/history | shape handlers, brush engine | software-verified (Session34: A15-01 repaired;103 configurations/910checks; full gate passed) |
 | 16 | Dither Grad: sampled/manual colours, gradient direction/range, geometry, dither settings | gradient shape runtime | software-verified (Session34: A16-01–03 repaired;108 configurations/905checks; full gate passed) |
-| 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | active (Session34: native control inventory only; runtime checks pending) |
-| 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | pending |
+| 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | software-verified (Session36: A17-01–05 repaired; native/full gate pass; focused local commit receipt) |
+| 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | active (Session36: live controls inventoried; painting untested) |
 | 19 | CC Fixed Dither: density/pattern, sampling, palette, size, playback | CC mark session, strokeStampDither | pending |
 | 20 | CC shape/basic geometry: freehand/rectangle/ellipse/line/click-line, constraints, direction, preview/commit/cancel | CC gradient drawing runtime | pending |
 | 21 | Checkered brush: cell size, colours, spacing, opacity, shape/selection | brush engine/settings | pending |
@@ -2404,3 +2404,79 @@ Focused local commit receipt: output/playwright/area16-commit-receipt-session34.
 Area17 discovery begins: actual Color Cycle Stroke controls inventoried, including
 reachable Bristles/Pencil; no17runtime signoff or fixes. Continue17–65. Browser
 closed with exact-session cleanup; existing watcher/server retained.
+
+
+## Session35 — Area17 partial, first-stamp repair verified
+
+A17-01: first held/fast tap on a fresh CC layer was overwritten when the stale
+animator rebuilt from the empty committed document during presentation. The stroke
+start owner now restores that committed base before authoring. The real animator/
+presenter integration failed before and passes after; four tip variants retain
+visible indexed pixels and one exact Undo/Redo entry. Five source/test files only,
+plus these two audit ledgers; original47paths and staged patch remain exact.
+
+Current proof:126completed native cases /802basic interaction and history checks
+pass on the same production artifact.16additional control-effect comparisons pass;
+five fail across two open defects: A17-02 directional-tip Rotation is ignored and
+A17-03 Lost Edge0/50/100 is identical. Area17 is NOT complete and is not committed.
+Details and corrected oracle exclusions are in
+`output/playwright/area17-native-coverage-session35.json` and
+`output/playwright/area17-owner-trace-session35.md`.
+
+Type-check/lint/build/diff checks and4focused suites86tests pass. FullJest and the
+isolated completed-area commit gate remain pending. Native evidence covers first
+taps/drags, all4tips, normal/locked rejection, clipping, size/pressure limits, all11
+stamp-dither algorithms/8patterns, Res/Variety/BGFill/Spread, Palette/FG/Sample,
+source freezing, Reset, Band/Spacing/Speed/velocity, Bristles/Pencil, grid/rounded/
+dashes, Pickup and ordinary Play/Pause. Hardware pressure/performance is not claimed.
+Control geometry/contour repairs and remaining cancellation/contact cases still need
+owner regressions and exact native proof. Continue17then18–65 without renewed
+permission; preserve original work; no partial-area commit/push/branch change.
+
+## Session36 — Area17 owner repairs and native acceptance
+
+A17-01 restores the committed animator base before the first write, so fresh taps
+survive presentation. A17-02 forwards Rotation through the shared native footprint
+for paint, metadata, dither membership, selection and erase healing. A17-03 applies
+Lost Edge to the current admitted stroke and restores all six prior canonical
+channels at rejected pixels. No playback/export format changes are involved.
+
+A17-04 replaces sampled fallback history bounds with exact bounds across all six
+canonical planes. Sparse Pencil/Triangle contours now undo completely. A17-05
+replaces pending full-tip healing with the final native write footprint through the
+existing brush commit registry contract. Dither gaps retain prior erased coverage.
+A zero-coverage Pencil contact supplies an explicit empty footprint, cancels pending
+healing and creates no mask-version change or history entry. Shape authoring resets
+the ephemeral stroke masks. Before-image copies are only allocated for Lost Edge.
+
+The first mask handoff failed because the registry did not forward its getter. It
+was removed, the missing contract was reproduced, and the connected replacement
+was verified. Lost Edge off and zero-coverage contacts then exposed the remaining
+shared healing cases; those were repaired at the same owner. Historical failed
+runs and superseded/cancelled test runs remain in ignored evidence. An early core
+script sampled history before asynchronous finalization; its corrected rerun waits
+for the exact history count without changing runtime code.
+
+Session36 follow-up proof: 107 executed native cases and 743 interaction/history
+checks, plus 15 explicit Rotation/Lost Edge effect comparisons. These include
+deliberate retests, not 107 unique configurations. Earlier broad Area17 settings
+coverage remains in the Session35 receipt. The final artifact verifies all 13
+erased-stroke cases (142 checks), including empty gestures, with Lost Edge off/on.
+Other checks cover four tips, clipping, Pencil/Bristles/dither combinations, tiny
+stamps, canvas edges, native touch cancellation/retry, frozen older ink, and exact
+Undo/Redo. Physical tablet hardware and performance acceptance are not claimed.
+
+The scoped candidate contains 27 source/test files plus these two ledgers. Three
+original dirty owners retain their earlier hunks outside the candidate; the other
+44 original paths and original three-file staged patch remain byte-exact. Current
+type-check, lint, production build and focused regressions pass. The final isolated
+full suite passes599suites/5708tests with one existing skipped suite/test and one
+passing snapshot. Final diff review found no remaining actionable Area17 issue.
+The focused local commit is recorded in `output/playwright/area17-commit-receipt-session36.json`. See
+`output/playwright/area17-native-coverage-session36.json`,
+`area17-preview-empty-session36.json`, and `area17-isolated-empty-gate-session36.json`.
+
+Area18 discovery only: CC Tonal Dither is preset `color-cycle-gradient`; its actual
+Palette/FG Grad/Sample controls are captured in `area18-controls-session36.json`.
+Painting has not been verified. Continue with `area18-owner-trace-session36.md`
+as Area18 begins. The audit remains authorized through Area65.

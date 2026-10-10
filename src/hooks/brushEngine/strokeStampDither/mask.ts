@@ -1,3 +1,4 @@
+import { visitStrokeStampPixels } from '../strokeDefClear';
 import { recordIndexedAuthoringPixel, recordIndexedAuthoringRange } from '@/utils/indexedAuthoringObserver';
 import {
   ensureStampDitherBuffers,
@@ -145,6 +146,7 @@ export const applyStampDitherMask = (
   bgFill: boolean,
   bgFillWriter?: StampDitherBgFillWriter,
   acceptsPixel?: (x: number, y: number) => boolean,
+  rotation = 0,
 ): { minX: number; minY: number; maxX: number; maxY: number } => {
   ensureStampDitherBuffers(strokeData, width, height);
   ensureStampDitherTag(strokeData, width, height);
@@ -174,6 +176,29 @@ export const applyStampDitherMask = (
 
   const tagValue = ((strokeEpoch & 0xffff) << 16) | (stampSeq & 0xffff);
   const writer = bgFillWriter;
+
+  if (shape !== 'round' && Number.isFinite(rotation) && Math.abs(rotation) > 1e-8) {
+    const bounds = { minX: width, minY: height, maxX: -1, maxY: -1 };
+    visitStrokeStampPixels({ width, height, x, y, brushSize, shape, rotation }, (px, py) => {
+      if (acceptsPixel && !acceptsPixel(px, py)) return;
+      const idx = py * width + px;
+      captureIfNeeded(idx);
+      if (writer) {
+        writeStampDitherBgFillSpan(writer, primary, tag, tagValue, py * width, px, px, py, primaryIndex);
+      } else {
+        primary[idx] = primaryIndex;
+        tag[idx] = tagValue;
+      }
+      bounds.minX = Math.min(bounds.minX, px);
+      bounds.minY = Math.min(bounds.minY, py);
+      bounds.maxX = Math.max(bounds.maxX, px);
+      bounds.maxY = Math.max(bounds.maxY, py);
+    });
+    if (bounds.maxX >= bounds.minX && bounds.maxY >= bounds.minY) {
+      updateStampDitherBounds(strokeData, width, height, bounds.minX, bounds.minY, bounds.maxX, bounds.maxY);
+    }
+    return bounds;
+  }
 
   if (shape === 'triangle') {
     const halfSize = brushSize / 2;

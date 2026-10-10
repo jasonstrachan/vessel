@@ -95,6 +95,28 @@ describe('colorCycleStrokeCommit finalize mask clear', () => {
     );
   });
 
+  it.each([true, false])('uses finalized contour membership (has ink: %s) instead of the earlier pending full tip', (hasInk) => {
+    const eraseMask = document.createElement('canvas');
+    eraseMask.width = eraseMask.height = 8;
+    const ctx = eraseMask.getContext('2d')!;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 8, 8);
+    const layer = { id: 'contour', layerType: 'color-cycle', colorCycleData: { eraseMask, eraseMaskVersion: 1 } };
+    const updateLayer = jest.fn();
+    const manager = new MaskManager({ getLayer: () => layer as unknown as Layer, updateLayer,
+      getProjectSize: () => ({ width: 8, height: 8 }) });
+    manager.addPendingHealMask(layer.id, { data: new Uint8Array([255, 255]), width: 2, height: 1,
+      bounds: { x: 3, y: 3, width: 2, height: 1 } });
+    clearColorCycleEraseMaskInRegion({ current: { layers: [layer], updateLayer } } as unknown as React.MutableRefObject<AppState>,
+      layer.id, { x: 2, y: 2, width: 4, height: 4 }, {
+        paintMask: { data: new Uint8Array([hasInk ? 255 : 0, 0]), width: 2, height: 1, bounds: { x: 3, y: 3, width: 2, height: 1 } },
+        replacePendingHeal: true,
+        maskManager: manager,
+      });
+    expect(getAlpha(eraseMask, 3, 3)).toBe(hasInk ? 0 : 255);
+    expect(getAlpha(eraseMask, 4, 3)).toBe(255);
+    if (!hasInk) expect(updateLayer).not.toHaveBeenCalled();
+  });
+
   it('leaves the erase mask unchanged when no precise heal footprint is available', () => {
     const eraseMask = document.createElement('canvas');
     eraseMask.width = 10;

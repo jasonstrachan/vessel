@@ -2,6 +2,7 @@ import { BrushShape, type BrushSettings } from '@/types';
 import type { ColorCyclePaintMask } from '@/lib/colorCycle/document';
 
 import type { CustomBrushStrokeData } from './BrushEngineFacade';
+import { visitStrokeStampPixels } from './strokeDefClear';
 
 export type PaintedColorCycleStamp = {
   x: number;
@@ -44,16 +45,16 @@ export const createColorCycleStrokeMaskHealer = ({
     }
 
     const minX = Math.max(0, Math.floor(Math.min(
-      ...paintedStamps.map((stamp) => stamp.x - stamp.width / 2),
+      ...paintedStamps.map((stamp) => stamp.x - stamp.width * (!stamp.customStamp && stamp.rotation ? Math.SQRT2 : 1) / 2),
     )));
     const minY = Math.max(0, Math.floor(Math.min(
-      ...paintedStamps.map((stamp) => stamp.y - stamp.height / 2),
+      ...paintedStamps.map((stamp) => stamp.y - stamp.height * (!stamp.customStamp && stamp.rotation ? Math.SQRT2 : 1) / 2),
     )));
     const maxX = Math.min(internalCanvas.width - 1, Math.ceil(Math.max(
-      ...paintedStamps.map((stamp) => stamp.x + stamp.width / 2),
+      ...paintedStamps.map((stamp) => stamp.x + stamp.width * (!stamp.customStamp && stamp.rotation ? Math.SQRT2 : 1) / 2),
     )));
     const maxY = Math.min(internalCanvas.height - 1, Math.ceil(Math.max(
-      ...paintedStamps.map((stamp) => stamp.y + stamp.height / 2),
+      ...paintedStamps.map((stamp) => stamp.y + stamp.height * (!stamp.customStamp && stamp.rotation ? Math.SQRT2 : 1) / 2),
     )));
     if (maxX < minX || maxY < minY) {
       return;
@@ -74,6 +75,18 @@ export const createColorCycleStrokeMaskHealer = ({
       if (stamp.customStamp) {
         markCustomStampPixels(stamp, markPixel, resolveStampTargetSize);
         return;
+      }
+      if (stamp.rotation && Number.isFinite(stamp.rotation)) {
+        const shape = stamp.shape === BrushShape.COLOR_CYCLE_TRIANGLE ? 'triangle' : stamp.shape;
+        if (shape === 'square' || shape === 'round' || shape === 'diamond' || shape === 'diamond5' ||
+            shape === 'diamond7' || shape === 'diamond9' || shape === 'checkered' || shape === 'triangle') {
+          visitStrokeStampPixels({
+            width: internalCanvas.width, height: internalCanvas.height,
+            x: stamp.x, y: stamp.y, brushSize: resolveStampTargetSize(stamp.pressure),
+            shape, rotation: stamp.rotation,
+          }, markPixel);
+          return;
+        }
       }
       markShapeStampPixels(stamp, markPixel);
     });

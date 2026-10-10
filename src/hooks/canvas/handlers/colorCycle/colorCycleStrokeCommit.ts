@@ -130,6 +130,7 @@ export type ClearColorCycleEraseMaskOptions = {
   alphaSource?: ColorCycleEraseMaskAlphaSource | null;
   alphaSourceBounds?: CaptureRegion | null;
   paintMask?: ColorCyclePaintMask | null;
+  replacePendingHeal?: boolean;
   maskManager?: Pick<MaskManager, 'clearPendingHealMask' | 'commitPendingHealMask'>;
 };
 
@@ -304,10 +305,15 @@ export const clearColorCycleEraseMaskInRegion = (
       return;
     }
     try {
-      if (resolveMaskManager().commitPendingHealMask(layerId)) {
+      if (options?.replacePendingHeal) {
+        resolveMaskManager().clearPendingHealMask(layerId);
+      } else if (resolveMaskManager().commitPendingHealMask(layerId)) {
         return;
       }
     } catch {}
+    if (options?.paintMask && !options.paintMask.data.some((value) => value !== 0)) {
+      return;
+    }
     const clearedWithMask = clearEraseMaskWithPaintMask(eraseMaskCtx, clamped, options?.paintMask);
     const clearedWithAlpha = clearedWithMask
       ? true
@@ -376,9 +382,12 @@ export const commitColorCycleStrokeIfNeeded = async (
   });
 
   const resolvedStrokeCaptureRoi = commitResult.strokeCaptureRoi ?? args.captureRoi;
-  if (resolvedStrokeCaptureRoi && shouldHealEraseMask) {
-    deps.clearEraseMaskInRegion(args.activeLayer.id, resolvedStrokeCaptureRoi, {
-      paintMask: commitResult.eraseMaskPaintMask,
+  const finalizedPaintMask = commitResult.brushForCleanup?.getFinalizedStrokePaintMask?.(args.activeLayer.id);
+  const healRoi = finalizedPaintMask?.bounds ?? resolvedStrokeCaptureRoi;
+  if (healRoi && shouldHealEraseMask) {
+    deps.clearEraseMaskInRegion(args.activeLayer.id, healRoi, {
+      paintMask: finalizedPaintMask ?? commitResult.eraseMaskPaintMask,
+      ...(finalizedPaintMask ? { replacePendingHeal: true } : {}),
     });
   }
 

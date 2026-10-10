@@ -4,6 +4,7 @@ import type {
   ColorCycleLayerDirtyBatch,
   ColorCycleLayerDocument,
   ColorCycleLayerDocumentRead,
+  ColorCyclePaintMask,
 } from '@/lib/colorCycle/document';
 import type { FlowMode } from '@/lib/colorCycle/flowEncoding';
 import type { GradientSeamProfile } from '@/lib/colorCycle/gradientSeamProfile';
@@ -266,6 +267,7 @@ export type ColorCycleCommitBrushContext =
   & ColorCycleSurfaceBrushContext
   & {
     getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | undefined;
+    getFinalizedStrokePaintMask?: (layerId: string) => ColorCyclePaintMask | null;
     commitCurrentStroke?: (layerId?: string) => void;
     finalizeCurrentStroke?: (layerId?: string) => void;
     commitToLayer?: (canvas: HTMLCanvasElement, layerId: string, opacity?: number) => void;

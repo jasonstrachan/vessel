@@ -130,6 +130,7 @@ export type ManagedColorCycleBrush = ColorCycleSurfaceBrush
   & ColorCycleBrushLayerSnapshotRuntimeReader
   & ColorCycleCommittedLayerRuntime
   & {
+  getFinalizedStrokePaintMask?: (layerId: string) => ColorCyclePaintMask | null;
   commitCurrentStroke?: (layerId?: string) => void;
   finalizeCurrentStroke?: (layerId?: string) => void;
   commitToLayer?: (canvas: HTMLCanvasElement, layerId: string, opacity?: number) => void;

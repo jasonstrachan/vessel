@@ -77,9 +77,10 @@ export const createColorCycleStampPaintMask = (
   y: number,
   brushSize: number,
   pencil?: CcPencilMask,
+  rotation = 0,
 ): StampMask => {
   // Pixelated tips round to multiples of up to nine pixels, including at size one.
-  const size = Math.ceil(Math.max(9, brushSize) + 12);
+  const size = Math.ceil(Math.max(9, brushSize) * (rotation ? Math.SQRT2 : 1) + 12);
   let tile = tiles.get(mask);
   if (!tile || tile.length < size * size) {
     tile = new Uint8Array(size * size);
@@ -102,10 +103,10 @@ const footprints = new WeakMap<StudioStrokePaintMask, Uint8Array>();
 
 export const prepareColorCycleStrokePaintMask = (
   mask: StudioStrokePaintMask, x: number, y: number, brushSize: number,
-  shape: StampShape, width: number, height: number,
+  shape: StampShape, width: number, height: number, rotation = 0,
 ): void => {
   if (!mask.prepareStamp) return;
-  const size = Math.ceil(Math.max(9, brushSize) + 12);
+  const size = Math.ceil(Math.max(9, brushSize) * (rotation ? Math.SQRT2 : 1) + 12);
   let data = footprints.get(mask);
   if (!data || data.length < size * size) {
     data = new Uint8Array(size * size);
@@ -114,7 +115,7 @@ export const prepareColorCycleStrokePaintMask = (
   const originX = Math.floor(x - size / 2);
   const originY = Math.floor(y - size / 2);
   const tile = data;
-  visitStrokeStampPixels({ width, height, x, y, brushSize, shape }, (px, py) => {
+  visitStrokeStampPixels({ width, height, x, y, brushSize, shape, rotation }, (px, py) => {
     tile[(py - originY) * size + px - originX] = 1;
   });
   mask.prepareStamp({ x, y, size: brushSize, footprint: { originX, originY, size, data } });

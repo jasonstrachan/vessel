@@ -1,3 +1,4 @@
+import { COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS } from '@/lib/colorCycle/document';
 import { takeIndexedAuthoringCoverage } from '@/utils/indexedAuthoringObserver';
 import historyManager from '@/history/historyService';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
@@ -87,23 +88,26 @@ const bufferToU8 = (
 };
 
 const findDiffBounds = (
-  beforeBytes: Uint8Array,
-  afterBytes: Uint8Array,
+  beforeBytes: Uint8Array | null,
+  afterBytes: Uint8Array | null,
   width: number,
   height: number,
-  stride: number
+  bytesPerPixel: number
 ): { minX: number; minY: number; maxX: number; maxY: number } | null => {
-  const step = Math.max(1, Math.floor(stride));
   let minX = width;
   let minY = height;
   let maxX = -1;
   let maxY = -1;
 
-  for (let y = 0; y < height; y += step) {
+  for (let y = 0; y < height; y += 1) {
     const row = y * width;
-    for (let x = 0; x < width; x += step) {
-      const idx = row + x;
-      if (beforeBytes[idx] !== afterBytes[idx]) {
+    for (let x = 0; x < width; x += 1) {
+      const idx = (row + x) * bytesPerPixel;
+      let changed = false;
+      for (let byte = 0; byte < bytesPerPixel; byte += 1) {
+        if ((beforeBytes?.[idx + byte] ?? 0) !== (afterBytes?.[idx + byte] ?? 0)) changed = true;
+      }
+      if (changed) {
         if (x < minX) minX = x;
         if (y < minY) minY = y;
         if (x > maxX) maxX = x;
@@ -130,29 +134,30 @@ export const inferFallbackRoiFromStateDiff = (
   }
   const beforeLayer = before.layers?.[0];
   const afterLayer = after.layers?.[0];
-  const beforeBytes = bufferToU8(beforeLayer?.strokeData?.paintBuffer ?? null);
-  const afterBytes = bufferToU8(afterLayer?.strokeData?.paintBuffer ?? null);
-  if (!beforeBytes || !afterBytes) {
-    return null;
-  }
-
-  const minStride = Math.max(1, Math.floor(stride));
-  let bounds = findDiffBounds(beforeBytes, afterBytes, width, height, minStride);
-  let padStride = minStride;
-  if (!bounds && minStride > 1) {
-    bounds = findDiffBounds(beforeBytes, afterBytes, width, height, 1);
-    padStride = 1;
+  let bounds: ReturnType<typeof findDiffBounds> = null;
+  // A sampled hit cannot bound sparse contours: every changed canonical pixel
+  // must be included or Undo leaves islands of the authored stroke behind.
+  for (const { documentKey, bytesPerPixel } of COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS) {
+    const beforeBytes = bufferToU8(beforeLayer?.strokeData?.[documentKey]);
+    const afterBytes = bufferToU8(afterLayer?.strokeData?.[documentKey]);
+    if (beforeBytes === afterBytes) continue;
+    const channel = findDiffBounds(beforeBytes, afterBytes, width, height, bytesPerPixel);
+    if (!channel) continue;
+    bounds = bounds ? {
+      minX: Math.min(bounds.minX, channel.minX), minY: Math.min(bounds.minY, channel.minY),
+      maxX: Math.max(bounds.maxX, channel.maxX), maxY: Math.max(bounds.maxY, channel.maxY),
+    } : channel;
   }
 
   if (!bounds) {
     return null;
   }
 
-  const pad = Math.max(2, padStride * 2);
+  const pad = Math.max(2, Math.floor(stride) * 2);
   const x = Math.max(0, bounds.minX - pad);
   const y = Math.max(0, bounds.minY - pad);
-  const right = Math.min(width, bounds.maxX + pad);
-  const bottom = Math.min(height, bounds.maxY + pad);
+  const right = Math.min(width, bounds.maxX + 1 + pad);
+  const bottom = Math.min(height, bounds.maxY + 1 + pad);
   const roiWidth = Math.max(1, right - x);
   const roiHeight = Math.max(1, bottom - y);
   return { x, y, width: roiWidth, height: roiHeight };
@@ -242,7 +247,7 @@ const appendLayerHistoryDeltas = async (
   }
 
   if (afterColorState || beforeColorState) {
-    const inferredRoi = strokeFinalizeProbeTimeSync(
+    const inferredRoi = normalizedColorCycleRoi ? null : strokeFinalizeProbeTimeSync(
       'commitLayerHistory:inferColorCycleRoi',
       () => inferFallbackRoiFromStateDiff(
         beforeColorState,

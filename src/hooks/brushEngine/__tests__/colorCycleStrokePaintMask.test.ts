@@ -128,6 +128,12 @@ it('preserves rejected unbound and empty pixels during final gradient binding, t
     defId: 44, slot: 3, flowSlotMask: 63, previewSlot: 9, acceptsPixel: state.paintMask.acceptsPixel });
   expect(Array.from(state.buffers.def)).toEqual([44, 0, 12, 0]);
   expect(Array.from(state.buffers.gid)).toEqual([3, 3, 3, 9]);
+  state.finalizedPaintMask = { data: new Uint8Array([255]), width: 1, height: 1,
+    bounds: { x: 0, y: 0, width: 1, height: 1 } };
+  state.lostEdge = { strength: 100, before: state.buffers, coverage: new Uint8Array(4),
+    minX: 0, minY: 0, maxX: 1, maxY: 1 };
   refreshColorCycleShapeFillWriteSpeed({ strokeData: state, strokeCounter: 2, resolvedSpeed: 0.3 });
   expect(state.paintMask).toBeNull();
+  expect(state.finalizedPaintMask).toBeNull();
+  expect(state.lostEdge).toBeNull();
 });

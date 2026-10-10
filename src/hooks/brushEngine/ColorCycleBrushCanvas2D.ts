@@ -237,6 +237,9 @@ export class ColorCycleBrushCanvas2D {
     getLayerDocumentVersion: (layerId) => this.layerDocumentApi.getLayerDocumentVersion(layerId),
     setActiveLayerId: (layerId) => this.layerDocumentApi.setActiveLayerId(layerId),
     ensureStrokeFullResolution: (layerId, reason) => this.animatorApi.ensureFullResolution(layerId, reason),
+    getLayerDocumentRead: (layerId) => this.layerDocumentApi.getLayerDocumentRead(layerId),
+    restoreRuntimeFromDocument: (layerId, animator, documentRead) =>
+      this.layerDocumentApi.restoreRuntimeFromDocument(layerId, animator, documentRead),
     getStrokeData: (layerId) => this.layerDocumentApi.getStrokeState(layerId),
     createStrokeState: (options) => createColorCycleRuntimeLayerStrokeState(
       this.layerDocumentApi.getRuntimeContext(),
@@ -558,6 +561,7 @@ export class ColorCycleBrushCanvas2D {
   readonly fillShapeDispatch = this.shapeFillApi.fillShapeDispatch;
 
   readonly startStroke = this.strokeApi.startStroke;
+  readonly getFinalizedStrokePaintMask = (layerId: string) => this.layerDocumentApi.getStrokeState(layerId)?.finalizedPaintMask ?? null;
   readonly getStrokePaintMask = (layerId: string) => this.layerDocumentApi.getStrokeState(layerId)?.paintMask ?? null;
   readonly endStroke = this.strokeApi.endStroke;
   readonly finalizeCurrentStroke = this.strokeApi.finalizeCurrentStroke;

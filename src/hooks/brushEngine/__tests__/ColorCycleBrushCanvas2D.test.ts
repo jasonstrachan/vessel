@@ -150,10 +150,10 @@ jest.mock('@/lib/ColorCycleAnimator', () => {
     rebuild(snapshot: ColorCycleLayerDocumentState, version: number) {
       this.builtFromVersion = version;
       this.setIndexBufferFromArray(
-        new Uint8Array(snapshot.paintBuffer ?? new ArrayBuffer(0)),
-        snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer) : undefined,
-        snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer) : undefined,
-        snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer) : undefined,
+        new Uint8Array(snapshot.paintBuffer ?? new ArrayBuffer(0)).slice(),
+        snapshot.gradientIdBuffer ? new Uint8Array(snapshot.gradientIdBuffer).slice() : undefined,
+        snapshot.speedBuffer ? new Uint8Array(snapshot.speedBuffer).slice() : undefined,
+        snapshot.flowBuffer ? new Uint8Array(snapshot.flowBuffer).slice() : undefined,
       );
     }
 

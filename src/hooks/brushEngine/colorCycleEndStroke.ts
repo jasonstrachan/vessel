@@ -1,3 +1,4 @@
+import { finalizeColorCycleStrokeLostEdge } from './colorCycleStrokeLostEdge';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import {
@@ -173,13 +174,14 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
     strokeData.skipStampDitherFinalize = false;
   }
 
+  let didFinalizeStampDither = false;
   if (strokeData && useStampDither && !skipStampFinalize) {
     const algo = context.stampDitherAlgorithm() ?? 'sierra-lite';
     const finalizeStart = perf ? nowMs() : 0;
     const activeSlot = context.resolveActiveStrokeSlot(id, strokeData);
     strokeData.flow.activeSlot = activeSlot;
     const flowSlot = context.resolveFlowSlot(strokeData, activeSlot);
-    strokeFinalizeProbeTimeSync(
+    didFinalizeStampDither = strokeFinalizeProbeTimeSync(
       'endColorCycleStroke:finalizeStampDither',
       () => finalizeStampDither({
         animator,
@@ -270,6 +272,10 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
         );
       } catch {}
     }
+    const contourBounds = finalizeColorCycleStrokeLostEdge(strokeData, context.width(),
+      didFinalizeStampDither && !context.stampDitherBgFill()
+        ? strokeData.stampDither?.stampDitherChoice : undefined);
+    if (contourBounds) animator.markDirtyBounds(contourBounds);
     if (
       process.env.NODE_ENV !== 'production' &&
       typeof globalThis !== 'undefined' &&

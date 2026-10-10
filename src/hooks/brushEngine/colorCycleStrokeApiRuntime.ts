@@ -25,6 +25,8 @@ export type ColorCycleStrokeApiRuntimeContext = {
   getLayerDocumentVersion: ColorCycleCustomStampRuntimeDeps['getLayerDocumentVersion'];
   setActiveLayerId(layerId: string): void;
   ensureStrokeFullResolution: ColorCycleStrokeLifecycleContext['ensureFullResolution'];
+  getLayerDocumentRead: ColorCycleStrokeLifecycleContext['getLayerDocumentRead'];
+  restoreRuntimeFromDocument: ColorCycleStrokeLifecycleContext['restoreRuntimeFromDocument'];
   getStrokeData: ColorCycleStrokeLifecycleContext['getStrokeData'];
   createStrokeState: ColorCycleStrokePreparationContext['createStrokeState'];
   setStrokeState: ColorCycleStrokePreparationContext['setStrokeState'];
@@ -339,6 +341,9 @@ export class ColorCycleStrokeApiRuntime {
       getPerfStroke: () => this.getPerfStroke(),
       isHistoryRestore: () => this.context.isHistoryRestore(),
       ensureFullResolution: (id, reason) => this.context.ensureStrokeFullResolution(id, reason),
+      getLayerDocumentRead: (id) => this.context.getLayerDocumentRead(id),
+      restoreRuntimeFromDocument: (id, animator, documentRead) =>
+        this.context.restoreRuntimeFromDocument(id, animator, documentRead),
       getStrokeData: (id) => this.context.getStrokeData(id),
       getResolvedWriteCycleSpeed: () => this.context.getResolvedWriteCycleSpeed(),
       getWriteCycleSpeed: (strokeData) => this.context.getWriteCycleSpeed(strokeData),

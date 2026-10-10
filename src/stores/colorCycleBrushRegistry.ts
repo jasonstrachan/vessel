@@ -858,6 +858,8 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
       bindGradientDefIdToSlot: typeof commitBrush.bindGradientDefIdToSlot === 'function'
         ? commitBrush.bindGradientDefIdToSlot.bind(brush)
         : undefined,
+      getFinalizedStrokePaintMask: typeof commitBrush.getFinalizedStrokePaintMask === 'function'
+        ? commitBrush.getFinalizedStrokePaintMask.bind(brush) : undefined,
       getSampledStrokePositions: typeof commitBrush.getSampledStrokePositions === 'function'
         ? commitBrush.getSampledStrokePositions.bind(brush) : undefined,
       getSampledStrokeDitherPrimaryBuffer:

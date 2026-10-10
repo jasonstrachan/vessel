@@ -70,6 +70,7 @@ function createMockBrush() {
     setLayerColorCycleMeta: jest.fn(),
     syncGradientDefRuntime: jest.fn(),
     bindGradientDefIdToSlot: jest.fn(),
+    getFinalizedStrokePaintMask: jest.fn(() => ({ data: new Uint8Array([255]), width: 1, height: 1, bounds: { x: 1, y: 2, width: 1, height: 1 } })),
     getSampledStrokeDitherPrimaryBuffer: jest.fn(() => new Uint8Array([1, 65])),
     getColorCycleLayerDocument: jest.fn(() => undefined),
     setUseCanvas2D: jest.fn(),
@@ -631,6 +632,7 @@ describe('colorCycleBrushManager integration', () => {
       'getCanvas',
       'getColorCycleDerivedSurface',
       'getColorCycleLayerDocument',
+      'getFinalizedStrokePaintMask',
       'getSampledStrokeDitherPrimaryBuffer',
       'getSampledStrokePositions',
       'isPlaying',
@@ -656,6 +658,8 @@ describe('colorCycleBrushManager integration', () => {
     commitBrush?.commitCurrentStroke?.('layer-1');
     commitBrush?.commitToLayer?.(canvas, 'layer-1', 0.5);
     commitBrush?.bindGradientDefIdToSlot?.('layer-1', 7, 2);
+    expect(commitBrush?.getFinalizedStrokePaintMask?.('layer-1')).toEqual(brush.getFinalizedStrokePaintMask());
+    expect(brush.getFinalizedStrokePaintMask).toHaveBeenCalledWith('layer-1');
     const ditherPrimary = commitBrush?.getSampledStrokeDitherPrimaryBuffer?.('layer-1');
 
     expect(brush.commitCurrentStroke).toHaveBeenCalledWith('layer-1');

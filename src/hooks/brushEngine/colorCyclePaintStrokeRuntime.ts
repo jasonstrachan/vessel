@@ -1,3 +1,4 @@
+import { captureColorCycleStrokeLostEdge } from './colorCycleStrokeLostEdge';
 import { createColorCycleStrokePaintMask, createColorCycleStampPaintMask, prepareColorCycleStrokePaintMask } from './colorCycleStrokePaintMask';
 import { getCcPencilMask, resolveCcPencilSize, type CcPencilMask } from './ccPencilPressure';
 import { createCcBristleWriter, getCcBristleBaseIndex } from './ccBristles';
@@ -87,7 +88,7 @@ export function runColorCyclePaintStroke(
   y: number,
   layerId?: string,
   pressure: number = 1.0,
-  _rotation: number = 0,
+  rotation: number = 0,
   speedSamplePxPerMs?: number
 ): void {
   if (typeof window !== 'undefined') {
@@ -98,7 +99,6 @@ export function runColorCyclePaintStroke(
     globalWindow.__CC_probe.paint += 1;
     globalWindow.__CC_probe.last = { ...globalWindow.__CC_probe.last, layerId };
   }
-  void _rotation;
 
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     debugWarn('raw-console', `Invalid paint coordinates: x=${x}, y=${y}`);
@@ -168,10 +168,10 @@ export function runColorCyclePaintStroke(
   }) : undefined;
   if (strokeData.paintMask) {
     prepareColorCycleStrokePaintMask(strokeData.paintMask, x, y, pressureSize,
-      stampShape, context.getCanvasWidth(), context.getCanvasHeight());
+      stampShape, context.getCanvasWidth(), context.getCanvasHeight(), rotation);
   }
   const writeMask = !useStampDither && strokeData.paintMask
-    ? createColorCycleStampPaintMask(strokeData.paintMask, x, y, pressureSize, pencilMask)
+    ? createColorCycleStampPaintMask(strokeData.paintMask, x, y, pressureSize, pencilMask, rotation)
     : pencilMask;
   const primaryIndex = bristlesEnabled && !useStampDither && bandSpacing === undefined
     ? getCcBristleBaseIndex(strokeData.buffers.phase, colorIndex, !last)
@@ -216,7 +216,7 @@ export function runColorCyclePaintStroke(
     });
   }
 
-  const halfPressureSize = Math.max(0.5, pressureSize / 2);
+  const halfPressureSize = Math.max(0.5, pressureSize * (rotation ? Math.SQRT2 : 1) / 2);
   const canvasWidth = context.getCanvasWidth();
   const canvasHeight = context.getCanvasHeight();
   const stampMayTouchCanvas =
@@ -225,6 +225,11 @@ export function runColorCyclePaintStroke(
     y + halfPressureSize >= 0 &&
     x - halfPressureSize < canvasWidth &&
     y - halfPressureSize < canvasHeight;
+
+  captureColorCycleStrokeLostEdge(strokeData, {
+    width: canvasWidth, height: canvasHeight, x, y, brushSize: pressureSize, shape: stampShape, rotation,
+  }, pencilSettings.lostEdge ?? 0, useStampDither ? strokeData.paintMask?.acceptsPixel : writeMask?.accepts,
+  Boolean(appState.layers.find(layer => layer.id === id)?.colorCycleData?.eraseMask));
 
   if (useStampDither) {
     paintStampDither(
@@ -244,6 +249,7 @@ export function runColorCyclePaintStroke(
         animator,
         strokeData,
         stampShape,
+        rotation,
         x,
         y,
         pressure,
@@ -256,6 +262,9 @@ export function runColorCyclePaintStroke(
     paintStandardStamp({
       animator,
       strokeShape: stampShape,
+      rotation,
+      width: canvasWidth,
+      height: canvasHeight,
       x,
       y,
       pressureSize,
@@ -276,6 +285,7 @@ export function runColorCyclePaintStroke(
       brushSize: pressureSize,
       flowSlot,
       shape: stampShape,
+      rotation,
       clearDefIds: !useStampDither,
       isPaintPixel: useStampDither ? strokeData.paintMask?.acceptsPixel : writeMask?.accepts,
       onPaintPixel: bristlesEnabled
@@ -304,7 +314,7 @@ export function runColorCyclePaintStroke(
     // Canvas overlap does not establish content when a constraint rejects the stamp.
     stampHasContent = false;
     const acceptsPixel = useStampDither ? strokeData.paintMask?.acceptsPixel : writeMask?.accepts;
-    visitStrokeStampPixels({ width: canvasWidth, height: canvasHeight, x, y, brushSize: pressureSize, shape: stampShape }, (px, py) => {
+    visitStrokeStampPixels({ width: canvasWidth, height: canvasHeight, x, y, brushSize: pressureSize, shape: stampShape, rotation }, (px, py) => {
       if (!stampHasContent && (acceptsPixel?.(px, py) ?? true)) {
         stampHasContent = strokeData.buffers.paint[py * canvasWidth + px] !== 0;
       }
@@ -336,6 +346,7 @@ type StampDitherPaintOptions = {
   animator: ColorCycleAnimator;
   strokeData: LayerStrokeState;
   stampShape: StampShape;
+  rotation: number;
   x: number;
   y: number;
   pressure: number;
@@ -363,6 +374,7 @@ function paintStampDither(
     animator,
     strokeData,
     stampShape,
+    rotation,
     x,
     y,
     pressure,
@@ -404,6 +416,7 @@ function paintStampDither(
     config,
     runtime: context.getStampDitherRuntime(),
     stampShape,
+    rotation,
     x,
     y,
     pressure,
@@ -476,6 +489,9 @@ function paintStampDither(
 type StandardStampOptions = {
   animator: ColorCycleAnimator;
   strokeShape: StampShape;
+  rotation: number;
+  width: number;
+  height: number;
   x: number;
   y: number;
   pressureSize: number;
@@ -488,6 +504,9 @@ type StandardStampOptions = {
 function paintStandardStamp({
   animator,
   strokeShape,
+  rotation,
+  width,
+  height,
   x,
   y,
   pressureSize,
@@ -497,7 +516,11 @@ function paintStandardStamp({
   pencilMask,
 }: StandardStampOptions): void {
   const stampStart = perf ? nowMs() : 0;
-  if (strokeShape === 'triangle') {
+  if (strokeShape !== 'round' && Number.isFinite(rotation) && Math.abs(rotation) > 1e-8) {
+    visitStrokeStampPixels({ width, height, x, y, brushSize: pressureSize, shape: strokeShape, rotation }, (px, py) => {
+      if (!pencilMask || pencilMask.accepts(px, py)) animator.setIndex(px, py, primaryIndex, flowSlot);
+    });
+  } else if (strokeShape === 'triangle') {
     animator.paintTriangle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
   } else if (strokeShape === 'round') {
     animator.paintCircle(x, y, pressureSize, primaryIndex, pencilMask?.tile, pencilMask?.size, false, undefined, flowSlot, pencilMask?.originX ?? 0, pencilMask?.originY ?? 0);
