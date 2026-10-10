@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 
+import { DEFAULT_INTERLACE_SETTINGS } from '@/lib/interlace/interlaceSettings';
 import { refreshLayerCCSurface } from '@/hooks/useBrushEngineSimplified';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { CompositeSegment } from '@/stores/slices/layersSlice';
@@ -191,5 +192,89 @@ describe('useDrawingCanvasColorCycleSegmentRefresh', () => {
 
     expect(compositeSegmentsRef.current).toBe(segments);
     expect(presenter).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('interlace color-cycle member publication', () => {
+  beforeEach(() => {
+    useAppStore.setState((state) => ({
+      colorCyclePlayback: { ...state.colorCyclePlayback, desiredPlaying: false, suspendDepth: 0 },
+    }));
+    mockRefreshLayerCCSurface.mockReset();
+    mockRefreshLayerCCSurface.mockImplementation(() => document.createElement('canvas'));
+  });
+
+  const interlace = (layerIds: string[]): CompositeSegment => ({
+    kind: 'interlace', id: 'interlace:test', groupId: 'group', layerIds,
+    settings: DEFAULT_INTERLACE_SETTINGS,
+  });
+
+  it('publishes raw current-frame surfaces for CC members and respects requested member IDs', () => {
+    const first = makeLayer('first', false);
+    const second = makeLayer('second', false);
+    const normal = { id: 'normal', layerType: 'normal' } as Layer;
+    const firstCanvas = document.createElement('canvas');
+    const secondCanvas = document.createElement('canvas');
+    const firstPresenter = jest.fn();
+    const secondPresenter = jest.fn();
+    const firstDirect = jest.fn();
+    const secondDirect = jest.fn();
+    const brushes = new Map([
+      ['first', { isPlaying: () => false, presentCurrentFrameToCanvas: firstPresenter, renderDirectToCanvas: firstDirect }],
+      ['second', { isPlaying: () => false, presentCurrentFrameToCanvas: secondPresenter, renderDirectToCanvas: secondDirect }],
+    ]);
+    const getSurfaceBrush = jest.fn((id: string) => brushes.get(id) ?? null);
+    const manager = { getSurfaceBrush, getInitBrush: () => null } as unknown as ColorCycleBrushManager;
+    mockRefreshLayerCCSurface.mockImplementation((_brush, id) => id === 'first' ? firstCanvas : secondCanvas);
+    const view = renderRefreshHook({ layers: [first, normal, second], segments: [interlace(['first', 'normal', 'second'])], manager });
+
+    // These canvases feed a compositor that applies coverage. Forced direct
+    // rendering would bake erase coverage into them a second time.
+    expect(firstPresenter).toHaveBeenCalledWith(firstCanvas, 'first');
+    expect(secondPresenter).toHaveBeenCalledWith(secondCanvas, 'second');
+    expect(getSurfaceBrush).not.toHaveBeenCalledWith('normal');
+    expect(firstDirect).not.toHaveBeenCalled();
+    expect(secondDirect).not.toHaveBeenCalled();
+    firstPresenter.mockClear();
+    secondPresenter.mockClear();
+    act(() => { view.result.current.refreshColorCycleSegments({ sourceLayerIds: ['second'] }); });
+    expect(firstPresenter).not.toHaveBeenCalled();
+    expect(secondPresenter).toHaveBeenCalledTimes(1);
+    expect(secondPresenter).toHaveBeenCalledWith(secondCanvas, 'second');
+    view.unmount();
+  });
+
+  it('binds grouped CC frame publication and obeys global play/pause/suspension', () => {
+    const calls: string[] = [];
+    let playing = false;
+    const brush = {
+      isPlaying: () => playing,
+      startAnimation: jest.fn(() => { playing = true; calls.push('start'); }),
+      stopAnimation: jest.fn(() => { playing = false; }),
+      presentCurrentFrameToCanvas: jest.fn(),
+    };
+    const initBrush = {
+      applySettings: jest.fn(), endStroke: jest.fn(),
+      setOnFrameRendered: jest.fn(() => calls.push('bind')),
+    };
+    const manager = {
+      getSurfaceBrush: () => brush, getInitBrush: () => initBrush,
+    } as unknown as ColorCycleBrushManager;
+    const view = renderRefreshHook({ layers: [makeLayer('grouped')], segments: [interlace(['grouped'])], manager });
+    expect(initBrush.setOnFrameRendered).toHaveBeenCalled();
+    expect(playing).toBe(false);
+    act(() => useAppStore.getState().playColorCycle('toolbar'));
+    expect(playing).toBe(true);
+    expect(calls.indexOf('bind')).toBeLessThan(calls.indexOf('start'));
+    act(() => useAppStore.getState().pauseColorCycle('toolbar'));
+    expect(playing).toBe(false);
+    act(() => {
+      useAppStore.getState().suspendColorCycle('shape-preview');
+      useAppStore.getState().playColorCycle('toolbar');
+    });
+    expect(playing).toBe(false);
+    expect(brush.startAnimation).toHaveBeenCalledTimes(1);
+    view.unmount();
   });
 });

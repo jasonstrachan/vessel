@@ -25,6 +25,21 @@ interface UseDrawingCanvasColorCycleSegmentRefreshOptions {
   colorCycleBrushManagerRef: MutableRefObject<ColorCycleBrushManager | null>;
 }
 
+// Interlace owns composition, but each indexed member still owns a live surface.
+// Traverse existing IDs without building a temporary list on every frame.
+const forEachColorCycleSegmentLayerId = (
+  segments: CompositeSegment[],
+  visit: (layerId: string) => void,
+): void => {
+  for (const segment of segments) {
+    if (segment.kind === 'color-cycle') {
+      visit(segment.layerId);
+    } else if (segment.kind === 'interlace') {
+      for (const layerId of segment.layerIds) visit(layerId);
+    }
+  }
+};
+
 export const useDrawingCanvasColorCycleSegmentRefresh = ({
   layers,
   compositeSegmentsVersion,
@@ -84,22 +99,19 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
         colorCycleBrushManagerRef.current = manager;
       }
 
-      segments.forEach((segment) => {
-        if (segment.kind !== 'color-cycle') {
+      forEachColorCycleSegmentLayerId(segments, (layerId) => {
+        if (requestedLayerIds && !requestedLayerIds.has(layerId)) {
           return;
         }
-        if (requestedLayerIds && !requestedLayerIds.has(segment.layerId)) {
+        const layer = layerMapRef.current.get(layerId);
+        if (layer?.layerType !== 'color-cycle' || !layer.colorCycleData) {
           return;
         }
-        const layer = layerMapRef.current.get(segment.layerId);
-        if (!layer || !layer.colorCycleData) {
-          return;
-        }
-        const brush = manager?.getSurfaceBrush(segment.layerId);
+        const brush = manager?.getSurfaceBrush(layerId);
         if (!brush) {
           return;
         }
-        const layerCanvas = refreshLayerCCSurface(brush, segment.layerId);
+        const layerCanvas = refreshLayerCCSurface(brush, layerId);
         if (!layerCanvas) {
           return;
         }
@@ -108,10 +120,10 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
         }
 
         try {
-          brush.presentCurrentFrameToCanvas?.(layerCanvas, segment.layerId);
+          brush.presentCurrentFrameToCanvas?.(layerCanvas, layerId);
         } catch (error) {
           debugWarn('cc-render', '[DrawingCanvas] Failed to present color-cycle layer surface', {
-            layerId: segment.layerId,
+            layerId,
             error,
           });
         }
@@ -126,18 +138,18 @@ export const useDrawingCanvasColorCycleSegmentRefresh = ({
   useEffect(() => {
     const manager = colorCycleBrushManagerRef.current ?? getColorCycleBrushManager();
     colorCycleBrushManagerRef.current = manager;
-    compositeSegmentsRef.current.forEach((segment) => {
-      if (segment.kind !== 'color-cycle') {
+    forEachColorCycleSegmentLayerId(compositeSegmentsRef.current, (layerId) => {
+      const layer = layerMapRef.current.get(layerId);
+      if (layer?.layerType !== 'color-cycle' || !layer.colorCycleData) {
         return;
       }
-      const layer = layerMapRef.current.get(segment.layerId);
-      const brush = manager.getSurfaceBrush(segment.layerId);
-      if (!layer?.colorCycleData || !brush) {
+      const brush = manager.getSurfaceBrush(layerId);
+      if (!brush) {
         return;
       }
-      const publicationBrush = manager.getInitBrush(segment.layerId);
+      const publicationBrush = manager.getInitBrush(layerId);
       if (publicationBrush) {
-        bindColorCycleFramePublication(publicationBrush, segment.layerId);
+        bindColorCycleFramePublication(publicationBrush, layerId);
       }
       const wantPlaying = Boolean(
         effectivePlaying && layer.colorCycleData.isAnimating && layer.colorCycleData.mode !== 'recolor',

@@ -33,6 +33,10 @@ import { debugLog, recordBreadcrumb } from '@/utils/debug';
 import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { hasVisibleAdjustmentLayers } from '@/stores/layers/adjustmentLayerCompositor';
 import { strokeFinalizeProbeMark } from '@/utils/strokeFinalizeProbe';
+import {
+  getColorCyclePresentationCanvas,
+  resolveColorCyclePresentation,
+} from './resolveColorCyclePresentation';
 
 const CANVAS_CHECKER_LIGHT = '#2a2a2e';
 const CANVAS_CHECKER_DARK = '#1c1c1f';
@@ -111,6 +115,8 @@ interface FloatingPasteLike {
   displayWidth?: number;
   displayHeight?: number;
   rotation?: number;
+  colorCycleIndices?: Uint8Array | null;
+  colorCycleSelectionMasks?: { membership: Uint8Array } | null;
   vectorPath?: {
     mode: 'freehand' | 'click-line';
     points: Array<{ x: number; y: number }>;
@@ -206,7 +212,7 @@ export const useDrawingCanvasBaseRenderer = ({
   const displayFilterStateRef = useRef(createDisplayFilterPipelineState());
   const lastInvalidCompositeBitmapRef = useRef<ImageBitmap | null>(null);
   const lastCcDirectionRenderDebugAtRef = useRef(0);
-  const adjustmentPasteOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const floatingPasteOverlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const applyDisplayFilterStack = useCallback((
     sourceCanvas: HTMLCanvasElement,
@@ -386,13 +392,24 @@ export const useDrawingCanvasBaseRenderer = ({
             mode: isActivelyErasing ? 'replace' as const : 'over' as const,
           }
         : undefined;
-      const adjustmentPasteOverlay = adjustmentsVisible
+      const colorCyclePasteBase = activeLayer?.layerType === 'color-cycle'
+        && floatingPaste?.colorCycleIndices
+        && floatingPaste.colorCycleSelectionMasks
+        ? getColorCyclePresentationCanvas(resolveColorCyclePresentation({
+            layer: activeLayer,
+            activeLayerId,
+            projectWidth: project.width,
+            projectHeight: project.height,
+          }), activeLayer)
+        : null;
+      const floatingPasteOverlay = (adjustmentsVisible || colorCyclePasteBase)
         && floatingPaste?.imageData
         && activeLayer
         && activeLayer.layerType !== 'adjustment'
         ? renderFloatingPasteLayerOverlay({
-            outputCanvasRef: adjustmentPasteOverlayCanvasRef,
+            outputCanvasRef: floatingPasteOverlayCanvasRef,
             baseOverlay: drawingLiveLayerOverlay?.canvas,
+            baseColorCycleCanvas: colorCyclePasteBase,
             floatingPaste,
             project,
             pasteCanvasRef,
@@ -401,16 +418,16 @@ export const useDrawingCanvasBaseRenderer = ({
             applyCanvasShapeClip,
           })
         : null;
-      const floatingPasteIntegrated = Boolean(adjustmentPasteOverlay);
-      const liveLayerOverlay = adjustmentPasteOverlay && activeLayer
+      const floatingPasteIntegrated = Boolean(floatingPasteOverlay);
+      const liveLayerOverlay = floatingPasteOverlay && activeLayer
         ? {
             layerId: activeLayer.id,
-            canvas: adjustmentPasteOverlay,
-            mode: drawingLiveLayerOverlay?.mode ?? 'over' as const,
+            canvas: floatingPasteOverlay,
+            mode: colorCyclePasteBase ? 'replace' as const : drawingLiveLayerOverlay?.mode ?? 'over' as const,
           }
         : drawingLiveLayerOverlay;
       const splitCompositeRequested = (overlayEligibleForSplit || floatingPasteActive)
-        && !adjustmentsVisible;
+        && !adjustmentsVisible && !floatingPasteIntegrated;
 
       if (splitCompositeRequested) {
         const sequentialFrame = activeLayer?.layerType === 'sequential'

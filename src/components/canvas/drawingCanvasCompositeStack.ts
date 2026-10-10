@@ -220,8 +220,17 @@ export const drawVisibleCompositeStack = ({
   }
 
   const sortedLayers = [...layerMap.values()].sort((a, b) => a.order - b.order);
+  // Keep the committed segment boundaries: flattening a replacement stack first
+  // changes antialiased canvas-shape edges, even outside the replaced region.
+  const replaceInSegments = liveLayerOverlay?.mode === 'replace'
+    && !isActivelyErasing
+    && layerMap.get(liveLayerOverlay.layerId)?.layerType === 'color-cycle'
+    && segments.some(segment =>
+      (segment.kind === 'color-cycle' && segment.layerId === liveLayerOverlay.layerId)
+      || (segment.kind === 'interlace' && segment.layerIds.includes(liveLayerOverlay.layerId)),
+    );
   if (
-    (hasVisibleAdjustmentLayers(sortedLayers) || liveLayerOverlay?.mode === 'replace')
+    (hasVisibleAdjustmentLayers(sortedLayers) || (liveLayerOverlay?.mode === 'replace' && !replaceInSegments))
     && drawAdjustmentCompositeStack({
       ctx,
       visibleRect,
@@ -335,6 +344,9 @@ export const drawVisibleCompositeStack = ({
               height: projectHeight,
             });
           }
+          if (replaceInSegments && liveLayerOverlay?.layerId === layer.id) {
+            source = liveLayerOverlay.canvas;
+          }
           return source
             ? [{ source, opacity: layer.opacity, blendMode: layer.blendMode }]
             : [];
@@ -371,7 +383,9 @@ export const drawVisibleCompositeStack = ({
           projectWidth,
           projectHeight,
         });
-        const drawCanvas = getColorCyclePresentationCanvas(presentation, layer);
+        const drawCanvas = replaceInSegments && liveLayerOverlay?.layerId === layer.id
+          ? liveLayerOverlay.canvas
+          : getColorCyclePresentationCanvas(presentation, layer);
         if (!drawCanvas) {
           recordCompositeProbe('skip-cc-segment', {
             activeLayerId: storeState.activeLayerId,

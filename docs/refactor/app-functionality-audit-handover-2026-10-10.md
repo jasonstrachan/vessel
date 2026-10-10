@@ -1,4 +1,18 @@
-# Vessel whole-app audit handover — 10 October 2026, session 25
+# Vessel whole-app audit handover — 10 October 2026, session 26
+
+## Latest continuation — Session26
+
+FIRST READ `output/playwright/area10-root-facts-session26.md`, inventory Session26,
+then `output/playwright/area10-preview-owner-session26.md`. Area10 partial/uncommitted;
+9/65software-complete. T01 terminal coords repaired in both overlay owners and native
+verified; T02 active-float history repaired at store authority; T03 CC Cancel history
+anchor repair follows strict whole-plane equality. Latest test/runtime receipts in
+rootfacts. T04 erased indexed-member preview/commit mismatch remains open with exact
+reproduction and source trace. Continue Area10 then11–65, no renewed authorization.
+Do not call Area10 complete, commit partial work, or loosen history drift guards.
+Preserve original47paths/staged patch and current task diffs; no historical restores.
+Same production server and named headless browser; current cleanup/build state is in
+rootfacts. Prior entries below are history, superseded by the latest receipt.
 
 ## Latest continuation — Session25
 
@@ -24,6 +38,14 @@ bounded subagents and local continuation chats before70%context as authorized.
 Do not restore old wholefiles or rerun historical commit scripts. Current preservation
 baseline and pending process status are in Session25rootfacts. Earlier entries are
 historical and superseded by the newest receipt.
+
+Session25 postcommit receipt: Area09 committed locally as
+`fed9c38d8bdfde8737d86efe3e440243252a146a` on main.12intended files only; all47original
+paths and staged3file7addition hash exact.9/65software-complete; Area10next,10–65pending.
+FullJest finished successfully; no writers/builds/tests/browsercommands remain active.
+Browser cleanup verified; previewPID14471 retained. Only47original paths plus two
+postcommit auditdocs remain dirty. New preservation baseline:
+`output/playwright/area10-initial-baseline-session25.json` and matching backups.
 
 ## Latest continuation — Session24
 
@@ -1517,3 +1539,30 @@ committed; zero original dirty-path overlap. Original47 file hashes and staged p
 SHA2565d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09 remain exact.
 No push/deployment. **8/65 areas software-complete; Area09 active,09–65 incomplete.**
 Do not rerun historical Area07/08 commit scripts or restore old whole-file backups.
+
+
+## Session27 — Area10 complete, Area11 continuation
+
+Read `output/playwright/area10-root-facts-session27.md` FIRST when available, then
+inventory Session27 software signoff. Area10 selected native86configs529/529,
+zeroaborts, source fixesT01–T07 verified. Final artifact2026-10-10T07:13:04.503Z;
+`area10-preview-t07-session27.json` binds18owners. The isolated20-path candidate passes
+type/lint; fullJest589suites5544tests passed plus one missing-Git-fixture failure and
+one existing skip. Independent temporary Git fixture repaired that sole environment
+failure; affected suite20/20passes, no application/assertion change. All5545unique
+non-skipped tests now have passing coverage. Detailed receipts in final inventory.
+No remaining Area10 bug or gate failure. Focused local commit follows; rootfacts will
+record its hash and fresh current baseline. Do not rerun historical commit scripts.
+
+All47original dirty files and staged3file7addition patchSHA256
+5d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09 remain exact.
+No branch/worktree change, push or deployment. Managed vessel-whole-app-audit closed;
+cleanup verified. Retain productionpreview http://localhost:3001/vessel/.
+All agents finished. Continue11–65without renewed permission; human authorization
+includes bounded subagents, exact native proof, owning repairs, focused local commits
+and local continuation chats before70%context. For Area11 read
+`output/playwright/area11-owner-inventory-session27.md`; prepared native baseline6
+and control scripts are UNRUN. Crop uses Selection’s Crop button, not a toolbar/C
+shortcut. First reproduce crop/history/Sequence/CC and handle leads, preserve user
+work, announce necessary owner boundary before edits. Rootfacts supersedes this
+precommit handover with final Git/process/preservation state.

@@ -3,6 +3,7 @@ import historyManager from '@/history/historyService';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 import { isFeatureFlagEnabled, setFeatureFlag } from '@/config/featureFlags';
 import { clearSequentialLayerRendererAll } from '@/lib/sequential/SequentialLayerRenderer';
+import { buildSequentialBitmapPasteEvent } from '@/lib/sequential/sequentialEdit';
 import { snapshotSequentialSelectionClip } from '@/lib/sequential/selectionClip';
 import { BrushShape, type Layer, type SequentialStrokeEvent } from '@/types';
 import { captureSequentialLayerFrameTextures } from '@/utils/export/goblet/gobletSequentialSerializer';
@@ -84,6 +85,59 @@ describe('Goblet recorded selection frame integration', () => {
 
 
 describe('Goblet moved Sequence selection integration', () => {
+  it.each([false, true])('exports the exact projected 82 × 62 bitmap through shared replay (crop %s)', async (cropped) => {
+    const gpu = isFeatureFlagEnabled('enableSequentialGpuAcceleration');
+    const worker = isFeatureFlagEnabled('enableSequentialWorkerMaterialization');
+    setFeatureFlag('enableSequentialGpuAcceleration', false);
+    setFeatureFlag('enableSequentialWorkerMaterialization', false);
+    clearSequentialLayerRendererAll();
+    const canvasState = globalThis as typeof globalThis & { __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean };
+    const previousRasterize = canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
+    const frames: Uint8ClampedArray[] = [];
+    jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, callback: BlobCallback, type?: string) {
+      const pixels = this.getContext('2d')!.getImageData(0, 0, this.width, this.height).data.slice();
+      frames.push(pixels);
+      callback(new Blob([new Uint8Array(pixels)], { type: type ?? 'image/png' }));
+    });
+    const image = new ImageData(82, 62);
+    image.data.set([192, 32, 48, 255], (51 * 82 + 57) * 4);
+    const event = buildSequentialBitmapPasteEvent({
+      layerId: 'projected-bitmap', frameIndex: 0, imageData: image,
+      bounds: { x: 115, y: 97, width: 82, height: 62 }, timestampMs: 0,
+      id: 'projected-bitmap', strokeId: 'projected-bitmap',
+    });
+    const layer: Layer = {
+      id: 'projected-bitmap', name: 'SEQ', visible: true, opacity: 1, blendMode: 'source-over', locked: false, order: 0,
+      imageData: null, framebuffer: document.createElement('canvas'), alignment: createDefaultLayerAlignment(), layerType: 'sequential',
+      sequentialData: { frameCount: 2, fps: 1, durationMs: 2000, events: [event] },
+    };
+    const original = JSON.stringify(layer.sequentialData);
+    try {
+      const result = await captureSequentialLayerFrameTextures({
+        layer, width: 256, height: 256, frameCount: 2,
+        cropBounds: cropped ? { x: 115, y: 97, width: 82, height: 62 } : null,
+      });
+      const width = cropped ? 82 : 256;
+      const height = cropped ? 62 : 256;
+      const expected = new Uint8ClampedArray(width * height * 4);
+      const x = cropped ? 57 : 172;
+      const y = cropped ? 51 : 148;
+      expected.set([192, 32, 48, 255], (y * width + x) * 4);
+      expect(frames).toHaveLength(2);
+      expect(frames[0]).toEqual(expected);
+      expect(frames[1]).toEqual(new Uint8ClampedArray(width * height * 4));
+      expect(result?.frameMap).toEqual([0, 1]);
+      expect(JSON.stringify(layer.sequentialData)).toBe(original);
+    } finally {
+      jest.restoreAllMocks();
+      clearSequentialLayerRendererAll();
+      setFeatureFlag('enableSequentialGpuAcceleration', gpu);
+      setFeatureFlag('enableSequentialWorkerMaterialization', worker);
+      canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = previousRasterize;
+    }
+  });
+
   it.each([false, true])('exports committed raw RGBA move frames (crop %s)', async (cropped) => {
     await waitForPendingHistoryCommits();
     historyManager.clear();

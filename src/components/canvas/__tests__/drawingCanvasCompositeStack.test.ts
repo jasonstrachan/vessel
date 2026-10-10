@@ -1,3 +1,6 @@
+import * as adjustmentStack from '@/components/canvas/drawingCanvasAdjustmentStack';
+import * as interlaceRenderer from '@/lib/interlace/interlaceRenderer';
+import { DEFAULT_INTERLACE_SETTINGS } from '@/lib/interlace/interlaceSettings';
 import {
   drawOverCompositeLayer,
   drawVisibleCompositeStack,
@@ -743,4 +746,71 @@ describe('drawOverCompositeLayer', () => {
       80,
     );
   });
+});
+
+
+describe('indexed replacement composition boundaries', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each(['segment', 'interlace', 'missing segment', 'adjustment', 'normal eraser', 'color-cycle eraser'] as const)(
+    'preserves the existing composition route for %s', (route) => {
+      const replacement = document.createElement('canvas');
+      const lower = document.createElement('canvas');
+      const upper = document.createElement('canvas');
+      const layer = createLayer({
+        id: 'active', layerType: route === 'normal eraser' ? 'normal' : 'color-cycle',
+        opacity: 0.4, blendMode: 'multiply',
+        colorCycleData: { canvas: document.createElement('canvas') },
+      });
+      const layers = [layer];
+      if (route === 'adjustment') layers.push(createLayer({
+        id: 'adjustment', order: 1, layerType: 'adjustment',
+        adjustmentData: { effect: { id: 'hue-sat', settings: {
+          hue: 0, saturation: 0, vibrance: 0, lightness: 0, contrast: 0,
+          red: 0, green: 0, blue: 0, hueRangeEnabled: false, hueRangeStart: 0, hueRangeEnd: 360,
+        } } },
+      }));
+      mockGetState.mockReturnValue({
+        project: { width: 16, height: 16 }, activeLayerId: layer.id, layers, layerGroups: [],
+        colorCyclePlayback: { desiredPlaying: false }, sequentialRecord: {},
+      });
+      const staticSegment = (id: string, canvas: HTMLCanvasElement): CompositeSegment => ({
+        kind: 'static', id, layerIds: [id], includeBackground: false,
+        orderRange: { start: 0, end: 0 }, canvas, bitmap: null, dirty: false,
+      });
+      const dynamic: CompositeSegment = route === 'interlace'
+        ? { kind: 'interlace', id: 'interlace', groupId: 'group', layerIds: [layer.id], settings: DEFAULT_INTERLACE_SETTINGS }
+        : { kind: 'color-cycle', id: 'cc', layerId: layer.id, opacity: layer.opacity, blendMode: layer.blendMode };
+      const segments = route === 'missing segment' || route === 'normal eraser'
+        ? [] : [staticSegment('lower', lower), dynamic, staticSegment('upper', upper)];
+      const adjustment = jest.spyOn(adjustmentStack, 'drawAdjustmentCompositeStack');
+      const interlace = jest.spyOn(interlaceRenderer, 'drawSierraLiteInterlace').mockImplementation(() => true);
+      const { ctx, drawCalls } = createRecordingContext();
+      drawVisibleCompositeStack({
+        ctx, visibleRect: { x: 0, y: 0, width: 16, height: 16 }, useSplitOverlay: false,
+        underCompositeCanvas: null, isActivelyErasing: route === 'normal eraser' || route === 'color-cycle eraser',
+        drawNonActiveVisibleLayers: jest.fn(), segments,
+        layerMap: new Map(layers.map(item => [item.id, item])), compositeBitmap: null, compositeCanvas: null,
+        liveLayerOverlay: { layerId: layer.id, canvas: replacement, mode: 'replace' },
+      });
+      if (route === 'segment' || route === 'interlace') {
+        expect(adjustment).not.toHaveBeenCalled();
+        expect(drawCalls[0].source).toBe(lower);
+        expect(drawCalls.at(-1)?.source).toBe(upper);
+        if (route === 'segment') {
+          expect(drawCalls).toHaveLength(3);
+          expect(drawCalls[1]).toEqual({ source: replacement, alpha: 0.4, blend: 'multiply' });
+        } else {
+          expect(interlace).toHaveBeenCalledWith(expect.objectContaining({
+            context: ctx, sources: [{ source: replacement, opacity: 0.4, blendMode: 'multiply' }],
+          }));
+        }
+      } else {
+        expect(adjustment).toHaveBeenCalledTimes(1);
+        expect(adjustment).toHaveBeenCalledWith(expect.objectContaining({
+          liveLayerOverlay: { layerId: layer.id, canvas: replacement, mode: 'replace' },
+        }));
+      }
+    },
+  );
 });

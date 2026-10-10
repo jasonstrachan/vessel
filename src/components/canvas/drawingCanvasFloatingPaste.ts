@@ -1,7 +1,10 @@
 import type React from 'react';
 import type { CanvasShape } from '@/types';
 import { strokeMarqueePath, strokeMarqueeRect } from '@/utils/marqueeStroke';
-import { rasterizeFloatingPasteBitmap } from '@/utils/selection/floatingPasteRaster';
+import {
+  rasterizeFloatingPasteBitmap,
+  rasterizeFloatingPasteScalar,
+} from '@/utils/selection/floatingPasteRaster';
 
 interface FloatingPasteStateLike {
   imageData: ImageData | null;
@@ -11,6 +14,8 @@ interface FloatingPasteStateLike {
   displayWidth?: number;
   displayHeight?: number;
   rotation?: number;
+  colorCycleIndices?: Uint8Array | null;
+  colorCycleSelectionMasks?: { membership: Uint8Array } | null;
   vectorPath?: {
     mode: 'freehand' | 'click-line';
     points: Array<{ x: number; y: number }>;
@@ -138,6 +143,7 @@ export const drawFloatingPastePixels = ({
 export const renderFloatingPasteLayerOverlay = ({
   outputCanvasRef,
   baseOverlay,
+  baseColorCycleCanvas,
   floatingPaste,
   project,
   pasteCanvasRef,
@@ -147,6 +153,7 @@ export const renderFloatingPasteLayerOverlay = ({
 }: {
   outputCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   baseOverlay?: HTMLCanvasElement | null;
+  baseColorCycleCanvas?: HTMLCanvasElement | OffscreenCanvas | null;
   floatingPaste: FloatingPasteStateLike;
   project: { width: number; height: number };
   pasteCanvasRef: DrawFloatingPastePixelsOptions['pasteCanvasRef'];
@@ -162,7 +169,33 @@ export const renderFloatingPasteLayerOverlay = ({
   const context = canvas.getContext('2d', { willReadFrequently: true });
   if (!context) return null;
   context.clearRect(0, 0, canvas.width, canvas.height);
+  if (baseColorCycleCanvas) context.drawImage(baseColorCycleCanvas, 0, 0);
   if (baseOverlay) context.drawImage(baseOverlay, 0, 0);
+  if (baseColorCycleCanvas && floatingPaste.colorCycleIndices && floatingPaste.colorCycleSelectionMasks) {
+    const indices = rasterizeFloatingPasteScalar(floatingPaste, floatingPaste.colorCycleIndices, project);
+    const membership = rasterizeFloatingPasteScalar(
+      floatingPaste,
+      floatingPaste.colorCycleSelectionMasks.membership,
+      project,
+    );
+    if (indices && membership) {
+      // Indexed commits replace occupied members, including fully erased pixels.
+      // Remove contiguous runs without admitting holes or empty indexed cells.
+      const { roi } = indices;
+      for (let y = 0; y < roi.height; y += 1) {
+        let runStart = -1;
+        for (let x = 0; x <= roi.width; x += 1) {
+          const index = y * roi.width + x;
+          const replace = x < roi.width && indices.data[index] !== 0 && membership.data[index] > 0;
+          if (replace && runStart < 0) runStart = x;
+          if (!replace && runStart >= 0) {
+            context.clearRect(roi.x + runStart, roi.y + y, x - runStart, 1);
+            runStart = -1;
+          }
+        }
+      }
+    }
+  }
   drawFloatingPastePixels({
     ctx: context,
     floatingPaste,
@@ -175,7 +208,9 @@ export const renderFloatingPasteLayerOverlay = ({
     offsetY: 0,
     pasteCanvasRef,
     lastPasteInfoRef,
-    activeCanvasShape,
+    // A full indexed replacement models document pixels, just like commit.
+    // The viewport clips the completed layer to the canvas shape exactly once.
+    activeCanvasShape: baseColorCycleCanvas ? null : activeCanvasShape,
     applyCanvasShapeClip,
   });
   return canvas;

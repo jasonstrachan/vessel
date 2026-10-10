@@ -1,5 +1,6 @@
 import type { StoreApi } from 'zustand';
 import type { AppState } from '@/stores/useAppStore';
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { Layer, Rectangle, SequentialLayerData } from '@/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
@@ -38,6 +39,7 @@ import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMu
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { resolveLayerColorCycleBaseSpeedFromLayer } from '@/utils/colorCycleLayerSpeed';
+import { COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS } from '@/lib/colorCycle/document/colorCycleDocumentContract';
 import {
   buildColorCycleCanonicalSelectionPayloadFromSnapshot,
   rebuildColorCycleSerializedStateRegion,
@@ -1640,6 +1642,32 @@ export const createSelectionPasteHelpers = ({
           if (Object.keys(maskPatch).length) {
             state.updateLayer(targetLayer.id, { colorCycleData: maskPatch }, { skipColorCycleSync: true, dirtyRects: [restoreRect] });
           }
+        }
+        const beforeColorState = restoreContext.beforeColorState;
+        const beforeLayerState = beforeColorState?.layers.find((layer) => layer.layerId === targetLayer.id);
+        const beforeDimensions = beforeLayerState && 'dimensions' in beforeLayerState
+          ? beforeLayerState.dimensions as { width?: number; height?: number } | undefined
+          : undefined;
+        const document = getColorCycleBrushManager().getDocument?.(targetLayer.id);
+        const restoredSnapshot = document?.read().snapshot;
+        if (
+          document && restoredSnapshot && beforeLayerState?.strokeData &&
+          typeof beforeColorState?.pixelVersion === 'number' &&
+          restoredSnapshot.width > 0 && restoredSnapshot.height > 0 &&
+          beforeDimensions?.width === restoredSnapshot.width &&
+          beforeDimensions?.height === restoredSnapshot.height &&
+          COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS.every(({ documentKey, bytesPerPixel }) => {
+            const original = beforeLayerState.strokeData?.[documentKey];
+            const restored = restoredSnapshot[documentKey];
+            const expectedBytes = restoredSnapshot.width * restoredSnapshot.height * bytesPerPixel;
+            if (original?.byteLength !== expectedBytes || restored?.byteLength !== expectedBytes) return false;
+            const restoredBytes = new Uint8Array(restored);
+            return new Uint8Array(original).every((value, index) => value === restoredBytes[index]);
+          })
+        ) {
+          // Only an exact whole-document pixel restoration may rejoin the prior history
+          // anchor. Keep document metadata/version and its derived surfaces current.
+          document.rebaseVersionAnchors({ pixelVersion: beforeColorState.pixelVersion });
         }
         logCcPasteTransactionEvent({
           layerId: targetLayer.id,

@@ -27,7 +27,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 07 | Selection: select all, deselect, invert, tool persistence, paint/fill/erase clipping | selection slice/ROI helpers | software-verified (Session18: 138configs/1905checks; focused local commit receipt below) |
 | 08 | Move selected pixels: extract/drag, source clearing, commit/cancel, edges, CC metadata, history | selection handlers, selectionPaste | software-verified (Session23: final gate passed; local commit receipt below) |
 | 09 | Copy/cut/paste/duplicate/paste in place: internal/external clipboard, scaling, alpha, cross-layer/CC, failures | selection slice, clipboard handlers, selectionPaste | software-verified (Session25: C01–C07 repaired; 47configs254checks; local commit receipt below) |
-| 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | pending |
+| 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | verified (software; Session27 signoff/local commit receipt) |
 | 11 | Crop: selection crop, handles/dimensions, outside bounds, commit/cancel/history, CC/sequence | crop slice/handlers, CropOptionsPanel | pending |
 | 12 | Pixel brush: tap/drag, square/round tips, size, opacity, spacing, pressure, snap, shape mode | brush presets, brush engine/settings | pending |
 | 13 | Soft brush: edge/size/opacity, pressure, spacing, blend | brush engine/settings | pending |
@@ -1437,3 +1437,219 @@ Area09 commit. All47original paths and the staged3file7addition patch SHA256
 Commit hash follows in the postcommit receipt.9/65areas software-complete;10–65pending.
 Browser exact cleanup passed in `area09-browser-cleanup-session25.log`; preview remains.
 Area10 initial owner trace: `output/playwright/area10-owner-review-session25.md`.
+
+
+Session25 focused local Area09 commit: `fed9c38d8bdfde8737d86efe3e440243252a146a`
+— `fix: preserve clipboard ownership and selection coverage`.12intended paths only;
+original47paths and original staged patch remain exact. No push or deployment.
+9/65software-complete. NEXT Area10 execution; source trace is prepared, no Area10
+source changes or new transform acceptance yet. Current root/preservation authority:
+`output/playwright/area09-root-facts-session25.md`.
+
+
+## Session26 — Area10 native transform and history audit
+
+Area10 is active, not complete or committed. Area01–09 remain complete; overall9/65.
+Main remains fed9c38d8bdfde8737d86efe3e440243252a146a. No push/deploy/branch/worktree change.
+All47 original dirty files and staged patch remain protected.
+
+T01: trusted CDP mouseReleased with a new coordinate and no preceding move exposed
+all8 floating resize handles across raster/CC/Sequence. Corrected before matrix
+6configs67checks43pass; exact after67/67. Further10configs20checks10pass before,20/20
+after cover move, raster/Sequence rotation, and initial selection extraction resize/
+rotation handoff. Indexed CC rotation is intentionally unavailable.
+Owners FloatingPasteOverlay and SelectionMarqueeHandles now apply the existing move
+calculation before pointerUp finalizes. PointerCancel behavior is unchanged.4overlay
+and4handoff release regressions failed before;25overlay/helper and16handoff checks
+pass. Normal corner oracle was corrected for established integer-pixel rounding.
+
+Native geometry expansion3configs40/40 covers zoom1.5/nonzero offset, all8 rotated
+anchors, Shift15degree snap, wrap through zero, minimum1pixel crossing and Escape
+source restoration. No pointer hardware/other-browser/performance claim.
+
+T02: Undo during extraction failed raster/CC preparation or replayed Sequence stroke
+history while leaving a stale float. historyLifecycle now resolves the pending float
+before replay, preserving history entries; canUndo admits float cancellation with
+empty history. Redo cancels the float before consuming an existing redo entry.
+Six real-store regressions failed before; source changes plus overlay owners passed
+74checks across5suites, fulltype/lint and atomic build at this stage. Expanded native
+history9configs34checks30pass isolated T03 plus one harmless Sequence oracle issue;
+all9 cases completed. A bare eventChunks field becoming [] is normalized in v3;
+Sequence extra-stroke recording is explicitly armed in v2/v3.
+
+T03: CC Cancel restores the six pixel planes but leaves pixelVersion advanced from
+2 to4, preventing next Undo/Redo. Original anchor is already in beforeColorState.
+Scoped repair in selectionPaste compares captured dimensions, buffer lengths and all
+six whole-document buffers before restoring only pixelVersion. It preserves metadata/
+documentVersion and strict history drift detection.3 real-document regressions failed
+before;6 out-of-ROI channel mutations retain drift protection. Final verification
+receipt follows in Session26 rootfacts.
+
+T04 OPEN: fully erased selected CC cells replace underlying paint on commit but the
+preview only draws covered RGBA source-over. Native FlipH then H/V/H/V and width64→80
+with a hole selection and native eraser exposes actual artwork mismatch. At destination
+(102,99), source sample(18,11) has index163,membership255,erase255,bitmapAlpha0. Preview
+shows original red retained in the old unselected hole; commit correctly becomes
+transparent. Raster/Sequence flip/resize/commit preview passes after excluding actual
+transformed outline collars. CC retains72channel mismatches on that comparison.
+Native probe1config11checks10pass; no aborted cases. Do not hide the mismatch by
+changing membership/commit behavior or broadening screenshot exclusions.
+
+All four native flips preserve exact bitmap, six indexed planes and three masks;
+one-step committed Undo/Redo and source preservation pass. Native source strokes,
+eraser strokes, toolbar/handle/key input are genuine browser events; project/settings/
+selection-hole/zoom/history reset and stable frame selection are disclosed fixtures.
+
+Evidence: output/playwright/area10-*-session26.*; especially controls-before-v2/after,
+terminal-before/after, geometry, flips-after-v2, history-expanded-after, and
+cc-preview-probe. Read area10-root-facts-session26.md for the latest process state,
+final artifact/test receipt and next execution steps.
+
+Session26 final T01–T03 receipt: final production artifact2026-10-10T06:53:05.710Z,
+page-e04e47e7c34bddc5.js SHA256
+832cb29aade308a3c0b45b898e595fab1c083acd25edac789a3d25efe544c58f.
+`area10-preview-final-session26.json` binds all7source/test paths. Final native
+historyv3:9configs34/34checks, all9done, no runtimeerrors. Final direct2suites94/94,
+fulltype/lint/atomicbuild/diffcheck pass. No source/test changes after artifact receipt.
+T04preview mismatch remains open; no fullJest/commit gate or Area10completion claimed.
+Final cleanup and preservation receipt are in Session26rootfacts.
+
+
+## Session27 — Area10 preview replacement and remaining edge coverage (active)
+
+Area10 remains partial/uncommitted; overall9/65 software-complete. Session26 T01–T03
+changes are retained. Main HEAD is fed9c38d8bdfde8737d86efe3e440243252a146a. Original47
+file hashes and the staged3-file7-addition patch were checked exact before work.
+
+T04 exact native reproduction on the retained Session26 production artifact again
+runs1config11checks10pass: only preview/commit parity fails. Six added native
+variants run6configs67checks61pass, no aborts: lower+upper layers, active opacity,
+multiply blend, adjustment layer, soft-edge mask enabled/disabled all reproduce
+preview mismatch; complete-source Undo/Redo passes. Layer stack and soft mask are
+disclosed fixtures; source brush/eraser and flip/resize/commit/history are native.
+The minimum preview boundary expands to drawingCanvasFloatingPaste.ts,
+useDrawingCanvasBaseRenderer.ts and their two direct tests. The implementation
+seeds the covered active CC surface, clears projected occupied selected members,
+and uses the existing full-layer replacement compositor. Commit semantics are
+unchanged. Five new deterministic tests failed before;22focused/adjacent checks,
+type-check and lint pass. Production after acceptance is still pending.
+
+Remaining-edge baseline runs21configs117checks105pass,19done/2aborted. Four native
+right/middle initial/floating resize cases confirm T05: overlays wrongly admit
+secondary buttons, extracting or transforming artwork. Owning fix is limited to
+existing Area10 FloatingPasteOverlay and SelectionMarqueeHandles plus their tests.
+Two probe corrections remain: blank destination null/1x1 storage materializes on
+commit/Undo, and native unsnapped rotation is29.74488degrees from coordinate rounding.
+These are not app bugs; a versioned probe will use a natively painted destination
+and snapped rotation. Original receipts remain unchanged. Other completed cases
+cover transformed Delete, locked Enter/refusal/unlock retry, partly off-project and
+fully outside-project transforms with complete source one-step history.
+
+Evidence: output/playwright/area10-*-session27.*. No fullJest/commitgate or Area10
+completion yet. No push/deployment/branch/worktree change.
+
+
+Session27 first production artifact2026-10-10T07:01:39.865Z passes original T04
+11/11 and six layer/mask variants67/67. T05 additional move/rotation secondary
+before6configs19checks13pass improves to19/19; original resize cases await corrected
+edge rerun. The first combined9suite147test/type/lint/build gate passes.
+
+Fractional document shape native2configs23checks21pass remains open: circle display
+mismatch480before→408after; fractional rectangle138→615. No history/source errors.
+Source trace finds inner scratch shape clipping plus full-stack replacement
+composition differing from normal segment draws under the outer shape clip. T04
+boundary expands necessarily to drawingCanvasCompositeStack.ts and its direct
+existing test. Planned refinement substitutes the covered CC replacement into its
+existing CC/interlace segment where present, retaining adjustment/missing-segment
+fallback, and leaves shape clipping to the viewport for that replacement only.
+No commit or shape acceptance is claimed. Original failure artifacts are retained.
+
+
+Corrected edgev2 native21configs128checks127pass: every case completes; only rotated
+Sequence preview differs at one pixel(172,148),3channels. T05all10native secondary
+configurations pass across edgev2 and supplemental6. T06diagnostic isolates the real
+Sequence CPU sampler: in an identity82x62stamp, `(57/82)*82` is56.99999999999999,
+so floor selects column56 rather than57. Raw event payload is correct. Owning boundary
+adds SequentialCpuMaterializer.ts, a new bitmap-paste direct test and existing
+Goblet sequential-selection integration test. Goblet frame capture uses the same
+renderer/materializer; no duplicate exporter sampler patch is required.
+
+Supplemental20configs93checks81pass completes every case; all12failures stem from
+an invalid focused-Flip Enter expectation. The protected pre-audit keyboard guard
+intentionally preserves native button Enter/Space activation for accessibility.
+Each actual result has one trusted Flip click, retained float and no history,
+matching that contract. A versioned focused-only probe will verify exact mirroring,
+then canvas-focused Enter/preview/history. No button guard change is authorized.
+Copied transformed Escape/Delete, source-lock Escape, adjustment refusal/retry,
+rapid native Enter/Enter/Escape, and trusted CDP touchCancel cases pass. The burst
+reports observed intermediate state; deferred-promise ordering remains direct-test
+coverage, not an inferred native concurrency proof.
+
+
+Second artifact2026-10-10T07:09:07.011Z passes original11/11, allsixlayer/mask variants
+67/67 and bothfractionalshape cases23/23 with unchanged strict display comparisons.
+This verifies the T04segment/shape refinement. T06exact native retest is queued.
+
+T07interlace native reproduces1config12checks11pass: allsixplanes/erase/state match
+onRedo, but rawCCsurface768bytes and visible192channels differ. Exact samples
+(117..119,90) index140/erase0 retain red in commit but become transparent afterRedo,
+revealing lower blue. useDrawingCanvasColorCycleSegmentRefresh skips interlace CC
+members in both current-frame publication and playback binding. Two new direct
+regressions fail while4existing controls pass. Authorized minimum owner expansion:
+that refresh hook and its existing test. No data/history rewrite or downstream
+mask workaround; surface publication must honor grouped CC members too.
+
+
+## Session27 — Area10 software signoff
+
+Area10 is software-verified: **86 native configurations /529passing checks**, zero
+failed/aborted cases in the selected acceptance receipts. The authority is
+`output/playwright/area10-native-acceptance-session27.json`, with explicit individual
+artifact bindings; it does not imply all evidence came from one build. Final artifact
+2026-10-10T07:13:04.503Z, page-a02409c5d831e6d3.js, SHA256
+c3aa60a345d182efcad0fd232904547e1c06a309f324ea887548b4f47609cbe5 binds18source/test owners.
+All source bytes match the final isolated candidate. No composition shell changed.
+
+T01final release coordinates and T05primary-only admission cover8handles, move,
+rotation and initial extraction handoff. Native cancellation retains the latest
+transform and Escape restores complete source; secondary buttons leave artwork alone.
+T02history cancels an active floating transaction before replay, and T03exact CC
+cancel restores only the original pixelVersion anchor when all6whole-document planes
+match. Other changes retain drift protection. T04preview models indexed replacement
+including erased members; preserves holes/zeroindices, masks, opacity/blend, lower/
+upper layers, adjustments and existing CC/interlace segment placement. Shape clipping
+occurs once at the viewport. T06shared CPU stamp sampling preserves integer pixels
+across runtime, worker and Goblet captured frames. T07publishes/binds grouped CC
+surfaces so Redo cannot leave stale baked erase coverage in the visible runtime.
+
+Accepted coverage includes transformed Delete, lock/refusal/unlock retry, layer
+switch/cross-raster source+destination history, partial/full off-project placement,
+rotated raster/Sequence parity, all6CCplanes+3float masks under flips, fractional
+mask/opacity and shape boundaries, native copied Escape/Delete, source-lock Escape,
+adjustment refusal/retry, rapid Enter/Enter/Escape and trusted CDP touchCancel.
+Focused Flip-button Enter intentionally performs native button activation; the
+corrected probe verifies exact mirroring then canvas-focused Enter commits once.
+The original mistaken focused-button/blank-backing/angle-rounding oracles remain
+recorded separately and did not prompt changes to protected initial user code.
+
+Candidate gate: full type-check and lint pass. Full Jest executed591suites:
+589passed, one missing-Git-fixture failure, one existing skipped.5544tests passed,
+one fixture failure, one existing skip; snapshotpassed. The only failing suite
+requires git rev-parse HEAD; the source-isolated archive lacked Git metadata.
+After adding a disposable independent Git fixture, its20tests all pass. No application
+source/assertion changed for this retry. Thus every non-skipped test has passing
+coverage (5545unique tests); original failure and retry logs are preserved under
+area10-candidate-*. No remaining application/gate failure. Focused owner/export,
+refresh, type/lint and atomic production checks also pass. No further runtime change
+occurred after accepted final artifact. Initial47files and original staged patch
+remain exact. Root inspected corrected circle-preview/commit screenshots; native
+pixels are stronger evidence than the small on-screen image. Physical devices,
+external native focus, hardware performance and other browsers remain unverified.
+
+Bounded owner review found no remaining actionable Area10 issue. The20-path candidate
+contains18source/tests plus this inventory/handover, no original-file overlap.
+Managed headless browser is closed and exact cleanup verified. Existing production
+server is retained. Focused local commit follows; no push/deployment/branch change.
+**10/65areas software-complete; Area11Crop is next,11–65remain incomplete.**
+Area11 read-only preparation is `area11-owner-inventory-session27.md` and two prepared,
+unexecuted native scripts. Its Sequence/history/control leads require reproduction.

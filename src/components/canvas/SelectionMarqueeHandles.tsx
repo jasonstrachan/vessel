@@ -169,17 +169,6 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
     }
   }, []);
 
-  const handlePointerUp = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      if (interactionRef.current.type === 'idle') {
-        return;
-      }
-      finalizeInteraction(event.pointerId);
-      event.preventDefault();
-    },
-    [finalizeInteraction],
-  );
-
   const handlePointerCancel = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (interactionRef.current.type === 'idle') {
@@ -251,9 +240,21 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
     ],
   );
 
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (interactionRef.current.type === 'idle') {
+        return;
+      }
+      handlePointerMove(event);
+      finalizeInteraction(event.pointerId);
+      event.preventDefault();
+    },
+    [finalizeInteraction, handlePointerMove],
+  );
+
   const handleResizePointerDown = useCallback(
     (handle: RectHandle) => (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!canInteract || !selectionRect) {
+      if (event.button !== 0 || !canInteract || !selectionRect) {
         return;
       }
 
@@ -298,7 +299,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
 
   const handleRotatePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!canInteract || !selectionRect) {
+      if (event.button !== 0 || !canInteract || !selectionRect) {
         return;
       }
 

@@ -402,6 +402,11 @@ export const createHistoryService = ({
       await waitForAllPendingColorCycleSaves();
       await waitForPendingHistoryCommits();
 
+      if (get().floatingPaste) {
+        get().cancelFloatingPaste();
+        return null;
+      }
+
       const pendingEntry = historyManager.peekUndo();
       if (!pendingEntry) {
         return null;
@@ -439,6 +444,11 @@ export const createHistoryService = ({
       await waitForAllPendingColorCycleSaves();
       await waitForPendingHistoryCommits();
 
+      if (get().floatingPaste) {
+        get().cancelFloatingPaste();
+        return null;
+      }
+
       const pendingEntry = historyManager.peekRedo();
       if (!pendingEntry) {
         return null;
@@ -469,7 +479,7 @@ export const createHistoryService = ({
     });
   };
 
-  const canUndo = (): boolean => !historyManager.isFaulted && Boolean(historyManager.peekUndo());
+  const canUndo = (): boolean => !historyManager.isFaulted && Boolean(get().floatingPaste || historyManager.peekUndo());
   const canRedo = (): boolean => !historyManager.isFaulted && Boolean(historyManager.peekRedo());
 
   const clearHistory = (): void => {

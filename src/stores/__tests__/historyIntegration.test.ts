@@ -12,11 +12,13 @@ import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import historyManager from '@/history/historyService';
 import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
-import { HistoryReplayApplyError } from '@/history/errors';
+import { HistoryReplayApplyError, HistoryReplayPreparationError } from '@/history/errors';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import {
   applyColorCycleBrushLayerSnapshotToRuntime,
+  COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS,
+  colorCycleArrayBuffersEqual,
   getColorCycleLegacyLayerBuffer,
 } from '@/lib/colorCycle/document';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
@@ -209,6 +211,232 @@ describe('history integration', () => {
         notifications: [],
       },
     }));
+  });
+
+  describe('cancelled color-cycle extraction history anchors', () => {
+    const seedAnchoredHistory = async () => {
+      const width = 8;
+      const height = 6;
+      const layer = createColorCycleLayer('cc-cancel-anchor', width, height);
+      useAppStore.setState({
+        layers: [layer], activeLayerId: layer.id,
+        project: {
+          id: 'cc-cancel-anchor-project', name: 'CC cancellation history', width, height,
+          layers: [layer], backgroundColor: '#00000000', customBrushes: [],
+          createdAt: new Date(0), updatedAt: new Date(0),
+        },
+      });
+      const store = useAppStore.getState();
+      store.initColorCycleForLayer(layer.id, width, height);
+      const manager = getColorCycleBrushManager();
+      const brush = manager.getBrush(layer.id);
+      const document = manager.getDocument(layer.id);
+      if (!brush || !document) throw new Error('Expected real CC document and runtime');
+      const paint = new Uint8Array(width * height);
+      paint[width + 1] = 9;
+      paint[width * height - 1] = 6;
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
+        paintBuffer: paint.slice().buffer,
+        gradientIdBuffer: new Uint8Array(width * height).buffer,
+        gradientDefIdBuffer: new Uint16Array(width * height).buffer,
+        speedBuffer: new Uint8Array(width * height).fill(120).buffer,
+        flowBuffer: new Uint8Array(width * height).fill(1).buffer,
+        phaseBuffer: new Uint8Array(width * height).buffer,
+        hasContent: true, strokeCounter: 1,
+      });
+      const beforeColorState = captureColorCycleBrushState(layer.id);
+      const before = document.read();
+      expect(beforeColorState?.pixelVersion).toBe(before.pixelVersion);
+      expect(beforeColorState?.pixelVersion).toEqual(expect.any(Number));
+      paint[width + 2] = 12;
+      const stroke = readTestColorCycleBrushLayerSnapshot(brush, layer.id);
+      if (!stroke) throw new Error('Missing CC source snapshot');
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, {
+        ...stroke, paintBuffer: paint.slice().buffer, strokeCounter: 2,
+      });
+      const after = document.read();
+      expect(after.pixelVersion).toBeGreaterThan(before.pixelVersion);
+      await commitLayerHistory({
+        layerId: layer.id, beforeImage: null, beforeColorState,
+        actionType: 'brush', description: 'Anchored CC stroke', tool: 'brush',
+      });
+      expect(historyManager.peekUndo()?.deltas.map((delta) => delta._tag)).toContain('color-cycle-stroke-patch');
+      const extract = () => {
+        useAppStore.setState({ selectionStart: { x: 1, y: 1 }, selectionEnd: { x: 3, y: 2 } });
+        expect(store.extractSelectionToFloatingPaste()).toBe(true);
+        expect(useAppStore.getState().floatingPasteHistoryContext?.beforeColorState?.pixelVersion)
+          .toEqual(expect.any(Number));
+        store.updateFloatingPastePosition({ x: 4, y: 3 });
+      };
+      return { store, brush, document, layer, before, after, extract };
+    };
+
+    it.each(['cancel', 'undo'] as const)('%s restores the CC pixel anchor before subsequent Undo/Redo', async (operation) => {
+      const { store, document, before, after, extract } = await seedAnchoredHistory();
+      extract();
+      expect(document.pixelVersion).toBeGreaterThan(after.pixelVersion);
+      if (operation === 'cancel') store.cancelFloatingPaste();
+      else await store.undo();
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+      expect(document.pixelVersion).toBe(after.pixelVersion);
+      expect(document.version).toBeGreaterThan(after.version);
+      for (const { documentKey } of COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS) {
+        expect(colorCycleArrayBuffersEqual(document.read().snapshot[documentKey], after.snapshot[documentKey])).toBe(true);
+      }
+      expect(historyManager.entries()).toHaveLength(1);
+      await store.undo();
+      expect(document.pixelVersion).toBe(before.pixelVersion);
+      expect(colorCycleArrayBuffersEqual(document.read().snapshot.paintBuffer, before.snapshot.paintBuffer)).toBe(true);
+      await store.redo();
+      expect(document.pixelVersion).toBe(after.pixelVersion);
+      expect(colorCycleArrayBuffersEqual(document.read().snapshot.paintBuffer, after.snapshot.paintBuffer)).toBe(true);
+    });
+
+    it('cancels extraction at the CC redo boundary without consuming that entry', async () => {
+      const { store, document, before, after, extract } = await seedAnchoredHistory();
+      await store.undo();
+      expect(document.pixelVersion).toBe(before.pixelVersion);
+      const redoEntry = historyManager.peekRedo();
+      extract();
+      await store.redo();
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+      expect(document.pixelVersion).toBe(before.pixelVersion);
+      expect(historyManager.peekRedo()).toBe(redoEntry);
+      await store.redo();
+      expect(document.pixelVersion).toBe(after.pixelVersion);
+      expect(colorCycleArrayBuffersEqual(document.read().snapshot.paintBuffer, after.snapshot.paintBuffer)).toBe(true);
+    });
+
+    it.each(COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS)('preserves real drift from an unrelated $documentKey write outside extraction', async ({ documentKey, bytesPerPixel }) => {
+      const { store, brush, document, layer, after, extract } = await seedAnchoredHistory();
+      extract();
+      const extracted = readTestColorCycleBrushLayerSnapshot(brush, layer.id);
+      if (!extracted?.[documentKey]) throw new Error('Missing canonical CC plane');
+      const changed = extracted[documentKey]!.slice(0);
+      const changedBytes = new Uint8Array(changed);
+      const outsideIndex = (8 * 6 - 1) * bytesPerPixel;
+      changedBytes[outsideIndex] = 27;
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, { ...extracted, [documentKey]: changed });
+      store.cancelFloatingPaste();
+
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+      expect(new Uint8Array(document.read().snapshot[documentKey]!)[outsideIndex]).toBe(27);
+      expect(document.pixelVersion).toBeGreaterThan(after.pixelVersion);
+      await expect(store.undo()).rejects.toBeInstanceOf(HistoryReplayPreparationError);
+      expect(historyManager.entries()).toHaveLength(1);
+      expect(historyManager.redoEntries()).toHaveLength(0);
+    });
+  });
+
+  describe('history with an active floating selection', () => {
+    const seedRasterHistory = async () => {
+      const before = new ImageData(4, 4);
+      before.data.set([255, 0, 0, 255], (1 * 4 + 1) * 4);
+      const after = new ImageData(before.data.slice(), 4, 4);
+      after.data.set([0, 255, 0, 255], (2 * 4 + 2) * 4);
+      const layer = createLayer('floating-history-layer', after);
+      useAppStore.setState({
+        layers: [layer],
+        activeLayerId: layer.id,
+        project: {
+          id: 'floating-history-project', name: 'Floating history', width: 4, height: 4,
+          layers: [layer], backgroundColor: '#00000000', customBrushes: [],
+          createdAt: new Date(0), updatedAt: new Date(0),
+        },
+      });
+      await commitLayerHistory({
+        layerId: layer.id, beforeImage: before, beforeColorState: null,
+        actionType: 'brush', description: 'Paint pixels', tool: 'brush',
+      });
+      return { before, after };
+    };
+
+    const extractRaster = () => {
+      useAppStore.setState({ selectionStart: { x: 1, y: 1 }, selectionEnd: { x: 3, y: 3 } });
+      expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+      useAppStore.getState().updateFloatingPasteRect({ x: 0, y: 0, width: 3, height: 3 });
+      expect(useAppStore.getState().floatingPasteHistoryContext).not.toBeNull();
+    };
+
+    it.each([false, true])('Undo cancels extraction before replay when history is empty=%s', async (emptyHistory) => {
+      const { before, after } = await seedRasterHistory();
+      if (emptyHistory) historyManager.clear();
+      const entries = historyManager.entries().slice();
+      extractRaster();
+      const store = useAppStore.getState();
+      expect(store.canUndo()).toBe(true);
+
+      await expect(store.undo()).resolves.toBeNull();
+
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+      expect(useAppStore.getState().floatingPasteHistoryContext).toBeNull();
+      expect(useAppStore.getState().layers[0].imageData?.data).toEqual(after.data);
+      expect(historyManager.entries()).toEqual(entries);
+      expect(historyManager.redoEntries()).toHaveLength(0);
+      expect(store.canUndo()).toBe(!emptyHistory);
+      if (!emptyHistory) {
+        await store.undo();
+        expect(useAppStore.getState().layers[0].imageData?.data).toEqual(before.data);
+        expect(historyManager.entries()).toHaveLength(0);
+        expect(historyManager.redoEntries()).toHaveLength(1);
+      }
+    });
+
+    it('Undo discards a copied float even when there is no history', async () => {
+      const { after } = await seedRasterHistory();
+      historyManager.clear();
+      useAppStore.getState().setFloatingPaste({
+        imageData: new ImageData(2, 2), width: 2, height: 2, position: { x: 0, y: 0 },
+      });
+      expect(useAppStore.getState().canUndo()).toBe(true);
+      await useAppStore.getState().undo();
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+      expect(useAppStore.getState().layers[0].imageData?.data).toEqual(after.data);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(historyManager.redoEntries()).toHaveLength(0);
+    });
+
+    it('Redo cancels extraction without consuming the valid redo entry', async () => {
+      const { before, after } = await seedRasterHistory();
+      await useAppStore.getState().undo();
+      const redoEntries = historyManager.redoEntries().slice();
+      extractRaster();
+
+      await expect(useAppStore.getState().redo()).resolves.toBeNull();
+
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+      expect(useAppStore.getState().floatingPasteHistoryContext).toBeNull();
+      expect(useAppStore.getState().layers[0].imageData?.data).toEqual(before.data);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(historyManager.redoEntries()).toEqual(redoEntries);
+      await useAppStore.getState().redo();
+      expect(useAppStore.getState().layers[0].imageData?.data).toEqual(after.data);
+      expect(historyManager.redoEntries()).toHaveLength(0);
+    });
+
+    it.each(['undo', 'redo'] as const)('%s does not replay history when cancellation refuses restoration', async (direction) => {
+      await seedRasterHistory();
+      if (direction === 'redo') await useAppStore.getState().undo();
+      extractRaster();
+      const entries = historyManager.entries().slice();
+      const redoEntries = historyManager.redoEntries().slice();
+      const floatingPaste = useAppStore.getState().floatingPaste;
+      const extractedPixels = useAppStore.getState().layers[0].imageData?.data.slice();
+      const originalCancel = useAppStore.getState().cancelFloatingPaste;
+      // The restoration boundary can refuse while its source runtime is unavailable.
+      const cancelFloatingPaste = jest.fn();
+      useAppStore.setState({ cancelFloatingPaste });
+      try {
+        await expect(useAppStore.getState()[direction]()).resolves.toBeNull();
+        expect(cancelFloatingPaste).toHaveBeenCalledTimes(1);
+        expect(useAppStore.getState().floatingPaste).toBe(floatingPaste);
+        expect(useAppStore.getState().layers[0].imageData?.data).toEqual(extractedPixels);
+        expect(historyManager.entries()).toEqual(entries);
+        expect(historyManager.redoEntries()).toEqual(redoEntries);
+      } finally {
+        useAppStore.setState({ cancelFloatingPaste: originalCancel });
+      }
+    });
   });
 
   it('captures shape fill session lifecycle in history', async () => {

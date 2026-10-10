@@ -193,16 +193,18 @@ const getScaledCustomStamp = ({
   const srcXByTarget = new Uint16Array(targetWidth);
   const srcYByTarget = new Uint16Array(targetHeight);
   const rowOpaqueSpans: number[][] = Array.from({ length: targetHeight }, () => []);
+  // Multiply integer coordinates first so identity sizing cannot round a pixel
+  // down to its neighbor (for example, (57 / 82) * 82 is less than 57).
   for (let tx = 0; tx < targetWidth; tx += 1) {
     srcXByTarget[tx] = Math.min(
       stamp.width - 1,
-      Math.max(0, Math.floor((tx / targetWidth) * stamp.width))
+      Math.max(0, Math.floor((tx * stamp.width) / targetWidth))
     );
   }
   for (let ty = 0; ty < targetHeight; ty += 1) {
     srcYByTarget[ty] = Math.min(
       stamp.height - 1,
-      Math.max(0, Math.floor((ty / targetHeight) * stamp.height))
+      Math.max(0, Math.floor((ty * stamp.height) / targetHeight))
     );
   }
 

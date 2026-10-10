@@ -93,7 +93,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
 
   const handleMovePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!rect) {
+      if (event.button !== 0 || !rect) {
         return;
       }
 
@@ -122,7 +122,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
 
   const handleResizePointerDown = useCallback(
     (handle: CropHandle) => (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!rect) {
+      if (event.button !== 0 || !rect) {
         return;
       }
 
@@ -215,9 +215,10 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
 
   const handlePointerUp = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      handlePointerMove(event);
       finalizeInteraction(event.pointerId);
     },
-    [finalizeInteraction]
+    [finalizeInteraction, handlePointerMove]
   );
 
   const handlePointerCancel = useCallback(
@@ -320,7 +321,7 @@ const FloatingPasteOverlay: React.FC<FloatingPasteOverlayProps> = ({
                 pointerEvents: 'auto',
               }}
               onPointerDown={(event) => {
-                if (!rect) {
+                if (event.button !== 0 || !rect) {
                   return;
                 }
                 const overlayEl = overlayRef.current;
