@@ -732,13 +732,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return true;
     }
 
-    const didStartDirection = drawingHandlers.startShapeDrawing(directionWorld, pressure);
-    if (!didStartDirection) {
-      ccDirectionDebug('stage2-finalize-start-rejected', {
-        directionWorld,
-        ...getCcGradientDirectionPlaybackSnapshot(),
-      });
-      return true;
+    if (directionBrushShape === BrushShape.DITHER_GRADIENT) {
+      // Confirm the existing shape without replacing its stroke pressure with the click pressure.
+      drawingHandlers.directionPreviewRef.current = directionWorld;
+    } else {
+      const didStartDirection = drawingHandlers.startShapeDrawing(directionWorld, pressure);
+      if (!didStartDirection) {
+        ccDirectionDebug('stage2-finalize-start-rejected', {
+          directionWorld,
+          ...getCcGradientDirectionPlaybackSnapshot(),
+        });
+        return true;
+      }
     }
 
     ccDirectionDebug('stage2-finalize-started', getCcGradientDirectionPlaybackSnapshot());

@@ -1,19 +1,26 @@
 # Vessel whole-app audit handover — 10 October 2026, session 34
 
-## Current continuation — Session34, Area15 complete
+## Current continuation — Session34, Area16 complete
 
-Areas01–15 software-verified and locally committed; commit receipt is
-output/playwright/area15-commit-receipt-session34.json. A15-01 corrected double backdrop
-compositing at commitRasterShapeFill. Five scoped paths only; original47 paths and
-original3-file staged patch preserved. Native103configs910checks plus supporting
-native preview4/40 and shared Dither Grad4/28 pass. Full isolated596suites5666tests,
-type-check/lint/build pass. Read the latest inventory signoff and area15-owner-trace.
+Areas01–16 software-verified and locally committed; exact newest hash is in
+output/playwright/area16-commit-receipt-session34.json. A16-01 repaired Sierra Lite
+gradient density, A16-02 basic-shape/terminal sampling, A16-03 pressure retention
+at direction confirmation.12scoped files only; original47paths and original3-file
+staged patch preserved. Native108configs/905checks (final artifact42/341) and
+final isolated596suites/5670tests pass; type-check/lint/build/diff pass. One existing
+skip. Source/evidence pointers in area16-native-coverage-session34.json and the
+inventory final signoff. Do not rerun historical commit scripts.
 
-Area16 Dither Grad active: controls/source traced,4-shape translucent integration
-passed, core settings script prepared but not yet run. Start area16-owner-trace-
-session34.md and area16-core-session34.js under output/playwright. Continue16–65.
-Same named headless browser remains open while this audit is running; preserve the
-production watcher/server. Exact cleanup required before handoff. Earlier headers
+NEXT Area17 then18–65. Read output/playwright/area17-owner-trace-session34.md and
+area17-controls/switches-session34.json. Only native control inventory is complete;
+no17runtime tests/fixes/commit. Bristles/Pencil are reachable production controls.
+Original dirty CC owners/guide remain untouched. Initial17boundary is the two
+audit ledgers and ignored evidence; expand only for reproduced owner defects.
+
+Browser CLOSED with exact cleanup. Existing studio-service watcher and production
+server retained. No pending browser/source writers. Current runtime artifact is
+area16-preview-pressure-final-session34.json. Continue without renewed permission,
+no push/deploy/branch/worktree change. No substitute-model agents. Earlier headers
 below are historical and superseded by this entry.
 
 ## Current continuation — Session32

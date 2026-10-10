@@ -517,6 +517,8 @@ export function renderDitherGradientToImageData(params: DitherGradientRenderPara
   const grayscalePalette = createGrayscalePalette(levelCount);
   const dithered = applyPressureDither(coverageGrid.imageData, {
     algorithm,
+    // The gradient is scalar coverage, not Sierra's fixed Variety 0 colour surface.
+    signal: algorithm === 'sierra-lite' ? 'alpha' : undefined,
     pressure: 0.5,
     intensity: 1,
     bayerMatrixSize: 8,

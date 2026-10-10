@@ -1353,7 +1353,11 @@ export const createShapeToolHandler = (
     drawingHandlers.updateDitherGradSamples?.([{ x: worldPos.x, y: worldPos.y }]);
   };
 
-  const appendPolygonGradientPoint = (worldPos: { x: number; y: number }, constrainAspect = false) => {
+  const appendPolygonGradientPoint = (
+    worldPos: { x: number; y: number },
+    constrainAspect = false,
+    forceSample = false,
+  ) => {
     const state = getAppStoreState();
     const polygonState = state.polygonGradientState;
     if (polygonState.drawingState !== 'drawing') {
@@ -1378,7 +1382,10 @@ export const createShapeToolHandler = (
         color: resolvePolygonPointColor(point),
       }));
       state.setPolygonGradientState({ points: nextPoints });
-      drawingHandlers.updateDitherGradSamples?.(nextPoints);
+      drawingHandlers.updateDitherGradSamples?.(
+        geometry?.sampleSourcePoints ?? [start],
+        forceSample ? { force: true } : undefined,
+      );
       return true;
     }
 
@@ -1387,6 +1394,9 @@ export const createShapeToolHandler = (
     if (lastPoint) {
       const distance = Math.hypot(worldPos.x - lastPoint.x, worldPos.y - lastPoint.y);
       if (distance < MIN_POLYGON_POINT_SPACING) {
+        if (forceSample && points.length >= 3) {
+          drawingHandlers.updateDitherGradSamples?.(points, { force: true });
+        }
         return true;
       }
     }
@@ -1396,7 +1406,7 @@ export const createShapeToolHandler = (
     state.setPolygonGradientState({
       points: nextPoints,
     });
-    drawingHandlers.updateDitherGradSamples?.(nextPoints);
+    drawingHandlers.updateDitherGradSamples?.(nextPoints, forceSample ? { force: true } : undefined);
     return true;
   };
 
@@ -3829,7 +3839,7 @@ export const createShapeToolHandler = (
     const liveBrushForUp = getAppStoreState().tools.brushSettings;
     const isDitherGradient = liveBrushForUp.brushShape === BrushShape.DITHER_GRADIENT;
     if (isDitherGradient) {
-      appendPolygonGradientPoint(computeWorldPointer(event), event.shiftKey);
+      appendPolygonGradientPoint(computeWorldPointer(event), event.shiftKey, true);
       const nowTs =
         typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? performance.now()

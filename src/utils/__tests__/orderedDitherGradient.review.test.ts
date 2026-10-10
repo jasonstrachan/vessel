@@ -6,6 +6,29 @@ import {
 } from '@/utils/orderedDitherGradient';
 
 describe('Dither Gradient review fixes', () => {
+  it.each([1, 4])('preserves Sierra Lite gradient density at cell size %i', (pixelSize) => {
+    const image = renderDitherGradientToImageData({
+      width: 128,
+      height: 64,
+      axis: { start: { x: 0, y: 0 }, end: { x: 128, y: 0 }, dir: { x: 1, y: 0 }, length: 128 },
+      paletteRGBA: [[255, 0, 0, 255], [0, 0, 0, 0]],
+      algorithm: 'sierra-lite',
+      pixelSize,
+    });
+    const meanAlpha = (startX: number) => {
+      let sum = 0;
+      for (let y = 0; y < 64; y += 1) {
+        for (let x = startX; x < startX + 32; x += 1) {
+          sum += image.data[(y * 128 + x) * 4 + 3];
+        }
+      }
+      return sum / (32 * 64);
+    };
+
+    expect(meanAlpha(0)).toBeGreaterThan(180);
+    expect(meanAlpha(96)).toBeLessThan(80);
+  });
+
   it('computes an opposing-ends axis without an all-pairs scan', () => {
     const vertices = Array.from({ length: 5000 }, (_, index) => ({
       x: index,

@@ -21,8 +21,8 @@ colour, graphic depth, or a transition that should remain visibly digital.
 | Pxl Edge | Preserves hard pixel boundaries. |
 | Lostedge | Breaks the transition boundary. |
 | Length | Extends or compresses the gradient transition from 20% to 200%. Short is abrupt; long is atmospheric. |
-| Sample | Builds the gradient from colours under the gesture instead of only the chosen stops. |
-| Trans | Makes up to the trailing stop count transparent. This produces a true dissolve into existing paint. |
+| Sample | Builds the gradient from colours under the gesture. Free samples along its boundary gesture; Rect, Oval, and Tri sample along the drag between opposite corners. |
+| Trans | With BG Fill off, makes the selected number of trailing stops transparent. At least one stop remains opaque. BG Fill on keeps all stops opaque. |
 | BG Fill | Fills dither gaps with background colour. Disable it for a porous transition. |
 | Opacity | Strength of the whole gradient. |
 | Grid Snap / grid size | Aligns the gradient geometry to a repeatable module. |
@@ -33,7 +33,8 @@ approximately Res 6, BG Fill on, and sampling off.
 ## Painting with it
 
 Choose a drawing shape, drag its boundary, then move the pointer to orient
-the gradient and click to commit. Escape cancels before committing.
+the gradient and click to commit. Escape cancels before committing. With Pres Res
+on, the boundary gesture determines cell size; the direction click preserves it.
 
 - Orient the gradient along the actual direction of light, depth, or movement.
   A technically attractive ramp in the wrong direction weakens the form.

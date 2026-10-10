@@ -99,11 +99,15 @@ export const useBrushSamplingCallbacks = ({
     autoSampleLastAppliedHashRef,
   ]);
 
-  const updateDitherGradSamples = useCallback((sourcePts: Array<{ x: number; y: number }>) => {
+  const updateDitherGradSamples = useCallback((
+    sourcePts: Array<{ x: number; y: number }>,
+    options?: { force?: boolean },
+  ) => {
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
     updateDitherGradSamplesExternal({
       sourcePts,
       now,
+      force: options?.force,
       ditherGradSampleLastUpdateRef,
       deps: {
         storeRef,

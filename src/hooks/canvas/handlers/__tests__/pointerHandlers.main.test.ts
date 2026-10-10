@@ -2814,7 +2814,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.restartColorCycleAnimation).toHaveBeenCalled();
   });
 
-  it('commits the selected Dither Gradient direction on left click', async () => {
+  it('commits Dither Gradient direction without starting a new pressure sample', async () => {
     const { deps } = createDeps({
       tools: {
         ...baseDynamic.tools,
@@ -2842,10 +2842,8 @@ describe('pointerHandlers main flows', () => {
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 10 }));
 
-    expect(deps.drawingHandlers.startShapeDrawing).toHaveBeenCalledWith(
-      { x: 40, y: 10 },
-      expect.any(Number)
-    );
+    expect(deps.drawingHandlers.startShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.directionPreviewRef.current).toEqual({ x: 40, y: 10 });
     expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalledTimes(1);
     await finalizationDone;
     expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();

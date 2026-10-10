@@ -33,8 +33,8 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 13 | Soft brush: edge/size/opacity, pressure, spacing, blend | brush engine/settings | software-verified (Session33; 336 native checks; final full gate passed) |
 | 14 | Dither Stroke: algorithm, pattern, size, spacing, pressure, palette/alpha | strokeDitherRegion, brush controls | software-verified (Session34;192 native configurations/1,104checks; full gate passed) |
 | 15 | Dither Shape: geometry, silhouette preview/final fill, dither settings, fill/cancel/history | shape handlers, brush engine | software-verified (Session34: A15-01 repaired;103 configurations/910checks; full gate passed) |
-| 16 | Dither Grad: sampled/manual colours, gradient direction/range, geometry, dither settings | gradient shape runtime | pending |
-| 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | pending |
+| 16 | Dither Grad: sampled/manual colours, gradient direction/range, geometry, dither settings | gradient shape runtime | software-verified (Session34: A16-01–03 repaired;108 configurations/905checks; full gate passed) |
+| 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | active (Session34: native control inventory only; runtime checks pending) |
 | 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | pending |
 | 19 | CC Fixed Dither: density/pattern, sampling, palette, size, playback | CC mark session, strokeStampDither | pending |
 | 20 | CC shape/basic geometry: freehand/rectangle/ellipse/line/click-line, constraints, direction, preview/commit/cancel | CC gradient drawing runtime | pending |
@@ -2351,3 +2351,56 @@ Original47 path hashes and the3-file staged patch remain exact. No push/deployme
 Commit receipt: output/playwright/area15-commit-receipt-session34.json. Area16 now
 active,17–65 pending. Shared artistic/pattern-library/rotation/snap/preset-persistence
 work remains Area29. Hardware, other browsers and performance remain unverified.
+
+## Session34 — Area16 Dither Grad in progress
+
+A16-01: Sierra Lite produced a flat50/50 distribution for both opaque and
+transparent gradients. The scalar gradient coverage grid now uses Sierra's existing
+alpha-density signal. Cell sizes1/4 failed before and pass the owner regression.
+A16-02: Rect/Oval/Tri sampling retained only the initial color. Basic geometry now
+samples its existing drag endpoints, and pointer-up flushes sampling past the120ms
+preview throttle. Free and degenerate contracts remain covered; focused41tests pass.
+Scope is10paths (receipt area16-candidate-session34.json), including this ledger,
+handover and artist guide. Native final verification and full commit gates remain
+pending. Original47dirty paths and original3-file staged patch remain protected.
+Lost Edge needs no repair: native0/50/100 settings progressively erode coverage.
+
+A16-03: pressure-linked Max8 produced identical low/high pen commits even with
+explicit Bayer and sustained strokes. The direction-confirmation owner was
+starting another shape pressure sample from the click. Dither Grad now sets the
+selected direction and directly finalizes the existing shape. The boundary grows
+to12files: pointerHandlersRuntime and its existing main test. This preserves the
+original staged shapeDrawing source. Regression failed before;184direct tests pass
+after. New live pressure proof/full gates pending. The earlier596suite/5670test
+pass predates this third repair and is not its final gate.
+
+## Session34 — Area16 final signoff
+
+A16-01 routes Sierra Lite's scalar gradient through existing density diffusion;
+A16-02 samples basic geometry along drag endpoints and flushes the final sample;
+A16-03 confirms Dither Grad direction without taking another pressure sample.
+Final runtime review covers12scoped files; original47paths and original3-file
+staged patch are exact. No other pending user work is included.
+
+Selected native evidence:108configurations/905checks, zero browser errors/aborts.
+The first66configs (sampling16/112checks, algorithms and built-in patterns38/361,
+extremes12/91) verified the density/sampling owners. After the confirmation repair,
+final artifact42configs/341checks reverified pressure6/53, sustained preview/commit
+pressure2/19, explicit Bayer length3/25, displayed preview4/42, curved Pixel Edge
+4/32, degenerate/canvas-edge3/17, core workflow16/125, fast6-color sampling4/28.
+The renderer/sampling owners are unchanged between these two artifacts. Exact
+run names and bundle hashes: output/playwright/area16-native-coverage-session34.json.
+Final bundle receipt: area16-preview-pressure-final-session34.json.
+
+Final isolated12-file candidate gate:596suites/5670tests pass; one existing suite
+and test skipped, one snapshot pass. Type-check/lint/production build/diff check
+pass. Hardware pen behavior, performance and other browsers remain unverified.
+Custom pattern management belongs to Area29. Prior failed Enter/transparent-color,
+inherited-pattern contrast, and empty-vector-overlay preview assertions were test
+oracle errors; retained evidence explains corrections. Native pressure failures
+were real and passed only after A16-03. Lost Edge needed no change.
+
+Focused local commit receipt: output/playwright/area16-commit-receipt-session34.json.
+Area17 discovery begins: actual Color Cycle Stroke controls inventoried, including
+reachable Bristles/Pencil; no17runtime signoff or fixes. Continue17–65. Browser
+closed with exact-session cleanup; existing watcher/server retained.

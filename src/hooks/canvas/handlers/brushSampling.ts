@@ -334,15 +334,17 @@ export const updateAutoSampledGradient = ({
 export const updateDitherGradSamples = ({
   sourcePts,
   now,
+  force = false,
   ditherGradSampleLastUpdateRef,
   deps,
 }: {
   sourcePts: Array<{ x: number; y: number }>;
   now: number;
+  force?: boolean;
   ditherGradSampleLastUpdateRef: React.MutableRefObject<number>;
   deps: BrushSamplingDeps;
 }): void => {
-  if (now - ditherGradSampleLastUpdateRef.current < 120) {
+  if (!force && now - ditherGradSampleLastUpdateRef.current < 120) {
     return;
   }
 

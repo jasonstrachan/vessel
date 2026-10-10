@@ -129,6 +129,10 @@ describe('ShapeToolHandler dither gradient sampling', () => {
       expect(Math.max(...points.map(point => point.y))).toBe(70);
       expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
       expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+      expect(deps.drawingHandlers.updateDitherGradSamples).toHaveBeenLastCalledWith(
+        [{ x: 80, y: 70 }, { x: 20, y: 10 }],
+        { force: true },
+      );
     }
   );
 
@@ -377,7 +381,7 @@ describe('ShapeToolHandler dither gradient sampling', () => {
       expect.objectContaining({ x: 10, y: 10 }),
       expect.objectContaining({ x: 20, y: 10 }),
       expect.objectContaining({ x: 20, y: 20 }),
-    ]);
+    ], { force: true });
     expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
     expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
       expect.objectContaining({ x: 10, y: 10 }),

@@ -17,6 +17,41 @@ const mockSetSharedColorCycleGradient =
   setSharedColorCycleGradient as jest.MockedFunction<typeof setSharedColorCycleGradient>;
 
 describe('updateDitherGradSamples', () => {
+  it.each([false, true])('bypasses only the preview throttle for a forced release sample: %s', (force) => {
+    const setBrushSettings = jest.fn();
+    const store = {
+      tools: { brushSettings: {
+        brushShape: BrushShape.DITHER_GRADIENT,
+        ditherGradSampleEnabled: true,
+        ditherGradStops: ['#000000', '#000000'],
+        trans: 0,
+      } },
+      setBrushSettings,
+    } as unknown as AppState;
+    const lastUpdate = { current: 1000 };
+    updateDitherGradSamples({
+      sourcePts: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      now: 1001,
+      force,
+      ditherGradSampleLastUpdateRef: lastUpdate,
+      deps: {
+        storeRef: { current: store },
+        drawingCanvasRef: { current: null },
+        drawingCtxRef: { current: null },
+        drawingCanvasHasContent: { current: false },
+        sampleColorAt: (x) => x < 50 ? '#2040c0' : '#f03020',
+      },
+    });
+
+    if (force) {
+      expect(setBrushSettings).toHaveBeenCalledWith({ ditherGradStops: ['#2040c0', '#f03020'] });
+      expect(lastUpdate.current).toBe(1001);
+    } else {
+      expect(setBrushSettings).not.toHaveBeenCalled();
+      expect(lastUpdate.current).toBe(1000);
+    }
+  });
+
   it('preserves a valid transparent count for sampled palettes above two colors', () => {
     const setBrushSettings = jest.fn();
     const store = {
