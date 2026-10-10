@@ -10,12 +10,17 @@ import {
 
 class SelectionBoundsDelta implements HistoryDelta {
   readonly _tag = 'selection-bounds';
-  readonly approxBytes = 64;
+  readonly approxBytes: number;
 
   constructor(
     private readonly beforeSnapshot: SelectionSnapshot,
     private readonly afterSnapshot: SelectionSnapshot,
-  ) {}
+  ) {
+    const snapshotBytes = (snapshot: SelectionSnapshot): number =>
+      (snapshot.mask?.data.byteLength ?? 0) + (snapshot.vectorPath?.points.length ?? 0) * 16 +
+      (snapshot.maskLayerId?.length ?? 0) * 2 + JSON.stringify(snapshot.provenance ?? null).length * 2;
+    this.approxBytes = 64 + snapshotBytes(beforeSnapshot) + snapshotBytes(afterSnapshot);
+  }
 
   prepare(direction: HistoryDirection): PreparedHistoryDelta {
     return prepareAppStoreHistoryDelta(
@@ -44,19 +49,33 @@ class SelectionBoundsDelta implements HistoryDelta {
 
     if (normalized.start && normalized.end) {
       const historySource = `history-selection-${direction}`;
-      store.setSelectionBounds(
-        { x: normalized.start.x, y: normalized.start.y },
-        { x: normalized.end.x, y: normalized.end.y },
-        historySource,
-        {
+      const mask = normalized.mask;
+      const selectionMask = mask ? new ImageData(mask.width, mask.height) : null;
+      if (mask && selectionMask) selectionMask.data.set(mask.data);
+      useAppStore.setState({
+        selectionStart: normalized.start,
+        selectionEnd: normalized.end,
+        selectionMask,
+        selectionMaskBounds: normalized.maskBounds ?? null,
+        selectionMaskLayerId: normalized.maskLayerId ?? null,
+        selectionVectorPath: normalized.vectorPath ?? null,
+        selectionLastAction: {
           ...(normalized.provenance ?? {}),
+          action: normalized.provenance?.action ?? 'set-bounds',
           source: historySource,
           ownerKind: 'history-restored',
           restoredFromHistory: true,
+          t: normalized.provenance?.t ?? Date.now(),
           activeLayerId: normalized.provenance?.activeLayerId ?? null,
-          maskLayerId: normalized.provenance?.maskLayerId ?? null,
+          maskLayerId: normalized.provenance?.maskLayerId ?? normalized.maskLayerId ?? null,
+          bounds: normalized.provenance?.bounds ?? {
+            x: Math.min(normalized.start.x, normalized.end.x),
+            y: Math.min(normalized.start.y, normalized.end.y),
+            width: Math.abs(normalized.end.x - normalized.start.x),
+            height: Math.abs(normalized.end.y - normalized.start.y),
+          },
         },
-      );
+      });
     } else {
       store.clearSelection();
     }
@@ -71,8 +90,8 @@ interface SelectionDeltaOptions {
 export const createSelectionDelta = (
   options: SelectionDeltaOptions,
 ): HistoryDelta | null => {
-  const before = normalizeSelectionSnapshot(options.before);
-  const after = normalizeSelectionSnapshot(options.after);
+  const before = options.before;
+  const after = options.after;
   if (selectionSnapshotsEqual(before, after)) {
     return null;
   }

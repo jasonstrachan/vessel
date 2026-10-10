@@ -1,4 +1,5 @@
 import historyManager from '@/history/historyService';
+import { captureSelectionSnapshot } from '@/history/helpers/selectionHistory';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { commitSequentialLayerHistory } from '@/history/helpers/sequentialLayerHistory';
 import { cloneSequentialLayerData } from '@/history/deltas/sequentialFrameDelta';
@@ -194,6 +195,42 @@ describe('sequential history ordering', () => {
     expect(readSequence()).toEqual(expectedBefore);
     await historyManager.redo();
     expect(readSequence()).toEqual(expectedAfter);
+  });
+
+  it('captures complete selection before and after state before the history queue drains', async () => {
+    const before = sequentialData(['other-frame']);
+    const after = sequentialData(['other-frame', 'delete']);
+    useAppStore.getState().setSelectionBounds({ x: 0, y: 0 }, { x: 1, y: 1 }, 'selection-marquee-final');
+    const mask = new ImageData(new Uint8ClampedArray([12, 34, 56, 128]), 1, 1);
+    useAppStore.setState({ selectionMask: mask, selectionMaskBounds: { x: 0, y: 0, width: 1, height: 1 },
+      selectionMaskLayerId: 'original-owner', selectionVectorPath: { mode: 'freehand', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] } });
+    const selection = { selectionBefore: captureSelectionSnapshot() };
+    useAppStore.getState().clearSelection();
+    writeSequence(after);
+    const held = holdHistory();
+    const pending = commitSequentialLayerHistory({ layerId: 'sequence', beforeSequentialData: before,
+      afterSequentialData: after, actionType: 'delete', description: 'Delete masked sequence', tool: 'selection',
+      ...selection, coalesce: { key: 'selection-delete:sequence:0', maxIntervalMs: 250 } });
+    selection.selectionBefore.start!.x = 6;
+    selection.selectionBefore.mask!.data.fill(0);
+    selection.selectionBefore.vectorPath!.points[0].x = 6;
+    mask.data.fill(0);
+    useAppStore.getState().setSelectionBounds({ x: 7, y: 7 }, { x: 8, y: 8 });
+    expect(historyManager.entries()).toHaveLength(0);
+    releases[0]();
+    await Promise.all([held, pending]);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.peekUndo()?.meta?.coalesceKey).toBe('selection-delete:sequence:0');
+    await historyManager.undo();
+    expect(readSequence()).toEqual(before);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 0, y: 0 });
+    expect(useAppStore.getState().selectionMask?.data).toEqual(new Uint8ClampedArray([12, 34, 56, 128]));
+    expect(useAppStore.getState().selectionMaskLayerId).toBe('original-owner');
+    expect(useAppStore.getState().selectionVectorPath).toEqual({ mode: 'freehand', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] });
+    await historyManager.redo();
+    expect(readSequence()).toEqual(after);
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    expect(useAppStore.getState().selectionMask).toBeNull();
   });
 
   it('settles when the caller tracks the returned promise as pending history', async () => {

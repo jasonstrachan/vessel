@@ -110,7 +110,11 @@ export const performCanvasUndo = async ({
     includeFloatingPaste: false,
     dispatchInteractionEnd: true,
   });
-  if (cancelledActiveOperation || !(await canUndo())) {
+  if (cancelledActiveOperation) {
+    return;
+  }
+  await waitForPendingHistoryCommits();
+  if (!(await canUndo())) {
     return;
   }
   await undo();

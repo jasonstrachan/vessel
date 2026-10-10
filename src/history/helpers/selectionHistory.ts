@@ -3,16 +3,12 @@ import { useAppStore } from '@/stores/useAppStore';
 import { createSelectionDelta } from '@/history/deltas/selectionDelta';
 import {
   cloneSelectionSnapshot,
-  selectionSnapshotFromValues,
+  selectionSnapshotFromState,
   type SelectionSnapshot,
 } from '@/history/selectionState';
 
 export const captureSelectionSnapshot = (): SelectionSnapshot =>
-  selectionSnapshotFromValues(
-    useAppStore.getState().selectionStart,
-    useAppStore.getState().selectionEnd,
-    useAppStore.getState().selectionLastAction,
-  );
+  selectionSnapshotFromState(useAppStore.getState());
 
 interface CommitSelectionHistoryOptions {
   before: SelectionSnapshot;

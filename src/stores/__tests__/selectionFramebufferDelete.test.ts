@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/useAppStore';
 import historyManager from '@/history/historyService';
+import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 import { BrushShape, type Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { clearSequentialLayerRendererAll } from '@/lib/sequential/SequentialLayerRenderer';
@@ -45,6 +46,303 @@ describe('selection delete updates framebuffer', () => {
     historyManager.clear();
     clearSequentialLayerRendererAll();
     window.localStorage.clear();
+  });
+
+  it.each(
+    (['normal', 'color-cycle', 'sequential'] as const).flatMap((layerType) =>
+      (['api-delete', 'keyboard-delete'] as const).map((source) => ({ layerType, source }))),
+  )('preserves content, masked selection, and history for locked $layerType $source', async ({ layerType, source }) => {
+    await waitForPendingHistoryCommits();
+    historyManager.clear();
+    const canvas = document.createElement('canvas');
+    canvas.width = 4;
+    canvas.height = 4;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    expect(ctx).not.toBeNull();
+    ctx!.fillStyle = '#ff0000';
+    ctx!.fillRect(0, 0, 4, 4);
+    const layerId = `locked-${layerType}-${source}`;
+    const layer: Layer = {
+      id: layerId,
+      name: layerId,
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: true,
+      order: 0,
+      imageData: layerType === 'normal' ? ctx!.getImageData(0, 0, 4, 4) : null,
+      framebuffer: canvas,
+      alignment: createDefaultLayerAlignment(),
+      layerType,
+      ...(layerType === 'color-cycle' ? {
+        colorCycleData: { canvas, hasContent: true },
+      } : {}),
+      ...(layerType === 'sequential' ? {
+        sequentialData: {
+          frameCount: 1,
+          fps: 12,
+          durationMs: 83,
+          eventChunks: [],
+          events: [{
+            id: 'locked-seed',
+            layerId,
+            strokeId: 'locked-seed',
+            timestampMs: 0,
+            frameIndex: 0,
+            brush: {
+              tool: 'brush' as const,
+              brushShape: BrushShape.SQUARE,
+              size: 2,
+              opacity: 1,
+              blendMode: 'source-over' as const,
+              rotation: 0,
+              spacing: 1,
+              color: '#ff0000',
+            },
+            stamps: [{ x: 2, y: 2, pressure: 1, rotation: 0, size: 2, alpha: 1 }],
+          }],
+        },
+      } : {}),
+    };
+    useAppStore.setState({ layers: [layer], activeLayerId: layerId });
+    if (layerType === 'color-cycle') {
+      useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+      const brush = getColorCycleBrushManager().getBrush(layerId);
+      expect(brush).toBeDefined();
+      applyColorCycleBrushLayerSnapshotToRuntime(brush!, layerId, {
+        paintBuffer: new Uint8Array(16).fill(9).buffer,
+        gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+        gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer,
+        speedBuffer: new Uint8Array(16).fill(3).buffer,
+        flowBuffer: new Uint8Array(16).fill(4).buffer,
+        phaseBuffer: new Uint8Array(16).fill(5).buffer,
+        hasContent: true,
+        strokeCounter: 1,
+      });
+    }
+    const selectionMask = new ImageData(new Uint8ClampedArray(16).fill(255), 2, 2);
+    useAppStore.getState().setSelectionBounds({ x: 1, y: 1 }, { x: 3, y: 3 }, 'selection-marquee-final');
+    useAppStore.setState({
+      selectionMask,
+      selectionMaskBounds: { x: 1, y: 1, width: 2, height: 2 },
+      selectionMaskLayerId: layerId,
+      selectionVectorPath: { mode: 'freehand', points: [{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }] },
+      layersNeedRecomposition: false,
+      pendingCompositeDirtyBatches: [],
+    });
+    const before = useAppStore.getState();
+    const beforeMaskBytes = new Uint8ClampedArray(selectionMask.data);
+    const beforeLayer = before.layers.find((candidate) => candidate.id === layerId)!;
+    expect(beforeLayer.locked).toBe(true);
+    const beforeImage = beforeLayer.imageData ? Array.from(beforeLayer.imageData.data) : null;
+    const beforeFramebuffer = Array.from(ctx!.getImageData(0, 0, 4, 4).data);
+    const beforeSequence = JSON.stringify(beforeLayer.sequentialData);
+    const brush = layerType === 'color-cycle' ? getColorCycleBrushManager().getBrush(layerId) : undefined;
+    const captureCc = () => JSON.stringify(readTestColorCycleBrushLayerSnapshot(brush, layerId), (_key, value: unknown) =>
+      value instanceof ArrayBuffer ? Array.from(new Uint8Array(value)) : value);
+    const beforeCc = brush ? captureCc() : null;
+    const eraseMask = beforeLayer.colorCycleData?.eraseMask;
+    const beforeEraseMask = eraseMask?.getContext('2d')?.getImageData(0, 0, 4, 4);
+    const beforeUndo = historyManager.entries().slice();
+    const beforeRedo = historyManager.redoEntries().slice();
+
+    useAppStore.getState().deleteSelectedPixels(source);
+    await waitForPendingHistoryCommits();
+
+    const after = useAppStore.getState();
+    const afterLayer = after.layers.find((candidate) => candidate.id === layerId)!;
+    expect(after.layers).toBe(before.layers);
+    expect(afterLayer.imageData ? Array.from(afterLayer.imageData.data) : null).toEqual(beforeImage);
+    expect(Array.from(ctx!.getImageData(0, 0, 4, 4).data)).toEqual(beforeFramebuffer);
+    expect(JSON.stringify(afterLayer.sequentialData)).toBe(beforeSequence);
+    if (brush) expect(captureCc()).toBe(beforeCc);
+    if (beforeEraseMask) {
+      expect(eraseMask!.getContext('2d')!.getImageData(0, 0, 4, 4).data).toEqual(beforeEraseMask.data);
+    }
+    for (const key of [
+      'selectionStart', 'selectionEnd', 'selectionMask', 'selectionMaskBounds',
+      'selectionMaskLayerId', 'selectionVectorPath', 'selectionLastAction',
+    ] as const) expect(after[key]).toBe(before[key]);
+    expect(after.selectionMask!.data).toEqual(beforeMaskBytes);
+    expect(after.layersNeedRecomposition).toBe(false);
+    expect(after.pendingCompositeDirtyBatches).toEqual([]);
+    expect(historyManager.entries()).toEqual(beforeUndo);
+    expect(historyManager.redoEntries()).toEqual(beforeRedo);
+  });
+
+  it.each([
+    { layerType: 'normal', extracted: false }, { layerType: 'normal', extracted: true },
+    { layerType: 'color-cycle', extracted: false }, { layerType: 'color-cycle', extracted: true },
+    { layerType: 'sequential', extracted: false },
+  ] as const)('restores exact masked selection for $layerType delete (extracted=$extracted)', async ({ layerType, extracted }) => {
+    await waitForPendingHistoryCommits();
+    historyManager.clear();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 4;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, 4, 4);
+    const layerId = `masked-${layerType}-${extracted}`;
+    const layer: Layer = { id: layerId, name: layerId, order: 0, visible: true, locked: false, opacity: 1,
+      blendMode: 'source-over', alignment: createDefaultLayerAlignment(), framebuffer: canvas,
+      imageData: layerType === 'normal' ? ctx.getImageData(0, 0, 4, 4) : null, layerType,
+      ...(layerType === 'color-cycle' ? { colorCycleData: { canvas, hasContent: true } } : {}),
+      ...(layerType === 'sequential' ? { sequentialData: { frameCount: 1, fps: 12, durationMs: 83,
+        events: [{ id: 'mask-seed', layerId, strokeId: 'mask-seed', timestampMs: 0, frameIndex: 0,
+          brush: { tool: 'brush' as const, brushShape: BrushShape.SQUARE, size: 4, opacity: 1, blendMode: 'source-over' as const,
+            rotation: 0, spacing: 1, color: '#ff0000' },
+          stamps: [{ x: 2, y: 2, pressure: 1, rotation: 0, size: 4, alpha: 1 }] }], eventChunks: [] } } : {}),
+    };
+    useAppStore.setState({ layers: [layer], activeLayerId: layerId });
+    if (layerType === 'color-cycle') {
+      useAppStore.getState().initColorCycleForLayer(layerId, 4, 4);
+      const brush = getColorCycleBrushManager().getBrush(layerId)!;
+      expect(brush).toBeDefined();
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+        paintBuffer: new Uint8Array(16).fill(9).buffer, gradientIdBuffer: new Uint8Array(16).fill(1).buffer,
+        gradientDefIdBuffer: new Uint16Array(16).fill(2).buffer, speedBuffer: new Uint8Array(16).fill(3).buffer,
+        flowBuffer: new Uint8Array(16).fill(4).buffer, phaseBuffer: new Uint8Array(16).fill(5).buffer,
+        hasContent: true, strokeCounter: 1,
+      });
+    }
+    const mask = new ImageData(new Uint8ClampedArray([12, 34, 56, 255, 1, 2, 3, 0, 4, 5, 6, 128, 7, 8, 9, 255]), 2, 2);
+    const vector = { mode: 'freehand' as const, points: [{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }] };
+    useAppStore.getState().setSelectionBounds({ x: 1, y: 1 }, { x: 3, y: 3 }, 'selection-marquee-final');
+    useAppStore.setState({ selectionMask: mask, selectionMaskBounds: { x: 1, y: 1, width: 2, height: 2 },
+      selectionMaskLayerId: layerId, selectionVectorPath: vector });
+    const readContent = () => {
+      const current = useAppStore.getState().layers.find((entry) => entry.id === layerId)!;
+      if (layerType === 'sequential') return JSON.stringify(current.sequentialData);
+      if (layerType === 'color-cycle') {
+        const snapshot = readTestColorCycleBrushLayerSnapshot(getColorCycleBrushManager().getBrush(layerId), layerId)!;
+        return JSON.stringify(['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer']
+          .map((key) => Array.from(new Uint8Array(snapshot[key as keyof typeof snapshot] as ArrayBuffer))));
+      }
+      return JSON.stringify(Array.from(current.imageData!.data));
+    };
+    const initialContent = readContent();
+    const remove = async () => {
+      if (extracted) {
+        expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+        await useAppStore.getState().deleteFloatingPaste();
+      } else useAppStore.getState().deleteSelectedPixels('api-delete');
+      await waitForPendingHistoryCommits();
+    };
+    await remove();
+    expect(readContent()).not.toBe(initialContent);
+    const deletedContent = readContent();
+    expect(historyManager.entries()).toHaveLength(1);
+    await useAppStore.getState().undo();
+    expect(readContent()).toBe(initialContent);
+    const restored = useAppStore.getState();
+    expect(restored.selectionStart).toEqual({ x: 1, y: 1 });
+    expect(restored.selectionEnd).toEqual({ x: 3, y: 3 });
+    expect(restored.selectionMask?.data).toEqual(mask.data);
+    expect(restored.selectionMaskBounds).toEqual({ x: 1, y: 1, width: 2, height: 2 });
+    expect(restored.selectionMaskLayerId).toBe(layerId);
+    expect(restored.selectionVectorPath).toEqual(vector);
+    expect(restored.selectionLastAction).toEqual(expect.objectContaining({ ownerKind: 'history-restored', restoredFromHistory: true, activeLayerId: layerId }));
+    await useAppStore.getState().redo();
+    expect(readContent()).toBe(deletedContent);
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    await useAppStore.getState().undo();
+    await remove();
+    if (layerType !== 'sequential') expect(readContent()).toBe(deletedContent);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+  });
+
+  it.each([
+    { name: 'negative origin clipped at both edges', maskX: -8, maskY: -8, maskSize: 32, rectX: -8, rectY: -8, rectSize: 32 },
+    { name: 'positive origin with explicit mask offsets', maskX: 2, maskY: 3, maskSize: 32, rectX: 8, rectY: 9, rectSize: 16 },
+  ])('preserves CC mask coordinates and all canonical buffers for $name', async ({ name, maskX, maskY, maskSize, rectX, rectY, rectSize }) => {
+    await waitForPendingHistoryCommits();
+    historyManager.clear();
+    const size = 40;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const layerId = `mask-origin-${name}`;
+    const layer: Layer = {
+      id: layerId, name: layerId, visible: true, locked: false, opacity: 1, order: 0,
+      blendMode: 'source-over', alignment: createDefaultLayerAlignment(),
+      imageData: null, framebuffer: canvas, layerType: 'color-cycle',
+      colorCycleData: { canvas, hasContent: true },
+    };
+    useAppStore.setState((state) => ({
+      project: { ...state.project!, width: size, height: size },
+      layers: [layer], activeLayerId: layerId,
+      selectionMask: null, selectionMaskBounds: null, selectionMaskLayerId: null, selectionVectorPath: null,
+    }));
+    useAppStore.getState().initColorCycleForLayer(layerId, size, size);
+    const brush = getColorCycleBrushManager().getBrush(layerId)!;
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: new Uint8Array(size * size).fill(9).buffer,
+      gradientIdBuffer: new Uint8Array(size * size).fill(1).buffer,
+      gradientDefIdBuffer: new Uint16Array(size * size).fill(258).buffer,
+      speedBuffer: new Uint8Array(size * size).fill(3).buffer,
+      flowBuffer: new Uint8Array(size * size).fill(4).buffer,
+      phaseBuffer: new Uint8Array(size * size).fill(5).buffer,
+      hasContent: true, strokeCounter: 1,
+    });
+    const mask = new ImageData(maskSize, maskSize);
+    for (let y = 0; y < maskSize; y += 1) {
+      for (let x = 0; x < maskSize; x += 1) {
+        const i = (y * maskSize + x) * 4;
+        mask.data[i] = 17;
+        mask.data[i + 1] = 29;
+        mask.data[i + 2] = 41;
+        mask.data[i + 3] = x >= 12 && x < 20 && y >= 12 && y < 20 ? 0 : [48, 128, 255][(x + y) % 3];
+      }
+    }
+    const originalMaskBytes = mask.data.slice();
+    const maskBounds = { x: maskX, y: maskY, width: maskSize, height: maskSize };
+    useAppStore.getState().appendSelectionMask({ mask, bounds: maskBounds, layerId });
+    // A smaller selection rectangle exercises the helper's explicit source offset.
+    useAppStore.setState({
+      selectionStart: { x: rectX, y: rectY },
+      selectionEnd: { x: rectX + rectSize, y: rectY + rectSize },
+    });
+    const admittedMask = useAppStore.getState().selectionMask!;
+    const admittedMaskBytes = admittedMask.data.slice();
+    const keys = ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const;
+    const capture = () => {
+      const snapshot = readTestColorCycleBrushLayerSnapshot(getColorCycleBrushManager().getBrush(layerId), layerId)!;
+      return keys.map((key) => key === 'gradientDefIdBuffer'
+        ? Array.from(new Uint16Array(snapshot[key]!))
+        : Array.from(new Uint8Array(snapshot[key]!)));
+    };
+    const before = capture();
+    const expected = before.map((buffer) => buffer.map((value, index) => {
+      const x = index % size;
+      const y = Math.floor(index / size);
+      const mx = x - maskX;
+      const my = y - maskY;
+      const selected = x >= rectX && x < rectX + rectSize && y >= rectY && y < rectY + rectSize &&
+        mx >= 0 && mx < maskSize && my >= 0 && my < maskSize && mask.data[(my * maskSize + mx) * 4 + 3] > 0;
+      return selected ? 0 : value;
+    }));
+    expect(expected[0].filter((value) => value === 0).length).toBeGreaterThan(0);
+    expect(expected[0].filter((value) => value !== 0).length).toBeGreaterThan(0);
+
+    useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+    await waitForPendingHistoryCommits();
+    expect(capture()).toEqual(expected);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    expect(mask.data).toEqual(originalMaskBytes);
+    expect(admittedMask.data).toEqual(admittedMaskBytes);
+
+    await useAppStore.getState().undo();
+    expect(capture()).toEqual(before);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: rectX, y: rectY });
+    expect(useAppStore.getState().selectionEnd).toEqual({ x: rectX + rectSize, y: rectY + rectSize });
+    expect(useAppStore.getState().selectionMaskBounds).toEqual(maskBounds);
+    expect(useAppStore.getState().selectionMaskLayerId).toBe(layerId);
+    expect(useAppStore.getState().selectionMask?.data).toEqual(admittedMaskBytes);
+    await useAppStore.getState().redo();
+    expect(capture()).toEqual(expected);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(useAppStore.getState().selectionMask).toBeNull();
+    expect(mask.data).toEqual(originalMaskBytes);
+    expect(admittedMask.data).toEqual(admittedMaskBytes);
   });
 
   it('keeps adjustment layers non-paintable for selection delete and extract', () => {
@@ -1334,4 +1632,73 @@ describe('selection delete updates framebuffer', () => {
       }),
     ]));
   });
+});
+
+
+describe('inverted raster selection delete alignment history', () => {
+  beforeEach(async () => {
+    await waitForPendingHistoryCommits();
+    resetStore();
+    historyManager.clear();
+  });
+
+  it.each(['auto', 'anchor'] as const)(
+    'keeps immediate deletion pixels and full metadata identical to redo for %s positioning',
+    async (positioning) => {
+      const framebuffer = document.createElement('canvas');
+      framebuffer.width = framebuffer.height = 4;
+      const ctx = framebuffer.getContext('2d')!;
+      ctx.fillStyle = '#ff0000';
+      ctx.fillRect(0, 0, 4, 4);
+      const layer: Layer = {
+        id: 'inverted-delete-alignment', name: 'Inverted delete alignment', visible: true,
+        opacity: 0.7, blendMode: 'source-over', locked: false, order: 0,
+        layerType: 'normal', imageData: ctx.getImageData(0, 0, 4, 4), framebuffer,
+        alignment: {
+          ...createDefaultLayerAlignment(), positioning,
+          ...(positioning === 'anchor' ? {
+            offsetPx: { x: 3, y: -2 }, offsetPercent: { x: 37, y: -25 },
+          } : {}),
+        },
+      };
+      useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+      await useAppStore.getState().captureCanvasToActiveLayer(framebuffer, undefined, { mode: 'replace' });
+      const snapshot = () => {
+        const current = useAppStore.getState().layers[0];
+        const { imageData, framebuffer: currentFramebuffer, ...metadata } = current;
+        return {
+          metadata,
+          pixels: new Uint8ClampedArray(imageData!.data),
+          framebufferPixels: (currentFramebuffer.getContext('2d') as CanvasRenderingContext2D)
+            .getImageData(0, 0, 4, 4).data,
+        };
+      };
+      const before = snapshot();
+      useAppStore.getState().setSelectionBounds({ x: 1, y: 0 }, { x: 2, y: 2 });
+      useAppStore.getState().invertSelection();
+      expect(useAppStore.getState().selectionMask).not.toBeNull();
+      useAppStore.getState().deleteSelectedPixels('keyboard-delete');
+      await waitForPendingHistoryCommits();
+      const immediate = snapshot();
+      expect(historyManager.entries()).toHaveLength(1);
+      await historyManager.undo();
+      const undone = snapshot();
+      await historyManager.redo();
+      const redone = snapshot();
+
+      const expectedPixels = new Uint8ClampedArray(64);
+      expectedPixels.set([255, 0, 0, 255], 4);
+      expectedPixels.set([255, 0, 0, 255], 20);
+      const expectedAlignment = positioning === 'auto' ? {
+        ...before.metadata.alignment,
+        offsetPercent: { x: (1 / 3) * 100, y: 0 }, offsetPx: { x: 1, y: 0 },
+      } : before.metadata.alignment;
+      expect(immediate).toEqual({
+        metadata: { ...before.metadata, alignment: expectedAlignment },
+        pixels: expectedPixels, framebufferPixels: expectedPixels,
+      });
+      expect(undone).toEqual(before);
+      expect(redone).toEqual(immediate);
+    },
+  );
 });

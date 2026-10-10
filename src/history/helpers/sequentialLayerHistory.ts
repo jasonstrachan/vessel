@@ -1,4 +1,6 @@
 import historyManager from '@/history/historyService';
+import { createSelectionDelta } from '@/history/deltas/selectionDelta';
+import { cloneSelectionSnapshot, selectionSnapshotFromState, type SelectionSnapshot } from '@/history/selectionState';
 import type { HistoryActionId } from '@/history/actionTypes';
 import {
   canUseSequentialAppendDelta,
@@ -30,6 +32,7 @@ export interface SequentialLayerHistoryPayload {
   description: string;
   tool: string;
   coalesce?: SequentialHistoryCoalesce;
+  selectionBefore?: SelectionSnapshot | null;
 }
 
 const markUnsavedChanges = (): void => {
@@ -72,11 +75,14 @@ export const commitSequentialLayerHistory = async ({
   description,
   tool,
   coalesce,
+  selectionBefore,
 }: SequentialLayerHistoryPayload): Promise<void> => {
   if (sequentialDataEquals(beforeSequentialData, afterSequentialData)) {
     return;
   }
 
+  const selectionBeforeSnapshot = selectionBefore ? cloneSelectionSnapshot(selectionBefore) : null;
+  const selectionAfterSnapshot = selectionBeforeSnapshot ? selectionSnapshotFromState(useAppStore.getState()) : null;
   const before = cloneSequentialLayerData(beforeSequentialData);
   const after = cloneSequentialLayerData(afterSequentialData);
   const capturedCoalesce = coalesce
@@ -124,6 +130,10 @@ export const commitSequentialLayerHistory = async ({
       : createSequentialFrameDelta;
 
     txn.push(createDelta({ layerId, before, after }));
+    if (selectionBeforeSnapshot && selectionAfterSnapshot) {
+      const selectionDelta = createSelectionDelta({ before: selectionBeforeSnapshot, after: selectionAfterSnapshot });
+      if (selectionDelta) txn.push(selectionDelta);
+    }
     txn.commit(description);
     markUnsavedChanges();
   });

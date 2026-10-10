@@ -13,7 +13,7 @@ import { createSelectionDelta } from '@/history/deltas/selectionDelta';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import {
   cloneSelectionSnapshot,
-  selectionSnapshotFromValues,
+  selectionSnapshotFromState,
   type SelectionSnapshot,
 } from '@/history/selectionState';
 import { strokeFinalizeProbeTime, strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
@@ -278,6 +278,7 @@ export const commitLayerHistory = async ({
     const selectionBeforeSnapshot = selectionBefore
       ? cloneSelectionSnapshot(selectionBefore)
       : null;
+    const selectionAfterSnapshot = selectionBeforeSnapshot ? selectionSnapshotFromState(afterState) : null;
 
     const txn = strokeFinalizeProbeTimeSync(
       'commitLayerHistory:beginTransaction',
@@ -403,14 +404,10 @@ export const commitLayerHistory = async ({
         ));
       }
 
-      if (selectionBeforeSnapshot) {
+      if (selectionBeforeSnapshot && selectionAfterSnapshot) {
         const selectionDelta = strokeFinalizeProbeTimeSync(
           'commitLayerHistory:createSelectionDelta',
           () => {
-            const selectionAfterSnapshot = selectionSnapshotFromValues(
-              afterState.selectionStart,
-              afterState.selectionEnd,
-            );
             return createSelectionDelta({
               before: selectionBeforeSnapshot,
               after: selectionAfterSnapshot,

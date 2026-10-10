@@ -33,6 +33,26 @@ describe('layerColorCycleState', () => {
     expect(result.slotPalettes).toEqual([{ slot: 0, stops: legacyGradient }]);
   });
 
+  it('preserves explicit seam profiles and absent defaults when cloning existing palettes', () => {
+    const palettes = [
+      { slot: 0, stops: [{ position: 0, color: '#112233' }], seamProfile: 'hard' as const },
+      { slot: 1, stops: [{ position: 0, color: '#445566' }], seamProfile: 'soft' as const },
+      { slot: 2, stops: [{ position: 0, color: '#778899' }] },
+    ];
+    const data = colorCycleData({
+      gradientDefs: [{ id: 'g0', currentSlot: 0 }], slotPalettes: palettes,
+      activeGradientId: 'g0', paintSlot: 0,
+    });
+    const normalized = ensureColorCycleGradients(data, DEFAULT_CC_GRADIENT);
+    const cloned = cloneColorCycleData(data);
+    expect(normalized.slotPalettes).toEqual(palettes);
+    expect(cloned?.slotPalettes).toEqual(palettes);
+    expect(normalized.slotPalettes[2]).not.toHaveProperty('seamProfile');
+    palettes[0].stops[0].color = '#badbad';
+    expect(normalized.slotPalettes[0].stops[0].color).toBe('#112233');
+    expect(cloned?.slotPalettes?.[0].stops[0].color).toBe('#112233');
+  });
+
   it('remaps legacy editor slot 255 to an available runtime slot', () => {
     const result = ensureColorCycleGradients(
       colorCycleData({

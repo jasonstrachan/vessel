@@ -103,6 +103,7 @@ const LayersPanel: React.FC = () => {
 
   const layers = useAppStore(selectLayers);
   const activeLayerId = useAppStore(selectActiveLayerId);
+  const hasFloatingPaste = useAppStore((state) => Boolean(state.floatingPaste));
   const selectedLayerIds = useAppStore(selectSelectedLayerIds);
   const warmingColorCycleLayerIds = useAppStore((state) => state.warmingColorCycleLayerIds);
   const layerGroups = useAppStore(selectLayerGroups);
@@ -1365,6 +1366,9 @@ const LayersPanel: React.FC = () => {
                           event.key.toLowerCase() === 's';
                         if (isSaveShortcut) {
                           commitLayerRename(layer.id);
+                          return;
+                        }
+                        if (hasFloatingPaste && (event.key === 'Delete' || event.key === 'Backspace')) {
                           return;
                         }
 

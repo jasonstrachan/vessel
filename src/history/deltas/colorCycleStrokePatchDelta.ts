@@ -1,7 +1,12 @@
 import {
   applyColorCycleBrushPaintPatchToRuntime,
+  cloneColorCycleBrushPersistenceLayerMeta,
+  mergeColorCycleBrushPersistenceLayerMetaForOwner,
+  setColorCycleBrushPersistenceLayerMeta,
+  type ColorCycleBrushPersistenceLayerMeta,
   canApplyColorCycleBrushPaintPatchToRuntime,
   COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS,
+  type ColorCycleLayerDocument,
   type ColorCycleLayerDocumentRead,
   type ColorCycleBrushSerializedState,
   type ColorCycleBrushPaintPatchRuntimeWriter,
@@ -9,6 +14,8 @@ import {
 import type { ColorCycleHistoryBrushContext } from '@/hooks/brushEngine/colorCycleBrushContracts';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
+import type { GradientStop } from '@/lib/GradientPalette';
+import type { GradientSeamProfile, Layer } from '@/types';
 import {
   logCCMutation,
   summarizeColorCycleLayer,
@@ -29,6 +36,48 @@ import { captureColdColorCycleRuntimeCompensation } from '../colorCycleRuntimeCo
 type ColorCycleBrushState = ColorCycleBrushSerializedState;
 type ColorCycleSerializedLayer = NonNullable<ColorCycleBrushState['layers']>[number];
 
+type ColorCyclePatchMetadata = Pick<NonNullable<Layer['colorCycleData']>, keyof ColorCycleBrushPersistenceLayerMeta>;
+
+const clonePatchStops = (
+  stops: GradientStop[],
+): Array<{ position: number; color: string; opacity?: number }> => stops.map((stop) => ({
+  ...stop,
+  color: typeof stop.color === 'string'
+    ? stop.color
+    : `rgb(${stop.color.r}, ${stop.color.g}, ${stop.color.b})`,
+}));
+
+const clonePatchMetadata = (
+  layer: Partial<ColorCycleBrushPersistenceLayerMeta> | null,
+): ColorCyclePatchMetadata | null => {
+  if (!layer) {
+    return null;
+  }
+  const meta = cloneColorCycleBrushPersistenceLayerMeta(layer);
+  return {
+    gradientDefs: meta?.gradientDefs,
+    slotPalettes: meta?.slotPalettes?.map((entry) => ({
+      ...entry,
+      stops: clonePatchStops(entry.stops),
+      seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
+    })),
+    gradientDefStore: meta?.gradientDefStore?.map((entry) => ({
+      ...entry,
+      stops: clonePatchStops(entry.stops),
+      sourceStops: entry.sourceStops ? clonePatchStops(entry.sourceStops) : undefined,
+      seamProfile: entry.seamProfile as GradientSeamProfile | undefined,
+    })),
+    nextGradientDefId: meta?.nextGradientDefId,
+    paintSlot: meta?.paintSlot,
+    legacyRemap: meta?.legacyRemap,
+    fgActiveSlot: meta?.fgActiveSlot,
+    fgDerivedKey: meta?.fgDerivedKey,
+    fgDerivedGradients: meta?.fgDerivedGradients,
+    derivedGradients: meta?.derivedGradients,
+    activeGradientId: meta?.activeGradientId,
+  };
+};
+
 type ManagedColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushPaintPatchRuntimeWriter & {
   getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | null | undefined;
   getColorCycleDerivedSurface?: (layerId: string) => {
@@ -36,7 +85,10 @@ type ManagedColorCycleBrush = ColorCycleHistoryBrushContext & ColorCycleBrushPai
     rebuild(snapshot: ColorCycleLayerDocumentRead['snapshot'], version: number): void;
   } | null | undefined;
 };
-type ManagedColorCycleDocument = {
+type ManagedColorCycleDocument = Partial<Pick<
+  ColorCycleLayerDocument,
+  'replaceBaseline' | 'peekDirtyBatch' | 'getAuditLog'
+>> & {
   read(): ColorCycleLayerDocumentRead;
   rebaseVersionAnchors?: (options: {
     version?: number;
@@ -517,6 +569,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
   private readonly roi: { x: number; y: number; width: number; height: number };
   private readonly forwardPatches: EncodedColorCyclePixelPatches;
   private readonly backwardPatches: EncodedColorCyclePixelPatches;
+  private readonly forwardMetadata: ColorCyclePatchMetadata | null;
+  private readonly backwardMetadata: ColorCyclePatchMetadata | null;
   private readonly beforeDocumentVersion?: number;
   private readonly afterDocumentVersion?: number;
   private readonly beforeVersion?: number;
@@ -529,6 +583,8 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     roi: { x: number; y: number; width: number; height: number };
     forwardPatches: EncodedColorCyclePixelPatches;
     backwardPatches: EncodedColorCyclePixelPatches;
+    forwardMetadata: ColorCyclePatchMetadata | null;
+    backwardMetadata: ColorCyclePatchMetadata | null;
     beforeDocumentVersion?: number;
     afterDocumentVersion?: number;
     beforeVersion?: number;
@@ -540,19 +596,33 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     this.roi = options.roi;
     this.forwardPatches = options.forwardPatches;
     this.backwardPatches = options.backwardPatches;
+    this.forwardMetadata = options.forwardMetadata;
+    this.backwardMetadata = options.backwardMetadata;
     this.beforeDocumentVersion = options.beforeDocumentVersion;
     this.afterDocumentVersion = options.afterDocumentVersion;
     this.beforeVersion = options.beforeVersion;
     this.afterVersion = options.afterVersion;
     this.approxBytes =
       encodedPatchApproxBytes(options.forwardPatches) +
-      encodedPatchApproxBytes(options.backwardPatches);
+      encodedPatchApproxBytes(options.backwardPatches) +
+      2 * JSON.stringify([options.forwardMetadata, options.backwardMetadata]).length;
   }
 
   async prepare(direction: HistoryDirection): Promise<PreparedHistoryDelta> {
     const requested = await this.preparePatchSet(direction, true);
     const compensation = await this.preparePatchSet(direction === 'forward' ? 'backward' : 'forward', false);
     const runtimeCompensation = captureColdColorCycleRuntimeCompensation(this.layerId);
+    const manager = getColorCycleBrushManager();
+    const previousBrush = manager.getHistoryBrush(this.layerId) as ManagedColorCycleBrush | undefined;
+    const previousLayerData = useAppStore.getState().layers.find((layer) => layer.id === this.layerId)?.colorCycleData;
+    const previousMetadata = previousBrush
+      ? mergeColorCycleBrushPersistenceLayerMetaForOwner(previousBrush, this.layerId, null)
+      : null;
+    const previousDocument = (manager.getDocument(this.layerId)
+      ?? previousBrush?.getColorCycleLayerDocument?.(this.layerId)) as ManagedColorCycleDocument | undefined;
+    const previousRead = previousDocument?.read();
+    const previousAudit = previousDocument?.getAuditLog?.();
+    const previousDirtyBatch = previousDocument?.peekDirtyBatch?.() ?? null;
     const mutation = createHistoryMutationTracker();
     return {
       deltaTag: this._tag,
@@ -562,6 +632,25 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
         try {
           await this.applyPrepared(direction === 'forward' ? 'backward' : 'forward', compensation);
         } finally {
+          // Rollback restores the actual replay boundary, which can differ from
+          // historical metadata after independent slot cleanup or palette edits.
+          if (previousBrush) {
+            useAppStore.setState((current) => ({
+              layers: current.layers.map((layer) => layer.id === this.layerId
+                ? { ...layer, colorCycleData: previousLayerData }
+                : layer),
+            }));
+            setColorCycleBrushPersistenceLayerMeta(previousBrush, this.layerId, previousMetadata);
+            if (previousDocument?.replaceBaseline && previousRead) {
+              const restored = previousDocument.replaceBaseline(previousRead.snapshot, {
+                version: previousRead.version,
+                pixelVersion: previousRead.pixelVersion,
+                auditEntries: previousAudit,
+                dirtyBatch: previousDirtyBatch,
+              });
+              previousBrush.getColorCycleDerivedSurface?.(this.layerId)?.rebuild(restored.snapshot, restored.version);
+            }
+          }
           runtimeCompensation.restoreIfCreated();
         }
       },
@@ -713,6 +802,17 @@ class ColorCycleStrokePatchDelta implements HistoryDelta {
     const beforeAudit = summarizeColorCycleLayer(layer);
     const beforeHasContent = Boolean(layer.colorCycleData.hasContent);
     const patchPaintSummary = summarizeScalarBuffer(decoded.paint, patch.roi.width, patch.roi.height);
+    // Restore the captured metadata before publication reads the patched indices.
+    // Slot cleanup may have changed the store since this document generation.
+    const metadata = clonePatchMetadata(direction === 'forward' ? this.forwardMetadata : this.backwardMetadata);
+    if (metadata) {
+      useAppStore.setState((current) => ({
+        layers: current.layers.map((candidate) => candidate.id === this.layerId
+          ? { ...candidate, colorCycleData: { ...candidate.colorCycleData, ...metadata } }
+          : candidate),
+      }));
+      setColorCycleBrushPersistenceLayerMeta(brush, this.layerId, metadata);
+    }
     const hasContent = applyColorCycleBrushPaintPatchToRuntime(
       brush,
       this.layerId,
@@ -929,6 +1029,8 @@ export const createColorCycleStrokePatchDelta = async (
     return null;
   }
 
+  const forwardMetadata = clonePatchMetadata(findSerializedLayer(options.forwardState, options.layerId));
+  const backwardMetadata = clonePatchMetadata(backwardLayer);
   const [forwardPatches, backwardPatches] = await Promise.all([
     encodeColorCyclePatchBytes(forwardPatchBytes, roi),
     encodeColorCyclePatchBytes(backwardPatchBytes, roi),
@@ -945,6 +1047,8 @@ export const createColorCycleStrokePatchDelta = async (
     roi,
     forwardPatches,
     backwardPatches,
+    forwardMetadata,
+    backwardMetadata,
     beforeDocumentVersion: options.beforeDocumentVersion,
     afterDocumentVersion: options.afterDocumentVersion,
     beforeVersion: options.beforeVersion,

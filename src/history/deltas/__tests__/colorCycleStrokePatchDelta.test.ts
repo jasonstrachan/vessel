@@ -15,7 +15,11 @@ import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import {
   COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS,
   COLOR_CYCLE_DOCUMENT_FIELD_MAPPING,
+  ColorCycleLayerDocument,
   registerColorCycleBrushPaintPatchRuntime,
+  cloneColorCycleBrushPersistenceLayerMeta,
+  mergeColorCycleBrushPersistenceLayerMetaForOwner,
+  setColorCycleBrushPersistenceLayerMeta,
 } from '@/lib/colorCycle/document';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
@@ -44,6 +48,7 @@ registerColorCycleBrushPaintPatchRuntime(mockBrush, {
   apply: mockApplyPaintPatch,
 });
 let mockHistoryBrush: typeof mockBrush | null = mockBrush;
+let mockRealDocument: ColorCycleLayerDocument | undefined;
 let mockDocumentVersion: number | undefined;
 let mockPixelVersion: number | undefined;
 let mockDocumentSnapshot: never = {} as never;
@@ -74,7 +79,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => ({
     deleteBrush: (layerId: string) => mockDeleteBrush(layerId),
     registerDocument: jest.fn(),
     getPlaybackBrush: () => null,
-    getDocument: () => (
+    getDocument: () => mockRealDocument ?? (
       typeof mockDocumentVersion === 'number'
         ? {
             read: () => ({
@@ -202,6 +207,7 @@ const makeImage = (pixels: number[]): ImageData =>
 describe('ColorCycleStrokePatchDelta', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRealDocument = undefined;
     mockDocumentVersion = undefined;
     mockPixelVersion = undefined;
     mockDocumentSnapshot = {} as never;
@@ -299,6 +305,74 @@ describe('ColorCycleStrokePatchDelta', () => {
         rects: [{ x: 0, y: 0, width: 2, height: 2 }],
       },
     ]);
+  });
+
+  it('restores independent metadata snapshots before each patch, including removed and undefined fields', async () => {
+    const layerId = 'layer-cc-patch';
+    const makeMetadataState = (paint: number, color: string, withUnusedSlot: boolean) => {
+      const state = makeState({
+        layerId, width: 2, height: 2, paint: [paint, 0, 0, 0], gradientId: [0, 0, 0, 0],
+        gradientDefId: [1, 0, 0, 0], speed: [0, 0, 0, 0], flow: [0, 0, 0, 0], phase: [0, 0, 0, 0],
+      });
+      return { ...state, layers: [{
+        ...state.layers[0],
+        gradientDefs: [{ id: 'g0', name: color, currentSlot: 0 }],
+        slotPalettes: [
+          { slot: 0, stops: [{ position: 0, color, opacity: 0.5 }], seamProfile: 'hard' as const },
+          ...(withUnusedSlot ? [{ slot: 1, stops: [{ position: 0, color: '#ffffff' }], seamProfile: 'soft' as const }] : []),
+        ],
+        gradientDefStore: [{
+          id: 1, kind: 'linear' as const, stops: [{ position: 0, color }],
+          sourceStops: [{ position: 0, color: '#abcdef', opacity: 0.25 }],
+          sampledPath: { rgba: 'ESIz/w==', offset: 7 },
+          hash: color, source: 'manual' as const, createdAtMs: 123, slot: 0, speedCps: 0.5,
+          seamProfile: 'hard' as const,
+        }],
+        nextGradientDefId: 2, paintSlot: 0, activeGradientId: 'g0',
+        fgActiveSlot: withUnusedSlot ? 1 : undefined,
+        fgDerivedKey: withUnusedSlot ? 'before-key' : undefined,
+        fgDerivedGradients: withUnusedSlot ? [{
+          key: 'fg-key', slot: 1,
+          spec: { mode: 'fg-derived' as const, baseColor: '#112233', lightness: 0.5, bands: 3, algoVersion: 1, key: 'fg-key' },
+        }] : undefined,
+        derivedGradients: [{
+          key: 'derived-key', slot: 0,
+          spec: { mode: 'fg-derived' as const, baseColor: color, lightness: 0.25, bands: 4, algoVersion: 1, key: 'derived-key' },
+        }],
+      }] };
+    };
+    const backwardState = makeMetadataState(1, '#112233', true);
+    const forwardState = makeMetadataState(0, '#445566', false);
+    const beforeMetadata = cloneColorCycleBrushPersistenceLayerMeta(backwardState.layers[0]);
+    const afterMetadata = cloneColorCycleBrushPersistenceLayerMeta(forwardState.layers[0]);
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId, width: 2, height: 2, roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState, backwardState,
+    });
+    expect(delta).not.toBeNull();
+    backwardState.layers[0].slotPalettes[0].stops[0].color = '#badbad';
+    backwardState.layers[0].gradientDefStore[0].sampledPath.offset = 99;
+    backwardState.layers[0].fgDerivedGradients![0].spec.baseColor = '#badbad';
+    forwardState.layers[0].gradientDefStore[0].sourceStops[0].color = '#badbad';
+    const observedMetadata: unknown[] = [];
+    mockApplyPaintPatch.mockImplementationOnce((_id, _roi, bytes) => {
+      const metadata = useAppStore.getState().layers[0].colorCycleData;
+      observedMetadata.push(cloneColorCycleBrushPersistenceLayerMeta(metadata));
+      observedMetadata.push(mergeColorCycleBrushPersistenceLayerMetaForOwner(mockBrush, layerId, null));
+      return bytes.some((value) => value !== 0);
+    });
+    await replayDeltaForTest(delta!, 'backward');
+    expect(observedMetadata).toEqual([beforeMetadata, beforeMetadata]);
+    expect(cloneColorCycleBrushPersistenceLayerMeta(useAppStore.getState().layers[0].colorCycleData))
+      .toEqual(beforeMetadata);
+    useAppStore.getState().layers[0].colorCycleData!.slotPalettes![0].stops[0].color = '#badbad';
+    await replayDeltaForTest(delta!, 'forward');
+    expect(cloneColorCycleBrushPersistenceLayerMeta(useAppStore.getState().layers[0].colorCycleData))
+      .toEqual(afterMetadata);
+    expect(mergeColorCycleBrushPersistenceLayerMetaForOwner(mockBrush, layerId, null)).toEqual(afterMetadata);
+    await replayDeltaForTest(delta!, 'backward');
+    expect(cloneColorCycleBrushPersistenceLayerMeta(useAppStore.getState().layers[0].colorCycleData))
+      .toEqual(beforeMetadata);
   });
 
   it('skips applying a patch when the document version has drifted from the expected history version', async () => {
@@ -546,6 +620,26 @@ describe('ColorCycleStrokePatchDelta', () => {
       layerId, width: 2, height: 2, paint: [9, 0, 0, 0], gradientId: [0, 0, 0, 0],
       gradientDefId: [0, 0, 0, 0], speed: [0, 0, 0, 0], flow: [0, 0, 0, 0], phase: [0, 0, 0, 0],
     });
+    const beforeMetadata = {
+      gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+      slotPalettes: [{ slot: 0, stops: [{ position: 0, color: '#112233' }], seamProfile: 'hard' as const }],
+      paintSlot: 0, activeGradientId: 'g0',
+    };
+    const afterMetadata = {
+      gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+      slotPalettes: [{ slot: 0, stops: [{ position: 0, color: '#445566' }], seamProfile: 'soft' as const }],
+      paintSlot: 0, activeGradientId: 'g0',
+    };
+    Object.assign(before.layers[0], beforeMetadata);
+    Object.assign(after.layers[0], afterMetadata);
+    const metadataSeenByPatches: unknown[] = [];
+    mockApplyPaintPatch.mockImplementationOnce((_id, _roi, bytes) => {
+      metadataSeenByPatches.push(cloneColorCycleBrushPersistenceLayerMeta(useAppStore.getState().layers[0].colorCycleData));
+      return bytes.some((value) => value !== 0);
+    }).mockImplementationOnce((_id, _roi, bytes) => {
+      metadataSeenByPatches.push(cloneColorCycleBrushPersistenceLayerMeta(useAppStore.getState().layers[0].colorCycleData));
+      return bytes.some((value) => value !== 0);
+    });
     const delta = await createColorCycleStrokePatchDelta({
       layerId,
       width: 2,
@@ -561,6 +655,21 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(delta).not.toBeNull();
     mockDocumentVersion = 1;
     mockPixelVersion = 1;
+
+    const preReplayColorCycleData = {
+      ...useAppStore.getState().layers[0].colorCycleData!,
+      gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+      slotPalettes: [{ slot: 0, stops: [{ position: 0, color: '#778899' }] }],
+      gradientDefStore: [], paintSlot: 0, activeGradientId: 'g0',
+    };
+    useAppStore.setState((state) => ({
+      layers: state.layers.map((layer) => ({ ...layer, colorCycleData: preReplayColorCycleData })),
+    }));
+    const preReplayCache = {
+      ...afterMetadata,
+      slotPalettes: [{ slot: 0, stops: [{ position: 0, color: '#abcdef' }], seamProfile: 'hard' as const }],
+    };
+    setColorCycleBrushPersistenceLayerMeta(mockBrush, layerId, preReplayCache);
 
     class LateFailureDelta implements HistoryDelta {
       readonly _tag = 'late-failure';
@@ -590,6 +699,140 @@ describe('ColorCycleStrokePatchDelta', () => {
     expect(mockApplyPaintPatch).toHaveBeenCalledTimes(2);
     const [, , compensatedPaint] = mockApplyPaintPatch.mock.calls[1] as [unknown, unknown, Uint8Array];
     expect(Array.from(compensatedPaint)).toEqual([9]);
+    expect(metadataSeenByPatches).toEqual([
+      cloneColorCycleBrushPersistenceLayerMeta(beforeMetadata),
+      cloneColorCycleBrushPersistenceLayerMeta(afterMetadata),
+    ]);
+    expect(useAppStore.getState().layers[0].colorCycleData).toBe(preReplayColorCycleData);
+    expect(mergeColorCycleBrushPersistenceLayerMetaForOwner(mockBrush, layerId, null))
+      .toEqual(cloneColorCycleBrushPersistenceLayerMeta(preReplayCache));
+    expect(manager.entries()).toHaveLength(1);
+    expect(manager.redoEntries()).toHaveLength(0);
+  });
+
+  it.each([false, true])('restores real document metadata, audit and dirty state after late failure (pending dirty: %s)', async (hasPendingDirty) => {
+    const layerId = 'layer-cc-patch';
+    const before = makeState({
+      layerId, width: 2, height: 2, paint: [1, 2, 3, 4], gradientId: [1, 1, 1, 1],
+      gradientDefId: [257, 257, 257, 257], speed: [5, 6, 7, 8], flow: [9, 10, 11, 12], phase: [13, 14, 15, 16],
+    });
+    const after = makeState({
+      layerId, width: 2, height: 2, paint: [21, 2, 3, 4], gradientId: [2, 1, 1, 1],
+      gradientDefId: [513, 257, 257, 257], speed: [25, 6, 7, 8], flow: [29, 10, 11, 12], phase: [33, 14, 15, 16],
+    });
+    const beforeMetadata = {
+      gradientDefs: [{ id: 'g0', currentSlot: 1 }],
+      slotPalettes: [{ slot: 1, stops: [{ position: 0, color: '#112233' }], seamProfile: 'hard' as const }],
+      paintSlot: 1, activeGradientId: 'g0',
+    };
+    const afterMetadata = {
+      gradientDefs: [{ id: 'g0', currentSlot: 2 }],
+      slotPalettes: [{ slot: 2, stops: [{ position: 0, color: '#445566' }], seamProfile: 'soft' as const }],
+      paintSlot: 2, activeGradientId: 'g0',
+    };
+    Object.assign(before.layers[0], beforeMetadata);
+    Object.assign(after.layers[0], afterMetadata);
+    const buffers = after.layers[0].strokeData;
+    const canonicalDocument = new ColorCycleLayerDocument({
+      layerId, width: 2, height: 2,
+      paintBuffer: buffers.paintBuffer,
+      gradientIdBuffer: buffers.gradientIdBuffer,
+      gradientDefIdBuffer: buffers.gradientDefIdBuffer,
+      speedBuffer: buffers.speedBuffer,
+      flowBuffer: buffers.flowBuffer,
+      phaseBuffer: buffers.phaseBuffer,
+      ...afterMetadata,
+      hasContent: true,
+      sources: { brushStateSnapshot: true, topLevelBuffers: false, legacyStateRefs: false },
+    }, { initialVersion: 1, initialPixelVersion: 1, now: () => 1234 });
+    // A palette edit after the stroke must survive failed Undo, including its envelope.
+    const independentMetadata = {
+      ...afterMetadata,
+      slotPalettes: [{ slot: 2, stops: [{ position: 0, color: '#778899' }], seamProfile: 'hard' as const }],
+    };
+    canonicalDocument.replaceState({
+      ...canonicalDocument.read().snapshot,
+      ...independentMetadata,
+    }, 'independent-palette-edit', { dirtyRects: [{ x: 1, y: 1, width: 1, height: 1 }] });
+    if (!hasPendingDirty) {
+      canonicalDocument.consumeDirtyBatch();
+    }
+    mockRealDocument = canonicalDocument;
+    const preReplayRead = canonicalDocument.read();
+    const preReplayAudit = canonicalDocument.getAuditLog();
+    const preReplayDirty = canonicalDocument.peekDirtyBatch();
+    expect(preReplayRead).toMatchObject({ version: 2, pixelVersion: 1 });
+    expect(preReplayAudit).toHaveLength(1);
+    expect(Boolean(preReplayDirty)).toBe(hasPendingDirty);
+    const preReplayLayerData = {
+      ...useAppStore.getState().layers[0].colorCycleData!,
+      ...independentMetadata,
+    };
+    useAppStore.setState((state) => ({
+      layers: state.layers.map((layer) => ({ ...layer, colorCycleData: preReplayLayerData })),
+    }));
+    setColorCycleBrushPersistenceLayerMeta(mockBrush, layerId, independentMetadata);
+    const derivedSurface = { builtFromVersion: 2, rebuild: jest.fn() };
+    mockBrush.getColorCycleDerivedSurface.mockReturnValue(derivedSurface);
+    const observedSnapshots: unknown[] = [];
+    const applyToDocument = (_id: string, _roi: unknown, paint: Uint8Array, extras?: PatchExtras) => {
+      const metadata = cloneColorCycleBrushPersistenceLayerMeta(useAppStore.getState().layers[0].colorCycleData);
+      canonicalDocument.replaceState({
+        ...canonicalDocument.read().snapshot,
+        gradientDefs: metadata?.gradientDefs,
+        slotPalettes: metadata?.slotPalettes as typeof independentMetadata.slotPalettes,
+        paintSlot: metadata?.paintSlot,
+        activeGradientId: metadata?.activeGradientId,
+        paintBuffer: new Uint8Array([paint[0], 2, 3, 4]).buffer,
+        gradientIdBuffer: new Uint8Array([extras!.gradientIdBytes![0], 1, 1, 1]).buffer,
+        gradientDefIdBuffer: new Uint16Array([
+          new Uint16Array(extras!.gradientDefIdBytes!.buffer)[0], 257, 257, 257,
+        ]).buffer,
+        speedBuffer: new Uint8Array([extras!.speedBytes![0], 6, 7, 8]).buffer,
+        flowBuffer: new Uint8Array([extras!.flowBytes![0], 10, 11, 12]).buffer,
+        phaseBuffer: new Uint8Array([extras!.phaseBytes![0], 14, 15, 16]).buffer,
+      }, 'history-patch-publication', { dirtyRects: [{ x: 0, y: 0, width: 1, height: 1 }] });
+      observedSnapshots.push(canonicalDocument.read().snapshot);
+      return true;
+    };
+    mockApplyPaintPatch.mockImplementationOnce(applyToDocument).mockImplementationOnce(applyToDocument);
+    const delta = await createColorCycleStrokePatchDelta({
+      layerId, width: 2, height: 2, roi: { x: 0, y: 0, width: 1, height: 1 },
+      forwardState: after, backwardState: before,
+      beforeDocumentVersion: 0, afterDocumentVersion: 1, beforeVersion: 0, afterVersion: 1,
+    });
+    expect(delta).not.toBeNull();
+    const lateFailure: HistoryDelta = {
+      _tag: 'real-document-late-failure',
+      prepare: () => ({
+        deltaTag: 'real-document-late-failure',
+        apply: () => { throw new Error('late failure'); },
+        requiresCompensation: () => false,
+        compensate: () => undefined,
+      }),
+    };
+    const manager = new HistoryManager();
+    const txn = manager.begin('cc-stroke');
+    txn.push(lateFailure);
+    txn.push(delta!);
+    txn.commit('Real document patch and late failure');
+
+    await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    expect(mockApplyPaintPatch).toHaveBeenCalledTimes(2);
+    expect(observedSnapshots).toEqual([
+      expect.objectContaining(beforeMetadata), expect.objectContaining(afterMetadata),
+    ]);
+    for (const { documentKey } of COLOR_CYCLE_DOCUMENT_CANONICAL_PIXEL_BUFFERS) {
+      expect(new Uint8Array(canonicalDocument.read().snapshot[documentKey]!))
+        .toEqual(new Uint8Array(preReplayRead.snapshot[documentKey]!));
+    }
+    expect(canonicalDocument.read()).toEqual(preReplayRead);
+    expect(canonicalDocument.getAuditLog()).toEqual(preReplayAudit);
+    expect(canonicalDocument.peekDirtyBatch()).toEqual(preReplayDirty);
+    expect(useAppStore.getState().layers[0].colorCycleData).toBe(preReplayLayerData);
+    expect(mergeColorCycleBrushPersistenceLayerMetaForOwner(mockBrush, layerId, null))
+      .toEqual(cloneColorCycleBrushPersistenceLayerMeta(independentMetadata));
+    expect(derivedSurface.rebuild).toHaveBeenLastCalledWith(preReplayRead.snapshot, preReplayRead.version);
     expect(manager.entries()).toHaveLength(1);
     expect(manager.redoEntries()).toHaveLength(0);
   });

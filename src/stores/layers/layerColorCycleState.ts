@@ -1,4 +1,4 @@
-import type { Layer } from '@/types';
+import type { ColorCycleSlotPalette, Layer } from '@/types';
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import { FLOW_SLOT_MASK } from '@/lib/colorCycle/flowEncoding';
 import { clamp } from '@/utils/num';
@@ -7,7 +7,6 @@ import { cloneCanvasLike, cloneImageData } from './layerCloneService';
 export type GradientStop = { position: number; color: string; opacity?: number };
 type ColorCycleGradient = { id: string; slot: number; stops: GradientStop[] };
 type ColorCycleGradientDef = { id: string; name?: string; currentSlot: number };
-type ColorCycleSlotPalette = { slot: number; stops: GradientStop[] };
 
 const EDITOR_SLOT = 255;
 
@@ -184,6 +183,7 @@ const cloneSlotPalettes = (
     return undefined;
   }
   return palettes.map((entry) => ({
+    ...entry,
     slot: Number.isFinite(entry.slot) ? entry.slot : 0,
     stops: cloneGradientStops(entry.stops) ?? entry.stops,
   }));

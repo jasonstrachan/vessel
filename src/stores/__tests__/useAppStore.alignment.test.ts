@@ -398,3 +398,83 @@ describe('useAppStore updateLayerAlignment percent offsets', () => {
     expectPercentOneOf(updatedLayer.alignment.offsetPercent, [percentFromPx, percentFromMetrics]);
   });
 });
+
+
+describe('useAppStore updateLayer raster content alignment', () => {
+  const install = (layerType: Layer['layerType'] = 'normal') => {
+    const imageData = createImageData(4, 4);
+    for (let index = 0; index < imageData.data.length; index += 4) {
+      imageData.data.set([255, 0, 0, 255], index);
+    }
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = framebuffer.height = 4;
+    framebuffer.getContext('2d')!.putImageData(imageData, 0, 0);
+    const layer: Layer = {
+      id: 'updated-raster-alignment', name: 'Raster alignment', visible: true,
+      opacity: 1, blendMode: 'source-over', locked: false, order: 0,
+      layerType, imageData, framebuffer,
+      alignment: {
+        ...createDefaultLayerAlignment(),
+        offsetPx: { x: 2, y: 2 }, offsetPercent: { x: 50, y: 50 },
+      },
+      ...(layerType === 'color-cycle' ? { colorCycleData: { canvas: framebuffer, hasContent: true } } : {}),
+    };
+    useAppStore.setState({
+      layers: [layer], activeLayerId: layer.id,
+      project: {
+        id: 'raster-alignment-project', name: 'Raster alignment', width: 4, height: 4,
+        layers: [], backgroundColor: 'transparent', createdAt: new Date(0),
+        updatedAt: new Date(0), customBrushes: [],
+      },
+    });
+    const replacement = createImageData(4, 4);
+    replacement.data.set([255, 0, 0, 255], 4);
+    replacement.data.set([255, 0, 0, 255], 20);
+    return { layer, replacement };
+  };
+
+  it('refreshes automatic offsets from replacement pixels before publishing the layer', () => {
+    const { layer, replacement } = install();
+    useAppStore.getState().updateLayer(layer.id, { imageData: replacement });
+    const updated = useAppStore.getState().layers[0];
+    expect(updated.imageData).toBe(replacement);
+    // The remaining 1x2 island starts at (1, 0), with free space 3x2.
+    expect(updated.alignment).toEqual({
+      ...layer.alignment,
+      offsetPercent: { x: (1 / 3) * 100, y: 0 }, offsetPx: { x: 1, y: 0 },
+    });
+    expect(layer.alignment.offsetPx).toEqual({ x: 2, y: 2 });
+  });
+
+  it('preserves explicit manual alignment supplied with replacement pixels', () => {
+    const { layer, replacement } = install();
+    const alignment: Layer['alignment'] = {
+      ...layer.alignment, positioning: 'anchor',
+      offsetPx: { x: 3, y: -2 }, offsetPercent: { x: 37, y: -25 },
+    };
+    useAppStore.getState().updateLayer(layer.id, { imageData: replacement, alignment });
+    expect(useAppStore.getState().layers[0].alignment).toEqual(alignment);
+  });
+
+  it('preserves alignment for an update that supplies the existing bitmap unchanged', () => {
+    const { layer } = install();
+    const alignment = {
+      ...layer.alignment,
+      offsetPx: { x: 1, y: 3 }, offsetPercent: { x: 25, y: 75 },
+    };
+    useAppStore.setState({ layers: [{ ...layer, alignment }] });
+    useAppStore.getState().updateLayer(layer.id, { imageData: layer.imageData });
+    expect(useAppStore.getState().layers[0].alignment).toEqual(alignment);
+  });
+
+  it.each(['metadata-only', 'alignment-only', 'null-image', 'color-cycle', 'sequential'] as const)(
+    'preserves the existing offset authority for %s updates', (kind) => {
+      const { layer, replacement } = install(kind === 'color-cycle' || kind === 'sequential' ? kind : 'normal');
+      const updates: Partial<Layer> = kind === 'metadata-only' ? { name: 'Renamed raster' }
+        : kind === 'alignment-only' ? { alignment: { ...layer.alignment, offsetPx: { x: 1, y: 3 }, offsetPercent: { x: 25, y: 75 } } }
+        : { imageData: kind === 'null-image' ? null : replacement };
+      useAppStore.getState().updateLayer(layer.id, updates, { skipColorCycleSync: true });
+      expect(useAppStore.getState().layers[0].alignment).toEqual(updates.alignment ?? layer.alignment);
+    },
+  );
+});

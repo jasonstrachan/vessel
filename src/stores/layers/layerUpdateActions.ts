@@ -3,6 +3,7 @@ import type { StateCreator } from 'zustand';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { clearSequentialLayerRendererLayer } from '@/lib/sequential/SequentialLayerRenderer';
 import { syncPlaybackColorCycleLayers } from '@/stores/ccRuntime';
+import { refreshCapturedAutoAlignment } from '@/stores/layers/layerCaptureActions';
 import {
   DEFAULT_CC_GRADIENT,
   cloneGradientStops,
@@ -211,6 +212,13 @@ export const createLayerUpdateActions = ({
           delete updatedLayer.colorCycleData;
         }
 
+        if (
+          updatedLayer.layerType === 'normal' &&
+          updates.imageData &&
+          updates.imageData !== layer.imageData
+        ) {
+          return refreshCapturedAutoAlignment(updatedLayer, state.project ?? null);
+        }
         return updatedLayer;
       }
       return layer;

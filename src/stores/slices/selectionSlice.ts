@@ -3,7 +3,7 @@ import type { StateCreator } from 'zustand';
 import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import type { Layer, Rectangle } from '@/types';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import { selectionSnapshotFromValues } from '@/history/selectionState';
+import { selectionSnapshotFromState } from '@/history/selectionState';
 import type { SelectionSnapshot } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
@@ -1826,7 +1826,7 @@ export const createSelectionSlice = ({
 
       const { x, y, width, height } = deleteBounds;
 
-      const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
+      const selectionBefore = selectionSnapshotFromState(state);
 
       const beforeImage = cloneLayerImageData(activeLayer.imageData);
       const beforeColorState =
@@ -1887,6 +1887,7 @@ export const createSelectionSlice = ({
           actionType: 'delete',
           description: 'Delete selected pixels',
           tool: 'selection',
+          selectionBefore,
           coalesce: {
             key: `selection-delete:${activeLayerId}:${frameIndex}`,
             maxIntervalMs: 250,
@@ -2059,7 +2060,7 @@ export const createSelectionSlice = ({
         return false;
       }
 
-      const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
+      const selectionBefore = selectionSnapshotFromState(state);
       const sourceImageData = resolveLayerImageData(activeLayer);
       const beforeImage = activeLayer.layerType === 'color-cycle'
         ? null
@@ -2585,7 +2586,7 @@ export const createSelectionSlice = ({
             };
 
             if (mode === 'cut' && capture.updatedLayerImageData) {
-              const selectionBefore = selectionSnapshotFromValues(selectionStart, selectionEnd);
+              const selectionBefore = selectionSnapshotFromState(state);
               const beforeImage = activeLayer.imageData ? cloneLayerImageData(activeLayer.imageData) : null;
               const beforeColorState =
                 activeLayer.layerType === 'color-cycle'

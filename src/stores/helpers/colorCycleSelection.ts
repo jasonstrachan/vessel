@@ -411,12 +411,12 @@ export const clearColorCycleRegion = (
       let changed = false;
       for (let y = startY; y < endY; y += 1) {
         const rowOffset = y * bufferWidth;
-        const srcY = y - startY + offsetY;
+        const srcY = y - Math.floor(rect.y) + offsetY;
         if (alphaData && (srcY < 0 || srcY >= alphaHeight)) {
           continue;
         }
         for (let x = startX; x < endX; x += 1) {
-          const srcX = x - startX + offsetX;
+          const srcX = x - Math.floor(rect.x) + offsetX;
           if (alphaData && (srcX < 0 || srcX >= alphaWidth)) {
             continue;
           }

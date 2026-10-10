@@ -35,6 +35,37 @@ const createLayer = (overrides: Partial<Layer> = {}): Layer => ({
 } as Layer);
 
 describe('selectionDeleteAuthorization', () => {
+  it.each(
+    (['normal', 'color-cycle', 'sequential'] as const).flatMap((layerType) =>
+      (['api-delete', 'keyboard-delete', 'menu-delete', 'toolbar-delete'] as const)
+        .map((source) => ({ layerType, source }))),
+  )('rejects $source on a locked $layerType layer without clearing selection', ({ layerType, source }) => {
+    const authorization = authorizeSelectionDelete({
+      source,
+      activeLayer: createLayer({ layerType, locked: true }),
+      activeLayerId: 'layer-auth',
+      project: createProject(),
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+      selectionLastAction: null,
+      colorCyclePaint: {
+        buffer: new Uint8Array(16).fill(1),
+        width: 4,
+        height: 4,
+        hasFullCanonicalPayload: true,
+      },
+    });
+
+    expect(authorization).toMatchObject({
+      ok: false,
+      reason: 'locked-layer',
+      clearSelection: false,
+    });
+  });
+
   it('normalizes only known delete sources', () => {
     expect(normalizeSelectionDeleteSource('keyboard-delete')).toBe('keyboard-delete');
     expect(normalizeSelectionDeleteSource('deleteSelectedPixels')).toBe('api-delete');

@@ -42,6 +42,7 @@ type StoreState = {
   selectedLayerIds: string[];
   warmingColorCycleLayerIds: string[];
   referenceLayerId: string | null;
+  floatingPaste: { active: boolean } | null;
   sequentialRecord: {
     frameCount: number;
     fps: number;
@@ -100,6 +101,7 @@ const state: StoreState = {
   selectedLayerIds: [],
   warmingColorCycleLayerIds: [],
   referenceLayerId: null,
+  floatingPaste: null,
   sequentialRecord: {
     frameCount: 24,
     fps: 24,
@@ -310,6 +312,7 @@ const setupLayers = () => {
   state.selectedLayerIds = ['layer-c'];
   state.warmingColorCycleLayerIds = [];
   state.referenceLayerId = null;
+  state.floatingPaste = null;
   state.brushPresets = [
     { id: 'color-cycle-gradient', name: 'CC Gradient' } as BrushPreset,
     { id: 'color-cycle-stroke', name: 'CC Stroke' } as BrushPreset,
@@ -602,6 +605,45 @@ describe('LayersPanel interactions', () => {
       expect(saveShortcutListener).toHaveBeenCalledTimes(1);
     } finally {
       window.removeEventListener('keydown', saveShortcutListener);
+    }
+  });
+
+  it.each(['Delete', 'Backspace'])('passes %s from rename to the floating selection keyboard owner', (key) => {
+    state.floatingPaste = { active: true };
+    const listener = jest.fn((event: KeyboardEvent) => event.preventDefault());
+    window.addEventListener('keydown', listener);
+    try {
+      render(<LayersPanel />);
+      fireEvent.doubleClick(screen.getByText('layer-c'));
+      const input = screen.getByRole('textbox', { name: 'Rename layer layer-c' });
+      fireEvent.change(input, { target: { value: 'Draft name' } });
+      const event = createEvent.keyDown(input, { key });
+      fireEvent(input, event);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(event.defaultPrevented).toBe(true);
+      expect(input).toHaveValue('Draft name');
+      expect(state.updateLayer).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', listener);
+    }
+  });
+
+  it.each(['Delete', 'Backspace'])('keeps ordinary rename %s local without a floating selection', (key) => {
+    const listener = jest.fn();
+    window.addEventListener('keydown', listener);
+    try {
+      render(<LayersPanel />);
+      fireEvent.doubleClick(screen.getByText('layer-c'));
+      const input = screen.getByRole('textbox', { name: 'Rename layer layer-c' });
+      const event = createEvent.keyDown(input, { key });
+      fireEvent(input, event);
+
+      expect(listener).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
+      expect(input).toHaveFocus();
+    } finally {
+      window.removeEventListener('keydown', listener);
     }
   });
 

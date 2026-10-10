@@ -61,6 +61,7 @@ export type SelectionDeleteAuthorization =
       reason:
         | 'missing-selection'
         | 'missing-active-layer'
+        | 'locked-layer'
         | 'history-restored-keyboard-delete'
         | 'keyboard-full-content-clear-blocked'
         | 'unknown-delete-source'
@@ -130,6 +131,13 @@ export const authorizeSelectionDelete = (
   const source = normalizeSelectionDeleteSource(request.source);
   if (!source) {
     return reject('unknown-delete-source', false, { source: request.source });
+  }
+
+  if (request.activeLayer?.locked) {
+    return reject('locked-layer', false, {
+      source,
+      activeLayerId: request.activeLayerId,
+    });
   }
 
   const bounds = resolveSelectionDeleteBounds(request.selectionStart, request.selectionEnd);

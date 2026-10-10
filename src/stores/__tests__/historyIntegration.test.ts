@@ -291,6 +291,81 @@ describe('history integration', () => {
     expect(cloneData(afterRedo!.imageData!.data)).toEqual(cloneData(after.data));
   });
 
+  it('retains immutable mask/vector bytes and accounts for their history storage', async () => {
+    const store = useAppStore.getState();
+    const before = captureSelectionSnapshot();
+    const mask = new ImageData(new Uint8ClampedArray([12, 34, 56, 255, 1, 2, 3, 0, 4, 5, 6, 128, 7, 8, 9, 255]), 2, 2);
+    const bytes = new Uint8ClampedArray(mask.data);
+    const vector = { mode: 'freehand' as const, points: [{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }] };
+    store.setSelectionBounds({ x: 1, y: 1 }, { x: 3, y: 3 }, 'selection-marquee-final');
+    useAppStore.setState({ selectionMask: mask, selectionMaskBounds: { x: 1, y: 1, width: 2, height: 2 },
+      selectionMaskLayerId: 'original-mask-owner', selectionVectorPath: vector });
+    commitSelectionHistory({ before, description: 'Create masked selection' });
+    const entry = historyManager.peekUndo()!;
+    expect(entry.deltas[0].approxBytes).toBeGreaterThanOrEqual(64 + bytes.byteLength + vector.points.length * 16);
+    mask.data.fill(0);
+    vector.points[0].x = 99;
+    await historyManager.undo();
+    await historyManager.redo();
+    const restored = useAppStore.getState();
+    expect(restored.selectionMask?.data).toEqual(bytes);
+    expect(restored.selectionMaskBounds).toEqual({ x: 1, y: 1, width: 2, height: 2 });
+    expect(restored.selectionMaskLayerId).toBe('original-mask-owner');
+    expect(restored.selectionVectorPath?.points[0]).toEqual({ x: 1, y: 1 });
+    expect(restored.selectionLastAction).toEqual(expect.objectContaining({ ownerKind: 'history-restored', restoredFromHistory: true }));
+    restored.selectionMask!.data.fill(0);
+    await historyManager.undo();
+    await historyManager.redo();
+    expect(useAppStore.getState().selectionMask?.data).toEqual(bytes);
+  });
+
+  it.each(['mask', 'vector', 'owner'] as const)('records a %s change with unchanged selection bounds', async (change) => {
+    useAppStore.getState().setSelectionBounds({ x: 1, y: 1 }, { x: 3, y: 3 }, 'selection-marquee-final');
+    const mask = new ImageData(new Uint8ClampedArray(16).fill(255), 2, 2);
+    const vector = { mode: 'click-line' as const, points: [{ x: 1, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 3 }] };
+    useAppStore.setState({ selectionMask: mask, selectionMaskBounds: { x: 1, y: 1, width: 2, height: 2 },
+      selectionMaskLayerId: 'owner-before', selectionVectorPath: vector });
+    const before = captureSelectionSnapshot();
+    const nextMask = new ImageData(new Uint8ClampedArray(mask.data), 2, 2);
+    if (change === 'mask') nextMask.data[3] = 0;
+    useAppStore.setState({ selectionMask: nextMask,
+      selectionVectorPath: change === 'vector' ? { ...vector, points: [{ x: 2, y: 1 }, ...vector.points.slice(1)] } : vector,
+      selectionMaskLayerId: change === 'owner' ? 'owner-after' : 'owner-before' });
+    commitSelectionHistory({ before, description: 'Change masked selection' });
+    expect(historyManager.entries()).toHaveLength(1);
+    await historyManager.undo();
+    expect(useAppStore.getState().selectionMask?.data).toEqual(mask.data);
+    expect(useAppStore.getState().selectionVectorPath).toEqual(vector);
+    expect(useAppStore.getState().selectionMaskLayerId).toBe('owner-before');
+    await historyManager.redo();
+    expect(useAppStore.getState().selectionMask?.data).toEqual(nextMask.data);
+    expect(useAppStore.getState().selectionVectorPath?.points[0]).toEqual(change === 'vector' ? { x: 2, y: 1 } : { x: 1, y: 1 });
+    expect(useAppStore.getState().selectionMaskLayerId).toBe(change === 'owner' ? 'owner-after' : 'owner-before');
+  });
+
+  it('compensates every actual selection field when a later replay delta fails', async () => {
+    const store = useAppStore.getState();
+    const before = captureSelectionSnapshot();
+    store.setSelectionBounds({ x: 1, y: 1 }, { x: 3, y: 3 });
+    useAppStore.setState({ selectionMask: new ImageData(new Uint8ClampedArray(16).fill(255), 2, 2),
+      selectionMaskBounds: { x: 1, y: 1, width: 2, height: 2 }, selectionMaskLayerId: 'authored-owner',
+      selectionVectorPath: { mode: 'freehand', points: [{ x: 1, y: 1 }, { x: 3, y: 3 }] } });
+    commitSelectionHistory({ before, description: 'Create shape for rollback' });
+    await historyManager.undo();
+    store.setSelectionBounds({ x: 7, y: 8 }, { x: 9, y: 10 });
+    useAppStore.setState({ selectionMask: new ImageData(new Uint8ClampedArray(16).fill(100), 2, 2),
+      selectionMaskBounds: { x: 7, y: 8, width: 2, height: 2 }, selectionMaskLayerId: 'current-owner',
+      selectionVectorPath: { mode: 'click-line', points: [{ x: 7, y: 8 }, { x: 9, y: 10 }] } });
+    const current = useAppStore.getState();
+    historyManager.peekRedo()!.deltas.push(new LateFailureDelta());
+    await expect(store.redo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    const compensated = useAppStore.getState();
+    for (const key of ['selectionStart', 'selectionEnd', 'selectionMask', 'selectionMaskBounds',
+      'selectionMaskLayerId', 'selectionVectorPath', 'selectionLastAction'] as const) {
+      expect(compensated[key]).toBe(current[key]);
+    }
+  });
+
   it('records selection toggles and restores them via undo/redo', async () => {
     const store = useAppStore.getState();
     const createBefore = captureSelectionSnapshot();
