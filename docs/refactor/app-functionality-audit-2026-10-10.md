@@ -32,7 +32,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 12 | Pixel brush: tap/drag, square/round tips, size, opacity, spacing, pressure, snap, shape mode | brush presets, brush engine/settings | software-verified (Session32; 351 native checks; shape mode intentionally unavailable) |
 | 13 | Soft brush: edge/size/opacity, pressure, spacing, blend | brush engine/settings | software-verified (Session33; 336 native checks; final full gate passed) |
 | 14 | Dither Stroke: algorithm, pattern, size, spacing, pressure, palette/alpha | strokeDitherRegion, brush controls | software-verified (Session34;192 native configurations/1,104checks; full gate passed) |
-| 15 | Dither Shape: geometry, preview/final parity, dither settings, fill/cancel/history | shape handlers, brush engine | pending |
+| 15 | Dither Shape: geometry, silhouette preview/final fill, dither settings, fill/cancel/history | shape handlers, brush engine | software-verified (Session34: A15-01 repaired;103 configurations/910checks; full gate passed) |
 | 16 | Dither Grad: sampled/manual colours, gradient direction/range, geometry, dither settings | gradient shape runtime | pending |
 | 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | pending |
 | 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | pending |
@@ -2280,3 +2280,74 @@ native and unit evidence is retained; no signoff derives from those failed runs.
 
 Focused local commit receipt: output/playwright/area14-commit-receipt-session34.json.
 Remain on main; no push/deployment. Next active area is15 Dither Shape;16–65 pending.
+
+
+### Session34 — Area15 Dither Shape, A15-01 under verification
+
+Trace: shapeDitherPreset -> ShapeToolHandlerRuntime/shapeDrawing ->
+finalizeRasterShapeFill -> commitRasterShapeFill -> captureCanvasToActiveLayer.
+The preset has no tip selector. Its preview is a separate translucent overlay at
+60% display alpha; the guide now states that and removes the stale tip row.
+Initial main-canvas and triangle/concave ROI preview mismatches were invalid audit
+oracles, corrected against the actual overlay. Corrected geometry2/18 passes.
+
+The simple-preview owner is pointerHandlersRuntime.drawSimpleShapePreviewOnOverlay,
+which dithers buffered content. The earlier advanced-polygon silhouette-only source
+trace was incorrect; final opacity and preview display alpha intentionally differ.
+
+All11 algorithms x BG22/198,8 built-in patterns x BG16/144, software-pen resolution
+and selection clipping16/156, and diagonal Pxl Edge4/40 pass. Geometry/opacity/Enter/
+Escape/degenerate/edge/size/spacing workflow24 cases had202 passes and2 invalid preview
+assertions, both superseded by corrected geometry. Palette21 cases established
+A15-01: half-alpha underpaint128 becomes192 in dither gaps and capture padding;
+50% fill reaches224 instead of192. This persists after Canvas premultiplication
+normalization, disproving an initial RGB-rounding-only hypothesis. Before evidence:
+area15-{palette,translucent-underpaint}-session34.{log,json} under output/playwright.
+
+A15-01 owner: commitRasterShapeFill adds the backdrop before capture, then default
+alpha capture adds it again. It now uses existing replace mode for the already
+composed image. Boundary is five paths: ShapeFinalizeHandler.ts, its existing test,
+artist-guide/dither-shape.md, and these two ledgers. Original staged shapeDrawing.ts
+remains untouched. Regression before fails128->192/192->224; after passes. Four
+owner/integration suites33tests pass. Candidate final type-check and lint pass;
+full Jest and rebuilt native after-proof are still pending. Area15 is not complete.
+
+Shared custom-pattern library, artistic effects, rotation/snap and per-preset
+persistence remain Area29. Physical stylus, other browsers and performance unverified.
+Area16 controls have only been inspected; no Area16 signoff follows from that.
+
+
+### Session34 — Area15 final software signoff
+
+A15-01 passes the exact rebuilt native interaction: half-alpha underpaint stays128
+outside the shape and in BG-off holes; 50% fill composes once. Opaque/translucent
+underpaint, displayed composition, opacity, sampling/spread/Variety, exact Undo/Redo,
+geometry/Enter/Escape, bounds/clipping, software pressure and Pxl Edge pass. Selected
+coverage is103 configurations/910checks; receipt area15-native-coverage-session34.json
+states the unchanged algorithm/pattern/empty-base pressure carryover explicitly.
+Native final-artifact evidence: palette21/168, workflow23 accepted cases plus corrected
+edge1 (combined24/204), pressure/clipping8/76, Pxl Edge4/40. Exact defect4/30 and shared
+Dither Grad Free/Rect/Oval/Tri4/28 are additional supporting passes, not double-counted.
+
+Preview review correction: the simple preview can dither its buffer, with a fixed
+0.6 display alpha. BG-on field comparison matched immediately; one initial fixture
+BG-off comparison was solid. It did not recur in10 follow-up cases: reordered3/30,
+explicit preset switches3/30, and entirely native brush-settings4/40. Retain the
+isolated mismatch in area15-preview-field-diagnose-session34.json; no speculative
+runtime patch follows from it. The native-settings run is the accepted preview-field
+proof. The final sweep's edge-preview colour-count failure was a sampling ROI crossing
+the boundary, superseded by area15-edge-preview-after-session34 (1/9).
+
+Final bundle page-259cb60c8dd71797.js, SHA256
+2d656fdff12db9101d676ba71751019668521b026286ed65cab10c5f5fbe0746.
+Each final native script asserts the actual browser-loaded resource hash. Source and
+artifact receipt: area15-preview-final-session34.json. No runtime edits after build.
+Five-path isolated candidate type-check PASS; final worktree lint PASS; focused
+owner/integration4suites33tests PASS; full isolated Jest596suites5,666tests PASS,
+existing1suite/test skipped,1snapshot PASS. Production build and diff check PASS.
+Full log area15-candidate-full-jest-session34.log; only the5 scoped files are committed.
+Original47 path hashes and the3-file staged patch remain exact. No push/deployment.
+
+Commit receipt: output/playwright/area15-commit-receipt-session34.json. Area16 now
+active,17–65 pending. Shared artistic/pattern-library/rotation/snap/preset-persistence
+work remains Area29. Hardware, other browsers and performance remain unverified.

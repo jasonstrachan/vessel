@@ -403,7 +403,11 @@ export const commitRasterShapeFill = async ({
     image: ImageData | null,
     roi?: CaptureRegion
   ) => void;
-  captureCanvasToActiveLayer: (canvas: HTMLCanvasElement, roi?: CaptureRegion) => Promise<void>;
+  captureCanvasToActiveLayer: (
+    canvas: HTMLCanvasElement,
+    roi?: CaptureRegion,
+    options?: Parameters<AppState['captureCanvasToActiveLayer']>[2]
+  ) => Promise<void>;
   scheduleHistoryCommit: (payload: Parameters<typeof commitLayerHistory>[0]) => Promise<void>;
   clearShapeBeforeSnapshot: () => void;
   resetPolygonState: () => void;
@@ -477,7 +481,10 @@ export const commitRasterShapeFill = async ({
     deps.applyBackdropFromSnapshot(deps.drawingCtxRef.current, beforeBitmap, captureRegion);
   }
 
-  await deps.withTiming('cc:capture', () => deps.captureCanvasToActiveLayer(drawingCanvas, captureRegion));
+  // The snapshot is already behind the shape; blending again doubles its alpha.
+  await deps.withTiming('cc:capture', () =>
+    deps.captureCanvasToActiveLayer(drawingCanvas, captureRegion, { mode: 'replace' })
+  );
   if (!captureRegion) {
     debugWarn('raw-console', '[shape-finalize] captureRegion missing; committing full-layer delta.');
   }

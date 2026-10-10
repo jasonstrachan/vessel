@@ -12,7 +12,6 @@ fabric, cloud, skin, architecture, or a graphic colour mass.
 
 | Control | Effect and use |
 | --- | --- |
-| Dither tip | Square, Round, Diamond, Diamond 5/7/9, or Triangle used while defining the form. |
 | Size | Width of the boundary-making gesture. |
 | Opacity | Strength of the completed fill. |
 | Spacing / Vel | Sampling interval while drawing the boundary and optional speed response. |
@@ -34,6 +33,9 @@ fabric, cloud, skin, architecture, or a graphic colour mass.
 Shape mode is intrinsic to this preset, so the ordinary Shape toggle and dashed
 stroke controls are not presented as its main workflow. The preset starts with
 Sierra Lite, BG Fill on, pressure-linked resolution on, and no Pxl Edge.
+
+While drawing, the overlay shows a translucent preview of the form. The completed
+fill uses the chosen opacity. There is no tip selector for this preset.
 
 ## Painting with it
 

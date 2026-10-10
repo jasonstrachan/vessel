@@ -4,13 +4,80 @@ import type { BrushSettings, ShapePoint } from '@/types';
 import { BrushShape } from '@/types';
 import {
   applyRasterShapeOpacity,
+  commitRasterShapeFill,
   applyTransparencyLockMaskToContext,
   finalizeRasterShapeFill,
   resolveDitherGradientFinalizeBrushSettings,
 } from '@/hooks/canvas/handlers/shapes/ShapeFinalizeHandler';
 import { boundingBoxToCaptureRegion } from '@/hooks/canvas/utils/captureRegions';
+import { alphaCompositeImageDataRegion } from '@/stores/layers/layerCanvasCapture';
 
 describe('ShapeFinalizeHandler', () => {
+  it('publishes a composed shape without doubling translucent backdrop or hole alpha', async () => {
+    const before = new ImageData(new Uint8ClampedArray([
+      32, 64, 192, 128,
+      32, 64, 192, 128,
+      32, 64, 192, 128,
+    ]), 3, 1);
+    // Painted pixel, transparent dither gap, and padding outside the shape.
+    const composed = new ImageData(new Uint8ClampedArray([
+      180, 40, 90, 192,
+      32, 64, 192, 128,
+      32, 64, 192, 128,
+    ]), 3, 1);
+    const canvas = document.createElement('canvas');
+    canvas.width = 3;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d');
+    const layer = { id: 'raster', layerType: 'normal', imageData: before };
+    const state = { layers: [layer], activeLayerId: layer.id } as unknown as AppState;
+    const roi = { x: 0, y: 0, width: 3, height: 1 };
+    const applyBackdrop = jest.fn();
+    const results: ImageData[] = [];
+    const capture: AppState['captureCanvasToActiveLayer'] = async (_canvas, _roi, options) => {
+      expect(applyBackdrop).toHaveBeenCalledWith(ctx, before, roi);
+      results.push(alphaCompositeImageDataRegion(before, composed, 0, 0, 3, 1, options?.mode));
+    };
+    const history = jest.fn();
+    const handled = await commitRasterShapeFill({
+      shapePoints: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }],
+      shapeBeforeSnapshot: { kind: 'full', image: before },
+      shapeBeforeColorState: null,
+      liveBrushSettings: { brushShape: BrushShape.PIXEL_DITHER } as BrushSettings,
+      tool: 'brush',
+    }, {
+      storeRef: { current: state },
+      project: { width: 3, height: 1 },
+      drawingCanvasRef: { current: canvas },
+      drawingCtxRef: { current: ctx },
+      drawingCanvasHasContent: { current: true },
+      strokeBoundingBoxRef: { current: null },
+      strokeCapturePaddingRef: { current: 0 },
+      roiPadding: 0,
+      captureRegionFromPoints: () => roi,
+      boundingBoxToCaptureRegion: () => undefined,
+      inflateShapeBeforeSnapshot: () => before,
+      ensureLayerSnapshotWithRetry: async () => before,
+      applyBackdropFromSnapshot: applyBackdrop,
+      captureCanvasToActiveLayer: capture,
+      scheduleHistoryCommit: history,
+      clearShapeBeforeSnapshot: jest.fn(),
+      resetPolygonState: jest.fn(),
+      resumeColorCycleAfterInteraction: async () => undefined,
+      withTiming: async (_label, task) => task(),
+      logError: jest.fn(),
+    });
+
+    expect(handled).toBe(true);
+    expect(results).toHaveLength(1);
+    expect(Array.from(results[0].data)).toEqual(Array.from(composed.data));
+    expect(history).toHaveBeenCalledWith(expect.objectContaining({
+      layerId: layer.id,
+      beforeImage: before,
+      bitmapRoi: roi,
+    }));
+  });
+
   it('applies brush opacity to finalized raster alpha without filling holes', () => {
     const image = {
       data: new Uint8ClampedArray([

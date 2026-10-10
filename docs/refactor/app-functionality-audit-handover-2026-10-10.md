@@ -1,4 +1,20 @@
-# Vessel whole-app audit handover — 10 October 2026, session 32
+# Vessel whole-app audit handover — 10 October 2026, session 34
+
+## Current continuation — Session34, Area15 complete
+
+Areas01–15 software-verified and locally committed; commit receipt is
+output/playwright/area15-commit-receipt-session34.json. A15-01 corrected double backdrop
+compositing at commitRasterShapeFill. Five scoped paths only; original47 paths and
+original3-file staged patch preserved. Native103configs910checks plus supporting
+native preview4/40 and shared Dither Grad4/28 pass. Full isolated596suites5666tests,
+type-check/lint/build pass. Read the latest inventory signoff and area15-owner-trace.
+
+Area16 Dither Grad active: controls/source traced,4-shape translucent integration
+passed, core settings script prepared but not yet run. Start area16-owner-trace-
+session34.md and area16-core-session34.js under output/playwright. Continue16–65.
+Same named headless browser remains open while this audit is running; preserve the
+production watcher/server. Exact cleanup required before handoff. Earlier headers
+below are historical and superseded by this entry.
 
 ## Current continuation — Session32
 
