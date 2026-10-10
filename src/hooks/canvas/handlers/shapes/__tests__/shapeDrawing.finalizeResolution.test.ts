@@ -280,6 +280,46 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     jest.restoreAllMocks();
   });
 
+  it('rejects a locked layer before shape authoring starts', () => {
+    storeState.layers[0] = { ...storeState.layers[0], locked: true };
+    const refs = makeShapeRefs();
+    const deps = makeShapeDeps(jest.fn());
+    expect(startShapeDrawing({
+      worldPos: { x: 8, y: 8 }, shapeMode: true,
+      refs: refs as unknown as Parameters<typeof startShapeDrawing>[0]['refs'],
+    }, deps)).toBe(false);
+    expect(refs.shapeInteractionPhaseRef.current).toBe('idle');
+    expect(refs.shapePointsRef.current).toEqual([]);
+    expect(deps.capturePendingShapeSnapshot).not.toHaveBeenCalled();
+    expect(deps.updateShapePressure).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('discards a shape locked before finalization (direction: %s)', async direction => {
+    storeState.layers[0] = { ...storeState.layers[0], locked: true };
+    const refs = makeShapeRefs();
+    refs.isDrawingShapeRef.current = true;
+    refs.isSelectingDirectionRef.current = direction;
+    refs.directionPreviewRef.current = direction ? { x: 40, y: 16 } : null;
+    refs.shapePointsRef.current = [{ x: 8, y: 8 }, { x: 24, y: 8 }, { x: 8, y: 24 }];
+    refs.shapeInteractionPhaseRef.current = 'drawing';
+    const deps = makeShapeDeps(jest.fn());
+    refs.finalizeQueueRef.current.enqueue = jest.fn(async (task: () => Promise<void>) => task());
+    deps.drawingCtxRef.current = makeContext();
+    deps.drawingCanvasRef.current = document.createElement('canvas');
+    await finalizeShapeDrawing({
+      shapeMode: true, refs: refs as unknown as Parameters<typeof finalizeShapeDrawing>[0]['refs'],
+      toolsRef: ref(storeState.tools),
+    }, deps);
+    expect(deps.runColorCycleShapeFill).not.toHaveBeenCalled();
+    expect(deps.scheduleDeferredColorCycleSaveWithState).not.toHaveBeenCalled();
+    expect(deps.finalizeDrawing).not.toHaveBeenCalled();
+    expect(refs.shapePointsRef.current).toEqual([]);
+    expect(refs.isDrawingShapeRef.current).toBe(false);
+    expect(refs.isSelectingDirectionRef.current).toBe(false);
+    expect(refs.shapeInteractionPhaseRef.current).toBe('idle');
+    expect(deps.resumeColorCycleAfterInteraction).toHaveBeenCalled();
+  });
+
   it('updates sampled shape preview stops while the first-stage shape is being drawn', () => {
     storeState.tools.ccGradientSource = 'sampled';
     storeState.tools.brushSettings.ccGradientDrawingShape = 'rectangle';

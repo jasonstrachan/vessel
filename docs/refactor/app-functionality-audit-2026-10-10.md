@@ -35,7 +35,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 15 | Dither Shape: geometry, silhouette preview/final fill, dither settings, fill/cancel/history | shape handlers, brush engine | software-verified (Session34: A15-01 repaired;103 configurations/910checks; full gate passed) |
 | 16 | Dither Grad: sampled/manual colours, gradient direction/range, geometry, dither settings | gradient shape runtime | software-verified (Session34: A16-01–03 repaired;108 configurations/905checks; full gate passed) |
 | 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | software-verified (Session36: A17-01–05 repaired; native/full gate pass; focused local commit receipt) |
-| 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | active (Session36: live controls inventoried; painting untested) |
+| 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | software-verified (Session38: A18-01–03 repaired; final native/full gate pass) |
 | 19 | CC Fixed Dither: density/pattern, sampling, palette, size, playback | CC mark session, strokeStampDither | pending |
 | 20 | CC shape/basic geometry: freehand/rectangle/ellipse/line/click-line, constraints, direction, preview/commit/cancel | CC gradient drawing runtime | pending |
 | 21 | Checkered brush: cell size, colours, spacing, opacity, shape/selection | brush engine/settings | pending |
@@ -2480,3 +2480,99 @@ Area18 discovery only: CC Tonal Dither is preset `color-cycle-gradient`; its act
 Palette/FG Grad/Sample controls are captured in `area18-controls-session36.json`.
 Painting has not been verified. Continue with `area18-owner-trace-session36.md`
 as Area18 begins. The audit remains authorized through Area65.
+
+## Session37 — Area18 partial: Concentric and locked-layer repairs
+
+Area18 remains **partial and uncommitted**. Areas01–17 are complete; continue18,
+then19–65. No partial-area commit, push, deployment, branch or worktree change.
+
+**A18-01 repaired and native verified:** Concentric used the generic GPU fill,
+which has no inputs for the selected dither algorithm, ink count, pattern or
+background behavior. It returned before the existing dither implementation.
+CC dither fills now reach that implementation; supported ordinary/non-dither GPU
+fills remain unchanged. Before, Ink Colors1/2/8/16 all wrote19 indices and four
+algorithms had identical paint buffers. After, selected8/16 counts write8/16
+indices and the algorithms produce distinct patterns. Twelve native cases and
+60 history checks pass. The new real-brush/document regression fails before and
+passes after, with a successful GPU boundary double exposing the wrong dispatch.
+
+**A18-02 repaired and native verified:** locked CC shapes still painted and added
+history. Five native reproductions cover initially locked Grad/Concentric/Stroke
+and a layer locked during direction preview, confirmed by click or Enter.
+The shape owner now rejects locked initial authoring and rechecks the captured
+layer when queued finalization begins, cancelling its draft when locked.
+The final production artifact passes all five cases/18 checks, including cleared
+shape state. Four direct suites/61 tests, type-check, lint and production build pass.
+The pre-existing staged additions in shapeDrawing.ts remain preserved.
+
+**A18-03 open:** Spacing and both Velocity toggles are exposed for Tonal Dither,
+but the shape workflow does not consume these settings. Identical native Stroke
+paths at approximately0.7s and4.3s produce identical paint/RGBA hashes and speed
+byte49 with either velocity link off/on. Spacing1/64 also produced identical
+free-shape output. Source trace and exact data are in the Session37 owner trace
+and area18-velocity-probe-final-session37.json. No UI repair has been attempted.
+Finish the trace and prefer restricting unsupported controls to the paths that
+implement them, rather than inventing new velocity-shape behavior. Review other
+conditional controls before declaring the area complete.
+
+Additional proof: the grayscale settings matrix passes34 cases/204 checks;
+all11 algorithms and8 built-in patterns have distinct visible output. Fourteen
+explicit effect checks cover settings, ink counts, pressure, grid and speed.
+Sampling, foreground tones, playback/pause, frozen older ink, erased coverage,
+alpha and exact Undo/Redo were exercised. Fixtures were corrected for ambiguous
+Soft selectors, an unavailable Rounded control, animated selection outlines,
+sample-count reset at commit, and a second gesture's baseline; these are not
+application defects. The corrected runs and exclusions are in the coverage receipt.
+Physical tablet, performance, custom pattern-library management and full shared
+geometry acceptance are not claimed; later owning areas remain open.
+
+The first isolated candidate passes600 suites/5711 tests, with one existing skip,
+plus type-check/lint. **That candidate predates A18-02 and is not the final area
+gate.** Prepare a fresh candidate after the remaining control repair, excluding
+all original dirty/staged hunks, then review and run the completed-area gate.
+Current scope is four source/test files and these two ledgers. All other original
+paths and the original three-file staged patch remain exact. Read
+`output/playwright/area18-root-facts-session37.md` first for continuation.
+
+## Session38 — Area18 final software signoff
+
+Area18 is software-verified; completed-area local commit follows. Areas01–18 are
+complete; Area19 CC Fixed Dither is next, with its initial native matrix running.
+No push, deployment, branch or worktree changes.
+
+A18-03 repaired at BrushControls: CC shape fills no longer expose Spacing,
+velocity spacing, velocity animation speed, Rotation or raster-only Smoosh.
+Static Speed, pressure size and pressure-linked resolution remain available on
+supported paths. Switching to Color Cycle Stroke restores its stamp controls.
+Stored settings are preserved. Native before/after evidence confirms the issue:
+Rotation on/off gives identical paint/RGBA; Smoosh does too with pressure resolution
+enabled and native pen pressure changing .1→1. Session37 already proved inert
+Spacing and Velocity links. Six source/test owners plus these two ledgers are
+necessary for the three Area18 repairs; no rendering semantics were invented.
+
+Final bundle b773c989dfe9a9e32aff60c1583ba4d9d5d688f064c442fe0bc5c6bff5279f2b
+passes79 control/sampling checks: all21 shape/mode control states, a return to
+CC Stroke, and five sampled fill cases with exact Undo/Redo. Sampled Concentric
+Bayer/Sierra/Pattern produce the selected8/16/8 indices, visible colour and
+canonical gradient definitions. All five locked-layer cases/18 checks also pass
+on that final artifact. The initial final script used an incorrect short brush
+label; its locator abort was corrected without application changes.
+
+Selected evidence totals117 executed painting/history cases,737 checks plus the
+14 earlier positive effect comparisons;22 control states are included in checks
+but counted separately from painting cases. Counts include retests. Prior fixture
+exclusions remain in area18-native-coverage-session38.json. Physical tablet,
+performance, custom pattern-library management and later shared-geometry/playback
+areas remain outside this software signoff.
+
+Before/after UI regressions fail4 and then pass;74 focused UI tests pass.
+Fresh isolated task-only candidate passes type-check, lint and600 suites/5717tests,
+with one existing skipped suite/test and one passing snapshot. Production build
+and diff review pass. The candidate excludes all original staged shapeDrawing
+additions and all unrelated dirty files; source hashes bind it to the preview.
+Receipts: area18-preview-session38.json, area18-isolated-gate-session38.json,
+area18-native-coverage-session38.json and area18-owner-trace-session38.md.
+
+The pre-existing dirty CC Tonal Dither artist guide describes unsupported controls;
+its wording is preserved as unrelated work and this discrepancy is recorded here.
+Original47paths and staged3-file patch are preserved before the local commit.

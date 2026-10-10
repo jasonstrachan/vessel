@@ -69,6 +69,7 @@ import {
 } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
 import {
   type CcGradientClickLineSession,
+  createCcGradientClickLineSession,
   isCcGradientDragDefinedShapeMode,
   isCcGradientClickLineDrawingShapeMode,
   isCcGradientPolygonDrawingShapeMode,
@@ -1089,6 +1090,13 @@ export const startShapeDrawing = (
   },
   deps: ShapeDrawingDeps
 ): boolean => {
+  const startState = deps.storeRef.current;
+  if (
+    !args.refs.isSelectingDirectionRef.current &&
+    startState.layers.find((layer) => layer.id === startState.activeLayerId)?.locked
+  ) {
+    return false;
+  }
   if (args.refs.shapeInteractionPhaseRef.current === 'finalizing') {
     return false;
   }
@@ -1746,6 +1754,33 @@ export const finalizeShapeDrawing = async (
       : undefined;
 
   await args.refs.finalizeQueueRef.current.enqueue(async () => {
+    // A layer can be locked while its direction preview or queued fill is pending.
+    if (resolveCapturedShapeFinalizeLayer(deps.storeRef.current, finalizeTargetLayerId)?.locked) {
+      const canvas = deps.drawingCanvasRef.current;
+      deps.drawingCtxRef.current?.clearRect(0, 0, canvas?.width ?? 0, canvas?.height ?? 0);
+      deps.drawingCanvasHasContent.current = false;
+      args.refs.isSelectingDirectionRef.current = false;
+      args.refs.directionPreviewRef.current = null;
+      args.refs.shapePointsRef.current = [];
+      args.refs.ccStrokeSamplesRef.current = [];
+      args.refs.ccStrokeDirectionRef.current = null;
+      args.refs.ccGradientDrawingGeometryRef.current = null;
+      args.refs.ccGradientClickLineSessionRef.current = createCcGradientClickLineSession();
+      args.refs.isDrawingShapeRef.current = false;
+      args.refs.shapeInteractionPhaseRef.current = 'idle';
+      args.refs.ccShapePreviewPauseStartedRef.current = false;
+      getAppStoreState().setShapeDrawing(false);
+      if (finalizeTargetLayerId) cancelMarkGradientSession(finalizeTargetLayerId);
+      deps.clearShapeBeforeSnapshot();
+      deps.resetShapeDragRefs();
+      deps.resetShapePressureState();
+      deps.resetAutoSampleState();
+      deps.resetCcGradientSample();
+      deps.resetPolygonState();
+      if (deps.isBusyRef) deps.isBusyRef.current = false;
+      await deps.resumeColorCycleAfterInteraction();
+      return;
+    }
     let finalizeTriggered = false;
     let handledColorCycleShape = false;
     let handledColorCycleTargetLayerId: string | null = null;

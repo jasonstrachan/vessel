@@ -1653,31 +1653,33 @@ const BrushControls = () => {
           </div>
         )}
 
-        <div className="mb-2">
-          <div className="flex items-center gap-2">
-            <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
-              Spacing
-            </label>
-            <NonCcSlider
-              value={spacingSlider.value}
-              min={1}
-              max={64}
-              step={1}
-              onChange={(value) =>
-                spacingSlider.onChange(Math.max(1, Math.round(value)))
-              }
-              onCommit={spacingSlider.onCommit}
-              aria-label="Stamp Spacing"
-              className="flex-1"
-            />
-            <VelocityLinkToggle
-              id="velocity-spacing-cc"
-              checked={Boolean(activeSettings.velocitySpacingEnabled)}
-              onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
-              title="Link spacing to cursor speed"
-            />
+        {activeSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE && (
+          <div className="mb-2">
+            <div className="flex items-center gap-2">
+              <label className={CONTROL_LABEL_CLASS} style={CONTROL_LABEL_STYLE}>
+                Spacing
+              </label>
+              <NonCcSlider
+                value={spacingSlider.value}
+                min={1}
+                max={64}
+                step={1}
+                onChange={(value) =>
+                  spacingSlider.onChange(Math.max(1, Math.round(value)))
+                }
+                onCommit={spacingSlider.onCommit}
+                aria-label="Stamp Spacing"
+                className="flex-1"
+              />
+              <VelocityLinkToggle
+                id="velocity-spacing-cc"
+                checked={Boolean(activeSettings.velocitySpacingEnabled)}
+                onChange={(checked) => setActiveSettings({ velocitySpacingEnabled: checked })}
+                title="Link spacing to cursor speed"
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
@@ -1701,12 +1703,14 @@ const BrushControls = () => {
                 aria-label="Speed"
                 className="flex-1"
               />
-            <VelocityLinkToggle
-              id="velocity-animation-speed-cc"
-              checked={Boolean(activeSettings.velocityAnimationSpeedEnabled)}
-              onChange={(checked) => setActiveSettings({ velocityAnimationSpeedEnabled: checked })}
-              title="Link animation speed to cursor speed"
-            />
+            {activeSettings.brushShape !== BrushShape.COLOR_CYCLE_SHAPE && (
+              <VelocityLinkToggle
+                id="velocity-animation-speed-cc"
+                checked={Boolean(activeSettings.velocityAnimationSpeedEnabled)}
+                onChange={(checked) => setActiveSettings({ velocityAnimationSpeedEnabled: checked })}
+                title="Link animation speed to cursor speed"
+              />
+            )}
           </div>
         </div>
 
@@ -1928,6 +1932,7 @@ const BrushControls = () => {
               forceOn={Boolean(capability.forceDither)}
               isDitherPreset={isDitherPreset}
               showPxlEdgeToggle={isColorCycleGradientPreset}
+              showStrokeOnlyControls={false}
               hideLostEdge
               beforeResolution={
                 isColorCycleGradientPreset && !useForegroundDerivedGradient ? (
@@ -2244,10 +2249,9 @@ const BrushControls = () => {
           </div>
         )}
 
-        {/* Rotation - only for stroke variants */}
+        {/* Rotation applies to stamps; gradient Stroke mode builds a filled outline. */}
         {(activeSettings.brushShape === BrushShape.COLOR_CYCLE ||
-          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE ||
-          isColorCycleGradientStrokeMode) && (
+          activeSettings.brushShape === BrushShape.COLOR_CYCLE_TRIANGLE) && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
               <label

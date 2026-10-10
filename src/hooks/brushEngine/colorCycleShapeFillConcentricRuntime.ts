@@ -202,9 +202,10 @@ export async function runColorCycleConcentricShapeFill(
     });
   };
 
-  const flatCycleDither =
-    ccGradient && context.isDitherEnabled() && options?.ditherFlatCycle === true;
-  if (!context.isPerceptualDitherEnabled() && !flatCycleDither) {
+  // The generic GPU fill has no algorithm, ink-count, pattern or background-fill
+  // inputs. CC dithering must use the shared dither implementation below.
+  const ccGradientDither = ccGradient && context.isDitherEnabled();
+  if (!context.isPerceptualDitherEnabled() && !ccGradientDither) {
     try {
       const tryGPU = !acceptsPixel && lostEdge <= 0 && !hasIndexedAuthoringObserver();
       const ditherStrengthGpu = context.isDitherEnabled() ? context.getDitherStrength() : 0;

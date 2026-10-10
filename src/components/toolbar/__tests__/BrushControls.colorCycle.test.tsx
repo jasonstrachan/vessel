@@ -1164,6 +1164,52 @@ describe('BrushControls – Custom brush captured data mode', () => {
 });
 
 describe('BrushControls – Color Cycle gradient fill mode', () => {
+  it.each(['linear', 'stroke', 'concentric'] as const)(
+    'hides unsupported stamp controls for %s shape fills while retaining speed',
+    (colorCycleFillMode) => {
+      const previous = useAppStore.getState();
+      useAppStore.setState({
+        tools: {
+          ...previous.tools,
+          currentTool: 'brush',
+          brushSettings: {
+            ...previous.tools.brushSettings,
+            brushShape: 'color_cycle_shape' as BrushSettings['brushShape'],
+            colorCycleFillMode,
+            ditherEnabled: true,
+            pressureLinkedFillResolution: true,
+          },
+        },
+        currentBrushPreset: { id: 'color-cycle-gradient', name: 'CC Tonal Dither' } as AppState['currentBrushPreset'],
+      });
+      const { unmount } = render(<BrushControls />);
+
+      expect(screen.queryByLabelText('Stamp Spacing')).not.toBeInTheDocument();
+      expect(document.getElementById('velocity-spacing-cc')).not.toBeInTheDocument();
+      expect(document.getElementById('velocity-animation-speed-cc')).not.toBeInTheDocument();
+      expect(document.getElementById('rotation-enabled-color-cycle')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Pressure dither Smoosh')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Speed')).toBeInTheDocument();
+      expect(screen.getByLabelText('Pressure-linked Resolution')).toBeInTheDocument();
+
+      act(() => {
+        useAppStore.setState((state) => ({
+          tools: {
+            ...state.tools,
+            brushSettings: { ...state.tools.brushSettings, brushShape: 'color_cycle' as BrushSettings['brushShape'] },
+          },
+          currentBrushPreset: { id: 'color-cycle-stroke', name: 'CC Stroke' } as AppState['currentBrushPreset'],
+        }));
+      });
+      expect(screen.getByLabelText('Stamp Spacing')).toBeInTheDocument();
+      expect(document.getElementById('velocity-spacing-cc')).toBeInTheDocument();
+      expect(document.getElementById('velocity-animation-speed-cc')).toBeInTheDocument();
+      expect(document.getElementById('rotation-enabled-color-cycle')).toBeInTheDocument();
+      unmount();
+      useAppStore.setState(previous);
+    },
+  );
+
   it('renders the generic Studio settings slot for Color Cycle brushes', () => {
     useAppStore.setState((state) => ({
       ...state,
@@ -1484,7 +1530,7 @@ describe('BrushControls – Color Cycle gradient fill mode', () => {
 
     expect(screen.getByRole('button', { name: 'Stroke' })).toBeInTheDocument();
     expect(document.getElementById('pressure-enabled-color-cycle')).toBeInTheDocument();
-    expect(document.getElementById('rotation-enabled-color-cycle')).toBeInTheDocument();
+    expect(document.getElementById('rotation-enabled-color-cycle')).not.toBeInTheDocument();
   });
 
   it('shows and applies the CC gradient Inks slider without changing gradient bands', () => {

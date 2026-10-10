@@ -1,4 +1,39 @@
-# Vessel whole-app audit handover — 10 October 2026, session 36
+# Vessel whole-app audit handover — 11 October 2026, session 38
+
+## Current continuation — Session38, Area18 complete
+
+Areas01–18 software-verified; focused local Area18 commit receipt follows in
+output/playwright/area18-commit-receipt-session38.json. Continue19–65 under the
+retained human authorization, without renewed permission. All3 Area18 defects
+repaired: Concentric dither dispatch, locked-shape admission/finalization and
+unsupported shape controls. Final bundle b773c989... passes79 control/sampling
+checks and18 lock checks; isolated600suites5717tests/type/lint/build pass.
+Original47paths/staged3-file additions remain protected; never restore historical
+whole files or rerun old commit scripts. Current authoritative baseline follows
+in area19-initial-baseline-session38.json after the commit.
+
+Area19 native control inventory and initial matrix are in progress; see current
+root facts for runtime/session status. One named managed headless browser only.
+No subagents, push/deployment/branch/worktree changes. Local continuation chats
+before70%context remain authorized (Session18 authority retained below).
+
+
+## Current continuation — Session37, Area18 partial
+
+FIRST READ `output/playwright/area18-root-facts-session37.md`, then the Session37
+entry in the inventory and `area18-owner-trace-session37.md`. Areas01–17 remain
+complete. Area18 has two native-verified repairs, is uncommitted, and has an open
+unsupported-controls issue; continue18 then19–65 without renewed permission.
+Current final artifact940b9744 has passed all five locked-layer reproductions.
+The earlier600-suite gate covers only the Concentric repair, not the whole area.
+Preserve all47 original paths and the three-file staged patch. shapeDrawing.ts is
+mixed with original staged additions; use the named baseline/backup when preparing
+a task-only candidate, never restore older whole-file backups. Four source/test
+files plus two ledgers are current task changes. No partial-area commit.
+Single named browser, production process and exact cleanup state are in root facts.
+No subagents or substitute models; no push/deployment/branch/worktree changes.
+The human's local-continuation authorization is retained in Session18 below.
+
 
 ## Current continuation — Session36, Area17 complete
 
@@ -2107,3 +2142,46 @@ native and unit evidence is retained; no signoff derives from those failed runs.
 
 Focused local commit receipt: output/playwright/area14-commit-receipt-session34.json.
 Remain on main; no push/deployment. Next active area is15 Dither Shape;16–65 pending.
+
+## Session38 — Area18 final software signoff
+
+Area18 is software-verified; completed-area local commit follows. Areas01–18 are
+complete; Area19 CC Fixed Dither is next, with its initial native matrix running.
+No push, deployment, branch or worktree changes.
+
+A18-03 repaired at BrushControls: CC shape fills no longer expose Spacing,
+velocity spacing, velocity animation speed, Rotation or raster-only Smoosh.
+Static Speed, pressure size and pressure-linked resolution remain available on
+supported paths. Switching to Color Cycle Stroke restores its stamp controls.
+Stored settings are preserved. Native before/after evidence confirms the issue:
+Rotation on/off gives identical paint/RGBA; Smoosh does too with pressure resolution
+enabled and native pen pressure changing .1→1. Session37 already proved inert
+Spacing and Velocity links. Six source/test owners plus these two ledgers are
+necessary for the three Area18 repairs; no rendering semantics were invented.
+
+Final bundle b773c989dfe9a9e32aff60c1583ba4d9d5d688f064c442fe0bc5c6bff5279f2b
+passes79 control/sampling checks: all21 shape/mode control states, a return to
+CC Stroke, and five sampled fill cases with exact Undo/Redo. Sampled Concentric
+Bayer/Sierra/Pattern produce the selected8/16/8 indices, visible colour and
+canonical gradient definitions. All five locked-layer cases/18 checks also pass
+on that final artifact. The initial final script used an incorrect short brush
+label; its locator abort was corrected without application changes.
+
+Selected evidence totals117 executed painting/history cases,737 checks plus the
+14 earlier positive effect comparisons;22 control states are included in checks
+but counted separately from painting cases. Counts include retests. Prior fixture
+exclusions remain in area18-native-coverage-session38.json. Physical tablet,
+performance, custom pattern-library management and later shared-geometry/playback
+areas remain outside this software signoff.
+
+Before/after UI regressions fail4 and then pass;74 focused UI tests pass.
+Fresh isolated task-only candidate passes type-check, lint and600 suites/5717tests,
+with one existing skipped suite/test and one passing snapshot. Production build
+and diff review pass. The candidate excludes all original staged shapeDrawing
+additions and all unrelated dirty files; source hashes bind it to the preview.
+Receipts: area18-preview-session38.json, area18-isolated-gate-session38.json,
+area18-native-coverage-session38.json and area18-owner-trace-session38.md.
+
+The pre-existing dirty CC Tonal Dither artist guide describes unsupported controls;
+its wording is preserved as unrelated work and this discrepancy is recorded here.
+Original47paths and staged3-file patch are preserved before the local commit.
