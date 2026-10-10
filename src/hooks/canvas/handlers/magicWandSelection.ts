@@ -1,5 +1,7 @@
 import { floodSelect } from '@/utils/floodSelect';
 import { resolveLayerImageData } from '@/stores/helpers/selectionCapture';
+import { getAppStoreState } from '@/stores/appStoreAccess';
+import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import type { Layer, ToolState } from '@/types';
 import { applyMaskSelectionResult } from './selectionApply';
 
@@ -20,15 +22,13 @@ export const applyMagicWandSelection = ({
   worldPos,
   wandSettings,
   append,
-  clearSelection,
 }: ApplyMagicWandSelectionArgs): boolean => {
   if (!activeLayer || !activeLayerId) {
     return false;
   }
 
-  const currentImageData = resolveLayerImageData(activeLayer);
+  const currentImageData = resolveLayerImageData(activeLayer, getAppStoreState());
   if (!currentImageData) {
-    clearSelection();
     return true;
   }
 
@@ -43,16 +43,21 @@ export const applyMagicWandSelection = ({
   );
 
   if (!selection) {
-    clearSelection();
     return true;
   }
 
+  const before = captureSelectionSnapshot();
   const { bounds, mask } = selection;
   applyMaskSelectionResult({
     append,
     mask,
     bounds,
     layerId: activeLayerId,
+  });
+  commitSelectionHistory({
+    before,
+    description: before.start && before.end ? 'Adjust selection' : 'Create selection',
+    meta: { source: 'magic-wand', append },
   });
   return true;
 };

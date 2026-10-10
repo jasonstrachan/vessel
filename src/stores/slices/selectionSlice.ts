@@ -1475,7 +1475,7 @@ export const createSelectionSlice = ({
         return;
       }
 
-      const imageData = resolveLayerImageData(layer);
+      const imageData = resolveLayerImageData(layer, state);
       if (!imageData) {
         return;
       }
@@ -2069,7 +2069,7 @@ export const createSelectionSlice = ({
       }
 
       const selectionBefore = selectionSnapshotFromState(state);
-      const sourceImageData = resolveLayerImageData(activeLayer);
+      const sourceImageData = resolveLayerImageData(activeLayer, state);
       const beforeImage = activeLayer.layerType === 'color-cycle'
         ? null
         : cloneOptionalImageData(sourceImageData);
@@ -2179,6 +2179,7 @@ export const createSelectionSlice = ({
                 maskBounds: selectionMaskBounds,
                 project,
                 layer: activeLayer,
+                sourceState: state,
                 clearSource: true,
               })
             : captureSelectionBitmap({
@@ -2186,6 +2187,7 @@ export const createSelectionSlice = ({
                 selectionEnd,
                 project,
                 layer: activeLayer,
+                sourceState: state,
                 clearSource: true,
               }));
 
@@ -2571,6 +2573,7 @@ export const createSelectionSlice = ({
                 maskBounds: state.selectionMaskBounds,
                 project,
                 layer: activeLayer,
+                sourceState: state,
                 clearSource: mode === 'cut',
               })
             : captureSelectionBitmap({
@@ -2578,6 +2581,7 @@ export const createSelectionSlice = ({
                 selectionEnd,
                 project,
                 layer: activeLayer,
+                sourceState: state,
                 clearSource: mode === 'cut',
               });
 

@@ -163,3 +163,17 @@ Click Line mouse admission uses the existing canvas input binding:
   tests cover native count, near-start tails, initial/active extraction, device
   compatibility, bounds and cancellation; exact production evidence is tracked in
   `docs/refactor/app-functionality-audit-2026-10-10.md`.
+
+Magic Wand selection uses the established selection/history and image-source owners:
+
+- `magicWandSelection.ts` captures the retained selection before a valid mask change
+  and commits through the existing selection delta. Rejected samples preserve it.
+- `selectionHandlers.ts` admission now only cancels stale gestures. All four
+  selection modes capture their own baseline; the superseded preclear branch is removed.
+- `selectionCapture.ts` resolves sequential layers from the displayed frame with
+  the existing playback/empty-frame policy, before raster fallbacks. Its callers
+  pass their existing state explicitly; the shared capture module does not import
+  the store it helps construct.
+- Composition shells remain 79/44/70 lines and pointer runtime remains 5,086 under
+  its existing exception. No orchestration boundary or new workflow was added.
+  Exact production and regression evidence is in the functionality-audit ledger.

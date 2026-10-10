@@ -11,6 +11,7 @@ import {
   resolveShapePreviewOpacity,
 } from '../pointerHandlersRuntime';
 import { useAppStore } from '@/stores/useAppStore';
+import * as selectionCapture from '@/stores/helpers/selectionCapture';
 import historyManager from '@/history/historyService';
 import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
@@ -4080,6 +4081,146 @@ const createFreehandPointerFixture = () => {
   (deps.overlayCanvasRef.current!.getContext as jest.Mock).mockReturnValue(overlayContext);
   return { deps, dynamicDepsRef, syncSelection, unsubscribe, context, overlayContext, canonical: imageData.data.slice(), layer };
 };
+
+describe('magic wand pointer transaction regressions', () => {
+  afterEach(() => {
+    historyManager.clear();
+    useAppStore.getState().clearSelection();
+    jest.restoreAllMocks();
+  });
+
+  const expectReplaySnapshot = (snapshot: ReturnType<typeof captureSelectionSnapshot>, direction: 'backward' | 'forward') => {
+    expect(captureSelectionSnapshot()).toEqual({
+      ...snapshot,
+      provenance: snapshot.start && snapshot.end ? {
+        ...snapshot.provenance,
+        source: `history-selection-${direction}`,
+        ownerKind: 'history-restored',
+        restoredFromHistory: true,
+        maskLayerId: snapshot.provenance?.maskLayerId ?? snapshot.maskLayerId ?? null,
+      } : null,
+    });
+  };
+
+  const setup = (baseline: 'none' | 'disjoint' | 'hole' = 'disjoint') => {
+    const fixture = createFreehandPointerFixture();
+    fixture.context.fillStyle = '#2030c0';
+    fixture.context.fillRect(40, 40, 20, 20);
+    fixture.layer.imageData = fixture.context.getImageData(0, 0, 100, 100);
+    const canonical = fixture.layer.imageData.data.slice();
+    fixture.deps.tools = { ...fixture.deps.tools, selectionMode: 'magic-wand' };
+    fixture.dynamicDepsRef.current.tools = fixture.deps.tools;
+    if (baseline !== 'none') {
+      const start = baseline === 'hole' ? 40 : 10;
+      const end = baseline === 'hole' ? 60 : 20;
+      useAppStore.getState().setSelectionBounds({ x: start, y: start }, { x: end, y: end }, 'selection-marquee-final');
+      const mask = new ImageData(end - start, end - start);
+      for (let y = 0; y < mask.height; y++) for (let x = 0; x < mask.width; x++) {
+        const alpha = baseline === 'hole' && x >= 5 && x < 15 && y >= 5 && y < 15 ? 0 : 128;
+        mask.data.set([12, 34, 56, alpha], (y * mask.width + x) * 4);
+      }
+      useAppStore.setState({ selectionMask: mask,
+        selectionMaskBounds: { x: start, y: start, width: end - start, height: end - start },
+        selectionMaskLayerId: fixture.layer.id,
+        selectionVectorPath: { mode: 'freehand', points: [{ x: start, y: start }, { x: end, y: start }, { x: end, y: end }] },
+      });
+    }
+    fixture.syncSelection();
+    const press = (x: number, y: number, shiftKey = false) => {
+      const handlers = createPointerHandlers(fixture.deps);
+      handlers.handlePointerDown(makePointerEvent({ clientX: x, clientY: y, shiftKey }));
+      handlers.handlePointerUp(makePointerEvent({ clientX: x, clientY: y, shiftKey }));
+    };
+    const expectCanonical = () => {
+      expect(fixture.layer.imageData.data).toEqual(canonical);
+      expect(fixture.context.getImageData(0, 0, 100, 100).data).toEqual(canonical);
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+    };
+    return { ...fixture, press, expectCanonical };
+  };
+
+  it.each(['none', 'disjoint', 'hole'] as const)('records exact %s replacement and Undo/Redo without changing artwork', async baseline => {
+    const f = setup(baseline);
+    try {
+      const before = captureSelectionSnapshot();
+      const beforeAlpha = pointerSelectionAlpha();
+      f.press(50, 50);
+      const after = captureSelectionSnapshot();
+      const expected = new Uint8ClampedArray(10000);
+      for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) expected[y * 100 + x] = 255;
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(after.maskBounds).toEqual({ x: 40, y: 40, width: 20, height: 20 });
+      expect(after.maskLayerId).toBe(f.layer.id);
+      expect(after.vectorPath).toBeNull();
+      expect(historyManager.entries()).toHaveLength(1);
+      await historyManager.undo();
+      expect(pointerSelectionAlpha()).toEqual(beforeAlpha);
+      expectReplaySnapshot(before, 'backward');
+      await historyManager.redo();
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expectReplaySnapshot(after, 'forward');
+      f.expectCanonical();
+    } finally { f.unsubscribe(); }
+  });
+
+  it('records Shift union and preserves exact mask/vector ownership through Undo/Redo', async () => {
+    const f = setup();
+    try {
+      const before = captureSelectionSnapshot();
+      const expected = pointerSelectionAlpha().map(alpha => alpha > 0 ? 255 : 0);
+      for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) expected[y * 100 + x] = 255;
+      f.press(50, 50, true);
+      const after = captureSelectionSnapshot();
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(after.maskLayerId).toBe(f.layer.id);
+      expect(after.vectorPath).toBeNull();
+      expect(historyManager.entries()).toHaveLength(1);
+      await historyManager.undo();
+      expectReplaySnapshot(before, 'backward');
+      await historyManager.redo();
+      expectReplaySnapshot(after, 'forward');
+      f.expectCanonical();
+    } finally { f.unsubscribe(); }
+  });
+
+  it.each([false, true].flatMap(shiftKey => [
+    { x: 100, y: 50, shiftKey }, { x: 50, y: 100, shiftKey },
+  ]))('rejects exact outside-source seed ($x, $y), Shift=$shiftKey without clearing A', ({ x, y, shiftKey }) => {
+    const f = setup();
+    try {
+      const before = captureSelectionSnapshot();
+      f.press(x, y, shiftKey);
+      expect(captureSelectionSnapshot()).toEqual(before);
+      expect(historyManager.entries()).toHaveLength(0);
+      f.expectCanonical();
+    } finally { f.unsubscribe(); }
+  });
+
+  it.each([false, true])('preserves A when its active layer has no sample source, Shift=%s', shiftKey => {
+    const f = setup();
+    try {
+      jest.spyOn(selectionCapture, 'resolveLayerImageData').mockReturnValue(null);
+      const before = captureSelectionSnapshot();
+      f.press(50, 50, shiftKey);
+      expect(captureSelectionSnapshot()).toEqual(before);
+      expect(historyManager.entries()).toHaveLength(0);
+      f.expectCanonical();
+    } finally { f.unsubscribe(); }
+  });
+
+  it('retains initial selected-alpha extraction ahead of wand authoring', () => {
+    const f = setup();
+    try {
+      (f.deps.extractSelectionToFloatingPaste as jest.Mock).mockReturnValue(true);
+      const before = captureSelectionSnapshot();
+      f.press(15, 15);
+      expect(f.deps.extractSelectionToFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(captureSelectionSnapshot()).toEqual(before);
+      expect(historyManager.entries()).toHaveLength(0);
+      f.expectCanonical();
+    } finally { f.unsubscribe(); }
+  });
+});
 
 describe('lasso pointer sample and composition lifetime regressions', () => {
   const originalRaf = global.requestAnimationFrame;

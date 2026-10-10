@@ -1,10 +1,22 @@
-# Vessel whole-app audit handover — 10 October 2026, session 14
+# Vessel whole-app audit handover — 10 October 2026, session 16
 
 ## Authority and next objective
 
 The user requested a whole-app audit: inventory every reachable function and settings combination in Markdown, source review each area, actually exercise it in the isolated production browser, fix reproduced actionable defects at their owner, exactly retest, final-review and commit each completed area, then continue through the whole inventory. Do not stop at a plan or smoke test. The user explicitly authorized **subagents** and **new local continuation chats before context exceeds 70%**. Continue without asking for that authorization again. No push requested; remain on current **main** branch.
 
-Repository: `/Users/jasonstrachan/+Projects/2025/vessel`. Current HEAD **d5ab67b001fcdeb5ec2a043800763593ae1df90d**, branch **main**. Areas01–04 software scope verified and committed. Area05 Click Line active;06–65 pending. Read final Session14 entries: they supersede older states. Current priority: read `output/playwright/area05-root-facts-session14.md` and final Session14 receipts. Corrected v3 native baseline is finished:56configs540checks480pass60fail, all executed/no runtime errors. Prove deterministic regressions, announce scoped owner repairs, exactly retest, review, isolated type/lint/full Jest and focused local commit, then continue all65areas. Do not repeat settled eraser/Delete/marquee/lasso matrices without an affecting change. Area04 finalgate572suites5,164tests + type/lint; exactproduction58configs434checks on02:17:43.408UTC. Commitd5ab67b00 preserves all47initialpaths and original stagedpatch. No push/deploy. Further localcontinuation chats and boundedsubagents already human-authorized; never renew that permission.
+Repository: `/Users/jasonstrachan/+Projects/2025/vessel`, current branch **main**.
+Areas01–06 are software-verified; Area06 focused commit is the final pending step
+at this precommit snapshot. Area07 selection commands/clipping is next;08–65pending.
+FIRST read `output/playwright/area07-root-facts-session16.md` (written after commit),
+then `area07-source-review-session16.md` and the final Session16 receipt below.
+Area06 final native proof:616configs3675checks, all passing, including all512 scalar
+settings; isolated type/lint/fullJest573suites5242tests pass. Stable preview artifact
+BUILD_TIMESTAMP2026-10-10T02:59:53.356Z, retained previewPID14471. Managed browser
+vessel-whole-app-audit is closed. Area07 prepared18config raster runner is
+UNEXECUTED; no Area07 app/test source edit. Preserve47initial work paths and
+original staging. Historical candidate/commit scripts assert old parents and must
+NOT rerun. User already authorized all65areas, bounded subagents and further local
+continuations before70%context. No push/deploy/branchchange.
 
 Follow root AGENTS.md and supplied global rules. Read relevant skills in the new chat: `/Users/jasonstrachan/.agents/skills/playwright/SKILL.md`, `git-build-push/SKILL.md`, Vessel UI/state as needed. Session2 read those four. Use bounded subagents on separate owners/reviews; centrally own the single browser and builds. Do not spawn separate user chats for subtasks. Initial runtime trace: page.tsx → HomeClientMount/HomeClient → toolbar/settings/canvas → pointer handlers/store/engine.
 
@@ -71,7 +83,7 @@ Audit docs: inventory, this handover, eraser cases, deletion review, modified mo
 
 ## Browser and preview procedure
 
-Existing preview server PID 14471 at `http://localhost:3001/vessel/`; do not duplicate or stop it. `mise exec node@22.22.0 -- npm run preview:prod:build` builds an isolated temp copy then atomically replaces `.next-preview`. **Latest artifact succeeded 2026-10-10 00:24:26UTC and contains all settled Session11 runtime repairs including A33/A34.** No running build or watch at handover. Package has no preview:prod:watch script. Wait for success before reloading; never build concurrently.
+Existing preview server PID 14471 at `http://localhost:3001/vessel/`; do not duplicate or stop it. `mise exec node@22.22.0 -- npm run preview:prod:build` builds an isolated temp copy then atomically replaces `.next-preview`. **Latest artifact BUILD_TIMESTAMP2026-10-10T02:59:53.356Z contains the settled Session16 Area06 repairs.** No running build or watch at handover. Package has no preview:prod:watch script. Wait for success before reloading; never build concurrently.
 
 Node `/Users/jasonstrachan/.local/share/mise/installs/node/22.22.0/bin/node`, mise `/opt/homebrew/bin/mise`. Host Node 26 is not the repo's expected runtime. Type-check generated studio types can disappear under other work; `--incremental false` passed after clearing cached program references. Do not delete others' build dirs speculatively.
 
@@ -1038,3 +1050,71 @@ Root inspected all3 actual after screenshots (`area05-clickline-session14-{hole,
 Final source review finds no remaining actionable issue after bounds-ordering repair. Isolated17path candidate excludes47initialworkpaths and removes exactly10/47pre-existing keyboard source/test lines. Isolated type/lint/fullJest gate passes:573suites5221tests,1suite/1testskipped,1snapshotpass. Evidence `area05-isolated-gate-session15.json`, matching3logs, `area05-source-review-session15.md`. Executable/test files stable throughout gate and exact production retests. Original staged3paths7lines SHA2564d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7 unchanged; all47initialpaths preserved.
 
 Exact managed audit session vessel-whole-app-audit closed and cleanup confirms no matching daemon (`audit-session15-area05-browser-cleanup.log`). Preview retained; no duplicate server/browser, push/deployment/branch change. Area05 software scope complete; focused local commit follows using the isolated tested bytes, then Area06 continues.
+
+
+## Session15 commit receipt and next continuation
+
+Current HEAD **c1849b840d506cf171f2525f07976704cc80a0c1** — `fix: preserve Click Line input and selection history`, parentd5ab67b001fcdeb5ec2a043800763593ae1df90d, main.17explicitpaths. `area05-commit-verification-session15.json` confirms tree3e3143c936cae1833edc0c55410a75231a75d857, allworktreebytes and47initialpaths preserved, originalstagedpatchSHA4d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7 unchanged. Finalgate573suites5221tests plus type/lint; exactproduction66configs693checks and3inspectedoutlines. Stable artifact BUILD_TIMESTAMP2026-10-10T02:39:17.141Z. No push/deploy/branchchange. Historical Area05candidate/commit scripts assertd5abparent and MUST NOT rerun.
+
+Areas01–05 software-verified/committed. Area06 MagicWand active discovery;07–65pending. Read `output/playwright/area06-root-facts-session15.md` FIRST, then `area06-source-review-session15.md` and current inventory/handover. No Area06 source/test edits or native baseline yet; source observations are unproved. Actual controls Threshold0–255,Connected on/off,Shift-add; no sample-source/subtract/ignore-transparent/feather controls. Source review supplies W01–W13 and independent BFS/full-alpha/canonical/history oracle; history/preclear/null-append/sequence sampling require exact native proof. Begin baseline on unchanged02:39:17artifact, preserve initial selected-alpha extraction precedence, and inspect real liveCC/sequence source prerequisites.
+
+Fresh `area06-initial-baseline-session15.json` +matching ignored.txtbackups derives fromc184HEAD and records47initialworkpaths; mixed keyboard baseline includes committedArea05bytes plus original10/47initiallines. Never restore oldfullkeyboardbaselines. Current47originalstatuspaths plus2postcommitreceiptdocs=49paths. Allagentscompleted/no sourcewriter,test/build/browsercommandrunning. Managedvessel-whole-app-audit explicitlyclosed; cleanup confirmsnodaemon. PreviewPID14471retained. Inspect then reopen SAME headlesssession once, onepage; noforeground/pointeroutsideautomation/duplicatebrowser/server. Rootalone ownssequentialbrowser/build. Useralready authorizedall65areas,boundedsubagentsandfurtherlocalcontinuationsbefore70%context; do notrenewpermission.
+
+## Session16 — Area06 implementation and final verification in progress
+
+Read `output/playwright/area06-final-source-review-session16.md` for the corrected
+seven-file review. Native baseline611configs3596checks3005pass: independent exact
+membership passes all512 threshold×Connected settings, while history, rejected
+sampling and actual visible sequence source defects are reproduced. Source owners
+are magicWandSelection, selectionHandlers, selectionCapture and selectionSlice;
+tests are pointerHandlers.main, selectionHandlers and selectionCapture. No pointer
+runtime/shell edit or renderer policy change. All47original paths/index preserved.
+
+The final source passes existing state into capture explicitly to avoid the
+introduced module import cycle. First isolated gate and first-after receipts are
+retained with first-attempt/attempt1 labels. Final build02:59:53.356UTC succeeded;
+final exact after-retests and isolated type/lint/Jest gate are root-owned. Current
+candidate10paths (7source/test+3docs), no mixed initial paths. Required source/gate
+logs use area06 or wand session16 names. Original before artifacts are untouched.
+
+Area07 preparation exists only in ignored output: `area07-source-review-session16.md`
+and `selection-commands-session16.js` (18fresh raster command configurations,
+syntax-checked, UNEXECUTED). Actual Meta/Ctrl+A and Invert/Select alpha exist; no
+Deselect button/shortcut exists and Meta/Ctrl+D is Duplicate. Settled Escape source
+only cancels drafts/floating/other operations; characterize native behavior without
+inventing a shortcut. Source observations about command history remain unproved.
+Paint/fill clipping, CC/sequence commands, text-focus and remaining07cases still need
+native discovery. Do not reuse Area06's baseline as Area07 acceptance.
+
+
+## Session16 — Area06 final software signoff
+
+Final native production retest on BUILD_TIMESTAMP2026-10-10T02:59:53.356Z executes
+**616 configurations and 3,675 passing checks**, with no failed or aborted cases:
+core18/83, source8/65, interaction28/126, exhaustive557/3361, presentation5/40.
+All512 Threshold×Connected settings pass the independent membership oracle.
+The original611configurations now reach3635 successful checks; additional replay
+checks become reachable after successful history, with unchanged geometry,
+RGBA/alpha, canonical, bounds, ownership and history oracles. Five extra
+presentation configurations contribute40checks. Before and first-attempt evidence
+is retained. `area06-final-verification-session16.json` verifies fresh receipts
+against the final build and unchanged source hashes.
+
+Root inspected final liveCC, both sequence frames, ring, disconnected, transparent,
+paused-held-frame and playing-empty-frame screenshots. Occupied-alpha contours and
+ordinary transform handles match the selected source; no authored polygon-point
+circles appear. Empty playback samples the actually displayed blank frame, while
+paused empty playback holds the prior visible frame according to existing policy.
+
+The isolated10-path candidate passes type-check, lint, **573 suites/5,242 tests**
+(one suite/test skipped; one snapshot passed). Final source review reports no
+remaining actionable issue. Seven source/test files remained unchanged through
+build, gate and native retest. All47initial paths and the original staged3-file
+7-addition patch remain exact; SHA256
+4d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7.
+The managed vessel-whole-app-audit browser is closed; cleanup confirms no matching
+daemon. PreviewPID14471 is retained. Focused local commit follows; no push,
+deployment or branch change. Areas01–06 software-complete; Area07 next,08–65pending.
+
+Next continuation begins Area07. Its fresh preservation baseline and focused commit
+receipt follow after the local commit; root facts are the first-read authority.

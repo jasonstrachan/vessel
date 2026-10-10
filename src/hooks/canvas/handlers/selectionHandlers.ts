@@ -538,48 +538,10 @@ export const createSelectionHandlers = (
     }
   };
 
-  const handleSelectionHitTest = ({ worldPos, dynamic }: {
-    worldPos: Point;
-    dynamic: SelectionDynamicDeps;
-  }): boolean => {
-    if (clearStaleSelectionSession()) {
-      return true;
-    }
-    // Gesture admission must capture the original selection before authoring a replacement.
-    const mode = currentSelectionMode(dynamic.tools);
-    if (mode === 'marquee' || mode === 'freehand' || mode === 'click-line') {
-      return false;
-    }
-    const { selectionStart, selectionEnd, selectionMask, selectionMaskBounds, floatingPaste } = dynamic;
-    const hasSelection = Boolean(selectionMask || (selectionStart && selectionEnd));
-    if (!hasSelection || floatingPaste || clickLineSession.active) {
-      return false;
-    }
-
-    let hit = false;
-    if (selectionMask && selectionMaskBounds) {
-      const localX = worldPos.x - selectionMaskBounds.x;
-      const localY = worldPos.y - selectionMaskBounds.y;
-      if (localX >= 0 && localY >= 0 && localX < selectionMask.width && localY < selectionMask.height) {
-        const idx = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
-        hit = selectionMask.data[idx] > 0;
-      }
-    } else if (selectionStart && selectionEnd) {
-      hit = worldPos.x >= Math.min(selectionStart.x, selectionEnd.x) &&
-        worldPos.x <= Math.max(selectionStart.x, selectionEnd.x) &&
-        worldPos.y >= Math.min(selectionStart.y, selectionEnd.y) &&
-        worldPos.y <= Math.max(selectionStart.y, selectionEnd.y);
-    }
-
-    if (!hit) {
-      deps.clearSelection();
-      // Let the same pointer-down start a replacement selection instead of
-      // forcing users to click once to clear and a second time to begin.
-      return false;
-    }
-
-    return false;
-  };
+  // Selection owners capture the original selection before replacing it;
+  // this admission hook only cancels stale gestures before pointer dispatch.
+  const handleSelectionHitTest: SelectionHandlers['handleSelectionHitTest'] = () =>
+    clearStaleSelectionSession();
 
   const handleSelectionToolPointerDown = ({
     worldPos,

@@ -8,6 +8,10 @@ import {
 } from '@/lib/colorCycle/document/paintDeltaMask';
 import { getColorCycleLegacyLayerBuffer } from '@/lib/colorCycle/document/legacyLayerBuffers';
 import type { ColorCycleLayerDocumentSnapshot } from '@/lib/colorCycle/document/colorCycleDocumentContract';
+import type { AppState } from '@/stores/useAppStore';
+import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { selectSequentialPlaybackActive } from '@/runtime/playback/playbackSelectors';
 
 const colorCycleBrushManager = getColorCycleBrushManager();
 
@@ -38,6 +42,7 @@ export interface SelectionCaptureRequest {
   selectionEnd: SelectionPoint | null;
   project: Project | null;
   layer: Layer | null;
+  sourceState?: AppState;
   clearSource?: boolean;
 }
 
@@ -253,9 +258,40 @@ const captureColorCycleGradientDefIds = (
   return copyScalarRegion16(source, canvasWidth, canvasHeight, rect);
 };
 
-export const resolveLayerImageData = (layer: Layer | null): ImageData | null => {
+export const resolveLayerImageData = (
+  layer: Layer | null,
+  sourceState?: AppState,
+): ImageData | null => {
   if (!layer) {
     return null;
+  }
+
+  if (layer.layerType === 'sequential' && layer.sequentialData && sourceState) {
+    try {
+      const state = sourceState;
+      const project = state.project;
+      if (project) {
+        const source = getSequentialLayerRenderCanvas({
+          layer,
+          width: project.width,
+          height: project.height,
+          frameIndex: getSequentialLayerRenderFrame(state, layer),
+          holdPreviousOnEmptyFrames: !selectSequentialPlaybackActive(state),
+        });
+        if (source) {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = source.width;
+          tempCanvas.height = source.height;
+          const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+          if (tempCtx) {
+            tempCtx.drawImage(source, 0, 0);
+            return tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+          }
+        }
+      }
+    } catch {
+      // Fall back when the current frame cannot be materialized or read.
+    }
   }
 
   // Prefer live color-cycle canvas when present so selections include animated content.
@@ -307,7 +343,7 @@ export const captureSelectionBitmap = (
     return null;
   }
 
-  const layerImageData = resolveLayerImageData(layer);
+  const layerImageData = resolveLayerImageData(layer, request.sourceState);
   if (!layerImageData) {
     return null;
   }
@@ -450,6 +486,7 @@ export interface SelectionMaskCaptureRequest {
   maskBounds: { x: number; y: number; width: number; height: number };
   project: Project | null;
   layer: Layer | null;
+  sourceState?: AppState;
   clearSource?: boolean;
 }
 
@@ -458,7 +495,7 @@ export const captureSelectionBitmapFromMask = (
 ): SelectionCaptureResult | null => {
   const { mask, maskBounds, project, layer, clearSource = false } = request;
   if (!project || !layer) return null;
-  const layerImageData = resolveLayerImageData(layer);
+  const layerImageData = resolveLayerImageData(layer, request.sourceState);
   if (!layerImageData) return null;
 
   const { x, y, width, height } = maskBounds;

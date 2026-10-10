@@ -1,5 +1,9 @@
-import type { Layer, Project } from '@/types';
+import { BrushShape, type Layer, type Project, type SequentialStrokeEvent } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { setFeatureFlag } from '@/config/featureFlags';
+import { clearSequentialLayerRendererAll, getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
+import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
+import type { AppState } from '@/stores/useAppStore';
 
 const mockGetDocument = jest.fn<unknown | null, [string]>(() => null);
 
@@ -16,7 +20,11 @@ const { attachLegacyColorCycleTopLevelBuffers } = jest.requireActual(
   '@/lib/colorCycle/document',
 ) as typeof import('@/lib/colorCycle/document');
 
-import { captureSelectionBitmap } from '@/stores/helpers/selectionCapture';
+import {
+  captureSelectionBitmap,
+  captureSelectionBitmapFromMask,
+  resolveLayerImageData,
+} from '@/stores/helpers/selectionCapture';
 
 const createProject = (): Project => ({
   id: 'project-selection-capture',
@@ -28,6 +36,196 @@ const createProject = (): Project => ({
   createdAt: new Date(),
   updatedAt: new Date(),
   customBrushes: [],
+});
+
+describe('selectionCapture sequential presentation', () => {
+  let sourceState: AppState;
+  const canvasMockState = globalThis as typeof globalThis & {
+    __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean;
+  };
+  let previousRasterize: boolean | undefined;
+
+  const createSequentialLayer = (): Layer => {
+    const events: SequentialStrokeEvent[] = ['#ff0000', '#0000ff'].map((color, frameIndex) => ({
+      id: `selection-frame-${frameIndex}`,
+      layerId: 'selection-sequence',
+      strokeId: `stroke-${frameIndex}`,
+      timestampMs: 0,
+      frameIndex,
+      brush: {
+        tool: 'brush',
+        brushShape: BrushShape.ROUND,
+        size: 6,
+        opacity: 1,
+        blendMode: 'source-over',
+        rotation: 0,
+        spacing: 1,
+        color,
+        customStampId: null,
+      },
+      stamps: [{ x: 8, y: 8, pressure: 1, rotation: 0, size: 6, alpha: 1 }],
+    }));
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 16;
+    framebuffer.height = 16;
+    return {
+      id: 'selection-sequence',
+      name: 'Sequence',
+      visible: true,
+      opacity: 1,
+      blendMode: 'source-over',
+      locked: false,
+      order: 0,
+      imageData: new ImageData(16, 16),
+      framebuffer,
+      alignment: createDefaultLayerAlignment(),
+      layerType: 'sequential',
+      sequentialData: { frameCount: 2, fps: 12, durationMs: 167, events },
+    };
+  };
+
+  beforeEach(() => {
+    previousRasterize = canvasMockState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    canvasMockState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
+    setFeatureFlag('enableSequentialGpuAcceleration', false);
+    setFeatureFlag('enableSequentialWorkerMaterialization', false);
+    clearSequentialLayerRendererAll();
+    setSequentialFrameCursor({ nextFrame: 0, nextFrameCount: 2, nextFps: 12 });
+  });
+
+  afterEach(() => {
+    canvasMockState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = previousRasterize;
+    clearSequentialLayerRendererAll();
+    setSequentialFrameCursor({ nextFrame: 0, nextFrameCount: 1, nextFps: 12 });
+  });
+
+  it.each<[number, number[]]>([
+    [0, [255, 0, 0, 255]],
+    [1, [0, 0, 255, 255]],
+  ])('reads and captures the displayed paused frame %s instead of the blank fallback', (frameIndex, rgba) => {
+    const layer = createSequentialLayer();
+    const project = { ...createProject(), width: 16, height: 16, layers: [layer] };
+    sourceState = {
+      project,
+      layers: [layer],
+      activeLayerId: layer.id,
+      sequentialRecord: { currentFrame: frameIndex, isPointerDown: false },
+      colorCyclePlayback: { desiredPlaying: false },
+    } as AppState;
+
+    const rendered = getSequentialLayerRenderCanvas({ layer, width: 16, height: 16, frameIndex });
+    const ctx = rendered?.getContext('2d') as CanvasRenderingContext2D | null;
+    expect(Array.from(ctx?.getImageData(8, 8, 1, 1).data ?? [])).toEqual(rgba);
+    const resolved = resolveLayerImageData(layer, sourceState);
+    expect(resolved?.width).toBe(16);
+    expect(resolved?.height).toBe(16);
+    expect(Array.from(resolved?.data.slice((8 * 16 + 8) * 4, (8 * 16 + 8) * 4 + 4) ?? [])).toEqual(rgba);
+    expect(Array.from(resolved?.data.slice(0, 4) ?? [])).toEqual([0, 0, 0, 0]);
+
+    const capture = captureSelectionBitmap({
+      selectionStart: { x: 8, y: 8 },
+      selectionEnd: { x: 9, y: 9 },
+      project,
+      layer,
+      sourceState,
+    });
+    expect(Array.from(capture?.selectionImageData.data ?? [])).toEqual(rgba);
+    const maskedCapture = captureSelectionBitmapFromMask({
+      mask: new ImageData(new Uint8ClampedArray([0, 0, 0, 255]), 1, 1),
+      maskBounds: { x: 8, y: 8, width: 1, height: 1 },
+      project,
+      layer,
+      sourceState,
+    });
+    expect(Array.from(maskedCapture?.selectionImageData.data ?? [])).toEqual(rgba);
+    expect(layer.imageData?.data.every((value) => value === 0)).toBe(true);
+  });
+
+  it('uses the playback cursor while playing rather than the paused editing frame', () => {
+    const layer = createSequentialLayer();
+    sourceState = {
+      project: { ...createProject(), width: 16, height: 16 },
+      layers: [layer],
+      activeLayerId: layer.id,
+      sequentialRecord: { currentFrame: 0, isPointerDown: false },
+      colorCyclePlayback: { desiredPlaying: true },
+    } as AppState;
+    setSequentialFrameCursor({ nextFrame: 1, nextFrameCount: 2, nextFps: 12 });
+
+    const resolved = resolveLayerImageData(layer, sourceState);
+    expect(Array.from(resolved?.data.slice((8 * 16 + 8) * 4, (8 * 16 + 8) * 4 + 4) ?? [])).toEqual([0, 0, 255, 255]);
+  });
+
+  it('includes the held presentation on an empty sequential frame', () => {
+    const originalLayer = createSequentialLayer();
+    const layer: Layer = {
+      ...originalLayer,
+      sequentialData: { ...originalLayer.sequentialData!, frameCount: 3 },
+    };
+    sourceState = {
+      project: { ...createProject(), width: 16, height: 16 },
+      layers: [layer],
+      activeLayerId: layer.id,
+      sequentialRecord: { currentFrame: 2, isPointerDown: false },
+      colorCyclePlayback: { desiredPlaying: false },
+    } as AppState;
+
+    const resolved = resolveLayerImageData(layer, sourceState);
+    expect(Array.from(resolved?.data.slice((8 * 16 + 8) * 4, (8 * 16 + 8) * 4 + 4) ?? [])).toEqual([0, 0, 255, 255]);
+  });
+
+  it('keeps an empty current frame transparent during playback instead of holding the previous frame', () => {
+    const originalLayer = createSequentialLayer();
+    const layer: Layer = {
+      ...originalLayer,
+      sequentialData: { ...originalLayer.sequentialData!, frameCount: 3 },
+    };
+    sourceState = {
+      project: { ...createProject(), width: 16, height: 16 },
+      layers: [layer],
+      activeLayerId: layer.id,
+      sequentialRecord: { currentFrame: 0, isPointerDown: false },
+      colorCyclePlayback: { desiredPlaying: true },
+    } as AppState;
+    setSequentialFrameCursor({ nextFrame: 2, nextFrameCount: 3, nextFps: 12 });
+
+    const rendered = getSequentialLayerRenderCanvas({
+      layer,
+      width: 16,
+      height: 16,
+      frameIndex: 2,
+      holdPreviousOnEmptyFrames: false,
+    });
+    const ctx = rendered?.getContext('2d') as CanvasRenderingContext2D | null;
+    expect(Array.from(ctx?.getImageData(8, 8, 1, 1).data ?? [])).toEqual([0, 0, 0, 0]);
+
+    const resolved = resolveLayerImageData(layer, sourceState);
+    expect(Array.from(resolved?.data.slice((8 * 16 + 8) * 4, (8 * 16 + 8) * 4 + 4) ?? [])).toEqual([0, 0, 0, 0]);
+  });
+
+  it('preserves normal imageData priority and color-cycle live canvas priority', () => {
+    const layer = createSequentialLayer();
+    const liveCanvas = document.createElement('canvas');
+    liveCanvas.width = 16;
+    liveCanvas.height = 16;
+    const liveImage = createOpaqueImage(16, 16);
+    liveCanvas.getContext('2d')?.putImageData(liveImage, 0, 0);
+
+    expect(resolveLayerImageData({ ...layer, layerType: 'normal' })).toBe(layer.imageData);
+    const resolved = resolveLayerImageData({
+      ...layer,
+      layerType: 'color-cycle',
+      colorCycleData: { canvas: liveCanvas },
+    });
+    expect(Array.from(resolved?.data.slice(0, 4) ?? [])).toEqual([255, 255, 255, 255]);
+  });
+
+  it('retains imageData fallback when no project is available', () => {
+    const layer = createSequentialLayer();
+    sourceState = { project: null } as AppState;
+    expect(resolveLayerImageData(layer, sourceState)).toBe(layer.imageData);
+    expect(resolveLayerImageData(layer)).toBe(layer.imageData);
+  });
 });
 
 const createOpaqueImage = (width: number, height: number): ImageData => {

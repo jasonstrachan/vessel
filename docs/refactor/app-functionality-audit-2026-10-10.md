@@ -23,8 +23,8 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 03 | Marquee: drag both directions, bounds, square constraint, dimensions, inset/expand, cancel | selection handlers, SelectionOptionsPanel | verified (software; square constraint unavailable; see Session13) |
 | 04 | Freehand/lasso selection: finish, cancel, clipping, holes, edge cases | selection handlers, selection mask | verified (software; Session14 commit d5ab67b00) |
 | 05 | Click-line/polygon selection: close/Enter/Escape, point editing, constraints | selection handlers | verified (software; Session15 exact66configs693checks, commit receipt below; point editing/constraints unavailable) |
-| 06 | Magic wand: tolerance, contiguous/sample source, add/subtract, transparent/CC pixels | MagicWandControls, selection helpers | pending |
-| 07 | Selection: select all, deselect, invert, tool persistence, paint/fill/erase clipping | selection slice/ROI helpers | pending |
+| 06 | Magic wand: tolerance, contiguous/sample source, add/subtract, transparent/CC pixels | MagicWandControls, selection helpers | software-verified (Session16: 616 configurations/3,675 checks; local commit gate passed) |
+| 07 | Selection: select all, deselect, invert, tool persistence, paint/fill/erase clipping | selection slice/ROI helpers | active discovery (Session17 continuation; prepared native runner unexecuted) |
 | 08 | Move selected pixels: extract/drag, source clearing, commit/cancel, edges, CC metadata, history | selection handlers, selectionPaste | pending |
 | 09 | Copy/cut/paste/duplicate/paste in place: internal/external clipboard, scaling, alpha, cross-layer/CC, failures | selection slice, clipboard handlers, selectionPaste | pending |
 | 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | pending |
@@ -632,3 +632,87 @@ Root inspected all3 actual after screenshots (`area05-clickline-session14-{hole,
 Final source review finds no remaining actionable issue after bounds-ordering repair. Isolated17path candidate excludes47initialworkpaths and removes exactly10/47pre-existing keyboard source/test lines. Isolated type/lint/fullJest gate passes:573suites5221tests,1suite/1testskipped,1snapshotpass. Evidence `area05-isolated-gate-session15.json`, matching3logs, `area05-source-review-session15.md`. Executable/test files stable throughout gate and exact production retests. Original staged3paths7lines SHA2564d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7 unchanged; all47initialpaths preserved.
 
 Exact managed audit session vessel-whole-app-audit closed and cleanup confirms no matching daemon (`audit-session15-area05-browser-cleanup.log`). Preview retained; no duplicate server/browser, push/deployment/branch change. Area05 software scope complete; focused local commit follows using the isolated tested bytes, then Area06 continues.
+
+
+## Session15 commit receipt and next continuation
+
+Current HEAD **c1849b840d506cf171f2525f07976704cc80a0c1** — `fix: preserve Click Line input and selection history`, parentd5ab67b001fcdeb5ec2a043800763593ae1df90d, main.17explicitpaths. `area05-commit-verification-session15.json` confirms tree3e3143c936cae1833edc0c55410a75231a75d857, allworktreebytes and47initialpaths preserved, originalstagedpatchSHA4d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7 unchanged. Finalgate573suites5221tests plus type/lint; exactproduction66configs693checks and3inspectedoutlines. Stable artifact BUILD_TIMESTAMP2026-10-10T02:39:17.141Z. No push/deploy/branchchange. Historical Area05candidate/commit scripts assertd5abparent and MUST NOT rerun.
+
+Areas01–05 software-verified/committed. Area06 MagicWand active discovery;07–65pending. Read `output/playwright/area06-root-facts-session15.md` FIRST, then `area06-source-review-session15.md` and current inventory/handover. No Area06 source/test edits or native baseline yet; source observations are unproved. Actual controls Threshold0–255,Connected on/off,Shift-add; no sample-source/subtract/ignore-transparent/feather controls. Source review supplies W01–W13 and independent BFS/full-alpha/canonical/history oracle; history/preclear/null-append/sequence sampling require exact native proof. Begin baseline on unchanged02:39:17artifact, preserve initial selected-alpha extraction precedence, and inspect real liveCC/sequence source prerequisites.
+
+Fresh `area06-initial-baseline-session15.json` +matching ignored.txtbackups derives fromc184HEAD and records47initialworkpaths; mixed keyboard baseline includes committedArea05bytes plus original10/47initiallines. Never restore oldfullkeyboardbaselines. Current47originalstatuspaths plus2postcommitreceiptdocs=49paths. Allagentscompleted/no sourcewriter,test/build/browsercommandrunning. Managedvessel-whole-app-audit explicitlyclosed; cleanup confirmsnodaemon. PreviewPID14471retained. Inspect then reopen SAME headlesssession once, onepage; noforeground/pointeroutsideautomation/duplicatebrowser/server. Rootalone ownssequentialbrowser/build. Useralready authorizedall65areas,boundedsubagentsandfurtherlocalcontinuationsbefore70%context; do notrenewpermission.
+
+## Session16 — Area06 Magic Wand verification
+
+Actual wand controls are integer Threshold0–255, Connected on/off, and terminal
+Shift-add. Sampling uses the active layer. Sample-source selection, subtraction,
+ignore-transparent, feather and diagonal-connectivity controls are unavailable.
+
+The corrected unchanged-artifact baseline executed611configurations: core18,
+source8, scalar/topology/transparency/entries557 and interaction28. Of3596checks,
+3005passed. Every one of the512 Threshold×Connected membership configurations
+matched independent fixed-seed per-RGBA BFS/full-plane/cropped-mask/bounds oracles.
+Failures demonstrated missing selection history, exact right/bottom boundary and
+missing-source clearing, and sampling stale blank sequence imageData instead of
+actually visible red/blue frame islands. Live native-painted CC source precedence
+already passed; no flood membership algorithm change was justified.
+
+Source repair stays in existing owners: wand captures/commits selection history;
+selection admission preserves original A and removes the now-superseded preclear
+branch; rejected/null sampling preserves selection and stacks. Shared capture
+resolves the current sequence frame using the presentation's playback/empty-frame
+policy. Existing caller state is supplied explicitly from wand and six selection
+slice entry calls, avoiding a store construction cycle. Normal/CC source ordering
+and intentional initial selected-alpha extraction remain intact.
+
+Seven source/test paths plus this ledger, handover and module-size guardrails are
+the complete boundary. Pointer runtime is unchanged5086lines; protected shells
+remain79/44/70. Deterministic history regressions failed13cases before repair;
+initial extraction passed. Source regressions proved current-frame/playing-empty
+behavior and masked capture. Direct related suites pass103/103 and the history/
+admission suites236/236. No public breaking change, new setting or new scheduler.
+
+The first isolated gate exposed the new store import cycle in selectionPaste
+initialization and missing Git metadata in the temporary gate fixture. Both were
+repaired at their respective owners; first-attempt logs/results remain retained.
+The first empty-playback screenshot probe sampled native Play's initial populated
+frame0; corrected prerequisite awaits the actually visible empty frame before
+applying the same oracle. This was a probe error, not an additional app defect.
+Final cycle-free artifact BUILD_TIMESTAMP2026-10-10T02:59:53.356Z; exact after-run,
+image inspection and final gate/commit receipts follow in the handover.
+
+Hardware stylus, external native focus/device interruption and physical performance
+remain unverified. Fractional world points were tested at actual integer zoom1/2,
+not actual fractional zoom. Full scalar coverage is on raster; liveCC uses0/64×
+Connected and sequence uses both visible frames×Connected plus paused/playing
+empty-frame presentation. Other edit commands/clipping retain their inventory owners.
+
+
+## Session16 — Area06 final software signoff
+
+Final native production retest on BUILD_TIMESTAMP2026-10-10T02:59:53.356Z executes
+**616 configurations and 3,675 passing checks**, with no failed or aborted cases:
+core18/83, source8/65, interaction28/126, exhaustive557/3361, presentation5/40.
+All512 Threshold×Connected settings pass the independent membership oracle.
+The original611configurations now reach3635 successful checks; additional replay
+checks become reachable after successful history, with unchanged geometry,
+RGBA/alpha, canonical, bounds, ownership and history oracles. Five extra
+presentation configurations contribute40checks. Before and first-attempt evidence
+is retained. `area06-final-verification-session16.json` verifies fresh receipts
+against the final build and unchanged source hashes.
+
+Root inspected final liveCC, both sequence frames, ring, disconnected, transparent,
+paused-held-frame and playing-empty-frame screenshots. Occupied-alpha contours and
+ordinary transform handles match the selected source; no authored polygon-point
+circles appear. Empty playback samples the actually displayed blank frame, while
+paused empty playback holds the prior visible frame according to existing policy.
+
+The isolated10-path candidate passes type-check, lint, **573 suites/5,242 tests**
+(one suite/test skipped; one snapshot passed). Final source review reports no
+remaining actionable issue. Seven source/test files remained unchanged through
+build, gate and native retest. All47initial paths and the original staged3-file
+7-addition patch remain exact; SHA256
+4d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7.
+The managed vessel-whole-app-audit browser is closed; cleanup confirms no matching
+daemon. PreviewPID14471 is retained. Focused local commit follows; no push,
+deployment or branch change. Areas01–06 software-complete; Area07 next,08–65pending.

@@ -580,6 +580,17 @@ describe('polygon selection admission, validity and terminal authority', () => {
 
   afterEach(() => { historyManager.clear(); useAppStore.getState().clearSelection(); jest.restoreAllMocks(); });
 
+  it.each([{ x: 12, y: 12 }, { x: 3, y: 3 }, { x: 32, y: 12 }])(
+    'leaves baseline selection intact before wand owner admits seed ($x, $y)', worldPos => {
+      const f = setup();
+      f.dynamic.tools.selectionMode = 'magic-wand';
+      expect(f.handlers.handleSelectionHitTest({ worldPos, dynamic: f.getDynamic() })).toBe(false);
+      expect(captureSelectionSnapshot()).toEqual(f.before);
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull();
+      expect(historyManager.entries()).toHaveLength(0);
+      f.canonical();
+    });
+
   it.each([false, true].flatMap((initialShift) => [false, true].map((finalShift) => ({ initialShift, finalShift }))))(
     'keeps admitted mask intact and replays Shift $initialShift -> $finalShift', async ({ initialShift, finalShift }) => {
       const f = setup();
