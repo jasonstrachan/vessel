@@ -245,7 +245,8 @@ describe('BrushEngineFacade grid snap stamping', () => {
     });
 
     const stamps = engine.consumeRecentStamps();
-    expect(stamps).toHaveLength(1);
-    expect(stamps[0]?.x).toBeCloseTo(1.6);
+    expect(stamps).toHaveLength(2);
+    expect(stamps[0]?.x).toBe(0);
+    expect(stamps[1]?.x).toBeCloseTo(1.6);
   });
 });

@@ -30,7 +30,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | verified (software; Session27 signoff/local commit receipt) |
 | 11 | Crop: selection crop, handles/dimensions, outside bounds, commit/cancel/history, CC/sequence | crop slice/handlers, CropOptionsPanel | software-verified (Session31; 300 native checks; completed-area local commit receipt) |
 | 12 | Pixel brush: tap/drag, square/round tips, size, opacity, spacing, pressure, snap, shape mode | brush presets, brush engine/settings | software-verified (Session32; 351 native checks; shape mode intentionally unavailable) |
-| 13 | Soft brush: edge/size/opacity, pressure, spacing, blend | brush engine/settings | pending |
+| 13 | Soft brush: edge/size/opacity, pressure, spacing, blend | brush engine/settings | software-verified (Session33; 336 native checks; final full gate passed) |
 | 14 | Dither Stroke: algorithm, pattern, size, spacing, pressure, palette/alpha | strokeStampDither, brush controls | pending |
 | 15 | Dither Shape: geometry, preview/final parity, dither settings, fill/cancel/history | shape handlers, brush engine | pending |
 | 16 | Dither Grad: sampled/manual colours, gradient direction/range, geometry, dither settings | gradient shape runtime | pending |
@@ -2059,3 +2059,67 @@ helper math is a recorded adjacent finding for remaining callers, not modified h
 Focused local commit receipt: `output/playwright/area12-commit-receipt-session32.json`.
 Continue Area13 from `output/playwright/area13-owner-trace-session32.md`; native missing
 Soft taps are reproduced. No Area13 source edit is included in this commit.
+
+
+## Session33 — Area13 Soft in progress
+
+Areas01–12 remain complete. Before edits, original47 hashes and original staged
+patch matched Session32 authority. One owner repair in smoothStrokeRenderer.ts now
+emits the initial smooth stamp once, with zero dash-distance advance, and skips
+stationary repeats. A dedicated smoothStrokeRenderer.test.ts covers both tips,
+spacing across segments, first moving segment, dash phase, admission, and captured
+custom colour replay. Boundary: these two files and the two audit ledgers.
+No UI/state/composition-shell changes. Shared advanced controls remain Area29.
+
+Fresh native before proof reproduces18configs68/92 with24 missing-tap failures and
+no errors. After production build, native44configs240/240 pass: both tips, sizes
+1/2/3/16/500, opacity0/.5/1, fast/held taps, drags, pressure, spacing, canvas edges,
+selection, Soft shape fill, framebuffer normalization, and Undo/Redo. Pixel analysis
+adds14 checks: edge falloff, opacity scaling, exact fast/held equality, pressure
+widths4/10/16, and exact10/40px stamp spacing. The original spacing-count assertion
+was reversed (11 stamps at10px versus3 at40px); original failed oracle retained and
+corrected from recorded native rows, with no runtime change. Overpaint8configs40/40
+passes native translucent/opaque Soft bases, full-pixel source-over composition,
+outside preservation and exact history. Display checks and final gate pending.
+
+Production receipt: area13-preview-session33.json; page-f422f15038628d06.js SHA256
+cc71f6138f0fd73d0f1ab69d9b32fa01b579560bbac125dc1200b61b68595fa8,
+BUILD_TIMESTAMP2026-10-10T12:09:59.937Z. Focused4suites30tests, worktree type/lint,
+production build and diff check pass. Isolated candidate full gate underway,
+excluding all original dirty/staged work. No Area13 completion/commit claim yet.
+
+There is no exposed brush blend-mode control in the owning UI; Soft blend coverage
+uses its actual source-over path. Shape Square is an antialiased rectangular stamp;
+Round uses radial falloff above size2. Physical stylus, other browsers/performance
+are unverified. Software pen force only. Deeper shared dash behavior remains Area29.
+
+
+### Session33 Area13 final software signoff
+
+Area13 Soft is software-verified:13/65 complete,14–65 pending.58 native configurations,
+336 passing checks, zero failures/aborts/pageerrors (area13-native-acceptance-session33.json).
+Initial smooth strokes now paint their starting point once; stationary repeats do
+not add paint or advance dash distance. Native before proof had24 empty-tap failures.
+After proof includes Square/Round taps/drags, sizes1/2/3/16/500, opacity0/.25/.5/1,
+fast/held equivalence, exact4/10/16px software pen widths,10/40px spacing, Round radial
+falloff, Square geometry, canvas edge/selection clipping, Soft Shape fills,
+translucent/opaque overpainting, outside preservation, displayed composition, and
+Undo/Redo. Shared advanced controls remain Area29; no physical/browser/performance
+acceptance is claimed. No exposed brush blend-mode selector; source-over is verified.
+
+One existing terminal custom-stamp expectation assumed the missing initial stamp.
+It now expects the initial and spaced stamps, still excluding the near-duplicate
+terminal point. This adds BrushEngineFacade.gridSnap.test.ts to the five-file scope.
+No runtime change followed the native artifact. The initial full gate failed only
+that expectation; corrected focused14tests and final full gate pass596suites5643tests,
+one existing suite/test skipped and one snapshot passed. Final isolated candidate
+also passes type-check/lint and excludes all original edits. Production build and
+diff check pass. Exact loaded-byte hash matches area13-preview-session33.json;
+post-build test-only expectation change is recorded separately. Full logs:
+area13-candidate-{typecheck,lint,jest}-final-session33.log.
+
+Original47 paths and three-file staged patch remain protected. Focused local commit
+receipt: output/playwright/area13-commit-receipt-session33.json. Dither Area14 source
+work is separate and excluded. Area14 already reproduces lost BG-off drag density;
+its native baseline/owner trace and in-progress repair remain unverified until the
+rebuilt preview passes exact checks. No push/deployment/branch/worktree change.

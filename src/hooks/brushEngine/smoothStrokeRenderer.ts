@@ -108,6 +108,21 @@ export const renderSmoothStroke = (args: RenderSmoothStrokeArgs): void => {
     pixelQueue.initialized = true;
     pixelQueue.lastStrokePosition = { x: from.x, y: from.y };
     pixelQueue.accumulatedDistance = 0;
+    // Pointer-down has no travel, but still owns the first stamp of the stroke.
+    if (strokeProcessor.shouldDrawStamp(
+      brushSettings,
+      pixelQueue,
+      settings.size,
+      false,
+      settings.speedSamplePx,
+      0,
+    )) {
+      drawSmoothStamp(args, from);
+    }
+  }
+
+  if (distance <= 0) {
+    return;
   }
 
   for (let i = 0; i < steps; i += 1) {
@@ -141,7 +156,7 @@ export const renderSmoothStroke = (args: RenderSmoothStrokeArgs): void => {
     drawSmoothStamp(args, { x, y });
   }
 
-  if (distance <= 0 || !strokeProcessor.shouldDrawStamp(
+  if (!strokeProcessor.shouldDrawStamp(
     brushSettings,
     pixelQueue,
     settings.size,
