@@ -781,16 +781,19 @@ const resolveSelectionInvertDimensions = (state: Pick<
     ? state.selectionMaskBounds.y + state.selectionMaskBounds.height
     : undefined;
 
+  // Unmaterialized layers use the project domain; sequence framebuffers may remain placeholders.
   const resolvedWidth =
+    (activeLayer?.layerType === 'sequential' ? state.project?.width : undefined) ??
     activeLayer?.imageData?.width ??
-    activeLayer?.framebuffer?.width ??
     state.project?.width ??
+    activeLayer?.framebuffer?.width ??
     maskMaxX ??
     state.selectionEnd?.x;
   const resolvedHeight =
+    (activeLayer?.layerType === 'sequential' ? state.project?.height : undefined) ??
     activeLayer?.imageData?.height ??
-    activeLayer?.framebuffer?.height ??
     state.project?.height ??
+    activeLayer?.framebuffer?.height ??
     maskMaxY ??
     state.selectionEnd?.y;
 
@@ -1436,14 +1439,17 @@ export const createSelectionSlice = ({
         : null;
 
       const width =
-        activeLayer?.imageData?.width ?? activeLayer?.framebuffer?.width ?? project?.width;
+        (activeLayer?.layerType === 'sequential' ? project?.width : undefined) ??
+        activeLayer?.imageData?.width ?? project?.width ?? activeLayer?.framebuffer?.width;
       const height =
-        activeLayer?.imageData?.height ?? activeLayer?.framebuffer?.height ?? project?.height;
+        (activeLayer?.layerType === 'sequential' ? project?.height : undefined) ??
+        activeLayer?.imageData?.height ?? project?.height ?? activeLayer?.framebuffer?.height;
 
       if (!width || !height) {
         return;
       }
 
+      const before = selectionSnapshotFromState(state);
       set({
         selectionStart: { x: 0, y: 0 },
         selectionEnd: { x: width, y: height },
@@ -1462,6 +1468,7 @@ export const createSelectionSlice = ({
           bounds: { x: 0, y: 0, width, height },
         },
       });
+      commitSelectionHistory({ before, description: 'Select all', meta: { source } });
     },
     selectLayerAlpha: (layerId) => {
       const state = get();
@@ -1480,6 +1487,7 @@ export const createSelectionSlice = ({
         return;
       }
 
+      const before = selectionSnapshotFromState(state);
       const bounds = findOpaquePixelBounds(imageData);
       if (!bounds) {
         set({
@@ -1491,6 +1499,7 @@ export const createSelectionSlice = ({
           selectionMaskLayerId: null,
           selectionLastAction: null,
         });
+        commitSelectionHistory({ before, description: 'Select layer alpha' });
         return;
       }
 
@@ -1512,6 +1521,7 @@ export const createSelectionSlice = ({
           selectionMaskLayerId: null,
           selectionLastAction: null,
         });
+        commitSelectionHistory({ before, description: 'Select layer alpha' });
         return;
       }
 
@@ -1552,6 +1562,7 @@ export const createSelectionSlice = ({
           override: { ownerKind: 'mask-selection' },
         }),
       });
+      commitSelectionHistory({ before, description: 'Select layer alpha' });
     },
     invertSelection: () => {
       const state = get();
@@ -1568,6 +1579,7 @@ export const createSelectionSlice = ({
         return;
       }
 
+      const before = selectionSnapshotFromState(state);
       const { width, height } = dimensions;
       const selectedCoverage = new Uint8Array(width * height);
       const markSelected = (x: number, y: number) => {
@@ -1626,6 +1638,7 @@ export const createSelectionSlice = ({
           selectionMaskLayerId: null,
           selectionLastAction: null,
         });
+        commitSelectionHistory({ before, description: 'Invert selection' });
         return;
       }
 
@@ -1640,6 +1653,7 @@ export const createSelectionSlice = ({
           selectionMaskLayerId: null,
           selectionLastAction: null,
         });
+        commitSelectionHistory({ before, description: 'Invert selection' });
         return;
       }
 
@@ -1663,6 +1677,7 @@ export const createSelectionSlice = ({
           override: { ownerKind: 'mask-selection' },
         }),
       });
+      commitSelectionHistory({ before, description: 'Invert selection' });
     },
     deleteSelectedPixels: (source = 'api-delete') => {
       const state = get();

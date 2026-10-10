@@ -7,12 +7,38 @@ import type { StampShape } from './colorCycleBrushContracts';
 
 import type { CcPencilMask } from './ccPencilPressure';
 
+export const createColorCycleSelectionPaintMask = (): StudioStrokePaintMask | null => {
+  const state = getAppStoreState();
+  let acceptsSelectionPixel: ((x: number, y: number) => boolean) | null = null;
+  if (state.selectionMask && state.selectionMaskBounds) {
+    const { width: maskWidth, height: maskHeight, data } = state.selectionMask;
+    const { x: originX, y: originY } = state.selectionMaskBounds;
+    // Keep this gesture's membership stable even if selection state changes later.
+    const coverage = new Uint8Array(maskWidth * maskHeight);
+    for (let i = 0; i < coverage.length; i += 1) {
+      coverage[i] = data[i * 4 + 3] > 0 ? 1 : 0;
+    }
+    acceptsSelectionPixel = (x, y) => {
+      const localX = Math.floor(x - originX);
+      const localY = Math.floor(y - originY);
+      return localX >= 0 && localY >= 0 && localX < maskWidth && localY < maskHeight &&
+        coverage[localY * maskWidth + localX] !== 0;
+    };
+  } else if (state.selectionStart && state.selectionEnd) {
+    const minX = Math.min(state.selectionStart.x, state.selectionEnd.x);
+    const maxX = Math.max(state.selectionStart.x, state.selectionEnd.x);
+    const minY = Math.min(state.selectionStart.y, state.selectionEnd.y);
+    const maxY = Math.max(state.selectionStart.y, state.selectionEnd.y);
+    acceptsSelectionPixel = (x, y) => x >= minX && x < maxX && y >= minY && y < maxY;
+  }
+  return acceptsSelectionPixel ? { acceptsPixel: acceptsSelectionPixel } : null;
+};
+
 export const createColorCycleStrokePaintMask = (
   layerId: string, width: number, height: number, paint: Uint8Array,
 ): StudioStrokePaintMask | null => {
-  if (!studioExtension.createColorCycleStrokePaintMask) return null;
   const state = getAppStoreState();
-  return studioExtension.createColorCycleStrokePaintMask({
+  const studioMask = studioExtension.createColorCycleStrokePaintMask?.({
     currentTool: state.tools.currentTool,
     presetId: state.currentBrushPreset?.id ?? null,
     brushSettings: state.tools.brushSettings,
@@ -30,7 +56,15 @@ export const createColorCycleStrokePaintMask = (
       }
       return { width, height, data };
     },
-  });
+  }) ?? null;
+  const selectionMask = createColorCycleSelectionPaintMask();
+  if (!selectionMask) return studioMask;
+  return {
+    prepareStamp: studioMask?.prepareStamp
+      ? (stamp) => studioMask.prepareStamp?.(stamp)
+      : undefined,
+    acceptsPixel: (x, y) => selectionMask.acceptsPixel(x, y) && (studioMask?.acceptsPixel(x, y) ?? true),
+  };
 };
 
 type StampMask = CcPencilMask & { originX: number; originY: number };

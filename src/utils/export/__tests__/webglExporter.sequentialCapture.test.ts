@@ -7,6 +7,12 @@ import { getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayer
 import { BrushShape, type Layer, type SequentialStrokeEvent } from '@/types';
 import { setFeatureFlag } from '@/config/featureFlags';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
+import historyManager from '@/history/historyService';
+import { runFillToolPointerDown } from '@/hooks/canvas/handlers/fillTool';
+import type { EventHandlerDependencies, EventHandlerDynamicDeps } from '@/hooks/canvas/utils/types';
+import { useAppStore } from '@/stores/useAppStore';
+import type { Project } from '@/types';
 
 const { captureSequentialLayerFrameTextures } = __TESTING__;
 
@@ -102,6 +108,90 @@ describe('webglExporter sequential capture', () => {
     } finally {
       actualRenderer.clearSequentialLayerRendererAll();
       canvasMockState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = previousRasterize;
+    }
+  });
+
+  it('exports canonical selected Fill and Erase edits on their authored frames', async () => {
+    const actualRenderer = jest.requireActual<typeof import('@/lib/sequential/SequentialLayerRenderer')>(
+      '@/lib/sequential/SequentialLayerRenderer',
+    );
+    setFeatureFlag('enableSequentialGpuAcceleration', false);
+    setFeatureFlag('enableSequentialWorkerMaterialization', false);
+    actualRenderer.clearSequentialLayerRendererAll();
+    historyManager.clear();
+    getSequentialLayerRenderCanvasMock.mockImplementation(actualRenderer.getSequentialLayerRenderCanvas);
+    const canvasMockState = globalThis as typeof globalThis & { __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean };
+    const previousRasterize = canvasMockState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    canvasMockState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
+    const captured: Uint8ClampedArray[] = [];
+    jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
+      this: HTMLCanvasElement, callback: BlobCallback, type?: string,
+    ) {
+      const bytes = this.getContext('2d')!.getImageData(0, 0, this.width, this.height).data.slice();
+      captured.push(bytes);
+      callback(new Blob([new Uint8Array(bytes)], { type: type ?? 'image/png' }));
+    });
+    const makePaint = (frameIndex: number, color: string): SequentialStrokeEvent => ({
+      id: `fill-export-base-${frameIndex}`, layerId: 'fill-export-seq', strokeId: `fill-export-base-${frameIndex}`,
+      timestampMs: 0, frameIndex,
+      brush: { tool: 'brush', brushShape: BrushShape.SQUARE, size: 6, opacity: 1, blendMode: 'source-over', rotation: 0, spacing: 1, color },
+      stamps: [{ x: 3, y: 2, pressure: 1, rotation: 0, size: 6, alpha: 1 }],
+    });
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 1;
+    framebuffer.height = 1;
+    const layer: Layer = {
+      id: 'fill-export-seq', name: 'Sequence', visible: true, opacity: 1, blendMode: 'source-over',
+      locked: false, order: 0, imageData: null, framebuffer,
+      alignment: createDefaultLayerAlignment(), layerType: 'sequential',
+      sequentialData: { frameCount: 3, fps: 12, durationMs: 250, events: [makePaint(0, '#ff0000'), makePaint(1, '#0000ff')] },
+    };
+    useAppStore.setState((state) => ({
+      layers: [layer], activeLayerId: layer.id,
+      project: { ...state.project, id: 'fill-export', width: 6, height: 4, layers: [layer] } as Project,
+      selectionStart: { x: 1, y: 1 }, selectionEnd: { x: 5, y: 3 }, selectionMask: null, selectionMaskBounds: null,
+      palette: { ...state.palette, activeSlot: 'foreground', foregroundColor: '#00ff00' },
+      tools: { ...state.tools, currentTool: 'fill', fillSettings: { threshold: 0, contiguous: true, eraseInstead: false } },
+      sequentialRecord: { ...state.sequentialRecord, currentFrame: 0, isPointerDown: false },
+      colorCyclePlayback: { ...state.colorCyclePlayback, desiredPlaying: false },
+    }));
+    const dispatch = () => {
+      const state = useAppStore.getState();
+      runFillToolPointerDown({
+        dynamic: state as unknown as EventHandlerDynamicDeps,
+        deps: { updateLayer: state.updateLayer, compositeCanvasDirtyRef: { current: false }, compositeCanvasRef: { current: null } } as unknown as EventHandlerDependencies,
+        worldPos: { x: 0, y: 0 },
+      });
+    };
+    try {
+      dispatch();
+      await waitForPendingHistoryCommits();
+      useAppStore.setState((state) => ({
+        tools: { ...state.tools, fillSettings: { ...state.tools.fillSettings, eraseInstead: true } },
+        sequentialRecord: { ...state.sequentialRecord, currentFrame: 1 },
+      }));
+      dispatch();
+      await waitForPendingHistoryCommits();
+      const result = await captureSequentialLayerFrameTextures({ layer: useAppStore.getState().layers[0], width: 6, height: 4, frameCount: 3 });
+      expect(result?.frameMap).toEqual([0, 1, 2]);
+      expect(captured).toHaveLength(3);
+      const expectedFill = new Uint8ClampedArray(6 * 4 * 4);
+      const expectedErase = new Uint8ClampedArray(6 * 4 * 4);
+      for (let y = 0; y < 4; y += 1) {
+        for (let x = 0; x < 6; x += 1) {
+          const selected = x >= 1 && x < 5 && y >= 1 && y < 3;
+          expectedFill.set(selected ? [0, 255, 0, 255] : [255, 0, 0, 255], (y * 6 + x) * 4);
+          expectedErase.set(selected ? [0, 0, 0, 0] : [0, 0, 255, 255], (y * 6 + x) * 4);
+        }
+      }
+      expect(captured[0]).toEqual(expectedFill);
+      expect(captured[1]).toEqual(expectedErase);
+      expect(captured[2]).toEqual(new Uint8ClampedArray(6 * 4 * 4));
+    } finally {
+      await waitForPendingHistoryCommits();
+      actualRenderer.clearSequentialLayerRendererAll();
+      canvasMockState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = previousRasterize;
+      historyManager.clear();
     }
   });
 

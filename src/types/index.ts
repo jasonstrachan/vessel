@@ -715,7 +715,23 @@ export interface SequentialStampPoint {
 
 export type SequentialPluginConfigValue = string | number | boolean | null | undefined;
 
+export type SequentialSelectionClip = Readonly<{
+  kind: 'rect';
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}> | Readonly<{
+  kind: 'mask';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  alphaBase64: string;
+}>;
+
 export interface SequentialBrushSnapshot {
+  selectionClip?: SequentialSelectionClip | null;
   tool: string;
   brushShape: BrushShape;
   tipShape?: 'round' | 'square' | 'triangle' | 'diamond' | 'diamond5' | 'diamond7' | 'diamond9' | 'checkered';

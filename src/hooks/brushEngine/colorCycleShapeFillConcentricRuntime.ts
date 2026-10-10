@@ -69,6 +69,7 @@ export async function runColorCycleConcentricShapeFill(
     ensureFullResolution: (targetLayerId) => context.ensureFullResolution(targetLayerId, 'fill'),
     bindStrokeBuffersToAnimator: (state, targetAnimator) => context.bindStrokeBuffersToAnimator(state, targetAnimator),
   });
+  const acceptsPixel = strokeData?.paintMask?.acceptsPixel;
   const logCcFill = isDebugEnabled('cc-fill');
   if (logCcFill) {
     debugLog('cc-fill', '[CC fill] uses slot', {
@@ -205,7 +206,7 @@ export async function runColorCycleConcentricShapeFill(
     ccGradient && context.isDitherEnabled() && options?.ditherFlatCycle === true;
   if (!context.isPerceptualDitherEnabled() && !flatCycleDither) {
     try {
-      const tryGPU = lostEdge <= 0 && !hasIndexedAuthoringObserver();
+      const tryGPU = !acceptsPixel && lostEdge <= 0 && !hasIndexedAuthoringObserver();
       const ditherStrengthGpu = context.isDitherEnabled() ? context.getDitherStrength() : 0;
       const ditherPixelSizeGpu = context.isDitherEnabled() ? Math.max(1, context.getDitherPixelSize()) : 1;
       const runtimeMax = animator.getGLFillMaxVerts() || 256;
@@ -333,7 +334,7 @@ export async function runColorCycleConcentricShapeFill(
     phaseByte: number = sampledPhaseOverride ?? 0,
     secondaryInk = false
   ) => {
-    if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
+    if ((acceptsPixel && !acceptsPixel(x, y)) || x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
       return;
     }
     const clamped = Math.max(0, Math.min(255, colorIndex | 0));
@@ -369,6 +370,7 @@ export async function runColorCycleConcentricShapeFill(
         if (value === 0) continue;
         const destX = bbox.minX + col;
         if (destX < 0 || destX >= concentricWidth) continue;
+        if (acceptsPixel && !acceptsPixel(destX, destY)) continue;
         const destIndex = destRowOffset + destX;
         recordIndexedAuthoringPixel(concentricBuffer, destIndex);
         concentricBuffer[destIndex] = value;
@@ -529,7 +531,7 @@ export async function runColorCycleConcentricShapeFill(
           writeConcentricIndex(x, y, index, phaseByte ?? 0, secondaryInk);
         },
         writePhase: (x, y, phaseByte) => {
-          if (x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
+          if ((acceptsPixel && !acceptsPixel(x, y)) || x < 0 || y < 0 || x >= concentricWidth || y >= concentricHeight) {
             return;
           }
           concentricPhaseData[y * concentricWidth + x] = phaseByte;

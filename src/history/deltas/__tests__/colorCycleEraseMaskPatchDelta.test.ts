@@ -1,7 +1,11 @@
 import { createColorCycleEraseMaskPatchDelta } from '@/history/deltas/colorCycleEraseMaskPatchDelta';
 import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
-import { ColorCycleLayerDocument, registerColorCycleBrushPaintPatchRuntime } from '@/lib/colorCycle/document';
+import {
+  ColorCycleLayerDocument,
+  getColorCycleBrushStrokeStateForOwner,
+  registerColorCycleBrushPaintPatchRuntime,
+} from '@/lib/colorCycle/document';
 import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
 import { HistoryReplayApplyError, HistoryReplayDriftError } from '@/history/errors';
 import HistoryManager from '@/history/historyManager';
@@ -408,6 +412,8 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
       });
       jest.spyOn(colorCycleBrushManager, 'getColorCycleBrushManager').mockReturnValue(registry);
       const brush = registry.createBrush(layerId, 4, 4) as unknown as ColorCycleBrushCanvas2D;
+      brush.setGradient([{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }], layerId);
+      brush.setStampShape('square');
       brush.setBrushSize(1);
       brush.setStampDitherEnabled(false);
       brush.startStroke(layerId);
@@ -415,6 +421,7 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
       brush.endStroke(layerId);
       const canonical = registry.getDocument(layerId)!;
       expect(canonical.read().snapshot.hasContent).toBe(true);
+      expect(new Uint8Array(canonical.read().snapshot.paintBuffer!)[1 * 4 + 1]).toBeGreaterThan(0);
       const source = useAppStore.getState().layers[0]!;
       useAppStore.setState({
         layers: [source, {
@@ -492,14 +499,20 @@ describe('ColorCycleEraseMaskPatchDelta', () => {
     it('finalizes an active painted source once and never republishes an idle source', () => {
       const { layerId, registry, brush, canonical, activation } = createActivationFixture();
       try {
+        const baselinePaint = new Uint8Array(canonical.read().snapshot.paintBuffer!);
+        expect(baselinePaint[2 * 4 + 2]).toBe(0);
         brush.startStroke(layerId);
         brush.paint(2, 2, layerId, 1, 0, 0.5);
         const activeRead = canonical.read();
+        const activePaint = getColorCycleBrushStrokeStateForOwner(brush, layerId)!.buffers.paint;
+        expect(activePaint[2 * 4 + 2]).toBeGreaterThan(0);
+        expect(new Uint8Array(activeRead.snapshot.paintBuffer!)).toEqual(baselinePaint);
         activation.setActiveLayer('layer-raster');
         const finishedRead = canonical.read();
         expect(finishedRead.version).toBe(activeRead.version + 1);
         expect(finishedRead.pixelVersion).toBe(activeRead.pixelVersion + 1);
         expect(finishedRead.snapshot.hasContent).toBe(true);
+        expect(new Uint8Array(finishedRead.snapshot.paintBuffer!)[2 * 4 + 2]).toBe(activePaint[2 * 4 + 2]);
         activation.setActiveLayer(layerId);
         const idleRead = canonical.read();
         const idleAudit = canonical.getAuditLog();

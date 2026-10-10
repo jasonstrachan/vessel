@@ -548,8 +548,6 @@ export class ColorCycleBrushCanvas2D {
       layerId,
       reason: 'gradient-def-binding',
       source: 'stroke',
-      forceDocumentPublish: true,
-      pixelsChanged: true,
       mutate: () => this.gradientApi.bindGradientDefIdToSlot(layerId, defId, slot, bbox, previewSlot),
     });
   };

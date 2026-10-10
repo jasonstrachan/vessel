@@ -119,4 +119,24 @@ describe('SequentialPayloadBudget', () => {
     const layerWithNextEvent = createLayer([firstEvent, nextEvent]);
     expect(nextBytes).toBe(estimateSequentialProjectPayloadBytes([layerWithNextEvent]));
   });
+  it('charges distinct mask contents once per layer through append and canonical replacement', () => {
+    const first = createEvent('a', 1);
+    first.brush.selectionClip = { kind: 'mask', x: 0, y: 0, width: 2, height: 1, alphaBase64: 'AQE=' };
+    const equivalent = { ...first, id: 'b', strokeId: 'other-stroke', brush: { ...first.brush, selectionClip: { ...first.brush.selectionClip } } };
+    const different = { ...first, id: 'c', brush: { ...first.brush, selectionClip: { ...first.brush.selectionClip, alphaBase64: 'AQA=' } } };
+    const runtime = createSequentialPayloadBudgetRuntime();
+    const layer = createLayer([first]);
+    readSequentialProjectPayloadBytes({ layers: [layer], runtime });
+    expect(appendSequentialEventPayloadBytes({ layerId: layer.id, event: equivalent, runtime })).toBe(
+      estimateSequentialProjectPayloadBytes([createLayer([first, equivalent])]),
+    );
+    const next = appendSequentialEventPayloadBytes({ layerId: layer.id, event: different, runtime });
+    expect(next).toBe(estimateSequentialProjectPayloadBytes([createLayer([first, equivalent, different])]));
+    expect(runtime.selectionClipKeysByLayer.get(layer.id)?.size).toBe(2);
+    // Same IDs/counts can be replaced by import/history; identity sets must follow actual canonical events.
+    const replacement = createLayer([first, equivalent, different].map(event => ({ ...event, brush: { ...event.brush, selectionClip: undefined } })));
+    expect(readSequentialProjectPayloadBytes({ layers: [replacement], runtime })).toBe(estimateSequentialProjectPayloadBytes([replacement]));
+    expect(runtime.selectionClipKeysByLayer.get(layer.id)?.size).toBe(0);
+  });
+
 });

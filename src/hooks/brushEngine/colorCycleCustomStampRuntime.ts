@@ -19,6 +19,7 @@ import {
 } from './colorCycleCustomStampCache';
 import { advanceDistanceBand } from './colorCycleStrokeTimingRuntime';
 import { stampMaskHasVisiblePixels } from './colorCycleStampMask';
+import { createColorCycleStrokePaintMask } from './colorCycleStrokePaintMask';
 import type {
   LayerStrokeState,
 } from './colorCycleCanvas2DTypes';
@@ -163,6 +164,7 @@ export interface ColorCycleCustomStampRuntimeDeps {
 export class ColorCycleCustomStampRuntime {
   private readonly cache = new ColorCycleCustomStampCache();
   private customStampBuiltFromVersion: number | null = null;
+  private paintFootprint = new Uint8Array(0);
 
   get builtFromVersion(): number | null {
     return this.customStampBuiltFromVersion;
@@ -171,6 +173,7 @@ export class ColorCycleCustomStampRuntime {
   clear(): void {
     this.cache.clear();
     this.customStampBuiltFromVersion = null;
+    this.paintFootprint = new Uint8Array(0);
   }
 
   paint(
@@ -193,6 +196,11 @@ export class ColorCycleCustomStampRuntime {
     const targetLayerId = layerId || deps.getActiveLayerId() || 'default';
     this.customStampBuiltFromVersion = deps.getLayerDocumentVersion(targetLayerId);
     const { id, animator, strokeData } = deps.prepareStrokeContext(targetLayerId);
+    if (strokeData.paintMask === undefined) {
+      strokeData.paintMask = createColorCycleStrokePaintMask(
+        id, deps.width, deps.height, strokeData.buffers.paint,
+      );
+    }
     deps.applyStrokeFlowSpeed(strokeData, speedSamplePxPerMs);
     const useStampDither = deps.isStampDitherEnabled();
     const speedByte = useStampDither ? deps.getWriteSpeedByte(strokeData) : 0;
@@ -264,6 +272,25 @@ export class ColorCycleCustomStampRuntime {
     if (isCapturedDataStamp && !capturedDataAvailable) {
       return;
     }
+    const paintMask = strokeData.paintMask;
+    if (paintMask?.prepareStamp) {
+      // Studio masks need the rotated tip's actual coverage before any pixel queries.
+      const size = Math.max(maskEntry.width, maskEntry.height);
+      if (this.paintFootprint.length < size * size) {
+        this.paintFootprint = new Uint8Array(size * size);
+      } else {
+        this.paintFootprint.fill(0, 0, size * size);
+      }
+      for (let py = 0; py < maskEntry.height; py += 1) {
+        for (let px = 0; px < maskEntry.width; px += 1) {
+          this.paintFootprint[py * size + px] = alpha[py * maskEntry.width + px] >= 16 ? 1 : 0;
+        }
+      }
+      paintMask.prepareStamp({
+        x, y, size: targetSize,
+        footprint: { originX, originY, size, data: this.paintFootprint },
+      });
+    }
     const capturedGradientBinding = deps.resolveCapturedStampGradientBinding(
       id,
       colorCycle,
@@ -288,6 +315,7 @@ export class ColorCycleCustomStampRuntime {
         const targetX = originX + px;
         if (targetX < 0 || targetX >= deps.width) continue;
         if (alpha[rowOffset + px] < 16) continue;
+        if (paintMask && !paintMask.acceptsPixel(targetX, targetY)) continue;
         deps.logSetIndexSample(id, targetX, targetY);
         const colorIndex = resolveCustomStampIndex({
           isCapturedDataStamp,

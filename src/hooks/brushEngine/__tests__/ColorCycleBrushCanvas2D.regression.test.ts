@@ -39,6 +39,9 @@ import {
 } from '@/lib/colorCycle/document';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 import type { Layer } from '@/types';
+import type { SelectionRasterScopeInput } from '@/stores/helpers/selectionRoi';
+import { runConcentricFillJob, runPerceptualDitherJob } from '@/workers/colorCycleFillClient';
+import type { ColorCycleShapeFillApiRuntime } from '../colorCycleShapeFillApiRuntime';
 
 type MockContext = CanvasRenderingContext2D & {
   _lastImageData?: ImageData;
@@ -145,7 +148,7 @@ jest.mock('@/utils/canvasPool', () => ({
   },
 }));
 
-type MockStoreState = {
+type MockStoreState = Partial<SelectionRasterScopeInput> & {
   layers: Array<{
     id?: string;
     colorCycleData?: unknown;
@@ -218,6 +221,10 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
     const state = useAppStore.getState() as unknown as MockStoreState;
     state.layers = [];
     state.tools.brushSettings = {};
+    delete state.selectionStart;
+    delete state.selectionEnd;
+    delete state.selectionMask;
+    delete state.selectionMaskBounds;
     state.updateLayer = jest.fn((id: string, patch: Record<string, unknown>) => {
       state.layers = state.layers.map((layer) => (
         typeof layer === 'object' && layer !== null && 'id' in layer && layer.id === id
@@ -225,6 +232,340 @@ describe('ColorCycleBrushCanvas2D regression tests', () => {
           : layer
       ));
     });
+  });
+
+  it('keeps empty gradient binding pixel-neutral while publishing prepared metadata', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const layerId = 'empty-gradient-binding';
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(2, 2), { forceCanvas2D: true });
+    state.layers = [{ id: layerId, layerType: 'color-cycle', colorCycleData: {} }];
+    brush.setLayerId(layerId);
+    const document = brush.getColorCycleLayerDocument(layerId)!;
+    const before = document.read();
+    state.layers[0].colorCycleData = {
+      slotPalettes: [{ slot: 2, stops: [{ position: 0, color: '#ff0000' }] }],
+      gradientDefStore: [{
+        id: 77, slot: 2, kind: 'linear', hash: 'prepared-red', source: 'manual',
+        stops: [{ position: 0, color: '#ff0000' }], createdAtMs: 0,
+      }],
+    };
+
+    brush.bindGradientDefIdToSlot(layerId, 77, 2);
+    const prepared = document.read();
+    expect(prepared.snapshot.hasContent).toBe(false);
+    expect(Array.from(new Uint8Array(prepared.snapshot.paintBuffer!))).toEqual([0, 0, 0, 0]);
+    expect(Array.from(new Uint16Array(prepared.snapshot.gradientDefIdBuffer!))).toEqual([0, 0, 0, 0]);
+    expect(prepared.snapshot.gradientDefStore?.[0]?.id).toBe(77);
+    expect(prepared.version).toBeGreaterThan(before.version);
+    expect(prepared.pixelVersion).toBe(before.pixelVersion);
+
+    brush.bindGradientDefIdToSlot(layerId, 77, 2);
+    expect(document.read().version).toBe(prepared.version);
+    expect(document.read().pixelVersion).toBe(prepared.pixelVersion);
+    brush.cleanup();
+  });
+
+  it('publishes gradient binding pixels once and preserves repeated binding revisions', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const layerId = 'changed-gradient-binding';
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(2, 2), { forceCanvas2D: true });
+    state.layers = [{ id: layerId, layerType: 'color-cycle', colorCycleData: {} }];
+    brush.setLayerId(layerId);
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: new Uint8Array([9, 0, 9, 9]).buffer,
+      gradientIdBuffer: new Uint8Array([2, 2, 3, 2]).buffer,
+      gradientDefIdBuffer: new Uint16Array(4).buffer,
+      speedBuffer: new Uint8Array(4).buffer,
+      flowBuffer: new Uint8Array(4).buffer,
+      phaseBuffer: new Uint8Array(4).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    });
+    const document = brush.getColorCycleLayerDocument(layerId)!;
+    const before = document.read();
+
+    brush.bindGradientDefIdToSlot(layerId, 77, 2);
+    const bound = document.read();
+    expect(Array.from(new Uint16Array(bound.snapshot.gradientDefIdBuffer!))).toEqual([77, 0, 0, 77]);
+    expect(Array.from(new Uint8Array(bound.snapshot.paintBuffer!))).toEqual([9, 0, 9, 9]);
+    expect(bound.pixelVersion).toBe(before.pixelVersion + 1);
+
+    brush.bindGradientDefIdToSlot(layerId, 77, 2);
+    expect(document.read().version).toBe(bound.version);
+    expect(document.read().pixelVersion).toBe(bound.pixelVersion);
+    brush.cleanup();
+  });
+
+  it.each([false, true])('preserves all excluded canonical buffers through selection-clipped stroke finalization (dither %s)', (dither) => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const width = 24;
+    const height = 12;
+    const length = width * height;
+    const layerId = 'selection-clip';
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(width, height), { brushSize: 8, forceCanvas2D: true });
+    const baseline = {
+      paintBuffer: new Uint8Array(length).fill(200).buffer,
+      gradientIdBuffer: new Uint8Array(length).fill(3).buffer,
+      gradientDefIdBuffer: new Uint16Array(length).fill(9).buffer,
+      speedBuffer: new Uint8Array(length).fill(17).buffer,
+      flowBuffer: new Uint8Array(length).fill(1).buffer,
+      phaseBuffer: new Uint8Array(length).fill(29).buffer,
+      hasContent: true,
+      strokeCounter: 1,
+    };
+    const data = new Uint8ClampedArray(16 * 8 * 4);
+    for (let y = 0; y < 8; y += 1) {
+      for (let x = 0; x < 16; x += 1) data[(y * 16 + x) * 4 + 3] = x >= 6 && x < 10 ? 0 : 80;
+    }
+    state.selectionStart = { x: 0, y: 0 };
+    state.selectionEnd = { x: width, y: height };
+    state.selectionMask = { width: 16, height: 8, data, colorSpace: 'srgb' };
+    state.selectionMaskBounds = { x: 4, y: 2, width: 16, height: 8 };
+    state.layers = [{ id: layerId, layerType: 'color-cycle', colorCycleData: {} }];
+    state.tools.brushSettings = { size: 8 };
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, baseline);
+    brush.setStampDitherEnabled(dither);
+    brush.setStampDitherBgFill(false);
+    brush.setStampDitherAlgorithm('sierra-lite');
+    brush.startStroke(layerId);
+    for (let x = 4; x <= 20; x += 2) brush.paint(x, 6, layerId, 1);
+    brush.endStroke(layerId);
+    const after = readBrushLayerSnapshot(brush, layerId)!;
+    let selectedChanges = 0;
+    for (const field of ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const) {
+      const oldValues = field === 'gradientDefIdBuffer' ? new Uint16Array(baseline[field]) : new Uint8Array(baseline[field]);
+      const newValues = field === 'gradientDefIdBuffer' ? new Uint16Array(after[field]!) : new Uint8Array(after[field]!);
+      for (let i = 0; i < length; i += 1) {
+        const x = i % width;
+        const y = Math.floor(i / width);
+        const selected = x >= 4 && x < 20 && y >= 2 && y < 10 && !(x >= 10 && x < 14);
+        if (!selected) expect({ field, i, value: newValues[i] }).toEqual({ field, i, value: oldValues[i] });
+        else if (newValues[i] !== oldValues[i]) selectedChanges += 1;
+      }
+    }
+    expect(selectedChanges).toBeGreaterThan(0);
+    brush.dispose();
+  });
+
+  it.each([false, true].flatMap(dither => [false, true].map(accepted => ({ dither, accepted }))))(
+    'lets canonical comparison own seeded stroke pixel revisions (dither $dither, accepted $accepted)',
+    ({ dither, accepted }) => {
+      const state = useAppStore.getState() as unknown as MockStoreState;
+      const layerId = 'seeded-stroke-pixel-revision';
+      state.layers = [{ id: layerId, layerType: 'color-cycle', colorCycleData: {} }];
+      state.tools.brushSettings = { size: 4 };
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(24, 12), { brushSize: 4, forceCanvas2D: true });
+      try {
+        brush.setLayerId(layerId);
+        brush.setStampShape('round');
+        brush.setStampDitherEnabled(false);
+        brush.startStroke(layerId);
+        brush.paint(6, 6, layerId, 1);
+        brush.endStroke(layerId);
+        brush.setStampDitherEnabled(dither);
+        brush.setStampDitherAlgorithm('bayer');
+        brush.setStampDitherBgFill(true);
+        state.selectionStart = accepted ? { x: 18, y: 6 } : { x: 0, y: 0 };
+        state.selectionEnd = accepted ? { x: 24, y: 12 } : { x: 2, y: 2 };
+        const document = brush.getColorCycleLayerDocument(layerId)!;
+        const before = document.read();
+        expect(before.snapshot.hasContent).toBe(true);
+        expect(new Uint8Array(before.snapshot.paintBuffer!).some(value => value !== 0)).toBe(true);
+
+        brush.startStroke(layerId);
+        brush.paint(20, 8, layerId, 1);
+        brush.endStroke(layerId);
+        const after = document.read();
+        expect(after.snapshot.hasContent).toBe(true);
+        if (accepted) {
+          expect(after.pixelVersion).toBe(before.pixelVersion + 1);
+          expect(new Uint8Array(after.snapshot.paintBuffer!)[8 * 24 + 20]).not.toBe(0);
+          expect(new Uint8Array(before.snapshot.paintBuffer!)[8 * 24 + 20]).toBe(0);
+        } else {
+          for (const field of ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const) {
+            expect(new Uint8Array(after.snapshot[field]!)).toEqual(new Uint8Array(before.snapshot[field]!));
+          }
+          expect(after.pixelVersion).toBe(before.pixelVersion);
+        }
+      } finally {
+        brush.dispose();
+      }
+    }
+  );
+
+  it('does not author any canonical pixel when a stroke lies wholly outside selection', () => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    state.selectionStart = { x: 0, y: 0 };
+    state.selectionEnd = { x: 2, y: 2 };
+    state.tools.brushSettings = { size: 4 };
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(24, 12), { brushSize: 4, forceCanvas2D: true });
+    brush.setStampDitherEnabled(false);
+    brush.startStroke('selection-excluded');
+    brush.paint(20, 8, 'selection-excluded', 1);
+    brush.endStroke('selection-excluded');
+    const after = readBrushLayerSnapshot(brush, 'selection-excluded')!;
+    for (const field of ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const) {
+      expect(new Uint8Array(after[field]!).some(value => value !== 0)).toBe(false);
+    }
+    expect(after.hasContent).toBe(false);
+    brush.dispose();
+  });
+
+  it.each((['standard', 'dither', 'pencil'] as const).flatMap(mode => (
+    ['unrestricted', 'rectangle', 'hole', 'outside'].map(scope => ({ mode, scope }))
+  )))('keeps empty stroke content accurate for $mode with $scope selection', ({ mode, scope }) => {
+    const state = useAppStore.getState() as unknown as MockStoreState;
+    const layerId = 'empty-stroke-content';
+    const width = 24, height = 12;
+    state.layers = [{ id: layerId, layerType: 'color-cycle', colorCycleData: { hasContent: false } }];
+    state.tools.brushSettings = { size: 4, colorCyclePencilEnabled: mode === 'pencil', colorCyclePencilSensitivity: 50 };
+    if (scope === 'rectangle') {
+      state.selectionStart = { x: 18, y: 4 }; state.selectionEnd = { x: 24, y: 12 };
+    } else if (scope === 'outside') {
+      state.selectionStart = { x: 0, y: 0 }; state.selectionEnd = { x: 2, y: 2 };
+    } else if (scope === 'hole') {
+      const data = new Uint8ClampedArray(width * height * 4);
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        data.set([12, 34, 56, x >= 16 && y >= 4 ? 0 : 80], (y * width + x) * 4);
+      }
+      state.selectionStart = { x: 0, y: 0 }; state.selectionEnd = { x: width, y: height };
+      state.selectionMask = { width, height, data, colorSpace: 'srgb' };
+      state.selectionMaskBounds = { x: 0, y: 0, width, height };
+    }
+    const expectedContent = scope === 'unrestricted' || scope === 'rectangle';
+    const brush = new ColorCycleBrushCanvas2D(makeCanvas(width, height), { brushSize: 4, forceCanvas2D: true });
+    try {
+      brush.setStampShape('round');
+      brush.setStampDitherEnabled(mode !== 'standard');
+      brush.setStampDitherBgFill(true);
+      brush.setStampDitherAlgorithm('bayer');
+      brush.startStroke(layerId);
+      brush.paint(20, 8, layerId, 1);
+      brush.endStroke(layerId);
+      const after = readBrushLayerSnapshot(brush, layerId)!;
+      expect(new Uint8Array(after.paintBuffer).some(value => value !== 0)).toBe(expectedContent);
+      expect(after.hasContent).toBe(expectedContent);
+      const layer = state.layers.find(layer => layer.id === layerId);
+      expect((layer?.colorCycleData as { hasContent?: boolean }).hasContent).toBe(expectedContent);
+    } finally {
+      brush.dispose();
+    }
+  });
+
+  describe('shape selection invariants', () => {
+    type Mode = 'linear' | 'concentric';
+    type Scope = 'none' | 'rectangle' | 'reversed' | 'mask' | 'fractional-mask' | 'outside' | 'empty-mask';
+    type Route = 'plain' | 'dither' | 'perceptual' | 'worker' | 'perceptual-worker' | 'lost-edge' | 'gpu';
+    const fields = ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const;
+    const width = 24, height = 12, length = width * height;
+    const accepts = (scope: Scope, x: number, y: number): boolean => {
+      if (scope === 'none') return true;
+      if (scope === 'outside' || scope === 'empty-mask') return false;
+      if (scope === 'rectangle' || scope === 'reversed') return x >= 4 && x < 18 && y >= 3 && y < 10;
+      const localX = Math.floor(x - (scope === 'fractional-mask' ? 4.5 : 4));
+      const localY = Math.floor(y - (scope === 'fractional-mask' ? 2.25 : 2));
+      return localX >= 0 && localX < 14 && localY >= 0 && localY < 8 &&
+        !(localX >= 5 && localX < 9 && localY >= 2 && localY < 6);
+    };
+    const sample = async (mode: Mode, scope: Scope, route: Route = 'plain', mutateSelection = false) => {
+      const state = useAppStore.getState() as unknown as MockStoreState & { selectionMaskLayerId?: string };
+      delete state.selectionStart; delete state.selectionEnd; delete state.selectionMask; delete state.selectionMaskBounds;
+      state.selectionMaskLayerId = 'different-selection-owner';
+      if (scope === 'rectangle' || scope === 'reversed') {
+        state.selectionStart = scope === 'reversed' ? { x: 18, y: 10 } : { x: 4, y: 3 };
+        state.selectionEnd = scope === 'reversed' ? { x: 4, y: 3 } : { x: 18, y: 10 };
+      } else if (scope === 'outside') {
+        state.selectionStart = { x: 100, y: 100 }; state.selectionEnd = { x: 102, y: 102 };
+      } else if (scope !== 'none') {
+        // Rectangle is deliberately broader: mask alpha has precedence and is binary.
+        state.selectionStart = { x: 0, y: 0 }; state.selectionEnd = { x: width, y: height };
+        const data = new Uint8ClampedArray(14 * 8 * 4);
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 14; x++) {
+          const covered = scope !== 'empty-mask' && !(x >= 5 && x < 9 && y >= 2 && y < 6);
+          data.set([17, 35, 99, covered ? (x % 2 ? 1 : 80) : 0], (y * 14 + x) * 4);
+        }
+        state.selectionMask = { width: 14, height: 8, data, colorSpace: 'srgb' };
+        state.selectionMaskBounds = { x: scope === 'fractional-mask' ? 4.5 : 4, y: scope === 'fractional-mask' ? 2.25 : 2, width: 14, height: 8 };
+      }
+      const layerId = 'shape-selection';
+      state.layers = [{ id: layerId, layerType: 'color-cycle', colorCycleData: {} }];
+      state.tools.brushSettings = {};
+      const brush = new ColorCycleBrushCanvas2D(makeCanvas(width, height), { forceCanvas2D: true });
+      const baseline = {
+        paintBuffer: new Uint8Array(length).fill(200).buffer, gradientIdBuffer: new Uint8Array(length).fill(3).buffer,
+        gradientDefIdBuffer: new Uint16Array(length).fill(9).buffer, speedBuffer: new Uint8Array(length).fill(17).buffer,
+        flowBuffer: new Uint8Array(length).fill(1).buffer, phaseBuffer: new Uint8Array(length).fill(29).buffer,
+        hasContent: true, strokeCounter: 1,
+      };
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, baseline);
+      brush.setGradientBands(4);
+      brush.setDitherEnabled(['dither', 'perceptual', 'perceptual-worker'].includes(route));
+      brush.setDitherPixelSize(2);
+      brush.setPerceptualDither(route === 'perceptual' || route === 'perceptual-worker');
+      const api = (brush as unknown as { shapeFillApi: ColorCycleShapeFillApiRuntime }).shapeFillApi;
+      const worker = jest.spyOn(api, 'canRunConcentricWorker').mockReturnValue(route === 'worker');
+      const perceptualWorker = jest.spyOn(api, 'canRunPerceptualDitherWorker').mockReturnValue(route === 'perceptual-worker');
+      jest.mocked(runConcentricFillJob).mockClear();
+      jest.mocked(runPerceptualDitherJob).mockClear();
+      jest.mocked(runConcentricFillJob).mockImplementation(async args => ({
+        width: args.bbox.width, height: args.bbox.height,
+        indices: new Uint8Array(args.bbox.width * args.bbox.height).fill(67).buffer,
+      }));
+      jest.mocked(runPerceptualDitherJob).mockImplementation(async args => ({
+        width: args.width, height: args.height,
+        indices: new Uint8Array(args.width * args.height).fill(67).buffer,
+      }));
+      const animator = (brush as unknown as { animators: Map<string, { getGLFillMaxVerts(): number; gpuFillShape: (...args: unknown[]) => boolean }> }).animators.get(layerId)!;
+      const gpuLimit = jest.spyOn(animator, 'getGLFillMaxVerts').mockReturnValue(32);
+      const gpu = jest.spyOn(animator, 'gpuFillShape').mockReturnValue(false);
+      try {
+        const promise = brush.fillShapeDispatch({ mode, layerId,
+          vertices: [{ x: 1, y: 1 }, { x: 22, y: 1 }, { x: 22, y: 10 }, { x: 1, y: 10 }],
+          direction: { x: 1, y: 0 }, options: { paintDefIdOverride: 42,
+            ccGradient: route === 'dither', ditherLevels: 4, ditherPixelSize: 2,
+            lostEdge: route === 'lost-edge' ? 80 : 0, shapePhaseSeedMarkId: 'selection-shape' },
+        });
+        if (mutateSelection) {
+          state.selectionMask?.data.fill(0);
+          if (state.selectionMaskBounds) state.selectionMaskBounds.x = 100;
+          state.selectionStart = { x: 100, y: 100 }; state.selectionEnd = { x: 101, y: 101 };
+        }
+        await promise;
+        if (route === 'worker') expect(runConcentricFillJob).toHaveBeenCalledTimes(1);
+        if (route === 'perceptual-worker') expect(runPerceptualDitherJob).toHaveBeenCalledTimes(1);
+        return { baseline, after: readBrushLayerSnapshot(brush, layerId)!, gpuCalls: gpu.mock.calls.length };
+      } finally {
+        worker.mockRestore(); perceptualWorker.mockRestore(); gpuLimit.mockRestore(); gpu.mockRestore();
+        delete state.selectionMaskLayerId;
+        brush.dispose();
+      }
+    };
+    const verify = async (mode: Mode, scope: Scope, route: Route = 'plain', mutateSelection = false) => {
+      const control = await sample(mode, 'none', route);
+      const result = await sample(mode, scope, route, mutateSelection);
+      let changes = 0;
+      for (const field of fields) {
+        const values = (buffer: ArrayBuffer) => field === 'gradientDefIdBuffer' ? new Uint16Array(buffer) : new Uint8Array(buffer);
+        const before = values(result.baseline[field]), after = values(result.after[field]!), unrestricted = values(control.after[field]!);
+        for (let i = 0; i < length; i++) {
+          const selected = accepts(scope, i % width, Math.floor(i / width));
+          if (!selected || route !== 'lost-edge') expect({ field, i, value: after[i] }).toEqual({ field, i, value: selected ? unrestricted[i] : before[i] });
+          if (selected && after[i] !== before[i]) changes++;
+        }
+      }
+      expect(changes > 0).toBe(scope !== 'outside' && scope !== 'empty-mask');
+      if (route === 'gpu') { expect(control.gpuCalls).toBeGreaterThan(0); expect(result.gpuCalls).toBe(0); }
+    };
+    it.each((['linear', 'concentric'] as const).flatMap(mode =>
+      (['none', 'rectangle', 'reversed', 'mask', 'fractional-mask', 'outside', 'empty-mask'] as const).map(scope => [mode, scope] as const)
+    ))('clips %s shape selection %s through real fill API and six buffers', async (mode, scope) => verify(mode, scope));
+    it.each((['linear', 'concentric'] as const).flatMap(mode =>
+      (['dither', 'perceptual', 'lost-edge', 'gpu'] as const).map(route => [mode, route] as const)
+    ))('clips %s shape selection mask on %s writer route', async (mode, route) => verify(mode, 'mask', route));
+    it.each(['linear', 'concentric'] as const)('snapshots fresh %s shape selection before asynchronous writes', async mode =>
+      verify(mode, 'fractional-mask', 'plain', true));
+    it('clips concentric shape selection when committing a worker result', async () => verify('concentric', 'mask', 'worker'));
+    it('clips linear shape selection when committing a perceptual worker result', async () => verify('linear', 'mask', 'perceptual-worker'));
   });
 
   it('replays captured canonical metadata through the real patch publisher after store slot pruning', async () => {

@@ -1677,10 +1677,15 @@ describe('inverted raster selection delete alignment history', () => {
       useAppStore.getState().setSelectionBounds({ x: 1, y: 0 }, { x: 2, y: 2 });
       useAppStore.getState().invertSelection();
       expect(useAppStore.getState().selectionMask).not.toBeNull();
+      const selectionHistory = [...historyManager.entries()];
+      expect(selectionHistory).toHaveLength(1);
+      expect(selectionHistory[0].action).toBe('selection-change');
       useAppStore.getState().deleteSelectedPixels('keyboard-delete');
       await waitForPendingHistoryCommits();
       const immediate = snapshot();
-      expect(historyManager.entries()).toHaveLength(1);
+      expect(historyManager.entries()).toHaveLength(selectionHistory.length + 1);
+      expect(historyManager.entries()[0]).toBe(selectionHistory[0]);
+      expect(historyManager.peekUndo()?.action).toBe('layer-bitmap');
       await historyManager.undo();
       const undone = snapshot();
       await historyManager.redo();

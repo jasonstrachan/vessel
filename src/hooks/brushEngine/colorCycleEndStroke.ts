@@ -326,8 +326,6 @@ export const endColorCycleStroke = (context: ColorCycleEndStrokeContext): void =
           mutate: () => {},
           after: { hasContent: true, strokeCounter: strokeData.strokeCounter },
           markDirty: false,
-          forceDocumentPublish: true,
-          pixelsChanged: true,
           dirtyRects: strokeDirtyRect ? [strokeDirtyRect] : undefined,
           assumeDerivedSurfaceCurrent: true,
         }),

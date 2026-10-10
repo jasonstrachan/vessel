@@ -1,3 +1,4 @@
+import { snapshotSequentialSelectionClip, sequentialSelectionClipKey } from '@/lib/sequential/selectionClip';
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import { serializeBuiltinPluginSequentialConfig } from '@/brushes/plugins';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
@@ -53,6 +54,11 @@ export interface SequentialStampCapRuntime {
   lastBrushSnapshotKey: string | null;
   lastResolvedBrushSnapshotKey: string | null;
   lastResolvedBrushSnapshot: SequentialBrushSnapshot | null;
+  lastSelectionStartRef?: AppState['selectionStart'];
+  lastSelectionEndRef?: AppState['selectionEnd'];
+  lastSelectionMaskRef?: AppState['selectionMask'];
+  lastSelectionMaskBoundsRef?: AppState['selectionMaskBounds'];
+  lastSelectionClip?: SequentialBrushSnapshot['selectionClip'];
   lastBrushSettingsRef: AppState['tools']['brushSettings'] | null;
   lastToolRef: AppState['tools']['currentTool'] | null;
   lastPluginBrushIdRef?: string | null;
@@ -89,6 +95,7 @@ interface BufferedSequentialLayerEvents {
 export interface SequentialEventBufferRuntime {
   sessionKey: string | null;
   pendingPayloadBytes: number;
+  selectionClipKeysByLayer: Map<string, Set<string>>;
   lastKnownLayersRef: Layer[] | null;
   lastKnownProjectPayloadBytes: number | null;
   isFlushing: boolean;
@@ -132,6 +139,7 @@ const defaultPayloadNotificationRuntime: SequentialPayloadNotificationRuntime = 
 const defaultEventBufferRuntime: SequentialEventBufferRuntime = {
   sessionKey: null,
   pendingPayloadBytes: 0,
+  selectionClipKeysByLayer: new Map(),
   lastKnownLayersRef: null,
   lastKnownProjectPayloadBytes: null,
   isFlushing: false,
@@ -175,6 +183,7 @@ export const createSequentialPayloadNotificationRuntime = (): SequentialPayloadN
 export const createSequentialEventBufferRuntime = (): SequentialEventBufferRuntime => ({
   sessionKey: null,
   pendingPayloadBytes: 0,
+  selectionClipKeysByLayer: new Map(),
   lastKnownLayersRef: null,
   lastKnownProjectPayloadBytes: null,
   isFlushing: false,
@@ -203,6 +212,7 @@ export const flushBufferedSequentialEvents = ({
   const queuedLayerEntries = Array.from(targetRuntime.layers.entries());
   targetRuntime.layers.clear();
   targetRuntime.pendingPayloadBytes = 0;
+  targetRuntime.selectionClipKeysByLayer.clear();
 
   let flushedEventCount = 0;
   try {
@@ -357,11 +367,13 @@ const buildBrushSnapshot = ({
   customBrushData,
   pluginBrushId,
   gradientSnapshot,
+  selectionClip,
 }: {
   state: AppState;
   customBrushData?: CustomBrushStrokeData;
   pluginBrushId?: string | null;
   gradientSnapshot?: SequentialBrushSnapshot['colorCycleGradient'];
+  selectionClip?: SequentialBrushSnapshot['selectionClip'];
 }): SequentialBrushSnapshot => {
   const settings = state.tools.brushSettings;
   const customStamp = buildSequentialCustomStampSnapshot(customBrushData);
@@ -448,6 +460,7 @@ const buildBrushSnapshot = ({
     }
   };
   return {
+    selectionClip,
     tool: state.tools.currentTool,
     brushShape,
     tipShape: resolveTipShape(),
@@ -498,6 +511,7 @@ const buildBrushSnapshotKey = (
   gradientKeyOverride?: string
 ): string =>
   [
+    sequentialSelectionClipKey(snapshot.selectionClip),
     snapshot.tool,
     snapshot.brushShape,
     snapshot.tipShape ?? '',
@@ -707,6 +721,10 @@ const resolveBrushSnapshotForCapture = ({
   const settings = state.tools.brushSettings;
   const tool = state.tools.currentTool;
   if (
+    runtime.lastSelectionStartRef === state.selectionStart &&
+    runtime.lastSelectionEndRef === state.selectionEnd &&
+    runtime.lastSelectionMaskRef === state.selectionMask &&
+    runtime.lastSelectionMaskBoundsRef === state.selectionMaskBounds &&
     runtime.lastBrushSettingsRef === settings &&
     runtime.lastToolRef === tool &&
     runtime.lastPluginBrushIdRef === (pluginBrushId ?? null) &&
@@ -718,6 +736,19 @@ const resolveBrushSnapshotForCapture = ({
       brush: runtime.lastResolvedBrushSnapshot,
       key: runtime.lastResolvedBrushSnapshotKey,
     };
+  }
+
+  if (
+    runtime.lastSelectionStartRef !== state.selectionStart ||
+    runtime.lastSelectionEndRef !== state.selectionEnd ||
+    runtime.lastSelectionMaskRef !== state.selectionMask ||
+    runtime.lastSelectionMaskBoundsRef !== state.selectionMaskBounds
+  ) {
+    runtime.lastSelectionClip = snapshotSequentialSelectionClip(state);
+    runtime.lastSelectionStartRef = state.selectionStart;
+    runtime.lastSelectionEndRef = state.selectionEnd;
+    runtime.lastSelectionMaskRef = state.selectionMask;
+    runtime.lastSelectionMaskBoundsRef = state.selectionMaskBounds;
   }
 
   let gradientSnapshot: SequentialBrushSnapshot['colorCycleGradient'];
@@ -747,6 +778,7 @@ const resolveBrushSnapshotForCapture = ({
     customBrushData,
     pluginBrushId,
     gradientSnapshot,
+    selectionClip: runtime.lastSelectionClip,
   });
   const key = buildBrushSnapshotKey(brush, gradientKey);
   runtime.lastBrushSettingsRef = settings;
@@ -1027,6 +1059,7 @@ export const captureSequentialStampsForActiveLayer = ({
     const pendingBytesBeforeFlush = captureEventBufferRuntime.pendingPayloadBytes;
     flushBufferedSequentialEvents({ state, runtime: captureEventBufferRuntime });
     const baselineProjectPayloadBytes =
+      captureEventBufferRuntime.lastKnownLayersRef === state.layers &&
       Number.isFinite(captureEventBufferRuntime.lastKnownProjectPayloadBytes)
         ? Math.max(0, captureEventBufferRuntime.lastKnownProjectPayloadBytes ?? 0)
         : readSequentialProjectPayloadBytes({
@@ -1086,6 +1119,8 @@ export const captureSequentialStampsForActiveLayer = ({
   const distributedEventPayloadBytes: number[] = [];
   const nextEmittedCustomStampHashes = new Set(capRuntime.emittedCustomStampHashes);
   let distributedPayloadBytesTotal = 0;
+  const candidateSelectionClipKeys = new Set(captureEventBufferRuntime.selectionClipKeysByLayer.get(activeLayer.id));
+  const canonicalSelectionClipKeys = sequentialPayloadRuntime.selectionClipKeysByLayer.get(activeLayer.id);
   for (let i = 0; i < distributedFrameBuckets.length; i += 1) {
     const bucket = distributedFrameBuckets[i];
     const eventBrush = resolveBrushSnapshotForSequentialEvent({
@@ -1101,7 +1136,9 @@ export const captureSequentialStampsForActiveLayer = ({
       frameIndex: bucket.frameIndex,
       stamps: bucket.stamps,
     };
-    const candidateEventBytes = estimateSequentialStrokeEventPayloadBytes(candidateEvent);
+    const candidateEventBytes = estimateSequentialStrokeEventPayloadBytes(
+      candidateEvent, candidateSelectionClipKeys, canonicalSelectionClipKeys,
+    );
     distributedEvents.push(candidateEvent);
     distributedEventPayloadBytes.push(candidateEventBytes);
     distributedPayloadBytesTotal += candidateEventBytes;
@@ -1141,6 +1178,7 @@ export const captureSequentialStampsForActiveLayer = ({
   }
 
   capRuntime.emittedCustomStampHashes = nextEmittedCustomStampHashes;
+  captureEventBufferRuntime.selectionClipKeysByLayer.set(activeLayer.id, candidateSelectionClipKeys);
 
   if (projectedPayloadBytes > softLimitBytes && !payloadNotificationRuntime.softWarningShown) {
     state.addNotification({
@@ -1219,6 +1257,7 @@ export const __TESTING__ = {
     defaultStampCapRuntime.emittedCustomStampHashes.clear();
     defaultEventBufferRuntime.sessionKey = null;
     defaultEventBufferRuntime.pendingPayloadBytes = 0;
+    defaultEventBufferRuntime.selectionClipKeysByLayer.clear();
     defaultEventBufferRuntime.lastKnownLayersRef = null;
     defaultEventBufferRuntime.lastKnownProjectPayloadBytes = null;
     defaultEventBufferRuntime.isFlushing = false;

@@ -68,6 +68,7 @@ export async function runColorCycleLinearShapeFill(
     ensureFullResolution: (targetLayerId) => context.ensureFullResolution(targetLayerId, 'fill'),
     bindStrokeBuffersToAnimator: (state, targetAnimator) => context.bindStrokeBuffersToAnimator(state, targetAnimator),
   });
+  const acceptsPixel = strokeData?.paintMask?.acceptsPixel;
   const logCcFill = isDebugEnabled('cc-fill');
   if (logCcFill) {
     debugLog('cc-fill', '[CC fill] uses slot', {
@@ -272,7 +273,7 @@ export async function runColorCycleLinearShapeFill(
 
   // GPU path (linear fill) when available
   try {
-    if (!continuous && lostEdge <= 0 && !hasIndexedAuthoringObserver()) {
+    if (!acceptsPixel && !continuous && lostEdge <= 0 && !hasIndexedAuthoringObserver()) {
       if (context.isDitherEnabled() && context.isPerceptualDitherEnabled()) {
         throw new Error('Perceptual dither requires CPU fill');
       }
@@ -396,7 +397,7 @@ export async function runColorCycleLinearShapeFill(
     phaseByte: number = sampledPhaseOverride ?? 0,
     secondaryInk = false
   ) => {
-    if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
+    if ((acceptsPixel && !acceptsPixel(x, y)) || x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
       return;
     }
     const clamped = Math.max(0, Math.min(255, colorIndex | 0));
@@ -514,7 +515,7 @@ export async function runColorCycleLinearShapeFill(
           writeLinearIndex(x, y, index, phaseByte ?? 0, secondaryInk);
         },
         writePhase: (x, y, phaseByte) => {
-          if (x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
+          if ((acceptsPixel && !acceptsPixel(x, y)) || x < 0 || y < 0 || x >= linearBufferWidth || y >= linearBufferHeight) {
             return;
           }
           linearPhaseData[y * linearBufferWidth + x] = phaseByte;

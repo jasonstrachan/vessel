@@ -18,7 +18,7 @@ import {
   type StampDitherRuntime,
   type StampDitherState,
 } from './strokeStampDither';
-import { clearStrokeDefIdsForStamp } from './strokeDefClear';
+import { clearStrokeDefIdsForStamp, visitStrokeStampPixels } from './strokeDefClear';
 import { nowMs } from './colorCycleCanvas2DUtils';
 import type { LayerStrokeState } from './colorCycleCanvas2DTypes';
 import type { StampShape } from './colorCycleBrushContracts';
@@ -299,7 +299,18 @@ export function runColorCyclePaintStroke(
     });
   }
 
-  if (stampMayTouchCanvas) {
+  let stampHasContent = stampMayTouchCanvas;
+  if (stampHasContent && (strokeData.paintMask || pencilMask)) {
+    // Canvas overlap does not establish content when a constraint rejects the stamp.
+    stampHasContent = false;
+    const acceptsPixel = useStampDither ? strokeData.paintMask?.acceptsPixel : writeMask?.accepts;
+    visitStrokeStampPixels({ width: canvasWidth, height: canvasHeight, x, y, brushSize: pressureSize, shape: stampShape }, (px, py) => {
+      if (!stampHasContent && (acceptsPixel?.(px, py) ?? true)) {
+        stampHasContent = strokeData.buffers.paint[py * canvasWidth + px] !== 0;
+      }
+    });
+  }
+  if (stampHasContent) {
     context.markStrokeStateContentWritten(strokeData);
   }
   strokeData.lastPoint = { x, y };

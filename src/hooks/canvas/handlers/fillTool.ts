@@ -2,9 +2,11 @@ import { flushGradientApply, requestGradientApply } from '@/hooks/brushEngine/cc
 import { resolveColorCycleFlowByte } from '@/hooks/brushEngine/colorCycleStrokeTimingRuntime';
 import { clearColorCycleEraseMaskInRegion } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeCommit';
 import { resolveColorCycleGradientSourceState } from '@/hooks/canvas/handlers/colorCycle/colorCycleGradientSourceContract';
+import { fillSequentialLayer } from '@/hooks/canvas/handlers/sequential/sequentialFill';
 import type { EventHandlerDependencies, EventHandlerDynamicDeps } from '@/hooks/canvas/utils/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
+import { commitSequentialLayerHistory } from '@/history/helpers/sequentialLayerHistory';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import { getMaskManager, type MaskManager } from '@/layers/MaskManager';
 import { resolveLayerSamplingCanvas } from '@/components/canvas/resolveColorCyclePresentation';
@@ -436,7 +438,10 @@ export const runFillToolPointerDown = ({
   const beforeColorState = activeLayer.layerType === 'color-cycle'
     ? captureColorCycleBrushState(activeLayer.id)
     : null;
-  const normalResult = activeLayer.layerType === 'color-cycle'
+  const sequentialResult = activeLayer.layerType === 'sequential'
+    ? fillSequentialLayer({ layer: activeLayer, project, dynamic, point: worldPos, updateLayer: deps.updateLayer })
+    : null;
+  const normalResult = activeLayer.layerType === 'color-cycle' || activeLayer.layerType === 'sequential'
     ? null
     : fillNormalLayer({
         layer: activeLayer,
@@ -447,7 +452,7 @@ export const runFillToolPointerDown = ({
       });
   const fillBounds = activeLayer.layerType === 'color-cycle'
     ? fillColorCycleLayer({ layer: activeLayer, project, dynamic, point: worldPos })
-    : normalResult?.bounds ?? null;
+    : sequentialResult?.bounds ?? normalResult?.bounds ?? null;
   if (!fillBounds) return;
 
   deps.compositeCanvasDirtyRef.current = true;
@@ -461,7 +466,14 @@ export const runFillToolPointerDown = ({
   });
 
   const shouldErase = dynamic.tools.fillSettings.eraseInstead;
-  const historyCommit = commitLayerHistory({
+  const historyCommit = (sequentialResult ? commitSequentialLayerHistory({
+    layerId: activeLayer.id,
+    beforeSequentialData: sequentialResult.beforeSequentialData,
+    afterSequentialData: sequentialResult.afterSequentialData,
+    actionType: 'fill',
+    description: shouldErase ? 'Flood erase' : 'Flood fill',
+    tool: shouldErase ? 'eraser-fill' : 'fill',
+  }) : commitLayerHistory({
     layerId: activeLayer.id,
     beforeImage: normalResult?.beforeImage ?? null,
     beforeColorState,
@@ -469,7 +481,7 @@ export const runFillToolPointerDown = ({
     description: shouldErase ? 'Flood erase' : 'Flood fill',
     tool: shouldErase ? 'eraser-fill' : 'fill',
     bitmapRoi: fillBounds,
-  }).catch((error) => {
+  })).catch((error) => {
     if (process.env.NODE_ENV !== 'production') {
       debugWarn('raw-console', '[history] Failed to record flood fill history', error);
     }

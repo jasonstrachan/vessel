@@ -1,3 +1,4 @@
+import { sequentialSelectionClipKey } from '@/lib/sequential/selectionClip';
 import { BrushShape, type SequentialBrushSnapshot, type SequentialStampPoint, type SequentialStrokeEvent } from '@/types';
 import {
   clonePluginConfig,
@@ -122,6 +123,7 @@ const decodeTypedArray = <T extends ArrayBufferView>(base64: string, ctor: Typed
 
 const brushSnapshotKey = (brush: SequentialBrushSnapshot): string => {
   return [
+    sequentialSelectionClipKey(brush.selectionClip),
     brush.tool,
     brush.brushShape,
     toFiniteNumber(brush.size, 0),
@@ -193,6 +195,7 @@ const cloneBrushSnapshot = (brush: SequentialBrushSnapshot): SequentialBrushSnap
       : brush.ditherAlgorithm;
   return {
     ...brush,
+    selectionClip: brush.selectionClip ? Object.freeze({ ...brush.selectionClip }) : brush.selectionClip,
     pluginConfig: normalizedPluginConfig,
     customStampId: brush.customStampId ?? null,
     customStampHash: brush.customStampHash ?? null,

@@ -1,4 +1,37 @@
-import type { SequentialStrokeEvent } from '@/types';
+import { sequentialSelectionClipKey } from '@/lib/sequential/selectionClip';
+import type { SequentialSelectionClip, SequentialStrokeEvent } from '@/types';
+
+const selectionClipFingerprints = new WeakMap<SequentialSelectionClip, string>();
+
+const selectionClipFingerprint = (clip: SequentialSelectionClip | null | undefined): string => {
+  if (!clip) {
+    return '';
+  }
+  const cached = selectionClipFingerprints.get(clip);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const key = sequentialSelectionClipKey(clip);
+  let fnvHash = 2166136261;
+  let jenkinsHash = 0x9e3779b9;
+  for (let index = 0; index < key.length; index += 1) {
+    const code = key.charCodeAt(index);
+    fnvHash = Math.imul(fnvHash ^ code, 16777619) >>> 0;
+    jenkinsHash = (jenkinsHash + code) >>> 0;
+    jenkinsHash = (jenkinsHash + (jenkinsHash << 10)) >>> 0;
+    jenkinsHash ^= jenkinsHash >>> 6;
+  }
+  jenkinsHash = (jenkinsHash + (jenkinsHash << 3)) >>> 0;
+  jenkinsHash ^= jenkinsHash >>> 11;
+  jenkinsHash = (jenkinsHash + (jenkinsHash << 15)) >>> 0;
+
+  // Captured and decoded clips are immutable; retain only a compact worker key per live clip.
+  // Distinct mixing algorithms avoid correlated hashes from reseeding the same recurrence.
+  const fingerprint = `${key.length}:${fnvHash.toString(36)}:${jenkinsHash.toString(36)}`;
+  selectionClipFingerprints.set(clip, fingerprint);
+  return fingerprint;
+};
 
 export const buildSequentialWorkerMaterializeKey = ({
   layerId,
@@ -32,6 +65,7 @@ export const buildSequentialWorkerEventsSignature = (
     hash = addHashString(hash, event.id);
     hash = addHashString(hash, event.strokeId);
     hash = addHashString(hash, event.frameIndex);
+    hash = addHashString(hash, selectionClipFingerprint(event.brush.selectionClip));
     hash = addHashString(hash, event.brush.color);
     hash = addHashString(hash, event.brush.size);
     hash = addHashString(hash, event.brush.opacity);

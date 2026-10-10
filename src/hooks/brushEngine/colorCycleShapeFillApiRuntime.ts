@@ -19,6 +19,7 @@ import {
   type ColorCycleLayerDocumentRuntimeContext,
 } from './colorCycleLayerDocumentRuntime';
 import type { LayerStrokeState } from './colorCycleCanvas2DTypes';
+import { createColorCycleSelectionPaintMask } from './colorCycleStrokePaintMask';
 import {
   buildQuantizedGradientPalette,
   colorAtPosition,
@@ -194,6 +195,7 @@ export class ColorCycleShapeFillApiRuntime {
           strokeCounter: this.context.getStrokeCounter(),
           resolvedSpeed: this.context.getResolvedWriteCycleSpeed(),
         });
+        strokeData.paintMask = createColorCycleSelectionPaintMask();
       },
       resolveFlowSlot: (strokeData, activeSlot) => this.context.resolveFlowSlot(strokeData, activeSlot),
       ensureFullResolution: (layerId, reason) => this.context.ensureFullResolution(layerId, reason),

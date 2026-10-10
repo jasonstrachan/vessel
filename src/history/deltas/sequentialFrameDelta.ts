@@ -229,6 +229,18 @@ export const canUseSequentialAppendDelta = (
       return false;
     }
   }
+  const beforeChunks = before.eventChunks ?? [];
+  const afterChunks = after.eventChunks ?? [];
+  if (afterChunks.length < beforeChunks.length) return false;
+  for (let i = 0; i < beforeChunks.length; i += 1) {
+    const previous = beforeChunks[i];
+    const next = afterChunks[i];
+    if (previous.id !== next.id || previous.startEventIndex !== next.startEventIndex ||
+      previous.eventCount !== next.eventCount || previous.frameIndexes.length !== next.frameIndexes.length ||
+      previous.frameIndexes.some((frame, index) => frame !== next.frameIndexes[index])) {
+      return false;
+    }
+  }
   return after.events.length > before.events.length;
 };
 

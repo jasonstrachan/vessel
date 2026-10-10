@@ -1,22 +1,23 @@
-# Vessel whole-app audit handover — 10 October 2026, session 16
+# Vessel whole-app audit handover — 10 October 2026, session 18
 
 ## Authority and next objective
 
 The user requested a whole-app audit: inventory every reachable function and settings combination in Markdown, source review each area, actually exercise it in the isolated production browser, fix reproduced actionable defects at their owner, exactly retest, final-review and commit each completed area, then continue through the whole inventory. Do not stop at a plan or smoke test. The user explicitly authorized **subagents** and **new local continuation chats before context exceeds 70%**. Continue without asking for that authorization again. No push requested; remain on current **main** branch.
 
 Repository: `/Users/jasonstrachan/+Projects/2025/vessel`, current branch **main**.
-Areas01–06 are software-verified; Area06 focused commit is the final pending step
-at this precommit snapshot. Area07 selection commands/clipping is next;08–65pending.
-FIRST read `output/playwright/area07-root-facts-session16.md` (written after commit),
-then `area07-source-review-session16.md` and the final Session16 receipt below.
-Area06 final native proof:616configs3675checks, all passing, including all512 scalar
-settings; isolated type/lint/fullJest573suites5242tests pass. Stable preview artifact
-BUILD_TIMESTAMP2026-10-10T02:59:53.356Z, retained previewPID14471. Managed browser
-vessel-whole-app-audit is closed. Area07 prepared18config raster runner is
-UNEXECUTED; no Area07 app/test source edit. Preserve47initial work paths and
-original staging. Historical candidate/commit scripts assert old parents and must
-NOT rerun. User already authorized all65areas, bounded subagents and further local
-continuations before70%context. No push/deploy/branchchange.
+Current HEAD **e441b3e8382088bdfed1f378c563c8a749d5f16e**, main unchanged pending the focused Area07 local commit.
+Areas01–07 are software-verified; Area08 is next and08–65 remain pending.
+FIRST read `output/playwright/area07-root-facts-session18.md` after its final
+commit receipt is written, then the latest Session18 entries and inventory.
+Area07 acceptance: 138 native configurations / 1,905 passing checks;
+isolated type-check, lint and 583 suites / 5364 tests pass.
+Latest runtime artifact: 2026-10-10T04:47:22.179Z. The history fixture
+amendment was test-only; the final gate covers it. PreviewPID14471 is retained.
+The exact managed browser is closed; cleanup confirms no matching daemon.
+All47 original dirty paths and staged user hunks are preserved. No push,
+deployment or branch change. Historical Area07 commit scripts must not be rerun
+once the commit receipt exists. Authorization for all65areas, bounded subagents
+and local continuations before70%context persists.
 
 Follow root AGENTS.md and supplied global rules. Read relevant skills in the new chat: `/Users/jasonstrachan/.agents/skills/playwright/SKILL.md`, `git-build-push/SKILL.md`, Vessel UI/state as needed. Session2 read those four. Use bounded subagents on separate owners/reviews; centrally own the single browser and builds. Do not spawn separate user chats for subtasks. Initial runtime trace: page.tsx → HomeClientMount/HomeClient → toolbar/settings/canvas → pointer handlers/store/engine.
 
@@ -83,7 +84,7 @@ Audit docs: inventory, this handover, eraser cases, deletion review, modified mo
 
 ## Browser and preview procedure
 
-Existing preview server PID 14471 at `http://localhost:3001/vessel/`; do not duplicate or stop it. `mise exec node@22.22.0 -- npm run preview:prod:build` builds an isolated temp copy then atomically replaces `.next-preview`. **Latest artifact BUILD_TIMESTAMP2026-10-10T02:59:53.356Z contains the settled Session16 Area06 repairs.** No running build or watch at handover. Package has no preview:prod:watch script. Wait for success before reloading; never build concurrently.
+Existing preview server PID 14471 at `http://localhost:3001/vessel/`; do not duplicate or stop it. `mise exec node@22.22.0 -- npm run preview:prod:build` builds an isolated temp copy then atomically replaces `.next-preview`. **Latest runtime artifact BUILD_TIMESTAMP2026-10-10T04:47:22.179Z contains the accepted Area07 repairs; the later test-only fixture amendment is covered by the final isolated gate.** No running build or watch at handover. Package has no preview:prod:watch script. Wait for success before reloading; never build concurrently.
 
 Node `/Users/jasonstrachan/.local/share/mise/installs/node/22.22.0/bin/node`, mise `/opt/homebrew/bin/mise`. Host Node 26 is not the repo's expected runtime. Type-check generated studio types can disappear under other work; `--incremental false` passed after clearing cached program references. Do not delete others' build dirs speculatively.
 
@@ -1118,3 +1119,183 @@ deployment or branch change. Areas01–06 software-complete; Area07 next,08–65
 
 Next continuation begins Area07. Its fresh preservation baseline and focused commit
 receipt follow after the local commit; root facts are the first-read authority.
+
+
+## Session16 local commit receipt and Area07 continuation
+
+Current HEAD **e441b3e8382088bdfed1f378c563c8a749d5f16e** — `fix: preserve Magic Wand selection history and frame sampling`,
+parentc1849b840d506cf171f2525f07976704cc80a0c1, main.10explicitpaths; tree103ca2caea30fc0d65483654e31bfc0c5e6aa6a7.
+`area06-commit-verification-session16.json` confirms all worktree bytes preserved,
+47initial paths excluded/preserved, and original staged3-file7-addition patch
+SHA2564d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7 unchanged. No push/deploy/branchchange.
+Final native616configs3675checks, isolated type/lint573suites5242tests, final source
+review and8inspected screenshots establish Area06 software scope. Physical device,
+native external focus/interruption and hardware performance remain unverified.
+
+Areas01–06 software-verified/committed. Area07 active discovery;08–65pending.
+FIRST read `output/playwright/area07-root-facts-session16.md`, then Area07 source
+review and current inventory. Prepared `selection-commands-session16.js` contains
+18raster configurations and is UNEXECUTED. No Area07 source/test edits. Source
+command-history leads must be proved natively before repair; no Deselect control
+exists, Ctrl/Meta+D is Duplicate, and settled Escape needs characterization.
+Extend coverage to real paint/fill clipping, cross-layer persistence, CC/sequence,
+text focus and other S01–S13 cases. Reuse settled Areas01–06 receipts unless a new
+change affects them. Do not mislabel source preparation as Area07 acceptance.
+
+Fresh `area07-initial-baseline-session16.json` and matching .txt backups derive from
+currente441b3e8382088bdfed1f378c563c8a749d5f16e; all47original path hashes match prior baseline. Original keyboard
+hunks remain excluded; never restore an old whole-file keyboard backup. Current
+49statuspaths are47initial+2postcommit audit receipt docs. Historical Area06 and
+older candidate/commit scripts assert old parents and MUST NOT rerun.
+Managed headless vessel-whole-app-audit explicitly closed; cleanup confirms no
+matching daemon. Retained previewPID14471 serves artifact02:59:53.356UTC. No browser,
+build, tests or agent writers remain. Inspect/reopen the SAME named session once;
+one tab, no foreground/system Chrome, duplicate browser/server or pointer outside
+automation. Root centrally owns browser/build. User authorized all65areas, bounded
+subagents and further local continuations before70%context; no renewal needed.
+
+
+## Session17 — Final command/raster receipts; animation repair continuation
+
+Area07 remains active and uncommitted. Final production artifact
+BUILD_TIMESTAMP2026-10-10T03:26:06.341Z, retained previewPID14471. Native command
+v7 executes35configs403/403checks; exact newly-added CC/Sequence refinement v8
+executes2configs86/86checks; unchanged raster clipping v2 executes45configs407/407.
+Every case executes with no runtime/replay error. V7's CC case genuinely painted
+existing CC1 because array-last does not identify a newly added layer; retain its
+valid command receipts but discard that label. V8 identifies the new ID by set
+membership, chooses its row after the preset, asserts target before/after native
+painting, and passes on actual CC2. Sequence target is likewise explicit. Root
+inspected final complement/raster Fill/Eraser and CC2/Sequence screenshots.
+
+Command dimensions additionally repair newly added normal-layer placeholders:
+real imageData remains first for materialized raster, otherwise project precedes
+framebuffer; sequential project domain is first. Source/test boundary is
+selectionSlice.ts, new selectionCommands.history.test.ts, existing
+selectionFramebufferDelete.test.ts and the two audit docs. Independent amended
+command source review has no actionable finding. Final affected7suites117tests,
+worktree type-check, targeted owner/test lint and diff-check pass. Full isolated
+candidate type/lint/Jest gate and completed-area commit remain pending.
+
+Animation before14configs214checks188pass/26fail remains actionable failing
+coverage: CC/Sequence paint escapes selection, Sequence selected Fill/Erase gives
+no visible frame edit. Additional sequence replay loss and CC transport differences
+require exact classification before repair. No animation implementation was
+changed. Read `output/playwright/area07-root-facts-session17.md` FIRST for exact
+owners, immutable receipts, limitations and next work; display ant collar is not
+boundary acceptance. Area07 S01–S13 must finish before signoff, then08–65continue.
+
+All47original dirty paths and staged3-file7-addition patch are preserved; HEADmain
+e441b3e8382088bdfed1f378c563c8a749d5f16e unchanged. Managed browser exact session
+vessel-whole-app-audit closed; cleanup verifies no matching daemon. No browser,
+build, test or agent writer remains. Preview server retained. No push/deploy/branch
+change. Local continuation is already human-authorized; do not renew permission.
+
+
+## Session18 — Animation owner repairs and expanded native baseline (active)
+
+Area07 remains active and uncommitted. Retained production artifact is still
+2026-10-10T03:26:06.341Z; no Session18 repair has been built or natively accepted.
+Standard/dither CC before v3 runs10configs137checks119pass, with two hidden-Invert
+probe prerequisites separated from six actual clipping failures. Fresh corrected
+manager transport observes all six canonical fields and the actual target canvas.
+Native CC Gradient, Shape and Custom each run3configs48checks43pass: unrestricted
+controls pass; hole and fully excluded coverage escape in canonical and visible
+outputs. Custom v1 hidden-checkbox/duplicate-fixture failures are preserved and
+superseded by actual visible-label/unique-fixture v2.
+
+Sequence Fill baseline v2 runs18configs224checks179pass; authored current frames
+never change. Empty-mask no-op resizes framebuffer1x1 to256x256 without events or
+history. Eight prerequisite errors are probe control/replay failures, not eight
+application bugs; corrected immutable v3 uses native Selection→Invert→Fill and
+regular-layer title targeting, guards dependent replay, and adds exact metadata
+and pending-redo diagnostics. Sequence paint full-plane baseline is underway.
+
+Current repairs capture selection in standard CC masks and immutable Sequence
+brush snapshots, gate canonical CPU writes for live/history/worker/export frames,
+route Sequence Fill/Erase to immutable frame events and sequential history, and
+fix raw/scaled custom-stamp cache identity. Sequence stroke history now flushes
+buffered events before snapshot; native before50events→Redo26 established lost
+tail. Chunk partitions retain original order/rebased counts/sorted frames, and
+append deltas require unchanged chunk prefixes. Real integration tests cover
+wrapped frames and multiple brush segments. Shape shared-writer and Custom CC
+repairs are in progress within their announced owner/test boundary.
+
+Focused owner tests, worktree type-check and lint pass for settled first repairs.
+Independent Sequence source/export/history review finds no introduced actionable
+issue; final production build/retest, remaining Area07 acceptance, isolated full
+candidate gate and focused local commit remain pending. No Area07 signoff.
+All47original dirty paths remain exact except the two deliberately mixed audit
+owners fillTool.ts and types/index.ts; their original hunks/staged additions are
+preserved. Staged patch SHA256 remains
+4d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7.
+HEAD/main unchanged; no push, deployment or branch change.
+
+
+## Session18 — Area07 final software signoff
+
+This entry supersedes the active Session17/18 state above. Area07 S01–S13 is
+software-verified: **138 native configurations / 1,905 passing checks**,
+with no failed or aborted cases in the accepted matrices. Earlier failing runs and
+fixture/oracle corrections remain immutable in ignored output. The final native
+verification authority is `output/playwright/area07-native-final-verification-session18.json`.
+Command/raster receipts reuse unchanged owners from artifact03:26:06.341Z
+(82configs896checks); Sequence receipts reuse unchanged owners from04:12:45.839Z
+(27configs518checks). CC direct matrices and finalization supplements have their
+actual artifact timestamps recorded individually; do not imply one common build.
+Latest production artifact: 2026-10-10T04:47:22.179Z.
+
+Owner repairs: successful Select All/Select alpha/Invert now have reversible
+selection history and real project dimensions before1×1placeholders. Standard,
+dither, Custom, Shape and Gradient CC writes preserve excluded canonical cells via
+captured selection membership. Initially empty fully excluded strokes remain empty.
+Gradient binding and stroke finalization use document byte comparison for truthful
+pixel versions, including excluded strokes on existing paint. Manual marks still
+reserve immutable gradients before the first stamp, as required by
+`docs/refactor/cc-gradient-slots.md`; metadata/document-version/unsaved revisions are
+retained diagnostics, distinct from pixel/content/history assertions.
+
+Sequence capture stores immutable serializable selection clips; CPU replay,
+history and Goblet frame capture share selected membership across writer modes.
+Fill/Erase append changed-cell raw stamp events on the actual authored frame.
+Custom-stamp cache identity includes complete content. Buffered history flushes
+before snapshots and preserves chunk partitions; native Undo/Redo retains the full
+stroke rather than losing its tail. Shared masks are charged once per layer in
+payload admission; native2Kmask recording stays armed and replays exact events/chunks.
+Worker signatures use cached compact fingerprints while canonical identities retain
+full mask content. Budget constants and dither algorithm selection are unchanged.
+
+CC Fill required no application repair: selected fill includes transparent selected
+cells, while unrestricted flood obeys RGBA distance. Derived cache representation
+and unmasked canvas staging are diagnostics; exact authored buffers, binary erase
+alpha and independently masked canvas remain strict. Corrected scripts preserve
+all original failure receipts and document each oracle/control change.
+
+The final isolated39-path candidate passes type-check, lint and **583suites /
+5364tests** (one suite/test skipped; one snapshot passed). All runtime owners match the final build receipt. The existing history test was
+corrected afterward to initialize a real gradient and assert actual pixels; its
+transparent-only fixture had hidden the absence of paint. Original revision and
+history assertions remain. The final gate covers all37source/test owners, including
+that test-only amendment; no runtime rebuild was required. Independent command, CC, Sequence, cross-feature,
+last-two and endStroke reviews find no actionable introduced issue. Composition
+shells remain79/44/70lines; no boundary or UI rewrite. Root inspected selected-hole,
+complement, fill/erase and2Kviewport images alongside canonical receipts.
+
+Canonical CCsix-field/full actualcanvas and Sequencefull-plane comparisons have no
+ant collar; separate displayed comparisons disclose2pxoutline exclusion. The2Kprobe
+is resource/admission/event replay evidence, not full-planeRGBA or hardwareperformance
+acceptance. Selected CCshape fills use existingCPU/worker paths because theGPU API
+cannot carryselection. Extra canonical comparison at finalize is acknowledged;
+hardwareperformance remains unverified. Physical device/native externalfocus and
+interruption remain unverified. Paused held-empty SequenceFill semantics remain
+an explicit policy diagnostic for Area43. A legacy rawimageData PNGstore API stale
+cache is an unproved adjacent lead for Area55; nativePNG UI uses the compositor.
+
+All47original dirty paths remain preserved.44unrelated paths are byte-exact; the
+three mixed owners (fillTool.ts, types/index.ts, colorCyclePaintStrokeRuntime.ts)
+retain every original hunk. The audit-only candidate excludes those hunks.
+The original staged3-file7-addition patch remains exact before commit, SHA256
+4d92eaf0fde7db3edae902599d6bdbb36ca86adac5838ad1fdcbebe0d7f687d7.
+Exact browser cleanup is complete; the focused local commit follows. No push, deployment or branch change.
+Areas01–07 software-complete; Area08 next;08–65pending beyond their accepted prior
+representatives. This does not claim whole-app completion.

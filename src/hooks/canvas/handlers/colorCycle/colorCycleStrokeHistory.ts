@@ -1,9 +1,10 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
-import type { CanvasSnapshot } from '@/types';
+import type { CanvasSnapshot, SequentialLayerData, SequentialStrokeEvent } from '@/types';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import { commitSequentialLayerHistory } from '@/history/helpers/sequentialLayerHistory';
 import { cloneSequentialLayerData } from '@/history/deltas/sequentialFrameDelta';
+import { flushBufferedSequentialEvents } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import {
   commitBrushHistory,
   type ManagedColorCycleBrush,
@@ -30,6 +31,35 @@ export type CommitStrokeHistoryArgs = {
 };
 
 export type CommitStrokeHistoryDeps = Parameters<typeof commitBrushHistory>[1];
+
+// History partitions must keep chunk indices aligned with their filtered event order.
+const filterSequentialData = (
+  data: SequentialLayerData,
+  accepts: (event: SequentialStrokeEvent) => boolean,
+): SequentialLayerData => {
+  const events: SequentialStrokeEvent[] = [];
+  const selectedCounts = [0];
+  for (const event of data.events) {
+    if (accepts(event)) events.push(event);
+    selectedCounts.push(events.length);
+  }
+  return {
+    ...data,
+    events,
+    eventChunks: data.eventChunks?.flatMap(chunk => {
+      const start = Math.max(0, Math.min(data.events.length, chunk.startEventIndex));
+      const end = Math.max(start, Math.min(data.events.length, start + chunk.eventCount));
+      const startEventIndex = selectedCounts[start];
+      const eventCount = selectedCounts[end] - startEventIndex;
+      return eventCount > 0 ? [{
+        ...chunk,
+        startEventIndex,
+        eventCount,
+        frameIndexes: [...new Set(events.slice(startEventIndex, startEventIndex + eventCount).map(event => event.frameIndex))].sort((a, b) => a - b),
+      }] : [];
+    }),
+  };
+};
 
 export const createCommitStrokeHistoryDeps = ({
   scheduleDeferredColorCycleSave,
@@ -66,8 +96,12 @@ export const commitStrokeHistoryIfNeeded = async (
     if (!Number.isFinite(sessionStartMs)) {
       return false;
     }
+    // Buffered movement belongs to this transaction, before its immutable snapshot.
+    flushBufferedSequentialEvents({ state });
+    const finalizedLayer = getAppStoreState().layers.find(layer => layer.id === args.activeLayerId);
+    if (!finalizedLayer?.sequentialData) return false;
     const strokePrefix = `stroke-${Math.round(Number(sessionStartMs))}`;
-    const afterSequentialData = cloneSequentialLayerData(activeLayer.sequentialData);
+    const afterSequentialData = cloneSequentialLayerData(finalizedLayer.sequentialData);
     const matchesSessionStroke = (strokeId: string): boolean =>
       strokeId === strokePrefix || strokeId.startsWith(`${strokePrefix}-`);
     const sessionStrokeIds: string[] = [];
@@ -82,18 +116,13 @@ export const commitStrokeHistoryIfNeeded = async (
     if (sessionStrokeIds.length <= 0) {
       return false;
     }
-    let previousSequentialData = {
-      ...afterSequentialData,
-      events: afterSequentialData.events.filter((event) => !matchesSessionStroke(event.strokeId)),
-    };
+    let previousSequentialData = filterSequentialData(afterSequentialData, event => !matchesSessionStroke(event.strokeId));
+    const committedStrokeIds = new Set<string>();
     for (let index = 0; index < sessionStrokeIds.length; index += 1) {
       const strokeId = sessionStrokeIds[index];
-      const nextSequentialData = {
-        ...previousSequentialData,
-        events: previousSequentialData.events.concat(
-          afterSequentialData.events.filter((event) => event.strokeId === strokeId)
-        ),
-      };
+      committedStrokeIds.add(strokeId);
+      const nextSequentialData = filterSequentialData(afterSequentialData, event =>
+        !matchesSessionStroke(event.strokeId) || committedStrokeIds.has(event.strokeId));
       const nextCoalesce =
         args.coalesce && sessionStrokeIds.length > 1
           ? {

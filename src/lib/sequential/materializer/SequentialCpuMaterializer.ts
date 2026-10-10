@@ -1,3 +1,4 @@
+import { isSequentialPixelSelected, resolveSequentialSelectionClip, type ResolvedSequentialSelectionClip } from '@/lib/sequential/selectionClip';
 import { BrushShape, type SequentialStrokeEvent } from '@/types';
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
 import {
@@ -72,6 +73,7 @@ type SequentialTextureMode = 'solid' | 'dither' | 'mosaic' | 'risograph-soft' | 
 type SequentialPluginRenderMode = 'none' | 'dither-brush' | 'particle-brush' | 'spam-brush';
 type SupportedBlendMode = 'source-over' | 'destination-out';
 type ParsedCustomStamp = {
+  cacheKey: string;
   width: number;
   height: number;
   rgba: Uint8ClampedArray;
@@ -170,7 +172,7 @@ const buildScaledCustomStampCacheKey = ({
   targetWidth: number;
   targetHeight: number;
 }): string =>
-  `${stamp.width}x${stamp.height}:${stamp.isColorizable ? 'tint' : 'raw'}:${targetWidth}x${targetHeight}`;
+  `${stamp.cacheKey}:${stamp.width}x${stamp.height}:${stamp.isColorizable ? 'tint' : 'raw'}:${targetWidth}x${targetHeight}`;
 
 const getScaledCustomStamp = ({
   stamp,
@@ -680,7 +682,7 @@ const parseCustomStamp = (event: SequentialStrokeEvent): ParsedCustomStamp | nul
     }
     return null;
   }
-  const key = hashKey || `${stamp.width}x${stamp.height}:${stamp.rgbaBase64.length}`;
+  const key = hashKey || `${stamp.width}x${stamp.height}:${stamp.isColorizable ? 'tint' : 'raw'}:${stamp.rgbaBase64}`;
   const cached = parsedCustomStampCache.get(key);
   if (cached) {
     return cached;
@@ -690,6 +692,7 @@ const parseCustomStamp = (event: SequentialStrokeEvent): ParsedCustomStamp | nul
     return null;
   }
   const parsed: ParsedCustomStamp = {
+    cacheKey: key,
     width: stamp.width,
     height: stamp.height,
     rgba: new Uint8ClampedArray(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
@@ -957,6 +960,7 @@ const shouldKeepTexturedPixel = ({
 
 const paintStamp = ({
   pixels,
+  selectionClip,
   width,
   height,
   stampX,
@@ -973,6 +977,7 @@ const paintStamp = ({
   stampDitherReplayRuntime,
 }: {
   pixels: Uint8ClampedArray;
+  selectionClip: ResolvedSequentialSelectionClip | null;
   width: number;
   height: number;
   stampX: number;
@@ -1083,6 +1088,9 @@ const paintStamp = ({
       const srcB = (localColor.b / 255) * shadedSrcA * toneFactor;
 
       const index = (y * width + x) * 4;
+      if (!isSequentialPixelSelected(selectionClip, x, y)) {
+        continue;
+      }
       compositePremultipliedPixel({
         pixels,
         index,
@@ -1196,6 +1204,7 @@ const resolveSpamConfig = ({
 
 const paintMosaicStamp = ({
   pixels,
+  selectionClip,
   width,
   height,
   stampX,
@@ -1208,6 +1217,7 @@ const paintMosaicStamp = ({
   blendMode,
 }: {
   pixels: Uint8ClampedArray;
+  selectionClip: ResolvedSequentialSelectionClip | null;
   width: number;
   height: number;
   stampX: number;
@@ -1267,6 +1277,9 @@ const paintMosaicStamp = ({
       const srcR = (rgb[0] / 255) * srcA;
       const srcG = (rgb[1] / 255) * srcA;
       const srcB = (rgb[2] / 255) * srcA;
+      if (!isSequentialPixelSelected(selectionClip, x, y)) {
+        continue;
+      }
       compositePremultipliedPixel({
         pixels,
         index: dstIndex,
@@ -1282,6 +1295,7 @@ const paintMosaicStamp = ({
 
 const paintCustomStamp = ({
   pixels,
+  selectionClip,
   width,
   height,
   stampX,
@@ -1293,6 +1307,7 @@ const paintCustomStamp = ({
   blendMode,
 }: {
   pixels: Uint8ClampedArray;
+  selectionClip: ResolvedSequentialSelectionClip | null;
   width: number;
   height: number;
   stampX: number;
@@ -1372,6 +1387,9 @@ const paintCustomStamp = ({
       if (srcAByte <= 0) {
         continue;
       }
+      if (!isSequentialPixelSelected(selectionClip, x, y)) {
+        continue;
+      }
       const dstIndex = (y * width + x) * 4;
       const invA = 255 - srcAByte;
       if (isDestinationOut) {
@@ -1416,6 +1434,7 @@ const paintCustomStamp = ({
 
 const paintParticleStamp = ({
   pixels,
+  selectionClip,
   width,
   height,
   stampX,
@@ -1428,6 +1447,7 @@ const paintParticleStamp = ({
   particleConfig,
 }: {
   pixels: Uint8ClampedArray;
+  selectionClip: ResolvedSequentialSelectionClip | null;
   width: number;
   height: number;
   stampX: number;
@@ -1451,6 +1471,7 @@ const paintParticleStamp = ({
     const particleSize = Math.max(1, stampSize * (0.08 + hashSeed01(seed, i * 3 + 2) * 0.25));
     paintStamp({
       pixels,
+      selectionClip,
       width,
       height,
       stampX: px,
@@ -1469,6 +1490,7 @@ const paintParticleStamp = ({
 
 const paintSpamStamp = ({
   pixels,
+  selectionClip,
   width,
   height,
   stampX,
@@ -1481,6 +1503,7 @@ const paintSpamStamp = ({
   spamConfig,
 }: {
   pixels: Uint8ClampedArray;
+  selectionClip: ResolvedSequentialSelectionClip | null;
   width: number;
   height: number;
   stampX: number;
@@ -1530,6 +1553,9 @@ const paintSpamStamp = ({
       for (let y = minY; y <= maxY; y += 1) {
         for (let x = minX; x <= maxX; x += 1) {
           const index = (y * width + x) * 4;
+          if (!isSequentialPixelSelected(selectionClip, x, y)) {
+            continue;
+          }
           compositePremultipliedPixel({
             pixels,
             index,
@@ -2096,6 +2122,7 @@ const paintEventsToPixels = ({
   const parsedColorCache = new Map<string, ReturnType<typeof parseCssColor>>();
   for (let eventIndex = 0; eventIndex < events.length; eventIndex += 1) {
     const event = events[eventIndex];
+    const selectionClip = resolveSequentialSelectionClip(event.brush.selectionClip);
     const colorKey = event.brush.color;
     let parsedColor = parsedColorCache.get(colorKey);
     if (!parsedColor) {
@@ -2160,6 +2187,7 @@ const paintEventsToPixels = ({
       if (customStamp) {
         paintCustomStamp({
           pixels,
+          selectionClip,
           width,
           height,
           stampX: stamp.x,
@@ -2177,6 +2205,7 @@ const paintEventsToPixels = ({
       if (pluginMode === 'particle-brush') {
         paintParticleStamp({
           pixels,
+          selectionClip,
           width,
           height,
           stampX: stamp.x,
@@ -2195,6 +2224,7 @@ const paintEventsToPixels = ({
       if (pluginMode === 'spam-brush') {
         paintSpamStamp({
           pixels,
+          selectionClip,
           width,
           height,
           stampX: stamp.x,
@@ -2218,6 +2248,7 @@ const paintEventsToPixels = ({
         }
         paintMosaicStamp({
           pixels,
+          selectionClip,
           width,
           height,
           stampX: stamp.x,
@@ -2236,6 +2267,7 @@ const paintEventsToPixels = ({
       }
       paintStamp({
         pixels,
+        selectionClip,
         width,
         height,
         stampX: stamp.x,
