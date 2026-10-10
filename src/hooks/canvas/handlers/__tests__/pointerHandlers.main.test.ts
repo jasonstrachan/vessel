@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
+import { act, renderHook } from '@testing-library/react';
+import { useCanvasEventHandlers } from '../../useCanvasEventHandlers';
+import type { EventHandlerDependenciesInput } from '../../canvasEventHandlerDeps';
+import { captureSelectionSnapshot } from '@/history/helpers/selectionHistory';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { createPointerHandlers } from '../pointerHandlers';
 import {
   resolveDitherShapePreviewMaskOptions,
@@ -3985,4 +3990,263 @@ it.each(['complete', 'cancel'] as const)('forwards live marquee Shift and preser
     historyManager.clear();
     useAppStore.getState().clearSelection();
   }
+});
+
+
+// Rasterization is the Canvas I/O boundary; geometry, application, and history
+// below run through the real pointer/selection/store owners.
+const installPointerPolygonRaster = () => {
+  const prototype = Object.getPrototypeOf(document.createElement('canvas').getContext('2d')) as CanvasRenderingContext2D;
+  const paths = new WeakMap<CanvasRenderingContext2D, Array<{ x: number; y: number }>>();
+  jest.spyOn(prototype, 'beginPath').mockImplementation(function (this: CanvasRenderingContext2D) {
+    paths.set(this, []);
+  });
+  jest.spyOn(prototype, 'moveTo').mockImplementation(function (this: CanvasRenderingContext2D, x, y) {
+    paths.set(this, [{ x, y }]);
+  });
+  jest.spyOn(prototype, 'lineTo').mockImplementation(function (this: CanvasRenderingContext2D, x, y) {
+    paths.get(this)?.push({ x, y });
+  });
+  jest.spyOn(prototype, 'fill').mockImplementation(function (this: CanvasRenderingContext2D) {
+    const points = paths.get(this) ?? [];
+    const image = this.getImageData(0, 0, this.canvas.width, this.canvas.height);
+    for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+      let winding = 0;
+      const px = x + 0.5; const py = y + 0.5;
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i]; const b = points[(i + 1) % points.length];
+        const cross = (b.x - a.x) * (py - a.y) - (px - a.x) * (b.y - a.y);
+        if (a.y <= py && b.y > py && cross > 0) winding++;
+        if (a.y > py && b.y <= py && cross < 0) winding--;
+      }
+      if (winding !== 0) image.data.set([255, 255, 255, 255], (y * image.width + x) * 4);
+    }
+    this.putImageData(image, 0, 0);
+  });
+};
+
+const pointerSelectionAlpha = () => {
+  const state = useAppStore.getState();
+  const alpha = new Uint8ClampedArray(mockProject.width * mockProject.height);
+  for (let y = 0; y < mockProject.height; y++) for (let x = 0; x < mockProject.width; x++) {
+    if (state.selectionMask && state.selectionMaskBounds) {
+      const lx = x - state.selectionMaskBounds.x; const ly = y - state.selectionMaskBounds.y;
+      if (lx >= 0 && ly >= 0 && lx < state.selectionMask.width && ly < state.selectionMask.height) {
+        alpha[y * mockProject.width + x] = state.selectionMask.data[(ly * state.selectionMask.width + lx) * 4 + 3];
+      }
+    } else if (state.selectionStart && state.selectionEnd && x >= state.selectionStart.x && x < state.selectionEnd.x &&
+      y >= state.selectionStart.y && y < state.selectionEnd.y) alpha[y * mockProject.width + x] = 255;
+  }
+  return alpha;
+};
+
+const createFreehandPointerFixture = () => {
+  const framebuffer = document.createElement('canvas');
+  framebuffer.width = framebuffer.height = 100;
+  const context = framebuffer.getContext('2d')!;
+  context.fillStyle = '#c03020';
+  context.fillRect(0, 0, 100, 100);
+  const imageData = context.getImageData(0, 0, 100, 100);
+  const layer = {
+    id: 'lasso-pointer-owner', name: 'Lasso pointer owner', visible: true, opacity: 1,
+    blendMode: 'source-over' as const, locked: false, order: 0, layerType: 'normal' as const,
+    imageData, framebuffer, alignment: createDefaultLayerAlignment(),
+  };
+  historyManager.clear();
+  useAppStore.getState().clearSelection();
+  useAppStore.setState({ layers: [layer], activeLayerId: layer.id, project: { ...mockProject, layers: [layer] }, floatingPaste: null });
+  const { deps, dynamicDepsRef } = createDeps({
+    project: useAppStore.getState().project!, layers: [layer], activeLayerId: layer.id,
+    tools: { ...baseDynamic.tools, currentTool: 'selection', selectionMode: 'freehand' },
+  }, {
+    setSelectionBounds: (start, end, source) => useAppStore.getState().setSelectionBounds(start, end, source),
+    clearSelection: () => useAppStore.getState().clearSelection(),
+    getMousePos: (event) => ({ x: event.clientX, y: event.clientY }),
+  });
+  deps.interaction.dispatch = (action) => {
+    if (action.type === 'SELECTION_START') deps.interaction.state.isSelecting = true;
+    if (action.type === 'SELECTION_END') deps.interaction.state.isSelecting = false;
+  };
+  const syncSelection = () => {
+    const state = useAppStore.getState();
+    dynamicDepsRef.current = { ...dynamicDepsRef.current,
+      selectionStart: state.selectionStart, selectionEnd: state.selectionEnd,
+      selectionMask: state.selectionMask, selectionMaskBounds: state.selectionMaskBounds,
+    };
+    Object.assign(deps, dynamicDepsRef.current);
+  };
+  const unsubscribe = useAppStore.subscribe(syncSelection);
+  const overlayContext = deps.overlayCanvasRef.current!.getContext('2d')!;
+  (deps.overlayCanvasRef.current!.getContext as jest.Mock).mockReturnValue(overlayContext);
+  return { deps, dynamicDepsRef, syncSelection, unsubscribe, context, overlayContext, canonical: imageData.data.slice(), layer };
+};
+
+describe('lasso pointer sample and composition lifetime regressions', () => {
+  const originalRaf = global.requestAnimationFrame;
+  const originalCancelRaf = global.cancelAnimationFrame;
+  let frames: FrameRequestCallback[];
+  beforeEach(() => {
+    frames = [];
+    global.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length; };
+    global.cancelAnimationFrame = jest.fn();
+    installPointerPolygonRaster();
+  });
+  afterEach(() => {
+    global.requestAnimationFrame = originalRaf;
+    global.cancelAnimationFrame = originalCancelRaf;
+    historyManager.clear();
+    useAppStore.getState().clearSelection();
+    jest.restoreAllMocks();
+  });
+
+  it.each([false, true])('discards a queued pre-admission hover across handler recreation %s', async (recreate) => {
+    const fixture = createFreehandPointerFixture();
+    const { deps } = fixture;
+    try {
+      const handlers = createPointerHandlers(deps);
+      handlers.handlePointerMove(makePointerEvent({ clientX: 80, clientY: 80, buttons: 0 }));
+      expect(frames).toHaveLength(1);
+      const staleHover = frames[0];
+      const admittedHandlers = recreate ? createPointerHandlers(deps) : handlers;
+      admittedHandlers.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 40 }));
+      // Deliver the older closure's queued callback after admission, before any active move.
+      staleHover(0);
+      expect(deps.selectionRuntimeRef.current.freehandSession.points).toEqual([{ x: 40, y: 40 }]);
+      admittedHandlers.handlePointerMove(makePointerEvent({ clientX: 60, clientY: 40, buttons: 1 }));
+      admittedHandlers.handlePointerMove(makePointerEvent({ clientX: 40, clientY: 60, buttons: 1 }));
+      expect(deps.selectionRuntimeRef.current.freehandSession.points).toEqual([
+        { x: 40, y: 40 }, { x: 60, y: 40 }, { x: 40, y: 60 },
+      ]);
+      admittedHandlers.handlePointerUp(makePointerEvent({ clientX: 40, clientY: 60 }));
+      const expected = new Uint8ClampedArray(10000);
+      for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) {
+        if (x + y < 99) expected[y * 100 + x] = 255;
+      }
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(historyManager.entries()).toHaveLength(1);
+      await historyManager.undo();
+      expect(pointerSelectionAlpha()).toEqual(new Uint8ClampedArray(10000));
+      await historyManager.redo();
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(fixture.context.getImageData(0, 0, 100, 100).data).toEqual(fixture.canonical);
+      expect(fixture.layer.imageData.data).toEqual(fixture.canonical);
+    } finally { fixture.unsubscribe(); }
+  });
+
+  it('keeps Space pan ahead of immediate freehand geometry', () => {
+    const fixture = createFreehandPointerFixture();
+    const { deps } = fixture;
+    try {
+      const handlers = createPointerHandlers(deps);
+      handlers.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 40 }));
+      deps.isSpacePressedRef.current = true;
+      handlers.handlePointerMove(makePointerEvent({ clientX: 60, clientY: 60, buttons: 1 }));
+      expect(deps.pan.startPan).toHaveBeenCalledWith(60, 60);
+      expect(deps.selectionRuntimeRef.current.freehandSession.points).toEqual([{ x: 40, y: 40 }]);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(fixture.layer.imageData.data).toEqual(fixture.canonical);
+      handlers.handlePointerCancel(makePointerEvent());
+    } finally { fixture.unsubscribe(); }
+  });
+
+  it.each([
+    { name: 'triangle', points: [{ x: 40, y: 40 }, { x: 60, y: 40 }, { x: 40, y: 60 }] },
+    { name: 'concave', points: [{ x: 40, y: 40 }, { x: 60, y: 40 }, { x: 60, y: 48 }, { x: 48, y: 48 }, { x: 48, y: 60 }, { x: 40, y: 60 }] },
+  ])('retains every delivered $name corner with RAF held through completion and replay', async ({ name, points }) => {
+    const fixture = createFreehandPointerFixture();
+    const { deps } = fixture;
+    try {
+      const handlers = createPointerHandlers(deps);
+      handlers.handlePointerDown(makePointerEvent({ clientX: points[0].x, clientY: points[0].y }));
+      for (const point of points.slice(1)) {
+        const event = makePointerEvent({ clientX: point.x, clientY: point.y, buttons: 1 });
+        handlers.handlePointerMove(event);
+        handlers.handlePointerMove(event); // Stationary delivered duplicates are deduplicated by the owner.
+      }
+      expect(deps.selectionRuntimeRef.current.freehandSession.points).toEqual(points);
+      const last = points[points.length - 1];
+      handlers.handlePointerUp(makePointerEvent({ clientX: last.x, clientY: last.y }));
+      const expected = new Uint8ClampedArray(10000);
+      for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) {
+        if (name === 'concave' ? x < 48 || y < 48 : x + y < 99) expected[y * 100 + x] = 255;
+      }
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 40, y: 40, width: 20, height: 20 });
+      expect(useAppStore.getState().selectionVectorPath).toEqual({ mode: 'freehand', points: [...points, last] });
+      expect(historyManager.entries()).toHaveLength(1);
+      await historyManager.undo();
+      expect(pointerSelectionAlpha()).toEqual(new Uint8ClampedArray(10000));
+      await historyManager.redo();
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(fixture.context.getImageData(0, 0, 100, 100).data).toEqual(fixture.canonical);
+      expect(fixture.layer.imageData.data).toEqual(fixture.canonical);
+    } finally { fixture.unsubscribe(); }
+  });
+
+  it.each([
+    { change: 'tool', moveWhileAway: false },
+    { change: 'tool', moveWhileAway: true },
+    { change: 'mode', moveWhileAway: false },
+  ] as const)('cancels freehand immediately on $change change (move while away: $moveWhileAway), then accepts a fresh gesture', async ({ change, moveWhileAway }) => {
+    const fixture = createFreehandPointerFixture();
+    const { deps } = fixture;
+    useAppStore.getState().setSelectionBounds({ x: 10, y: 10 }, { x: 20, y: 20 }, 'selection-marquee-final');
+    fixture.syncSelection();
+    const before = captureSelectionSnapshot();
+    const hook = renderHook((input: EventHandlerDependenciesInput) => useCanvasEventHandlers(input), { initialProps: deps });
+    const rerender = (tools: EventHandlerDynamicDeps['tools']) => {
+      deps.tools = tools;
+      hook.rerender({ ...deps, tools });
+    };
+    try {
+      act(() => hook.result.current.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 40 })));
+      expect(deps.isMouseDownRef.current).toBe(true);
+      expect(deps.interaction.state.isSelecting).toBe(true);
+      deps.stateMachine.state.mode = 'SELECTING';
+      (fixture.overlayContext.clearRect as jest.Mock).mockClear();
+      const freehandTools = deps.tools;
+      const changedTools = change === 'tool' ? { ...freehandTools, currentTool: 'brush' as const } : { ...freehandTools, selectionMode: 'marquee' as const };
+      act(() => rerender(changedTools));
+      expect(captureSelectionSnapshot()).toEqual(before);
+      expect(deps.isMouseDownRef.current).toBe(false);
+      expect(deps.interaction.state.isSelecting).toBe(false);
+      expect(deps.interaction.refs.selectionStart.current).toBeNull();
+      expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(true);
+      expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'END_INTERACTION' });
+      expect(fixture.overlayContext.clearRect).toHaveBeenCalled();
+      if (moveWhileAway) {
+        act(() => hook.result.current.handlePointerMove(makePointerEvent({ clientX: 50, clientY: 50, buttons: 1 })));
+        frames.splice(0).forEach((callback) => act(() => callback(0)));
+        expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+      }
+      act(() => rerender(freehandTools)); // No pointer event between mode-away and mode-back.
+      act(() => {
+        hook.result.current.handlePointerMove(makePointerEvent({ clientX: 60, clientY: 40, buttons: 1 }));
+        hook.result.current.handlePointerMove(makePointerEvent({ clientX: 60, clientY: 60, buttons: 1 }));
+        hook.result.current.handlePointerUp(makePointerEvent({ clientX: 40, clientY: 60 }));
+      });
+      frames.splice(0).forEach((callback) => act(() => callback(0)));
+      expect(captureSelectionSnapshot()).toEqual(before);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+      act(() => {
+        hook.result.current.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 40 }));
+        hook.result.current.handlePointerMove(makePointerEvent({ clientX: 60, clientY: 40, buttons: 1 }));
+        hook.result.current.handlePointerMove(makePointerEvent({ clientX: 60, clientY: 60, buttons: 1 }));
+        hook.result.current.handlePointerUp(makePointerEvent({ clientX: 40, clientY: 60 }));
+      });
+      expect(historyManager.entries()).toHaveLength(1);
+      const expected = new Uint8ClampedArray(10000);
+      for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) expected[y * 100 + x] = 255;
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      await act(async () => { await historyManager.undo(); });
+      expect(captureSelectionSnapshot()).toEqual({ ...before, provenance: { ...before.provenance,
+        source: 'history-selection-backward', ownerKind: 'history-restored', restoredFromHistory: true,
+      } });
+      await act(async () => { await historyManager.redo(); });
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(fixture.context.getImageData(0, 0, 100, 100).data).toEqual(fixture.canonical);
+      expect(fixture.layer.imageData.data).toEqual(fixture.canonical);
+    } finally { hook.unmount(); fixture.unsubscribe(); }
+  });
 });

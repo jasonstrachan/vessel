@@ -4710,11 +4710,16 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       (drawingHandlers.isDrawingShapeRef.current ||
         Boolean(drawingHandlers.isSelectingDirectionRef?.current));
 
-    // A shape boundary is authored geometry: dropping any pointer move changes
-    // the filled region. Process shape and direction samples synchronously so a
-    // rapid canonical pointer sequence cannot collapse to lastMoveEvent.
+    const shouldProcessFreehandSelectionMoveImmediately =
+      tools.currentTool === 'selection' &&
+      tools.selectionMode === 'freehand' &&
+      deps.selectionRuntimeRef.current.freehandSession.active;
+
+    // Authored boundaries need every delivered vertex; RAF aggregation would
+    // change the filled region when several moves arrive before pointerup.
     if (
       shouldProcessShapeMoveImmediately ||
+      shouldProcessFreehandSelectionMoveImmediately ||
       (isSpaceInteractionActive() && isMouseDownRef.current && !pan.panState.isPanning)
     ) {
       processPointerMove(event);
@@ -4726,9 +4731,14 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     event.persist();
     lastMoveEvent = event;
     if (scheduledMoveRAF == null) {
+      const freehandPointsAtScheduling = deps.selectionRuntimeRef.current.freehandSession.points;
       scheduledMoveRAF = requestAnimationFrame(() => {
         const e = lastMoveEvent;
         scheduledMoveRAF = null;
+        const freehandSession = deps.selectionRuntimeRef.current.freehandSession;
+        // Admission replaces this array. Older handler closures must not turn
+        // pregesture hover into an authored vertex of the new session.
+        if (freehandSession.active && freehandSession.points !== freehandPointsAtScheduling) return;
         if (e) {
           processPointerMove(e);
         }

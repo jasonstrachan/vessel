@@ -106,6 +106,21 @@ Eraser pointer cancellation uses the existing stroke finalization boundary:
 - Repeated helper rule: if a helper pattern appears 3 times, extract.
 - Testability rule: if logic cannot be unit-tested without mounting large UI state, extract into handler/util module.
 
+Freehand selection lifecycle keeps policy in the selection handler:
+
+- `selectionHandlers.ts` owns tool/mode cancellation, baseline restoration, overlay
+  cleanup and stale-input suppression through the existing selection cancellation
+  seam. It also owns invalid-mask policy and raw polygon closure before project clipping.
+- `useCanvasEventHandlers.ts` only wires a layout effect to that owner. It is 70
+  lines; `useDrawingHandlers.ts` is 79 and `DrawingCanvas.tsx` is 44 lines.
+- Targeted selection tests and real pointer/composition-hook tests cover admission,
+  invalid append/replacement, delivered vertices, tool/mode transitions and replay.
+  The pointer scheduler uses the existing admitted path identity to reject queued
+  pregesture input, including callbacks retained by an older React handler. The
+  pointer owner is 4,974 lines and retains its existing decomposition exception.
+  The active scope and production/full-gate evidence are recorded in
+  `app-functionality-audit-2026-10-10.md`.
+
 Pressure-linked eraser dithering keeps authored support and run state outside the
 engine hook:
 
@@ -122,3 +137,11 @@ engine hook:
 - Direct regression tests cover saturated overlap, untouched islands, transparent
   holes, throttled pending work and tail finalization. Production evidence and
   remaining area scope stay in the functionality-audit ledger.
+
+Completed freehand selection outlines remain in the rendering owner:
+
+- `components/canvas/drawingCanvasSelection.ts` uses the existing cached mask
+  contour for freehand holes and project-clipped edges. Stored vector paths remain
+  unchanged, and Click Line retains its vector outline and anchor circles.
+- Its existing test exercises the real contour utility with recording Path2D at
+  the rendering boundary, including hole loops and clipped top/right edges.

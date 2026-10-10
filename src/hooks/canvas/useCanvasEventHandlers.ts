@@ -1,3 +1,6 @@
+import { useLayoutEffect } from 'react';
+
+import { cancelStaleFreehandSelectionSession } from './handlers/selectionHandlers';
 import type {
   EventHandlers,
 } from './utils/types';
@@ -26,6 +29,30 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
     dynamicDepsRef,
     refs: handlerRefs,
   });
+  const {
+    selectionRuntimeRef, tools, interaction, overlayCanvasRef, canvasRef,
+    viewTransformRef, draw, isMouseDownRef, suppressBootstrapUntilPointerUpRef,
+    stateMachine,
+  } = augmentedDeps;
+
+  useLayoutEffect(() => {
+    cancelStaleFreehandSelectionSession({
+      runtime: selectionRuntimeRef.current,
+      tools,
+      interaction,
+      overlayCanvasRef,
+      canvasRef,
+      viewTransformRef,
+      draw,
+      isMouseDownRef,
+      suppressBootstrapUntilPointerUpRef,
+      stateMachine,
+    });
+  }, [
+    selectionRuntimeRef, tools, interaction, overlayCanvasRef, canvasRef,
+    viewTransformRef, draw, isMouseDownRef, suppressBootstrapUntilPointerUpRef,
+    stateMachine,
+  ]);
 
   const { pointerHandlers, keyboardHandlers, wheelHandlers, clipboardHandlers } =
     createCanvasEventHandlerModules(augmentedDeps);

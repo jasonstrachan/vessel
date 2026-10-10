@@ -256,69 +256,7 @@ describe('selectionHandlers append selection', () => {
     expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 12, height: 12 });
   });
 
-  it('appends freehand masks when Shift is held on pointer up', () => {
-    useAppStore.setState({
-      selectionStart: { x: 0, y: 0 },
-      selectionEnd: { x: 2, y: 2 },
-      selectionMask: null,
-      selectionMaskBounds: null,
-      selectionMaskLayerId: null,
-    });
 
-    const dynamic = {
-      ...createDynamicDeps(),
-      tools: {
-        ...createDynamicDeps().tools,
-        selectionMode: 'freehand',
-      },
-    };
-    const deps: SelectionHandlerDeps = {
-      interaction: {
-        state: { isDrawing: false, isSelecting: true, drawingMode: 'idle' },
-        dispatch: jest.fn(),
-        refs: {
-          selectionStart: { current: null },
-        },
-      },
-      setSelectionBounds: jest.fn(),
-      clearSelection: jest.fn(),
-      setShowBrushCursor: jest.fn(),
-      canvasRef: { current: createCanvas() },
-      overlayCanvasRef: { current: createCanvas() },
-      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
-      pan: {
-        screenToWorld: (x, y) => ({ x, y }),
-      },
-      draw: jest.fn(),
-      selectionRuntimeRef: {
-        current: {
-          pendingSelectionHistory: null,
-          freehandSession: {
-            active: true,
-            points: [
-              { x: 10, y: 10 },
-              { x: 12, y: 10 },
-            ],
-          },
-          clickLineSession: { active: false, points: [] },
-          marqueeAutoPan: { frameId: null, screenPos: null },
-        },
-      },
-    };
-
-    const handlers = createSelectionHandlers(deps, () => dynamic as EventHandlerDynamicDeps);
-    const handled = handlers.handleSelectionPointerUp({
-      event: {
-        pointerId: 2,
-        shiftKey: true,
-      } as React.PointerEvent<Element>,
-      worldPos: { x: 12, y: 12 },
-      dynamic: dynamic as EventHandlerDynamicDeps,
-    });
-
-    expect(handled).toBe(true);
-    expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 12, height: 12 });
-  });
 });
 
 describe('marquee gesture baseline and exact history', () => {
@@ -567,4 +505,211 @@ describe('selection gesture cancellation authority', () => {
     expect(historyManager.entries()).toHaveLength(1);
     expect(useAppStore.getState().selectionStart).toEqual({ x: 20, y: 20 });
   });
+});
+
+describe('freehand selection admission, validity and terminal authority', () => {
+  beforeEach(() => {
+    // Canvas path rasterization is the I/O boundary; jsdom's shared canvas mock leaves fill empty.
+    const prototype = Object.getPrototypeOf(document.createElement('canvas').getContext('2d'));
+    const paths = new WeakMap<CanvasRenderingContext2D, { x: number; y: number }[]>();
+    jest.spyOn(prototype, 'beginPath').mockImplementation(function (this: CanvasRenderingContext2D) {
+      paths.set(this, []);
+    });
+    for (const method of ['moveTo', 'lineTo']) {
+      jest.spyOn(prototype, method).mockImplementation(function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+        paths.get(this)?.push({ x: Number(args[0]), y: Number(args[1]) });
+      });
+    }
+    jest.spyOn(prototype, 'fill').mockImplementation(function (this: CanvasRenderingContext2D) {
+      const points = paths.get(this) ?? [];
+      const image = new ImageData(this.canvas.width, this.canvas.height);
+      for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+        let winding = 0;
+        for (let i = 0; i < points.length; i++) {
+          const a = points[i]; const b = points[(i + 1) % points.length];
+          const cross = (b.x - a.x) * (y + 0.5 - a.y) - (x + 0.5 - a.x) * (b.y - a.y);
+          if (a.y <= y + 0.5 && b.y > y + 0.5 && cross > 0) winding++;
+          if (a.y > y + 0.5 && b.y <= y + 0.5 && cross < 0) winding--;
+        }
+        if (winding !== 0) image.data.set([255, 255, 255, 255], (y * image.width + x) * 4);
+      }
+      this.putImageData(image, 0, 0);
+    });
+  });
+  const setup = (hasBaseline = true) => {
+    historyManager.clear();
+    const dynamic = createDynamicDeps();
+    dynamic.tools.selectionMode = 'freehand';
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 32;
+    framebuffer.height = 32;
+    const ctx = framebuffer.getContext('2d')!;
+    ctx.fillStyle = '#ad3517';
+    ctx.fillRect(0, 0, 32, 32);
+    const pixels = ctx.getImageData(0, 0, 32, 32).data.slice();
+    const layer: Layer = {
+      id: 'freehand-owner', name: 'Owner', visible: true, opacity: 1, blendMode: 'source-over',
+      locked: false, order: 0, layerType: 'normal', framebuffer,
+      imageData: ctx.getImageData(0, 0, 32, 32), alignment: createDefaultLayerAlignment(),
+    };
+    useAppStore.setState({ project: { ...dynamic.project!, width: 32, height: 32, layers: [layer] },
+      layers: [layer], activeLayerId: layer.id, floatingPaste: null });
+    useAppStore.getState().clearSelection();
+    if (hasBaseline) {
+      useAppStore.getState().setSelectionBounds({ x: 2, y: 2 }, { x: 6, y: 6 }, 'selection-marquee-final');
+      const mask = new ImageData(4, 4);
+      for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
+        mask.data.set([12, 34, 56, x >= 1 && x < 3 && y >= 1 && y < 3 ? 0 : 128], (y * 4 + x) * 4);
+      }
+      useAppStore.setState({ selectionMask: mask, selectionMaskBounds: { x: 2, y: 2, width: 4, height: 4 },
+        selectionMaskLayerId: layer.id,
+        selectionVectorPath: { mode: 'freehand', points: [{ x: 2, y: 2 }, { x: 6, y: 2 }, { x: 6, y: 6 }] } });
+    }
+    const before = captureSelectionSnapshot();
+    const getDynamic = (): SelectionRuntimeDynamicDeps => {
+      const state = useAppStore.getState();
+      return { tools: dynamic.tools, project: state.project, canvas: dynamic.canvas,
+        activeLayerId: state.activeLayerId, floatingPaste: state.floatingPaste,
+        selectionStart: state.selectionStart, selectionEnd: state.selectionEnd,
+        selectionMask: state.selectionMask, selectionMaskBounds: state.selectionMaskBounds };
+    };
+    const deps: SelectionHandlerDeps = {
+      interaction: { state: { isDrawing: false, isSelecting: false, drawingMode: 'idle' },
+        dispatch: (action) => { deps.interaction.state.isSelecting = action.type === 'SELECTION_START'; },
+        refs: { selectionStart: { current: null } } },
+      setSelectionBounds: (start, end, source) => useAppStore.getState().setSelectionBounds(start, end, source),
+      clearSelection: () => useAppStore.getState().clearSelection(), setShowBrushCursor: jest.fn(),
+      canvasRef: { current: framebuffer }, overlayCanvasRef: { current: document.createElement('canvas') },
+      viewTransformRef: { current: { scale: 1, offsetX: 0, offsetY: 0 } },
+      pan: { screenToWorld: (x, y) => ({ x, y }) }, draw: jest.fn(),
+      selectionRuntimeRef: { current: { pendingSelectionHistory: null,
+        freehandSession: { active: false, points: [] }, clickLineSession: { active: false, points: [] },
+        marqueeAutoPan: { frameId: null, screenPos: null } } },
+    };
+    const handlers = createSelectionHandlers(deps, getDynamic);
+    const start = (point = { x: 12, y: 12 }, shiftKey = false) => {
+      if (!shiftKey) handlers.handleSelectionHitTest({ worldPos: point, dynamic: getDynamic() });
+      handlers.handleSelectionToolPointerDown({ worldPos: point, pointerId: 9, clickCount: 1,
+        shiftKey, tools: dynamic.tools, dynamic: getDynamic() });
+    };
+    const move = (point: { x: number; y: number }) => handlers.handleSelectionPointerMove({ worldPos: point, screenPos: point });
+    const up = (point: { x: number; y: number }, shiftKey = false) => handlers.handleSelectionPointerUp({
+      worldPos: point, event: { pointerId: 9, shiftKey } as React.PointerEvent<Element>, dynamic: getDynamic() });
+    const canonical = () => {
+      expect(ctx.getImageData(0, 0, 32, 32).data).toEqual(pixels);
+      expect(useAppStore.getState().layers[0].imageData?.data).toEqual(pixels);
+    };
+    const alpha = () => Array.from({ length: 1024 }, (_, index) => {
+      const state = useAppStore.getState();
+      const x = index % 32 - (state.selectionMaskBounds?.x ?? 0);
+      const y = Math.floor(index / 32) - (state.selectionMaskBounds?.y ?? 0);
+      return state.selectionMask && x >= 0 && y >= 0 && x < state.selectionMask.width && y < state.selectionMask.height
+        ? state.selectionMask.data[(y * state.selectionMask.width + x) * 4 + 3] : 0;
+    });
+    return { handlers, dynamic, deps, before, getDynamic, start, move, up, canonical, alpha };
+  };
+
+  afterEach(() => { historyManager.clear(); useAppStore.getState().clearSelection(); jest.restoreAllMocks(); });
+
+  it.each([false, true].flatMap((initialShift) => [false, true].map((finalShift) => ({ initialShift, finalShift }))))(
+    'keeps admitted mask intact and replays Shift $initialShift -> $finalShift', async ({ initialShift, finalShift }) => {
+      const f = setup();
+      f.start(undefined, initialShift);
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory?.before).toEqual(f.before);
+      f.move({ x: 20, y: 12 }); f.move({ x: 20, y: 20 }); f.move({ x: 12, y: 20 });
+      expect(captureSelectionSnapshot()).toEqual(f.before);
+      f.up({ x: 12, y: 20 }, finalShift);
+      const expected = Array.from({ length: 1024 }, (_, i) => {
+        const x = i % 32; const y = Math.floor(i / 32);
+        if (x >= 12 && x < 20 && y >= 12 && y < 20) return 255;
+        return finalShift && x >= 2 && x < 6 && y >= 2 && y < 6 && !(x >= 3 && x < 5 && y >= 3 && y < 5) ? 255 : 0;
+      });
+      expect(f.alpha()).toEqual(expected);
+      expect(historyManager.entries()).toHaveLength(1);
+      const { provenance: finalProvenance, ...after } = captureSelectionSnapshot();
+      expect(finalProvenance?.source).toBe(finalShift ? 'append-selection-mask' : 'selection-freehand');
+      await historyManager.undo();
+      const { provenance: originalProvenance, ...before } = f.before;
+      const { provenance: undoProvenance, ...undo } = captureSelectionSnapshot();
+      expect(undo).toEqual(before);
+      expect(undoProvenance?.restoredFromHistory).toBe(true);
+      expect(undoProvenance?.t).toBe(originalProvenance?.t);
+      await historyManager.redo();
+      const { provenance: redoProvenance, ...redo } = captureSelectionSnapshot();
+      expect(redoProvenance?.restoredFromHistory).toBe(true);
+      expect(redo).toEqual(after);
+      expect(f.alpha()).toEqual(expected);
+      f.canonical();
+    });
+
+  const invalidPaths = [
+    { label: 'tap', points: [{ x: 12, y: 12 }] },
+    { label: 'horizontal', points: [{ x: 12, y: 12 }, { x: 20, y: 12 }] },
+    { label: 'vertical', points: [{ x: 12, y: 12 }, { x: 12, y: 20 }] },
+    { label: 'diagonal', points: [{ x: 12, y: 12 }, { x: 16, y: 16 }, { x: 20, y: 20 }] },
+    { label: 'retrace', points: [{ x: 12, y: 12 }, { x: 20, y: 20 }, { x: 12, y: 12 }] },
+  ];
+  it.each(invalidPaths.flatMap((path) => [false, true].map((hasBaseline) => ({ ...path, hasBaseline }))))(
+    'rejects Shift $label without mask, metadata or history changes (baseline $hasBaseline)', ({ points, hasBaseline }) => {
+      const f = setup(hasBaseline);
+      f.start(points[0]); points.slice(1).forEach(f.move); f.up(points.at(-1)!, true);
+      expect(captureSelectionSnapshot()).toEqual(f.before);
+      expect(historyManager.entries()).toHaveLength(0); expect(historyManager.redoEntries()).toHaveLength(0);
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull(); f.canonical();
+    });
+
+  it.each(invalidPaths)('records reversible replacement clear for $label', async ({ points }) => {
+    const f = setup();
+    f.start(points[0]); points.slice(1).forEach(f.move); f.up(points.at(-1)!);
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    expect(useAppStore.getState().selectionMask).toBeNull();
+    expect(historyManager.entries()).toHaveLength(1);
+    await historyManager.undo();
+    const { provenance: baselineProvenance, ...baseline } = f.before;
+    const { provenance: restoredProvenance, ...undo } = captureSelectionSnapshot();
+    expect(restoredProvenance?.t).toBe(baselineProvenance?.t);
+    expect(undo).toEqual(baseline);
+    await historyManager.redo(); expect(useAppStore.getState().selectionMask).toBeNull(); f.canonical();
+  });
+
+  it('cancels actual non-Shift admission back to the original mask and provenance', () => {
+    const f = setup(); f.start(); f.move({ x: 20, y: 12 });
+    cancelSelectionSession({ runtime: f.deps.selectionRuntimeRef.current, interaction: f.deps.interaction });
+    f.move({ x: 20, y: 20 }); f.up({ x: 12, y: 20 });
+    expect(captureSelectionSnapshot()).toEqual(f.before);
+    expect(historyManager.entries()).toHaveLength(0); f.canonical();
+  });
+
+  it.each([false, true].flatMap((lastDelivered) => [false, true].map((append) => ({ lastDelivered, append }))))(
+    'retains raw outside endpoint (last delivered $lastDelivered, append $append)', ({ lastDelivered, append }) => {
+      const f = setup();
+      const points = [{ x: 8, y: 8 }, { x: 8, y: 25 }, { x: 38, y: 25 }, { x: 38, y: -5 }];
+      f.start(points[0]); points.slice(1, lastDelivered ? undefined : -1).forEach(f.move); f.up(points[3], append);
+      const expectedCanvas = document.createElement('canvas'); expectedCanvas.width = expectedCanvas.height = 32;
+      const ctx = expectedCanvas.getContext('2d', { willReadFrequently: true })!;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach((p) => ctx.lineTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+      const bytes = ctx.getImageData(0, 0, 32, 32).data;
+      const expected = Array.from({ length: 1024 }, (_, i) => {
+        const x = i % 32; const y = Math.floor(i / 32);
+        const old = x >= 2 && x < 6 && y >= 2 && y < 6 && !(x >= 3 && x < 5 && y >= 3 && y < 5);
+        return append ? (bytes[i * 4 + 3] > 0 || old ? 255 : 0) : bytes[i * 4 + 3];
+      });
+      expect(f.alpha()).toEqual(expected);
+      if (!append) expect(useAppStore.getState().selectionVectorPath?.points.at(-1)).toEqual(points[3]);
+      expect(historyManager.entries()).toHaveLength(1); f.canonical();
+    });
+
+  it.each(['brush', 'marquee'].flatMap((transition) => ['move', 'up'].map((event) => ({ transition, event }))))(
+    'consumes stale freehand $event after $transition and preserves baseline', ({ transition, event }) => {
+      const f = setup(); f.start(); f.move({ x: 20, y: 12 });
+      if (transition === 'brush') f.dynamic.tools.currentTool = 'brush';
+      else f.dynamic.tools.selectionMode = 'marquee';
+      expect(event === 'move' ? f.move({ x: 20, y: 20 }) : f.up({ x: 20, y: 20 })).toBe(true);
+      expect(f.deps.selectionRuntimeRef.current.freehandSession).toEqual({ active: false, points: [] });
+      expect(captureSelectionSnapshot()).toEqual(f.before); expect(historyManager.entries()).toHaveLength(0);
+      f.dynamic.tools.currentTool = 'selection'; f.dynamic.tools.selectionMode = 'freehand';
+      f.start(); f.move({ x: 20, y: 12 }); f.move({ x: 20, y: 20 }); f.up({ x: 12, y: 20 });
+      expect(historyManager.entries()).toHaveLength(1); f.canonical();
+    });
 });

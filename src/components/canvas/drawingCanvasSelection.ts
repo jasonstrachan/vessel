@@ -79,7 +79,8 @@ export const drawSelectionLayer = ({
   }
 
   if (selectionMask && selectionMaskBounds) {
-    const hasVectorPath = Boolean(selectionVectorPath && selectionVectorPath.points.length >= 2);
+    // Freehand masks own the visible boundary, including holes and project-clipped edges.
+    const hasVectorPath = Boolean(selectionVectorPath?.mode === 'click-line' && selectionVectorPath.points.length >= 2);
     if (!hasVectorPath) {
       const contourPath = getSelectionMaskContourPath(selectionMask);
       ctx.save();

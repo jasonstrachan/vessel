@@ -1,5 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useAppStore } from '@/stores/useAppStore';
+import { hasVisibleSelectionMask } from '@/stores/helpers/selectionRoi';
 import type { SelectionSnapshot } from '@/history/selectionState';
 import type React from 'react';
 import { captureSelectionSnapshot, commitSelectionHistory, cloneSelectionSnapshot } from '@/history/helpers/selectionHistory';
@@ -8,6 +9,7 @@ import type { InteractionAction, InteractionState } from '@/hooks/useCanvasInter
 import type { SelectionMode } from '@/types';
 import type {
   EventHandlerDynamicDeps,
+  EventHandlerDependencies,
   SelectionRuntimeState,
 } from '../utils/types';
 import { applyMaskSelectionResult } from './selectionApply';
@@ -153,8 +155,10 @@ const applyMaskSelection = (
   append: boolean
 ): boolean => {
   const built = buildMaskFromPath(points, dynamic.project);
-  if (!built) {
-    getAppStoreState().clearSelection();
+  if (!built || (mode === 'freehand' && !hasVisibleSelectionMask(built.mask))) {
+    if (mode !== 'freehand' || !append) {
+      getAppStoreState().clearSelection();
+    }
     return false;
   }
 
@@ -283,6 +287,46 @@ export const cancelSelectionSession = ({
   return true;
 };
 
+export const cancelStaleFreehandSelectionSession = ({
+  runtime,
+  tools,
+  interaction,
+  overlayCanvasRef,
+  canvasRef,
+  viewTransformRef,
+  draw,
+  isMouseDownRef,
+  suppressBootstrapUntilPointerUpRef,
+  stateMachine,
+}: Pick<SelectionHandlerDeps, 'interaction' | 'overlayCanvasRef' | 'canvasRef' | 'viewTransformRef' | 'draw'> &
+  Pick<EventHandlerDependencies, 'isMouseDownRef' | 'suppressBootstrapUntilPointerUpRef' | 'stateMachine'> & {
+    runtime: SelectionRuntimeState;
+    tools: SelectionDynamicDeps['tools'];
+  }): boolean => {
+  if (!runtime.freehandSession.active ||
+    (tools.currentTool === 'selection' && currentSelectionMode(tools) === 'freehand')) {
+    return false;
+  }
+  cancelSelectionSession({
+    runtime,
+    interaction,
+    clearOverlay: () => {
+      const overlay = overlayCanvasRef.current;
+      overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
+    },
+  });
+  isMouseDownRef.current = false;
+  suppressBootstrapUntilPointerUpRef.current = true;
+  if (stateMachine.state.mode === 'SELECTING') {
+    stateMachine.dispatch({ type: 'END_INTERACTION' });
+  }
+  const ctx = canvasRef.current?.getContext('2d', { willReadFrequently: true });
+  if (ctx) {
+    draw(ctx, viewTransformRef.current);
+  }
+  return true;
+};
+
 export const createSelectionHandlers = (
   deps: SelectionHandlerDeps,
   getDynamicDeps: () => SelectionDynamicDeps
@@ -347,21 +391,16 @@ export const createSelectionHandlers = (
     overlayCtx.restore();
   };
 
-  const isClickLineModeActive = (): boolean => {
+  const clearStaleSelectionSession = (): boolean => {
     const { tools } = getDynamicDeps();
-    return tools.currentTool === 'selection' && currentSelectionMode(tools) === 'click-line';
-  };
-
-  const clearStaleClickLineSession = (): void => {
-    if (!clickLineSession.active || isClickLineModeActive()) {
-      return;
+    const mode = currentSelectionMode(tools);
+    const staleFreehand = freehandSession.active && (tools.currentTool !== 'selection' || mode !== 'freehand');
+    const staleClickLine = clickLineSession.active && (tools.currentTool !== 'selection' || mode !== 'click-line');
+    if (!staleFreehand && !staleClickLine) {
+      return false;
     }
-
-    cancelSelectionSession({
-      runtime,
-      interaction: deps.interaction,
-      clearOverlay,
-    });
+    cancelSelectionSession({ runtime, interaction: deps.interaction, clearOverlay });
+    return staleFreehand;
   };
 
   const beginHistory = (tools: SelectionDynamicDeps['tools'], pointerId: number, append = false) => {
@@ -501,9 +540,12 @@ export const createSelectionHandlers = (
     worldPos: Point;
     dynamic: SelectionDynamicDeps;
   }): boolean => {
-    clearStaleClickLineSession();
-    // Marquee admission captures the original selection before authoring its replacement preview.
-    if (currentSelectionMode(dynamic.tools) === 'marquee') {
+    if (clearStaleSelectionSession()) {
+      return true;
+    }
+    // Gesture admission must capture the original selection before authoring a replacement.
+    const mode = currentSelectionMode(dynamic.tools);
+    if (mode === 'marquee' || mode === 'freehand') {
       return false;
     }
     const { selectionStart, selectionEnd, selectionMask, selectionMaskBounds, floatingPaste } = dynamic;
@@ -552,7 +594,9 @@ export const createSelectionHandlers = (
     tools: SelectionDynamicDeps['tools'];
     dynamic: SelectionDynamicDeps;
   }): boolean => {
-    clearStaleClickLineSession();
+    if (clearStaleSelectionSession()) {
+      return true;
+    }
     if (tools.currentTool !== 'selection' && tools.currentTool !== 'custom') {
       return false;
     }
@@ -626,7 +670,9 @@ export const createSelectionHandlers = (
     selectionStart: Point | null;
     selectionEnd: Point | null;
   }): boolean => {
-    clearStaleClickLineSession();
+    if (clearStaleSelectionSession()) {
+      return true;
+    }
     if (clickLineSession.active) {
       return true;
     }
@@ -664,7 +710,9 @@ export const createSelectionHandlers = (
     screenPos: Point;
     shiftKey?: boolean;
   }): boolean => {
-    clearStaleClickLineSession();
+    if (clearStaleSelectionSession()) {
+      return true;
+    }
     if (clickLineSession.active) {
       stopMarqueeAutoPan();
       drawPathPreview(clickLineSession.points, worldPos);
@@ -712,7 +760,9 @@ export const createSelectionHandlers = (
     worldPos: Point;
     dynamic: SelectionDynamicDeps;
   }): boolean => {
-    clearStaleClickLineSession();
+    if (clearStaleSelectionSession()) {
+      return true;
+    }
     if (clickLineSession.active) {
       stopMarqueeAutoPan();
       return true;
@@ -720,22 +770,14 @@ export const createSelectionHandlers = (
 
     if (freehandSession.active) {
       stopMarqueeAutoPan();
-      let worldPos = rawWorldPos;
-      if (dynamic.project) {
-        worldPos = {
-          x: Math.max(0, Math.min(dynamic.project.width, worldPos.x)),
-          y: Math.max(0, Math.min(dynamic.project.height, worldPos.y)),
-        };
-      }
-
       if (deps.interaction.state.isSelecting) {
         deps.interaction.dispatch({ type: 'SELECTION_END' });
       }
-      const points = [...freehandSession.points, worldPos];
+      const points = [...freehandSession.points, rawWorldPos];
       freehandSession.active = false;
       freehandSession.points = [];
       clearOverlay();
-      if (applyMaskSelection(dynamic, points, 'freehand', event.shiftKey)) {
+      if (applyMaskSelection(dynamic, points, 'freehand', event.shiftKey) || !event.shiftKey) {
         finishHistory(event.pointerId, 'selection-freehand');
       } else {
         runtime.pendingSelectionHistory = null;
