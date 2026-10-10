@@ -1,5 +1,30 @@
 # Vessel whole-app audit handover — 11 October 2026, session 38
 
+## Current continuation — Session38, Area19 complete
+
+FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final
+signoff in the inventory and area20-owner-trace-session38.md. Areas01–19 software-
+verified and locally committed;20–65pending. Area18 commit54f63a899 repairs
+Concentric/locked-shape/unsupported-controls contracts. Area19 commit receipt is
+area19-commit-receipt-session38.json: hidden-size polygon closure repaired and
+exact-native verified. Final19coverage116cases708checks+31effects;600suites5721tests,
+type/lint/build/diff pass. Preserve original47paths and staged3-file additions;
+fresh baseline area20-initial-baseline-session38.json. No partial-area commit.
+
+Single managed headless browser vessel-whole-app-audit CLOSED with exact cleanup.
+Productionserver/studio watcher retained; no audit test/build/browser/source writers
+at handoff. Do not touch vessel-band-spacing. No subagents/substitute models,
+push/deployment/branch/worktree changes. Continue20–65 under retained human
+scope; local continuation chats before70%context remain authorized (Session18).
+
+## Current work — Session38, Area19 partial
+
+Area18 committed54f63a899. Area19 A19-01 hidden-size polygon closure is repaired
+in pointerHandlersRuntime plus four tests in pointerHandlers.main.test.ts; still
+unverified in production until the corrected preview runs. Source/candidate gate
+and native receipts live under area19-*-session38. Original47paths/staged content
+preserved. Continue all65areas under retained authorization. No partial-area commit.
+
 ## Current continuation — Session38, Area18 complete
 
 Areas01–18 software-verified; focused local Area18 commit receipt follows in
@@ -2185,3 +2210,40 @@ area18-native-coverage-session38.json and area18-owner-trace-session38.md.
 The pre-existing dirty CC Tonal Dither artist guide describes unsupported controls;
 its wording is preserved as unrelated work and this discrepancy is recorded here.
 Original47paths and staged3-file patch are preserved before the local commit.
+
+## Session38 — Area19 final software signoff
+
+Area19 CC Fixed Dither is software-verified. A19-01 repairs polygon closure at the
+pointer owner: the hidden stamp size no longer determines whether a vertex closes
+the shape. Closure uses6screen pixels through current zoom. Before, native Stroke
+size500→Poly painted early and Undo retained pixels; size20 control passed. Final
+previewf854ade1c84a85f6df334efd1fc0581a7d034372f421ea83682586446f296ef0 passes
+sizes1/20/500, zoom.25/2 and the shared Tonal path:6cases36checks, no premature
+commit, and exact canonical/RGBA Undo/Redo. Existing close/double-click behavior
+remains covered by the pointer suite.
+
+Selected native coverage is116executed cases/708checks and31positive effects:
+three sources/fill modes, all11algorithms/eight builtin patterns, Banding/Spread/
+resolution/Variety/Contrast/SampleColors/FG controls/Speed/pressure/grid, direction
+confirm/cancel, selection/edges, locks, playback/pause, frozen older ink, sampling
+reset/pickup, erased coverage, alpha and exact history. Counts include retests;
+source snapshots and exclusions are in area19-native-coverage-session38.json.
+Fixed pattern differences live in pair/definition buffers even when paint indices
+match. Some algorithms share a constant50%checker; per-mark Sierra phase variation
+is intentional and is not a failed determinism test.
+
+Two fixtures were corrected without application patches: Contrast200 exceeds its
+native100limit; Tonal's opaque-background assertion does not apply to Fixed Dither.
+Fixed paired palettes retain source alpha128, with BGFill toggling low-ink coverage
+(14400pixels on versus7344off in the half-alpha fixture). Owner code and existing
+alpha tests establish that contract, and the corrected native checks pass.
+The pre-fix polygon case is excluded and replaced by exact final reproduction.
+
+Four new tests fail before and pass after;176direct tests pass and154pointer tests
+pass again after typed-fixture corrections. Initial type/build errors are superseded
+by corrected preview build and isolated type/lint/fullJest:600suites5721tests,
+one existing skipped suite/test, one passing snapshot. Final source hashes match
+the production receipt and clean candidate. Two source/test owners plus two ledgers
+are the completed-area scope. Original47paths and original staged3-file additions
+remain exact. No physical tablet/performance/custom library/global playback signoff
+is implied. Local commit receipt follows; continue20–65 without renewed permission.

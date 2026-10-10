@@ -3228,6 +3228,42 @@ describe('pointerHandlers main flows', () => {
     expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['color-cycle-gradient', 1],
+    ['color-cycle-flat-dither', 1],
+    ['color-cycle-flat-dither', 2],
+    ['color-cycle-flat-dither', 0.25],
+  ] as const)('keeps %s polygon open after a distant click with hidden size 500 (zoom %s)', async (preset, zoom) => {
+    const { deps } = createDeps({
+      currentBrushPresetId: preset,
+      canvas: { width: 100, height: 100, scale: 1, zoom },
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'brush',
+        shapeMode: true,
+        brushSettings: {
+          ...baseDynamic.tools.brushSettings,
+          brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+          colorCycleFillMode: 'linear',
+          ccGradientDrawingShape: 'polygon',
+          size: 500,
+        },
+      },
+    });
+    deps.interaction.state = { ...deps.interaction.state, isDrawing: true, isSelecting: false };
+    deps.getMousePos = jest.fn(() => ({ x: 30, y: 30 }));
+    deps.drawingHandlers.isDrawingShapeRef.current = true;
+    deps.drawingHandlers.isSelectingDirectionRef.current = false;
+    const points = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 30, y: 30 }];
+    deps.drawingHandlers.shapePointsRef.current = points;
+
+    createPointerHandlers(deps).handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 1 }));
+    await Promise.resolve();
+    expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual(points);
+  });
+
   it('keeps CC gradient click-line open after ordinary third and fourth committed points', async () => {
     const ccLayer = { id: 'cc-layer', layerType: 'color-cycle' } as any;
     const brushSettings = {

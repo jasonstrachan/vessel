@@ -36,7 +36,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 16 | Dither Grad: sampled/manual colours, gradient direction/range, geometry, dither settings | gradient shape runtime | software-verified (Session34: A16-01–03 repaired;108 configurations/905checks; full gate passed) |
 | 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | software-verified (Session36: A17-01–05 repaired; native/full gate pass; focused local commit receipt) |
 | 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | software-verified (Session38: A18-01–03 repaired; final native/full gate pass) |
-| 19 | CC Fixed Dither: density/pattern, sampling, palette, size, playback | CC mark session, strokeStampDither | pending |
+| 19 | CC Fixed Dither: density/pattern, sampling, palette, size, playback | CC mark session, shape fill/dither runtime | software-verified (Session38: A19-01 repaired;116native cases/708checks; full gate pass) |
 | 20 | CC shape/basic geometry: freehand/rectangle/ellipse/line/click-line, constraints, direction, preview/commit/cancel | CC gradient drawing runtime | pending |
 | 21 | Checkered brush: cell size, colours, spacing, opacity, shape/selection | brush engine/settings | pending |
 | 22 | Rectangle Gradient: stops/direction, drag/constraint, commit/cancel | shape handlers, gradient brush | pending |
@@ -2576,3 +2576,71 @@ area18-native-coverage-session38.json and area18-owner-trace-session38.md.
 The pre-existing dirty CC Tonal Dither artist guide describes unsupported controls;
 its wording is preserved as unrelated work and this discrepancy is recorded here.
 Original47paths and staged3-file patch are preserved before the local commit.
+
+Area18 local commit receipt: `54f63a899a5730d0d343c5f334a024065ed0c2b2` on main,
+`fix: honor tonal dither controls and locked shape layers`. Eight intended files
+only. All47 original paths preserved; original3-file staged patch contents remain
+exact (new blob IDs/hunk offsets reflect the committed shape guard). Fresh Area19
+baseline is `output/playwright/area19-initial-baseline-session38.json`. The commit
+succeeded before index reconciliation needed --add for the new test; reconciliation
+completed and was verified without a second commit. No push/deployment.
+
+## Session38 — Area19 in progress: hidden size closes polygons early
+
+Initial35native cases/204checks and separated-ink32cases/192checks pass;25explicit
+effect comparisons cover canonical weave, Banding, Spread, resolution, Variety,
+Contrast and SampleColors. The initial Contrast200 boundary was an invalid fixture
+(maximum100); the corrected tail passes. Zero-spread algorithm cases are basic
+history coverage, not proof that every weave is visibly distinguishable.
+
+A19-01 is reproduced: choosing Stroke size500 then Poly allows a corner120px away
+to close the polygon. Size is hidden in Poly. Its pointer-up owner used size/2 as
+closure tolerance, causing premature triangular paint and a later incorrect Undo
+anchor. Size20 control passes; size500 fails direction-uncommitted and Undo checks.
+The owner now uses6screen pixels divided by zoom. Scope expanded only to
+pointerHandlersRuntime.ts and pointerHandlers.main.test.ts, plus the two ledgers.
+Four new tests across both gradient presets and zoom1/2/.25 fail before and pass
+after.176direct tests pass; after type corrections154pointer tests pass again.
+
+First preview build/type-check caught nullable canvas and typed-fixture issues;
+corrected source passes isolated type/lint. Corrected preview, full isolated Jest
+and native runtime proof are pending. No Area19 commit or acceptance yet. Preserve
+original47paths/staged3-file contents against area19-initial-baseline-session38.json.
+Further playback/sampling/reset/pickup/selection/erase/alpha and final review remain.
+
+## Session38 — Area19 final software signoff
+
+Area19 CC Fixed Dither is software-verified. A19-01 repairs polygon closure at the
+pointer owner: the hidden stamp size no longer determines whether a vertex closes
+the shape. Closure uses6screen pixels through current zoom. Before, native Stroke
+size500→Poly painted early and Undo retained pixels; size20 control passed. Final
+previewf854ade1c84a85f6df334efd1fc0581a7d034372f421ea83682586446f296ef0 passes
+sizes1/20/500, zoom.25/2 and the shared Tonal path:6cases36checks, no premature
+commit, and exact canonical/RGBA Undo/Redo. Existing close/double-click behavior
+remains covered by the pointer suite.
+
+Selected native coverage is116executed cases/708checks and31positive effects:
+three sources/fill modes, all11algorithms/eight builtin patterns, Banding/Spread/
+resolution/Variety/Contrast/SampleColors/FG controls/Speed/pressure/grid, direction
+confirm/cancel, selection/edges, locks, playback/pause, frozen older ink, sampling
+reset/pickup, erased coverage, alpha and exact history. Counts include retests;
+source snapshots and exclusions are in area19-native-coverage-session38.json.
+Fixed pattern differences live in pair/definition buffers even when paint indices
+match. Some algorithms share a constant50%checker; per-mark Sierra phase variation
+is intentional and is not a failed determinism test.
+
+Two fixtures were corrected without application patches: Contrast200 exceeds its
+native100limit; Tonal's opaque-background assertion does not apply to Fixed Dither.
+Fixed paired palettes retain source alpha128, with BGFill toggling low-ink coverage
+(14400pixels on versus7344off in the half-alpha fixture). Owner code and existing
+alpha tests establish that contract, and the corrected native checks pass.
+The pre-fix polygon case is excluded and replaced by exact final reproduction.
+
+Four new tests fail before and pass after;176direct tests pass and154pointer tests
+pass again after typed-fixture corrections. Initial type/build errors are superseded
+by corrected preview build and isolated type/lint/fullJest:600suites5721tests,
+one existing skipped suite/test, one passing snapshot. Final source hashes match
+the production receipt and clean candidate. Two source/test owners plus two ledgers
+are the completed-area scope. Original47paths and original staged3-file additions
+remain exact. No physical tablet/performance/custom library/global playback signoff
+is implied. Local commit receipt follows; continue20–65 without renewed permission.

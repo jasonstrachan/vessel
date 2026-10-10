@@ -4610,7 +4610,8 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         if (isCcGradientPolygonDrawingShape) {
           const pts = drawingHandlers.shapePointsRef.current;
           const firstPoint = pts[0];
-          const closeThreshold = Math.max(6, (tools.brushSettings.size ?? 12) * 0.5);
+          // Polygon vertices use a screen-space hit target, independent of hidden stamp size.
+          const closeThreshold = 6 / Math.max(1e-6, canvas?.zoom ?? 1);
           const closeToStart =
             pts.length >= 3 &&
             firstPoint &&
