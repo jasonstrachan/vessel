@@ -49,6 +49,7 @@ export const useDrawingCanvasHandlerAdapters = ({
         colorCycleSpeed: paste.colorCycleSpeed ?? null,
         colorCycleFlow: paste.colorCycleFlow ?? null,
         colorCyclePhase: paste.colorCyclePhase ?? null,
+        colorCycleSelectionMasks: paste.colorCycleSelectionMasks ?? null,
       });
     },
     [setFloatingPaste]

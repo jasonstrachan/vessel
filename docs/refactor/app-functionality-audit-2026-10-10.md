@@ -26,7 +26,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 06 | Magic wand: tolerance, contiguous/sample source, add/subtract, transparent/CC pixels | MagicWandControls, selection helpers | software-verified (Session16: 616 configurations/3,675 checks; local commit gate passed) |
 | 07 | Selection: select all, deselect, invert, tool persistence, paint/fill/erase clipping | selection slice/ROI helpers | software-verified (Session18: 138configs/1905checks; focused local commit receipt below) |
 | 08 | Move selected pixels: extract/drag, source clearing, commit/cancel, edges, CC metadata, history | selection handlers, selectionPaste | software-verified (Session23: final gate passed; local commit receipt below) |
-| 09 | Copy/cut/paste/duplicate/paste in place: internal/external clipboard, scaling, alpha, cross-layer/CC, failures | selection slice, clipboard handlers, selectionPaste | pending |
+| 09 | Copy/cut/paste/duplicate/paste in place: internal/external clipboard, scaling, alpha, cross-layer/CC, failures | selection slice, clipboard handlers, selectionPaste | software-verified (Session25: C01–C07 repaired; 47configs254checks; local commit receipt below) |
 | 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | pending |
 | 11 | Crop: selection crop, handles/dimensions, outside bounds, commit/cancel/history, CC/sequence | crop slice/handlers, CropOptionsPanel | pending |
 | 12 | Pixel brush: tap/drag, square/round tips, size, opacity, spacing, pressure, snap, shape mode | brush presets, brush engine/settings | pending |
@@ -1227,3 +1227,213 @@ suite/test skipped, one snapshot pass. Final read-only review has no remaining
 in-scope actionable finding. Original47 paths/index preserved. Focused local commit
 contains16source/test files and the two audit documents; none overlap original dirty
 paths. No push/deploy/branch change. Area09 is next;09–65 remain incomplete.
+
+
+### Session23 local Area08 commit receipt
+
+Committed locally on main: `5f093aef9b98341875c8a4c6c549823279415f9d`
+(`fix: preserve selected artwork across move destinations`). All18 intended paths
+committed; zero original dirty-path overlap. Original47 file hashes and staged patch
+SHA2565d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09 remain exact.
+No push/deployment. **8/65 areas software-complete; Area09 active,09–65 incomplete.**
+Do not rerun historical Area07/08 commit scripts or restore old whole-file backups.
+
+
+### Session23 Area09 start — refused pending replacement
+
+C01 native-reproduced and unpatched: copy B, extract/drag A, activate a locked target,
+paste B. The owning commit refuses, but the clipboard handler still replaces the
+recoverable A payload and clears its source context. Escape leaves4096RGBAchannels
+missing from source imageData and framebuffer; history stays empty. Immediate source
+bytes after refused paste are unchanged because extraction already cleared them.
+Successful replacement control commits A once, opens/cancels B independently, and
+Undo/Redo restores both exact owners. Native keyboard copy/paste events are trusted
+PNG events in the managed browser; no synthetic fallback. Two cases13checks11pass,
+zeroaborted/runtimeerrors; first two failures were fixture-only and are superseded
+by `area09-pending-replacement-before-v3-session23.results.json`.
+
+No Area09 runtime/test edits yet. Source trace and next boundary in ignored
+`area09-owner-review-session23.md`; continuation FIRST READ
+`area09-root-facts-session23.md`. Area08 complete/committed;8/65complete. Continue
+Area09 then10–65 without renewed authorization. Scope remaining clipboard controls,
+locks, Sequence canonical behavior, CC coverage and relevant failure/history cases.
+
+## Session24 — Area09 clipboard admission and remaining cases
+
+C01 boundary is the clipboard handler and its existing tests. The commit owner
+already retains refused extraction recovery; the repair checks live store ownership
+and installs a replacement synchronously after admission. It does not broaden the
+shared commit/Delete API or use React's stale dynamic snapshot. Eight new tests fail
+before the patch (three refused branches, three rejected branches, stale ownership,
+overlapping replacements); all16clipboard/56commit-owner tests pass after.
+Exact native before rerun:2configs13checks11pass, the same two recovery failures.
+Production after proof follows below; do not infer completion from unit tests.
+
+Area09 control/case checklist (open unless explicitly evidenced below):
+
+| Route/control | Required case boundary | Status |
+| --- | --- | --- |
+| Cmd/Ctrl+C | Raster/CC/Sequence, rectangle and masked/feathered selection, no selection, floating payload, source preserved | active |
+| Cmd/Ctrl+X | Same sources; locked admission, source/frame clearing, canonical masks, atomic history, floating extraction | active |
+| Native Cmd/Ctrl+V | External PNG dimensions/alpha/oversize, viewport position, pending commit refusal/success | C01 after proof pending |
+| Internal clipboard fallback | No external image, original Cut position vs Copy viewport position, no clipboard | pending |
+| Internal indexed CC priority | Six canonical planes, definitions/palettes, selection/erase/soft coverage, cross-layer replay | pending |
+| Pending float lifecycle | Replacement, Enter/Escape, history failure/retry, overlapping input, layer switch | C01 exact test underway; remaining pending |
+| History | Copy no entry, Cut one entry, Paste one entry, exact Undo/Redo and source preservation | active |
+| Text focus / unsupported clipboard | Native text targets retain paste/copy/cut; non-image/empty/decode failure/system write denial | pending |
+| Duplicate / Paste in Place | Base shortcut handlers delegate only to Studio; activeStudioExtension exports noop in this base build | not exposed in base; conditional Studio audit Area63 |
+| Floating scaling / rotation / flips | Clipboard intrinsic data checked here; comprehensive transform interactions | Area10 |
+
+Native scripts/evidence remain in ignored `output/playwright/area09-*-session24.*`.
+Area09 remains active/uncommitted;8/65areas complete. No push/deploy/branch changes.
+
+Session24 C01 production after: exact2configs13/13checks, zero aborted/runtime errors.
+C02 locked Cut, C03 Sequence Cut/history, C04 raster framebuffer Cut and floating
+Cut history were independently reproduced. The duplicated mutation path in
+`selectionSlice.ts` now uses its canonical extraction/Delete transaction. Ten real
+store/history integration regressions failed before; all pass after, including
+failure recovery. Complete direct set7suites189tests passes; fulltype/lint pass after
+a test-only decoder typing correction. No fullJest or area commit yet.
+
+Exact native Cut before7configs33checks21pass included locked mutation on all3layer
+kinds, Sequence canonical pixels unchanged/Redo errors, raster framebuffer unchanged.
+Same script after7configs33/33checks, no aborted cases or runtime errors. Floating
+Cut before1config6checks3pass loses history; exact after is being recorded.
+The expanded held-frame attempt selected frame7 outside the preview's hold window;
+its empty-copy prerequisite abort is a fixture limitation, not a new application bug.
+The deterministic held-frame1 policy test passes; native near-held proof remains open.
+
+C05 newly reproduced: CC Copy loses fractional erase coverage. Bounded native alpha
+check uses source rawRGBA/erase-alpha as independent oracle. The metadata-presence
+checks are diagnostic, not standalone corruption evidence. Native commit/UndoRedo
+comparison is next before a C05 source edit. No C05 patch yet.
+
+
+Session24 C05 native commit baseline:2configs16checks14pass. Covered Copy differs at
+240alpha pixels; subsequent native indexed paste loses240erase-mask values while all
+six scalar planes remain correct. Initial C05 adaptation fixed copied RGBA but omitted
+the existing canvas adapter field; a failing-before adapter regression identifies that
+exact missing forwarding contract. Final repair includes the adapter and handler type.
+Final exact C05 production rerun:2configs16/16checks, zeroaborted/runtimeerrors.
+Expanded soft-mask and retention matrix is being recorded in the closing receipt.
+
+Current owner gate:8suites198tests, fulltype/lint/build/diff pass. Eight source/test
+files, no original dirty-path overlap. No fullJest or partial-area commit.
+Final artifact source timestamp2026-10-10T06:20:31.547Z; bound owner hashes in
+`output/playwright/area09-preview-artifact-complete-session24.json`. An earlier build
+attempt hit a transient ENOENT while copying an unrelated Studio service directory;
+sequential retry succeeded without changing build tooling or the service.
+
+C06 native-reproduced, unpatched: after a valid CC Copy, an external Clipboard API
+fixture replaces the native clipboard with a distinct3x2PNG; trusted native Paste
+still installs the older64x24CC snapshot. Raster control passes.2configs7checks6pass,
+zeroaborted/runtimeerrors. Owner is unconditional CC priority before inspecting the
+current event image in clipboardHandlers. Detailed next review:
+`output/playwright/area09-next-owner-review-session24.md`. Preserve indexed metadata
+for valid app-owned copies when repairing this ownership decision.
+
+Area09 remains partial/uncommitted;8/65areas software-complete. Continue09then10–65.
+
+
+### Session24 closing receipt
+
+Final artifact16configurations100/100native checks, zeroaborted/runtimeerrors:
+C05 exact2/16; expanded erase/soft-on/soft-off4/32; C01 replacement2/13; Cut7/33;
+floatingCut1/6. Bound artifact2026-10-10T06:20:31.547Z, eightowner hashes unchanged
+after build. Aggregate `area09-native-final-summary-session24.json` and exact runs
+in `area09-native-final-batch-v2-session24.json`. Fulltype/lint/atomicbuild/diff pass;
+8owner suites198tests. No fullJest, partial-area commit, push or deployment.
+
+8/65areas remain complete; Area09 partial with C01–C05 repaired and C06 open.
+Original47dirtypaths and staged3file7addition hash remain exact. Fresh baseline,
+cleanup, next-owner review and complete continuation pointers:
+`output/playwright/area09-root-facts-session24.md`.
+
+
+## Session25 — Area09 native clipboard identity and bitmap conversion
+
+C06 before repeated the exact trusted-native failure:2configs7checks6pass. Expanded
+baseline10configs35checks30pass additionally exposed raster Cut losing its origin,
+newer text reusing stale raster/CC images, and external alpha/oversize ignored by CC.
+A localized native clipboard probe showed web custom MIME is absent from the paste
+event, while an image attribute in standard HTML survives. Copy now writes a fresh
+UUID with PNG plus usable HTML image; the cached snapshot is admitted only when the
+native HTML ID matches. The internal fallback is limited to events with no native
+content. The admitted snapshot is captured before awaiting pending commit, retaining
+C01 live ownership admission. No elapsed-time or stale-React ownership heuristic.
+
+C06 files: existing clipboard handler/test and selection slice, plus newly scoped
+`src/stores/__tests__/selectionClipboard.test.ts` for native-write pairing/unique IDs.
+Five regressions failed before;28direct tests pass after. Eight owner suites204tests,
+fulltype/lint/build pass after correcting a test-only canvas overload cast.
+Exact production C06 after2configs7/7; expanded10configs35/35. Edge cases5configs17/17:
+next unauthored Sequence frame with independently visible held preview; held Copy
+and refused Cut; empty selection; native input/textarea/contenteditable Copy/Cut/Paste;
+write-denial/internal recovery and successful retry; decode-error recovery/retry.
+I/O failures and temporary text targets are disclosed fixtures.
+Retained C01–C05 exact16configs100/100. Cross-CC occupied metadata collisions1config9/9;
+CC→raster/Sequence coverage, source preservation, history and retry4configs47/47.
+C06 artifact2026-10-10T06:27:57.474Z; `area09-preview-artifact-session25.json`.
+Combined38configs215/215checks; no aborted cases or recorded runtime errors.
+
+C07 reproduced next: external fractional-alpha PNG preview is correct, but native
+commit to CC makes640pixels opaque. Internal opaque raster control passes;2configs
+11checks10pass, zero aborted/runtimeerrors. Luminance mapping, outside planes,
+source preservation and Undo/Redo pass. Owner `selectionPaste.ts` already computes
+bitmap alpha but clears destination erase coverage on conversion. The minimal fix
+writes inverse converted bitmap alpha into the existing erase mask; indexed transfers
+retain their separate masks. This expands Area09 to10source/test owners. Four real
+store/history regressions failed before, covering soft enabled/disabled and history
+refusal/retry.169tests in four direct suites pass after. Test expectations preserve
+the established bitmap conversion contract that clears transparent destination cells;
+this task does not change that behavior. Test-only input typing corrected separately.
+C07 exact production retest and final closure receipt follow; Area09 remains partial.
+
+Evidence: ignored `output/playwright/area09-*-session25.*`, especially identity probe,
+identity matrix, edge cases, cross-CC, cross-coverage, raster-to-CC before and after.
+All47original dirty paths and staged patch remain protected; no commit/push/deploy.
+
+
+### Session25 Area09 closure and commit gate
+
+Area09 selected software cases are complete. C01–C07 are repaired at their owners;
+C07 exact native before2configs11checks10pass, after11/11; expanded history retry
+3configs17/17. Copy of extracted raster/CC floats2configs9/9. Genuine empty native
+clipboard fallback passes; empty internal+external event no-op passes using a disclosed
+synthetic event. The browser's `clipboard.write([])` retained prior data, so its failed
+empty fixture is excluded. An earlier floating-Copy check incorrectly compared an
+optional CC bitmap mirror; complete canonical/covered/display pixels all matched and
+the corrected owner-specific check passes. Neither fixture issue was an app defect.
+
+Final evidence spans two bound production artifacts: C01–C06/edge/indexed cross-layer
+cases on2026-10-10T06:27:57.474Z; C07 and final floating/empty cases on
+2026-10-10T06:33:20.411Z. The only later runtime change is converted bitmap alpha in
+selectionPaste; source hashes are bound by `area09-preview-artifact-c07-session25.json`.
+47configs254/254selected checks, zero aborted cases. Aggregate with precise runs and
+limitations: `output/playwright/area09-final-evidence-summary-session25.json`.
+One empty-both event is synthetic; other fixtures/fault injections are disclosed in
+scripts. No physical-input, other-browser, performance or exhaustive-hardware claim.
+
+| Area09 case boundary | Final evidence |
+| --- | --- |
+| Raster/CC/Sequence Copy and Cut; locked targets; mask/coverage; canonical/framebuffer/history | retained Cut7/33, indexed coverage6/48, floatingCut1/6, owner integration |
+| Native external image precedence, alpha, intrinsic/oversize dimensions | exact C062/7, identity matrix10/35 |
+| Own-copy indexed metadata, Cut origin, viewport Copy, repeated paste | identity matrix10/35, cross-CC occupied collision1/9 |
+| CC→raster/Sequence; covered pixels; metadata/UndoRedo | cross-coverage4/47; cross-CC1/9 |
+| Raster→CC and fractional bitmap alpha; failure rollback/retry | C07exact2/11, expanded3/17; four real-store regressions |
+| Pending float commit/refusal/rejection/overlap and recovery | native replacement2/13, clipboard owner regression tests |
+| Held Sequence Copy/refused Cut; empty selection; text focus; write/decode failure/retry | edge5/17 |
+| Copy floating extraction, cancel source restoration, subsequent paste | floatingCopy2/9 |
+| Empty clipboard/internal fallback | one trusted native empty event, one synthetic empty-both event |
+| Duplicate/Paste in Place | unavailable in base; conditional Studio Area63 |
+| Broad resize/rotate/flip interactions | Area10 |
+
+Final review and gate pass: fulltype, lint, atomicproductionbuild, diffcheck;
+fullJest589passed suites/5533passed tests, one existing suite/test skipped,
+one snapshot passed. `area09-full-jest-session25.log`; type/lint/build have matching
+Session25 logs. Ten source/test owners plus the two auditdocs comprise the focused
+Area09 commit. All47original paths and the staged3file7addition patch SHA256
+5d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09 remain exact.
+Commit hash follows in the postcommit receipt.9/65areas software-complete;10–65pending.
+Browser exact cleanup passed in `area09-browser-cleanup-session25.log`; preview remains.
+Area10 initial owner trace: `output/playwright/area10-owner-review-session25.md`.

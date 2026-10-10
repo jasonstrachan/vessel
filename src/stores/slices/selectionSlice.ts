@@ -214,6 +214,7 @@ export interface SelectionSlice {
 }
 
 export interface SelectionClipboardPayload {
+  clipboardId?: string;
   imageData: ImageData;
   position: { x: number; y: number };
   width: number;
@@ -227,6 +228,7 @@ export interface SelectionClipboardPayload {
   colorCycleSpeed?: Uint8Array | null;
   colorCycleFlow?: Uint8Array | null;
   colorCyclePhase?: Uint8Array | null;
+  colorCycleSelectionMasks?: ColorCycleSelectionMasks | null;
   colorCycleSourceLayerId?: string | null;
 }
 
@@ -2681,7 +2683,7 @@ export const createSelectionSlice = ({
                 project,
                 layer: activeLayer,
                 sourceState: state,
-                clearSource: mode === 'cut',
+                clearSource: false,
               })
             : captureSelectionBitmap({
                 selectionStart,
@@ -2689,78 +2691,36 @@ export const createSelectionSlice = ({
                 project,
                 layer: activeLayer,
                 sourceState: state,
-                clearSource: mode === 'cut',
+                clearSource: false,
               });
 
           if (capture) {
+            const selectionImageData = activeLayer.layerType === 'color-cycle'
+              ? captureColorCycleSelectionBitmap({
+                  layer: activeLayer,
+                  sourceImageData: resolveLayerImageData(activeLayer, state),
+                  bounds: capture.bounds,
+                  selectionMask: state.selectionMask,
+                  selectionMaskBounds: state.selectionMaskBounds,
+                })
+              : capture.selectionImageData;
+            if (!selectionImageData) return false;
             const colorCyclePayload = buildTransferredColorCyclePayload(activeLayer, capture);
             clipboardPayload = {
-              imageData: capture.selectionImageData,
+              imageData: selectionImageData,
               position: { x: capture.bounds.x, y: capture.bounds.y },
               width: capture.bounds.width,
               height: capture.bounds.height,
               mode,
               ...colorCyclePayload,
+              colorCycleSelectionMasks: activeLayer.layerType === 'color-cycle'
+                ? captureColorCycleSelectionMasks(activeLayer, capture.bounds, state.selectionMask, state.selectionMaskBounds)
+                : null,
               colorCycleSourceLayerId: capture.colorCycleIndices ? activeLayerId : null,
             };
 
-            if (mode === 'cut' && capture.updatedLayerImageData) {
-              const selectionBefore = selectionSnapshotFromState(state);
-              const beforeImage = activeLayer.imageData ? cloneLayerImageData(activeLayer.imageData) : null;
-              const beforeColorState =
-                activeLayer.layerType === 'color-cycle'
-                  ? captureColorCycleBrushState(activeLayer.id)
-                  : null;
-
-              let skipImageUpdate = false;
-              if (activeLayer.layerType === 'color-cycle' && project) {
-                skipImageUpdate = clearColorCycleRegion(state, activeLayer, project, {
-                  x: capture.bounds.x,
-                  y: capture.bounds.y,
-                  width: capture.bounds.width,
-                  height: capture.bounds.height,
-                }, {
-                  ...buildColorCycleMaskClearOptions(capture.bounds, state.selectionMask, state.selectionMaskBounds),
-                  auditSource: 'cut-selection',
-                  auditDetails: {
-                    activeLayerId,
-                    captureBounds: capture.bounds,
-                    selectionStart,
-                    selectionEnd,
-                    selectionMaskBounds: state.selectionMaskBounds,
-                    selectionMaskLayerId: state.selectionMaskLayerId,
-                  },
-                });
-                if (skipImageUpdate) {
-                  const eraseMask = activeLayer.colorCycleData?.eraseMask;
-                  clearColorCycleEraseMask(eraseMask, capture.bounds, state.selectionMask, state.selectionMaskBounds);
-                  state.scheduleColorCycleSlotRebuild?.('cut-selection');
-                }
-              }
-              if (!skipImageUpdate) {
-                state.updateLayer(
-                  activeLayerId,
-                  { imageData: capture.updatedLayerImageData },
-                  { dirtyRects: [capture.bounds] },
-                );
-              }
-              set({ layersNeedRecomposition: true });
-              state.setCurrentCompositeBitmap(null);
-
-              const cutHistoryCommit = commitLayerHistory({
-                layerId: activeLayerId,
-                beforeImage,
-                beforeColorState,
-                actionType: 'selection',
-                description: 'Cut selection to clipboard',
-                tool: 'selection',
-                selectionBefore,
-              }).catch((error) => {
-                if (process.env.NODE_ENV !== 'production') {
-                  debugWarn('raw-console', '[history] Failed to record selection cut', error);
-                }
-              });
-              trackPendingHistoryCommit(cutHistoryCommit);
+            if (mode === 'cut' && !state.extractSelectionToFloatingPaste()) {
+              return false;
             }
           }
         }
@@ -2768,24 +2728,30 @@ export const createSelectionSlice = ({
 
       if (!clipboardPayload && floatingPaste?.imageData) {
         clipboardPayload = createClipboardPayloadFromFloatingPaste(floatingPaste, mode);
-        if (mode === 'cut') {
-          set({ floatingPaste: null, floatingPasteHistoryContext: null });
-        }
       }
 
       if (!clipboardPayload) {
         return false;
       }
 
+      if (mode === 'cut') {
+        // Use the canonical extraction/Delete transaction for every layer kind and
+        // already-floating selections; retain recovery if history cannot finalize.
+        await selectionPasteHelpers.deleteFloatingPaste();
+        if (get().floatingPaste) return false;
+      }
+
+      const clipboardId = crypto.randomUUID();
+      clipboardPayload = { ...clipboardPayload, clipboardId };
       set({ selectionClipboard: clipboardPayload });
-      await writeImageDataToClipboard(clipboardPayload.imageData);
+      await writeImageDataToClipboard(clipboardPayload.imageData, clipboardId);
       return true;
     },
     clearSelectionClipboard: () => set({ selectionClipboard: null }),
   };
 };
 
-const writeImageDataToClipboard = async (imageData: ImageData): Promise<void> => {
+const writeImageDataToClipboard = async (imageData: ImageData, clipboardId: string): Promise<void> => {
   if (typeof navigator === 'undefined' || !navigator.clipboard) {
     return;
   }
@@ -2795,13 +2761,10 @@ const writeImageDataToClipboard = async (imageData: ImageData): Promise<void> =>
     return;
   }
 
-  const blob = await imageDataToBlob(imageData);
-  if (!blob) {
-    return;
-  }
-
   try {
-    await navigator.clipboard.write([new clipboardCtor({ [blob.type]: blob })]);
+    const formats = await imageDataToClipboardFormats(imageData, clipboardId);
+    if (!formats) return;
+    await navigator.clipboard.write([new clipboardCtor(formats)]);
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {
       debugWarn('raw-console', '[selectionClipboard] Failed to write image to clipboard', error);
@@ -2809,7 +2772,10 @@ const writeImageDataToClipboard = async (imageData: ImageData): Promise<void> =>
   }
 };
 
-const imageDataToBlob = async (imageData: ImageData): Promise<Blob | null> => {
+const imageDataToClipboardFormats = async (
+  imageData: ImageData,
+  clipboardId: string,
+): Promise<Record<string, Blob> | null> => {
   if (typeof document === 'undefined') {
     return null;
   }
@@ -2823,11 +2789,14 @@ const imageDataToBlob = async (imageData: ImageData): Promise<Blob | null> => {
   }
   ctx.putImageData(imageData, 0, 0);
 
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => {
-      resolve(blob ?? null);
-    }, 'image/png');
-  });
+  const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) return null;
+  // Standard HTML survives native ClipboardEvents, unlike web custom MIME data.
+  // Include the image so rich-text consumers receive usable content as well.
+  return {
+    'image/png': blob,
+    'text/html': new Blob([`<img data-vessel-selection="${clipboardId}" src="${canvas.toDataURL('image/png')}">`], { type: 'text/html' }),
+  };
 };
 
 const cloneImageData = (imageData: ImageData): ImageData =>
@@ -2869,6 +2838,13 @@ const createClipboardPayloadFromFloatingPaste = (
       : null,
     colorCyclePhase: floatingPaste.colorCyclePhase
       ? new Uint8Array(floatingPaste.colorCyclePhase)
+      : null,
+    colorCycleSelectionMasks: floatingPaste.colorCycleSelectionMasks
+      ? {
+          membership: floatingPaste.colorCycleSelectionMasks.membership.slice(),
+          eraseAlpha: floatingPaste.colorCycleSelectionMasks.eraseAlpha?.slice() ?? null,
+          softEdgeAlpha: floatingPaste.colorCycleSelectionMasks.softEdgeAlpha?.slice() ?? null,
+        }
       : null,
     colorCycleSourceLayerId: floatingPaste.sourceLayerId ?? null,
   };

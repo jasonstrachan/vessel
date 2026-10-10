@@ -1208,7 +1208,10 @@ export const createSelectionPasteHelpers = ({
           const maskPatch = writeColorCycleSelectionMasks(currentLayer, project, colorCycleDestRect, projectedMasks && canonicalMembership
             ? { ...projectedMasks, membership: canonicalMembership } : {
             membership: Uint8Array.from(colorCycleSourceIndices, (_, index) => (alphaData?.[index * alphaStride + alphaChannelOffset] ?? 0) > 0 ? 255 : 0),
-            eraseAlpha: null,
+            // Indexed paint carries binary occupancy; retain bitmap coverage in its mask.
+            eraseAlpha: pastedBitmapColorCycle
+              ? Uint8Array.from(pastedBitmapColorCycle.alpha, alpha => 255 - alpha)
+              : null,
             softEdgeAlpha: null,
           });
           if (Object.keys(maskPatch).length) {

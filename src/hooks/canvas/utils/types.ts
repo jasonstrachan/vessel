@@ -46,6 +46,7 @@ export interface FloatingPaste {
   colorCycleSpeed?: Uint8Array | null;
   colorCycleFlow?: Uint8Array | null;
   colorCyclePhase?: Uint8Array | null;
+  colorCycleSelectionMasks?: NonNullable<AppState['floatingPaste']>['colorCycleSelectionMasks'];
 }
 
 export interface CanvasState {

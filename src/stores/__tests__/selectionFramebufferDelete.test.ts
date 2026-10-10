@@ -1916,6 +1916,82 @@ describe('CC floating selection coverage integration', () => {
     return { ...fixture, source, raw, expectedAlpha };
   };
 
+  it.each([false, true].flatMap(soft => [false, true].map(retry => ({ soft, retry }))))(
+    'retains bitmap alpha when converting into CC (soft $soft, retry $retry)', async ({ soft, retry }) => {
+      const restoreCanvas = enableCoverageCanvas();
+      try {
+        const { capture, before } = setupCoverage(`bitmap-alpha-${soft}-${retry}`, soft);
+        const alpha = [128, 0, 255, 64, 1, 200];
+        const imageData = new ImageData(3, 2);
+        alpha.forEach((value, i) => imageData.data.set([255, 255, 255, value], i * 4));
+        useAppStore.getState().clearSelection();
+        useAppStore.getState().setFloatingPaste({
+          imageData, width: 3, height: 2, position: { x: 4, y: 4 },
+        });
+        if (retry) {
+          const failure = jest.spyOn(layerHistory, 'commitLayerHistory').mockRejectedValueOnce(new Error('bitmap paste history unavailable'));
+          await useAppStore.getState().commitFloatingPaste();
+          failure.mockRestore();
+          expect(capture()).toEqual(before);
+          expect(useAppStore.getState().floatingPaste?.imageData?.data).toEqual(imageData.data);
+          expect(historyManager.entries()).toHaveLength(0);
+        }
+        await useAppStore.getState().commitFloatingPaste();
+        await waitForPendingHistoryCommits();
+        const after = capture();
+        const expectedErase = before.eraseAlpha!.slice();
+        const expectedSoft = before.softAlpha?.slice();
+        const expectedPaint = before.scalars[0].slice();
+        alpha.forEach((value, i) => {
+          const offset = (4 + Math.floor(i / 3)) * 8 + 4 + i % 3;
+          // Bitmap conversion replaces transparent cells under its established contract.
+          if (!value) { expectedPaint[offset] = 0; return; }
+          expectedErase[offset] = 255 - value;
+          if (expectedSoft) expectedSoft[offset] = 255;
+          expectedPaint[offset] = 255;
+        });
+        expect(after.eraseAlpha).toEqual(expectedErase);
+        expect(after.softAlpha).toEqual(expectedSoft ?? null);
+        expect(after.scalars[0]).toEqual(expectedPaint);
+        expect(useAppStore.getState().floatingPaste).toBeNull();
+        expect(historyManager.entries()).toHaveLength(1);
+        await historyManager.undo();
+        expect(capture()).toEqual(before);
+        await historyManager.redo();
+        expect(capture()).toEqual(after);
+      } finally { restoreCanvas(); }
+    },
+  );
+
+  it.each((['copy', 'cut'] as const).flatMap(mode =>
+    [false, true].flatMap(floating => [false, true].map(softEnabled => ({ mode, floating, softEnabled }))),
+  ))('preserves covered CC clipboard pixels/masks for $mode (floating $floating, soft $softEnabled)', async ({ mode, floating, softEnabled }) => {
+    const restoreCanvas = enableCoverageCanvas();
+    try {
+      const { capture, expectedAlpha } = setupVisibleCoverage(softEnabled);
+      if (floating) expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+      const before = capture();
+      const sourceMasks = useAppStore.getState().floatingPaste?.colorCycleSelectionMasks;
+      await expect(useAppStore.getState().copySelectionToClipboard({ mode })).resolves.toBe(true);
+      const clipboard = useAppStore.getState().selectionClipboard!;
+      expect(Array.from(clipboard.imageData.data).filter((_, i) => i % 4 === 3)).toEqual(expectedAlpha);
+      expect(clipboard.colorCycleSelectionMasks).toEqual({
+        membership: new Uint8Array([255, 0, 255, 255, 255, 255]),
+        eraseAlpha: new Uint8Array([128, 0, 255, 0, 64, 0]),
+        softEdgeAlpha: new Uint8Array([96, 255, 0, 255, 180, 255]),
+      });
+      if (sourceMasks) {
+        expect(clipboard.colorCycleSelectionMasks?.membership).not.toBe(sourceMasks.membership);
+        expect(clipboard.colorCycleSelectionMasks?.eraseAlpha).not.toBe(sourceMasks.eraseAlpha);
+        expect(clipboard.colorCycleSelectionMasks?.softEdgeAlpha).not.toBe(sourceMasks.softEdgeAlpha);
+      }
+      expect(clipboard.colorCycleIndices?.[2]).toBe(9); // Fully erased paint still owns indexed data.
+      if (mode === 'copy') expect(capture()).toEqual(before);
+    } finally {
+      restoreCanvas();
+    }
+  });
+
   it.each(['mask-draw', 'scratch-context'] as const)('refuses extraction before mutation when coverage %s fails, retaining display fallback', (failure) => {
     const restoreCanvas = enableCoverageCanvas();
     let restoreFailure = () => {};

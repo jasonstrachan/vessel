@@ -4,9 +4,14 @@ import { useDrawingCanvasHandlerAdapters } from '@/components/canvas/useDrawingC
 import type { BrushCursorHandle } from '@/components/canvas/BrushCursor';
 
 describe('useDrawingCanvasHandlerAdapters', () => {
-  it('preserves color-cycle phase when forwarding floating paste from handlers', () => {
+  it('preserves color-cycle phase and coverage when forwarding floating paste from handlers', () => {
     const setFloatingPaste = jest.fn();
     const colorCyclePhase = new Uint8Array([1, 2, 3, 4]);
+    const colorCycleSelectionMasks = {
+      membership: new Uint8Array([255, 0, 255, 255]),
+      eraseAlpha: new Uint8Array([128, 0, 255, 0]),
+      softEdgeAlpha: new Uint8Array([255, 255, 120, 255]),
+    };
     const { result } = renderHook(() =>
       useDrawingCanvasHandlerAdapters({
         switchTool: jest.fn(),
@@ -29,12 +34,14 @@ describe('useDrawingCanvasHandlerAdapters', () => {
       sourceLayerId: 'layer-cc',
       colorCycleIndices: new Uint8Array([5, 6, 7, 8]),
       colorCyclePhase,
+      colorCycleSelectionMasks,
     });
 
     expect(setFloatingPaste).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceLayerId: 'layer-cc',
         colorCyclePhase,
+        colorCycleSelectionMasks,
       })
     );
   });

@@ -1,6 +1,11 @@
 import { createClipboardHandlers } from '@/hooks/canvas/handlers/clipboardHandlers';
 import type { EventHandlerDependencies } from '@/hooks/canvas/utils/types';
 import studioExtension from '@/extensions/studioExtension';
+import { getAppStoreState } from '@/stores/appStoreAccess';
+
+jest.mock('@/stores/appStoreAccess', () => ({ getAppStoreState: jest.fn() }));
+
+const liveState = { floatingPaste: null as EventHandlerDependencies['floatingPaste'] };
 
 type ClipboardDeps = EventHandlerDependencies;
 
@@ -28,6 +33,11 @@ const createDeps = (): ClipboardDeps => {
 };
 
 describe('createClipboardHandlers', () => {
+  beforeEach(() => {
+    liveState.floatingPaste = null;
+    jest.mocked(getAppStoreState).mockImplementation(() => liveState as ReturnType<typeof getAppStoreState>);
+  });
+
   afterEach(() => {
     studioExtension.handleClipboardAction = undefined;
     jest.restoreAllMocks();
@@ -76,7 +86,7 @@ describe('createClipboardHandlers', () => {
     expect(deps.setFloatingPaste).not.toHaveBeenCalled();
   });
 
-  it('prefers internal clipboard payload with CC indices over image clipboard items', async () => {
+  it('retains indexed metadata when the native clipboard identity matches', async () => {
     const deps = createDeps();
     const ccIndices = new Uint8Array([5, 6, 7, 8]);
     const ccGradientIds = new Uint8Array([9, 10, 11, 12]);
@@ -99,6 +109,7 @@ describe('createClipboardHandlers', () => {
         width: 2,
         height: 2,
         mode: 'copy',
+        clipboardId: 'own-copy',
         colorCycleIndices: ccIndices,
         colorCycleGradientIds: ccGradientIds,
         colorCycleGradientDefIds: ccGradientDefIds,
@@ -107,6 +118,7 @@ describe('createClipboardHandlers', () => {
         colorCycleFlow: ccFlow,
         colorCyclePhase: ccPhase,
         colorCycleSourceLayerId: 'layer-cc',
+        colorCycleSelectionMasks: { membership: new Uint8Array([255, 0, 255, 255]), eraseAlpha: new Uint8Array([128, 0, 255, 0]), softEdgeAlpha: new Uint8Array([255, 255, 120, 255]) },
       },
     } as ClipboardDeps['selectionClipboardRef'];
 
@@ -123,6 +135,7 @@ describe('createClipboardHandlers', () => {
       },
     } as unknown as ClipboardEvent;
 
+    Object.assign(event.clipboardData!, { getData: () => '<img data-vessel-selection="own-copy">' });
     const handlers = createClipboardHandlers(deps);
     await handlers.handlePaste(event);
 
@@ -139,6 +152,7 @@ describe('createClipboardHandlers', () => {
         colorCycleSpeed: ccSpeed,
         colorCycleFlow: ccFlow,
         colorCyclePhase: ccPhase,
+        colorCycleSelectionMasks: deps.selectionClipboardRef!.current!.colorCycleSelectionMasks,
       })
     );
   });
@@ -214,5 +228,173 @@ describe('createClipboardHandlers', () => {
       global.FileReader = originalFileReader;
       global.Image = originalImage;
     }
+  });
+
+  describe('native clipboard identity admission', () => {
+    const setup = (html: string, type = 'image/png') => {
+      const deps = createDeps();
+      deps.selectionClipboardRef!.current = {
+        imageData: new ImageData(2, 2), width: 2, height: 2,
+        position: { x: 31, y: 27 }, mode: 'cut', clipboardId: 'current-copy',
+        colorCycleIndices: new Uint8Array([1, 2, 3, 4]),
+      };
+      const external = new ImageData(3, 2);
+      external.data.fill(129);
+      jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+        (() => ({ drawImage: jest.fn(), getImageData: () => external })) as unknown as HTMLCanvasElement['getContext'],
+      );
+      class Reader {
+        onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+        readAsDataURL() { this.onload?.({ target: { result: 'data:image/png;base64,fixture' } } as ProgressEvent<FileReader>); }
+      }
+      class DecodedImage {
+        width = 3;
+        height = 2;
+        onload: (() => void) | null = null;
+        set src(_value: string) { this.onload?.(); }
+      }
+      jest.spyOn(global, 'FileReader').mockImplementation(() => new Reader() as unknown as FileReader);
+      jest.spyOn(global, 'Image').mockImplementation(() => new DecodedImage() as unknown as HTMLImageElement);
+      const event = {
+        target: document.body, preventDefault: jest.fn(),
+        clipboardData: {
+          getData: (format: string) => format === 'text/html' ? html : '',
+          types: type ? [type] : [],
+          items: type ? [{ type, getAsFile: () => new Blob(['external'], { type }) }] : [],
+        },
+      } as unknown as ClipboardEvent;
+      return { deps, event, external };
+    };
+    const paste = async (deps: ClipboardDeps, event: ClipboardEvent) => {
+      await createClipboardHandlers(deps).handlePaste(event);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    };
+
+    it.each(['', '<img data-vessel-selection="older-copy">'])(
+      'uses the current external image when its marker is %s', async html => {
+        const { deps, event, external } = setup(html);
+        await paste(deps, event);
+        expect(deps.setFloatingPaste).toHaveBeenCalledWith(expect.objectContaining({
+          imageData: external, width: 3, height: 2, colorCycleIndices: null,
+        }));
+      },
+    );
+    it('retains the original Cut position when a raster copy identity matches', async () => {
+      const { deps, event } = setup('<html><body><img data-vessel-selection="current-copy"></body></html>');
+      deps.selectionClipboardRef!.current!.colorCycleIndices = null;
+      await paste(deps, event);
+      expect(deps.setFloatingPaste).toHaveBeenCalledWith(expect.objectContaining({
+        width: 2, height: 2, position: { x: 31, y: 27 },
+      }));
+    });
+    it('does not paste stale pixels over a newer nonimage clipboard', async () => {
+      const { deps, event } = setup('', 'text/plain');
+      await paste(deps, event);
+      expect(deps.setFloatingPaste).not.toHaveBeenCalled();
+      expect(deps.commitFloatingPaste).not.toHaveBeenCalled();
+    });
+    it('supports the internal fallback when the system provides no content', async () => {
+      const { deps, event } = setup('', '');
+      await paste(deps, event);
+      expect(deps.setFloatingPaste).toHaveBeenCalledWith(expect.objectContaining({ width: 2, height: 2 }));
+    });
+  });
+
+  describe('pending replacement admission', () => {
+    const setup = (branch: 'internal' | 'cc' | 'image') => {
+      const deps = createDeps();
+      const pending = {
+        active: true, imageData: new ImageData(4, 4), position: { x: 1, y: 2 },
+        width: 4, height: 4, sourceLayerId: 'extracted-source',
+      } as NonNullable<typeof liveState.floatingPaste>;
+      liveState.floatingPaste = pending;
+      deps.dynamicDepsRef.current.floatingPaste = pending;
+      deps.selectionClipboardRef!.current = {
+        imageData: new ImageData(2, 2), position: { x: 0, y: 0 }, width: 2, height: 2,
+        mode: 'copy', clipboardId: 'pending-copy', colorCycleIndices: branch === 'cc' ? new Uint8Array([1, 2, 3, 4]) : null,
+      };
+      jest.mocked(deps.setFloatingPaste).mockImplementation(value => { liveState.floatingPaste = value; });
+      const getAsFile = jest.fn(() => new Blob(['image'], { type: 'image/png' }));
+      const event = {
+        target: document.body, preventDefault: jest.fn(),
+        clipboardData: { getData: () => branch === 'cc' ? '<img data-vessel-selection="pending-copy">' : '', items: branch === 'internal' ? [] : [{ type: 'image/png', getAsFile }] },
+      } as unknown as ClipboardEvent;
+      return { deps, pending, event };
+    };
+    const flushImageCallbacks = async () => {
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    };
+    beforeEach(() => {
+      // Decode is an I/O boundary; replacement still uses the real handler and live admission.
+      class TestFileReader {
+        onload: ((event: ProgressEvent<FileReader>) => void) | null = null;
+        readAsDataURL() {
+          this.onload?.({ target: { result: 'data:image/png;base64,fixture' } } as ProgressEvent<FileReader>);
+        }
+      }
+      class TestImage {
+        width = 2;
+        height = 2;
+        onload: (() => void) | null = null;
+        set src(_value: string) { this.onload?.(); }
+      }
+      jest.spyOn(global, 'FileReader').mockImplementation(() => new TestFileReader() as unknown as FileReader);
+      jest.spyOn(global, 'Image').mockImplementation(() => new TestImage() as unknown as HTMLImageElement);
+    });
+
+    it.each(['internal', 'cc', 'image'] as const)('preserves a refused %s replacement and its selection', async branch => {
+      const { deps, pending, event } = setup(branch);
+      await createClipboardHandlers(deps).handlePaste(event);
+      await flushImageCallbacks();
+      expect(deps.commitFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(liveState.floatingPaste).toBe(pending);
+      expect(deps.setFloatingPaste).not.toHaveBeenCalled();
+      expect(deps.clearSelection).not.toHaveBeenCalled();
+    });
+
+    it.each(['internal', 'cc', 'image'] as const)('preserves a rejected %s replacement', async branch => {
+      const { deps, pending, event } = setup(branch);
+      jest.mocked(deps.commitFloatingPaste).mockRejectedValueOnce(new Error('commit rejected'));
+      await createClipboardHandlers(deps).handlePaste(event);
+      await flushImageCallbacks();
+      expect(liveState.floatingPaste).toBe(pending);
+      expect(deps.setFloatingPaste).not.toHaveBeenCalled();
+      expect(deps.clearSelection).not.toHaveBeenCalled();
+    });
+
+    it.each(['internal', 'cc', 'image'] as const)('admits successful %s replacement despite a stale React snapshot', async branch => {
+      const { deps, pending, event } = setup(branch);
+      jest.mocked(deps.commitFloatingPaste).mockImplementation(async () => { liveState.floatingPaste = null; });
+      await createClipboardHandlers(deps).handlePaste(event);
+      await flushImageCallbacks();
+      expect(deps.dynamicDepsRef.current.floatingPaste).toBe(pending);
+      expect(deps.setFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(liveState.floatingPaste?.width).toBe(2);
+    });
+
+    it('consults live ownership when React has not observed an extraction', async () => {
+      const { deps, pending, event } = setup('internal');
+      deps.dynamicDepsRef.current.floatingPaste = null;
+      await createClipboardHandlers(deps).handlePaste(event);
+      expect(deps.commitFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(liveState.floatingPaste).toBe(pending);
+      expect(deps.setFloatingPaste).not.toHaveBeenCalled();
+    });
+
+    it('does not overwrite a newly admitted float when overlapping pastes share a commit', async () => {
+      const { deps, event } = setup('internal');
+      let resolve!: () => void;
+      const commit = new Promise<void>(done => { resolve = done; });
+      jest.mocked(deps.commitFloatingPaste).mockReturnValue(commit);
+      const first = createClipboardHandlers(deps).handlePaste(event);
+      const second = createClipboardHandlers(deps).handlePaste(event);
+      await flushImageCallbacks();
+      expect(deps.commitFloatingPaste).toHaveBeenCalledTimes(2);
+      liveState.floatingPaste = null;
+      resolve();
+      await Promise.all([first, second]);
+      expect(deps.setFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(deps.clearSelection).toHaveBeenCalledTimes(1);
+    });
   });
 });

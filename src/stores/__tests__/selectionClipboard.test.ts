@@ -151,6 +151,39 @@ describe('selection clipboard helpers', () => {
     }
   });
 
+  it('writes an image identity paired with each internal snapshot', async () => {
+    setupSelectionState();
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const itemDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'ClipboardItem');
+    const writes: Record<string, Blob>[] = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { write: jest.fn(async () => undefined) } });
+    Object.defineProperty(globalThis, 'ClipboardItem', { configurable: true, value: class {
+      constructor(formats: Record<string, Blob>) { writes.push(formats); }
+    } });
+    jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(callback => callback(new Blob(['png'], { type: 'image/png' })));
+    jest.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,cG5n');
+    const readBlob = (blob: Blob) => new Promise<string>(resolve => {
+      const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blob);
+    });
+    try {
+      await useAppStore.getState().copySelectionToClipboard();
+      const firstId = useAppStore.getState().selectionClipboard?.clipboardId;
+      expect(firstId).toEqual(expect.any(String));
+      expect(writes[0]['image/png']).toBeInstanceOf(Blob);
+      expect(writes[0]['text/html']).toBeInstanceOf(Blob);
+      const html = new DOMParser().parseFromString(await readBlob(writes[0]['text/html']), 'text/html');
+      expect(html.querySelector('img')?.getAttribute('data-vessel-selection')).toBe(firstId);
+      expect(html.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,cG5n');
+      await useAppStore.getState().copySelectionToClipboard();
+      expect(useAppStore.getState().selectionClipboard?.clipboardId).not.toBe(firstId);
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, 'clipboard', descriptor);
+      else delete (navigator as { clipboard?: Clipboard }).clipboard;
+      if (itemDescriptor) Object.defineProperty(globalThis, 'ClipboardItem', itemDescriptor);
+      else delete (globalThis as { ClipboardItem?: typeof ClipboardItem }).ClipboardItem;
+    }
+  });
+
   it('copies marquee pixels into the internal clipboard without mutating the layer', async () => {
     const { layer } = setupSelectionState();
     const beforeCopy = new Uint8ClampedArray(layer.imageData?.data ?? new Uint8ClampedArray());

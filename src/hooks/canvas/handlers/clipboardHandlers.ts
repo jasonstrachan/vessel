@@ -1,4 +1,5 @@
 import studioExtension from '@/extensions/studioExtension';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { debugWarn } from '@/utils/debug';
 import type { ClipboardHandlers, EventHandlerDependencies } from '../utils/types';
 
@@ -35,14 +36,13 @@ const isTextPasteTarget = (target: EventTarget | null): boolean => {
 export const createClipboardHandlers = (
   deps: EventHandlerDependencies
 ): Pick<ClipboardHandlers, 'handlePaste'> => {
-  const applyInternalClipboardPaste = async () => {
+  const applyInternalClipboardPaste = (clipboardPayload: NonNullable<EventHandlerDependencies['selectionClipboardRef']>['current']) => {
     const getViewportPastePosition = deps.getViewportPastePosition;
     const selectionClipboardRef = deps.selectionClipboardRef;
     if (!getViewportPastePosition || !selectionClipboardRef) {
       return false;
     }
 
-    const clipboardPayload = selectionClipboardRef.current;
     if (!clipboardPayload) {
       return false;
     }
@@ -73,6 +73,13 @@ export const createClipboardHandlers = (
       colorCycleSpeed: clipboardPayload.colorCycleSpeed ?? null,
       colorCycleFlow: clipboardPayload.colorCycleFlow ?? null,
       colorCyclePhase: clipboardPayload.colorCyclePhase ?? null,
+      colorCycleSelectionMasks: clipboardPayload.colorCycleSelectionMasks
+        ? {
+            membership: clipboardPayload.colorCycleSelectionMasks.membership.slice(),
+            eraseAlpha: clipboardPayload.colorCycleSelectionMasks.eraseAlpha?.slice() ?? null,
+            softEdgeAlpha: clipboardPayload.colorCycleSelectionMasks.softEdgeAlpha?.slice() ?? null,
+          }
+        : null,
     });
 
     requestAnimationFrame(() => {
@@ -105,27 +112,34 @@ export const createClipboardHandlers = (
     }
     event.preventDefault();
 
-    const commitExistingFloatingIfPresent = async () => {
-      if (!deps.dynamicDepsRef.current.floatingPaste) {
-        return;
-      }
+    const applyAfterPendingCommit = async (apply: () => void) => {
       try {
-        await deps.commitFloatingPaste();
+        if (getAppStoreState().floatingPaste) {
+          await deps.commitFloatingPaste();
+        }
       } catch (error) {
         if (process.env.NODE_ENV !== 'production') {
           debugWarn('raw-console', '[floatingPaste] Failed to commit existing floating before paste', error);
         }
+        return;
       }
+      // Refusals retain the recoverable float. Read the live owner, since React may
+      // lag behind a commit or another paste sharing that commit may have won admission.
+      if (getAppStoreState().floatingPaste) return;
+      apply();
     };
 
     const project = deps.dynamicDepsRef.current.project;
     const clipboardPayload = selectionClipboardRef.current;
-    if (clipboardPayload?.colorCycleIndices?.length) {
-      await commitExistingFloatingIfPresent();
-      const applied = await applyInternalClipboardPaste();
-      if (applied) {
-        return;
-      }
+    const clipboardHtml = event.clipboardData?.getData?.('text/html');
+    const clipboardTemplate = document.createElement('template');
+    clipboardTemplate.innerHTML = clipboardHtml ?? '';
+    const nativeClipboardId = clipboardTemplate.content.querySelector('img[data-vessel-selection]')
+      ?.getAttribute('data-vessel-selection');
+    // Indexed planes and Cut positioning belong only to this exact native copy.
+    if (clipboardPayload?.clipboardId && nativeClipboardId === clipboardPayload.clipboardId) {
+      await applyAfterPendingCommit(() => applyInternalClipboardPaste(clipboardPayload));
+      return;
     }
 
     const items = event.clipboardData?.items;
@@ -174,28 +188,29 @@ export const createClipboardHandlers = (
             tempCtx.drawImage(img, 0, 0);
             const pasteImageData = tempCtx.getImageData(imageX, imageY, imageWidth, imageHeight);
 
-            await commitExistingFloatingIfPresent();
-            deps.clearSelection();
-            deps.setFloatingPaste({
-              active: true,
-              imageData: pasteImageData,
-              position: viewportPosition,
-              originalPosition: viewportPosition,
-              width: imageWidth,
-              height: imageHeight,
-              displayWidth: imageWidth,
-              displayHeight: imageHeight,
-              rotation: 0,
-              sourceLayerId: null,
-              colorCycleIndices: null,
-            });
+            await applyAfterPendingCommit(() => {
+              deps.clearSelection();
+              deps.setFloatingPaste({
+                active: true,
+                imageData: pasteImageData,
+                position: viewportPosition,
+                originalPosition: viewportPosition,
+                width: imageWidth,
+                height: imageHeight,
+                displayWidth: imageWidth,
+                displayHeight: imageHeight,
+                rotation: 0,
+                sourceLayerId: null,
+                colorCycleIndices: null,
+              });
 
-            requestAnimationFrame(() => {
-              const canvas = deps.canvasRef.current;
-              const ctx = canvas?.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                deps.draw(ctx, deps.viewTransformRef.current);
-              }
+              requestAnimationFrame(() => {
+                const canvas = deps.canvasRef.current;
+                const ctx = canvas?.getContext('2d', { willReadFrequently: true });
+                if (ctx) {
+                  deps.draw(ctx, deps.viewTransformRef.current);
+                }
+              });
             });
           };
 
@@ -210,8 +225,9 @@ export const createClipboardHandlers = (
     if (handled) {
       return;
     }
-    await commitExistingFloatingIfPresent();
-    await applyInternalClipboardPaste();
+    if (!items?.length && !event.clipboardData?.types?.length) {
+      await applyAfterPendingCommit(() => applyInternalClipboardPaste(clipboardPayload));
+    }
   };
 
   return {

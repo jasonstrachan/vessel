@@ -1,6 +1,68 @@
-# Vessel whole-app audit handover — 10 October 2026, session 23
+# Vessel whole-app audit handover — 10 October 2026, session 25
+
+## Latest continuation — Session25
+
+FIRST READ `output/playwright/area09-root-facts-session25.md`, then inventory Session25
+closure and `output/playwright/area10-owner-review-session25.md`. Area09software-
+complete: C01–C07 repaired, selected47configs254/254checks; fullJest589suites5533tests,
+fulltype/lint/build/diff pass. One existing skipped suite/test. Focused local commit
+hash follows in rootfacts/postcommit receipt.9/65complete; NEXT Area10then11–65.
+
+C06 writes PNG plus usable HTML image with unique native clipboard identity; cached
+indexed data/Cut origin only admitted for matching own content or an empty event.
+New external PNG/text wins. C07 converts bitmap alpha into existing erase coverage,
+preserving fractional alpha across native CC commit/UndoRedo/retry. C01–C05 canonical
+Cut/recovery/mask forwarding remain covered. Ten source/test files, two auditdocs;
+all47original files and original staged patch remain exact. Source/build hashes and
+precise native runs are in Session25 evidence; final artifact2026-10-10T06:33:20.411Z.
+Two fixture failures (empty-item clipboard write was no-op, optional CC bitmap mirror)
+are explicitly excluded and corrected. No new application failures remain in Area09.
+
+Same preview retained; namedbrowser CLOSED with exactcleanup verified. No push/deploy/
+branch/worktree change. No active sourcewriters/browser commands. Continue10–65 with
+bounded subagents and local continuation chats before70%context as authorized.
+Do not restore old wholefiles or rerun historical commit scripts. Current preservation
+baseline and pending process status are in Session25rootfacts. Earlier entries are
+historical and superseded by the newest receipt.
+
+## Latest continuation — Session24
+
+FIRST READ `output/playwright/area09-root-facts-session24.md`, then inventory Session24
+and `output/playwright/area09-next-owner-review-session24.md`. Continue execution09
+then10–65, no renewed authorization.8/65complete;09partial/uncommitted. C01–C05
+repaired, final artifact16configs100/100nativechecks,8suites198tests, fulltype/lint/
+atomicbuild/diff pass. No fullJest/partial-area commit. Head remains5f093aef9 main.
+
+C01 live clipboard admission preserves refused extraction recovery; C02–C04 Cut now
+uses canonical extraction/Delete, fixing locked mutation, Sequence events/Redo,
+raster framebuffer and floating Cut history. C05 covered bitmap plus independent
+membership/erase/soft masks are forwarded through the actual canvas adapter. That
+adapter has its own failing-before regression. Eight source/test files, two auditdocs;
+all47original dirtypaths and original staged patch remain exact. Final artifact
+2026-10-10T06:20:31.547Z binds8owners, no later source/test edits.
+
+NEXT C06 native-reproduced/unpatched: valid CC Copy then newer external3x2PNG still
+pastes old64x24CCpayload. Raster control passes;2configs7checks6pass,0aborted/errors.
+Trace native clipboard identity/admission; keep indexed metadata for valid own copies.
+Don't blindly prefer stale CC or discard all indexed data. Checklist and exact script
+in next-owner review/rootfacts. Other clipboard cases remain; don't prematurely commit09.
+
+Same previewPID14471 retained. Named audit browser CLOSED with exactcleanup verified.
+Fresh Session24baseline/backups supersede older wholefile recovery copies. No source
+writers/builds/tests/browser commands remain. No push/deploy/branch/worktree change.
+Authorization for65areas,bounded subagents,completed-area localcommits and continuation
+chats before70%context persists. Earlier Session23 and older entries are historical.
+
 
 ## Latest continuation — Session23
+
+FIRST READ `output/playwright/area09-root-facts-session23.md`, then inventory Session23
+and `area09-owner-review-session23.md`. Area08 committed5f093aef9;8/65complete.
+Area09 C01 native-reproduced/unpatched: refused locked-target pending commit still
+replaced by clipboard, loses context and4096sourceRGBAchannels on Escape. Valid
+native2cases13checks11pass; successful replacement passes. No09source/test edits.
+Fresh baseline/backups and exact browser/process cleanup in Session23 root-facts.
+The following precommit paragraph is historical; closing receipt has exact hash.
 
 Area08 software-complete: M01–M08 fixed and final artifact19configs186/186native
 checks, owner11suites212tests, fullJest588suites5494tests, fulltype/lint/build/diff pass.
@@ -1445,3 +1507,13 @@ area08-sequence-design-session19.md. Preserve the current four Area08 source/tes
 edits; they are not committed. New dirty count53 includes original47,2auditdocs and
 4Area08owners/tests. Source/test hashes match the final production artifact receipt.
 No branch change, push or deployment. Continued execution remains authorized.
+
+
+### Session23 local Area08 commit receipt
+
+Committed locally on main: `5f093aef9b98341875c8a4c6c549823279415f9d`
+(`fix: preserve selected artwork across move destinations`). All18 intended paths
+committed; zero original dirty-path overlap. Original47 file hashes and staged patch
+SHA2565d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09 remain exact.
+No push/deployment. **8/65 areas software-complete; Area09 active,09–65 incomplete.**
+Do not rerun historical Area07/08 commit scripts or restore old whole-file backups.
