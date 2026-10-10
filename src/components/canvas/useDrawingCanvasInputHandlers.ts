@@ -107,6 +107,7 @@ export const useDrawingCanvasInputHandlers = ({
     handlePointerEnter: basePointerEnter,
     handlePointerLeave: basePointerLeave,
     handlePointerCancel: basePointerCancel,
+    handleMouseDown,
     handleDoubleClick,
     handleKeyDown: eventHandleKeyDown,
     handleKeyUp: eventHandleKeyUp,
@@ -208,6 +209,7 @@ export const useDrawingCanvasInputHandlers = ({
   }), [pointerHandlers, reportHumanPointer, releaseTargetPointer, eventHandlerArgs.tools.currentTool, eventHandlerArgs.compositeCanvasRef, getWorldPointFromPointerEvent, isSpacePressedRef]);
 
   useDrawingCanvasEventBindings({
+    eventHandleMouseDown: handleMouseDown,
     eventHandleKeyDown,
     eventHandleKeyUp,
     eventHandleWheel,

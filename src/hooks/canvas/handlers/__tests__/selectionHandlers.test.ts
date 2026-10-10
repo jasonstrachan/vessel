@@ -1,10 +1,12 @@
 import {
   createSelectionHandlers,
   cancelSelectionSession,
+  cancelStaleSelectionSession,
   finalizeClickLineSelectionSession,
 } from '@/hooks/canvas/handlers/selectionHandlers';
 import type { SelectionHandlerDeps, SelectionRuntimeDynamicDeps } from '@/hooks/canvas/handlers/selectionHandlers';
-import type { EventHandlerDynamicDeps } from '@/hooks/canvas/utils/types';
+import type { EventHandlerDependencies, EventHandlerDynamicDeps } from '@/hooks/canvas/utils/types';
+import { createKeyboardHandlers } from '@/hooks/canvas/handlers/keyboardHandlers';
 import type { BrushSettings, PaletteState, PolygonGradientState } from '@/types';
 import { BrushShape } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
@@ -221,40 +223,7 @@ describe('selectionHandlers append selection', () => {
     expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 20, height: 20 });
   });
 
-  it('appends click-line masks when Shift is held', () => {
-    useAppStore.setState({
-      selectionStart: { x: 0, y: 0 },
-      selectionEnd: { x: 2, y: 2 },
-      selectionMask: null,
-      selectionMaskBounds: null,
-      selectionMaskLayerId: null,
-    });
 
-    const dynamic = createDynamicDeps();
-    const runtime = {
-      pendingSelectionHistory: null,
-      freehandSession: { active: false, points: [] },
-      clickLineSession: {
-        active: true,
-        points: [
-          { x: 10, y: 10 },
-          { x: 12, y: 10 },
-          { x: 12, y: 12 },
-        ],
-      },
-      marqueeAutoPan: { frameId: null, screenPos: null },
-    };
-
-    const handled = finalizeClickLineSelectionSession({
-      runtime,
-      dynamic,
-      outcome: 'selection-click-line',
-      append: true,
-    });
-
-    expect(handled).toBe(true);
-    expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 12, height: 12 });
-  });
 
 
 });
@@ -357,7 +326,7 @@ describe('marquee gesture baseline and exact history', () => {
     let handlers = createSelectionHandlers(deps, getDynamic);
     if (!initialShift) handlers.handleSelectionHitTest({ worldPos: { x: 12, y: 12 }, dynamic: getDynamic() });
     handlers.handleSelectionToolPointerDown({
-      worldPos: { x: 12, y: 12 }, pointerId: 5, clickCount: 1,
+      worldPos: { x: 12, y: 12 }, pointerId: 5,
       shiftKey: initialShift, tools: baseDynamic.tools, dynamic: getDynamic(),
     });
     handlers.handleSelectionPointerMove({ worldPos: { x: 20, y: 20 }, screenPos: { x: 50, y: 50 }, shiftKey: initialShift });
@@ -454,7 +423,7 @@ describe('selection gesture cancellation authority', () => {
       } },
     };
     const handlers = createSelectionHandlers(deps, () => dynamic);
-    handlers.handleSelectionToolPointerDown({ worldPos: { x: 20, y: 20 }, pointerId: 7, clickCount: 1,
+    handlers.handleSelectionToolPointerDown({ worldPos: { x: 20, y: 20 }, pointerId: 7,
       shiftKey: true, tools: dynamic.tools, dynamic });
     deps.interaction.state.isSelecting = true;
     handlers.handleSelectionPointerMove({ worldPos: { x: 40, y: 40 }, screenPos: { x: 98, y: 50 }, shiftKey: true });
@@ -497,7 +466,7 @@ describe('selection gesture cancellation authority', () => {
       expect(retainedBefore.mask).toBeNull();
     }
     dynamic.tools.selectionMode = 'marquee';
-    handlers.handleSelectionToolPointerDown({ worldPos: { x: 20, y: 20 }, pointerId: 8, clickCount: 1,
+    handlers.handleSelectionToolPointerDown({ worldPos: { x: 20, y: 20 }, pointerId: 8,
       shiftKey: false, tools: dynamic.tools, dynamic });
     handlers.handleSelectionPointerMove({ worldPos: { x: 30, y: 30 }, screenPos: { x: 50, y: 50 }, shiftKey: false });
     handlers.handleSelectionPointerUp({ event: { pointerId: 8, shiftKey: false } as React.PointerEvent<Element>,
@@ -507,7 +476,7 @@ describe('selection gesture cancellation authority', () => {
   });
 });
 
-describe('freehand selection admission, validity and terminal authority', () => {
+describe('polygon selection admission, validity and terminal authority', () => {
   beforeEach(() => {
     // Canvas path rasterization is the I/O boundary; jsdom's shared canvas mock leaves fill empty.
     const prototype = Object.getPrototypeOf(document.createElement('canvas').getContext('2d'));
@@ -536,10 +505,10 @@ describe('freehand selection admission, validity and terminal authority', () => 
       this.putImageData(image, 0, 0);
     });
   });
-  const setup = (hasBaseline = true) => {
+  const setup = (hasBaseline = true, selectionMode: 'freehand' | 'click-line' = 'freehand') => {
     historyManager.clear();
     const dynamic = createDynamicDeps();
-    dynamic.tools.selectionMode = 'freehand';
+    dynamic.tools.selectionMode = selectionMode;
     const framebuffer = document.createElement('canvas');
     framebuffer.width = 32;
     framebuffer.height = 32;
@@ -589,7 +558,7 @@ describe('freehand selection admission, validity and terminal authority', () => 
     const handlers = createSelectionHandlers(deps, getDynamic);
     const start = (point = { x: 12, y: 12 }, shiftKey = false) => {
       if (!shiftKey) handlers.handleSelectionHitTest({ worldPos: point, dynamic: getDynamic() });
-      handlers.handleSelectionToolPointerDown({ worldPos: point, pointerId: 9, clickCount: 1,
+      handlers.handleSelectionToolPointerDown({ worldPos: point, pointerId: 9,
         shiftKey, tools: dynamic.tools, dynamic: getDynamic() });
     };
     const move = (point: { x: number; y: number }) => handlers.handleSelectionPointerMove({ worldPos: point, screenPos: point });
@@ -712,4 +681,208 @@ describe('freehand selection admission, validity and terminal authority', () => 
       f.start(); f.move({ x: 20, y: 12 }); f.move({ x: 20, y: 20 }); f.up({ x: 12, y: 20 });
       expect(historyManager.entries()).toHaveLength(1); f.canonical();
     });
+
+  it('appends click-line masks when Shift is held', () => {
+    useAppStore.setState({
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+    });
+
+    const dynamic = createDynamicDeps();
+    const runtime = {
+      pendingSelectionHistory: null,
+      freehandSession: { active: false, points: [] },
+      clickLineSession: {
+        active: true,
+        points: [
+          { x: 10, y: 10 },
+          { x: 12, y: 10 },
+          { x: 12, y: 12 },
+        ],
+      },
+      marqueeAutoPan: { frameId: null, screenPos: null },
+    };
+
+    const handled = finalizeClickLineSelectionSession({
+      runtime,
+      dynamic,
+      outcome: 'selection-click-line',
+      append: true,
+    });
+
+    expect(handled).toBe(true);
+    expect(useAppStore.getState().selectionMaskBounds).toEqual({ x: 0, y: 0, width: 12, height: 12 });
+  });
+
+  const clickLinePoints = [{ x: 12, y: 12 }, { x: 20, y: 12 }, { x: 20, y: 20 }, { x: 12, y: 20 }];
+  const expectedClickLineAlpha = (append: boolean) => Array.from({ length: 1024 }, (_, i) => {
+    const x = i % 32; const y = Math.floor(i / 32);
+    if (x >= 12 && x < 20 && y >= 12 && y < 20) return 255;
+    return append && x >= 2 && x < 6 && y >= 2 && y < 6 && !(x >= 3 && x < 5 && y >= 3 && y < 5) ? 255 : 0;
+  });
+
+  it.each([false, true].flatMap((initialShift) => [false, true].map((finalShift) => ({ initialShift, finalShift }))))(
+    'preserves ClickLine admission and replays terminal Shift $initialShift -> $finalShift', async ({ initialShift, finalShift }) => {
+      const f = setup(true, 'click-line');
+      f.start(clickLinePoints[0], initialShift);
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory?.before).toEqual(f.before);
+      clickLinePoints.slice(1).forEach((point) => f.start(point, initialShift));
+      expect(captureSelectionSnapshot()).toEqual(f.before);
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession.points).toEqual(clickLinePoints);
+      f.start(clickLinePoints[0], finalShift);
+      expect(f.alpha()).toEqual(expectedClickLineAlpha(finalShift));
+      expect(historyManager.entries()).toHaveLength(1);
+      const { provenance: afterProvenance, ...after } = captureSelectionSnapshot();
+      expect(afterProvenance?.source).toBe(finalShift ? 'append-selection-mask' : 'selection-mask');
+      await historyManager.undo();
+      const { provenance: beforeProvenance, ...before } = f.before;
+      const { provenance: undoProvenance, ...undo } = captureSelectionSnapshot();
+      expect(undo).toEqual(before);
+      expect(undoProvenance?.t).toBe(beforeProvenance?.t);
+      await historyManager.redo();
+      const { provenance: redoProvenance, ...redo } = captureSelectionSnapshot();
+      expect(redo).toEqual(after); expect(redoProvenance?.restoredFromHistory).toBe(true);
+      expect(f.alpha()).toEqual(expectedClickLineAlpha(finalShift)); f.canonical();
+    });
+
+  it.each([{ x: 12, y: 12 }, { x: 3, y: 3 }])(
+    'restores ClickLine admission at ($x, $y) with exact prior mask and provenance', (point) => {
+      const f = setup(true, 'click-line'); f.start(point);
+      expect(captureSelectionSnapshot()).toEqual(f.before);
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory?.before).toEqual(f.before);
+      cancelSelectionSession({ runtime: f.deps.selectionRuntimeRef.current, interaction: f.deps.interaction });
+      expect(captureSelectionSnapshot()).toEqual(f.before); expect(historyManager.entries()).toHaveLength(0); f.canonical();
+    });
+
+  const invalidClickLinePaths = [
+    { label: 'horizontal', points: [{ x: 12, y: 12 }, { x: 16, y: 12 }, { x: 20, y: 12 }] },
+    { label: 'vertical', points: [{ x: 12, y: 12 }, { x: 12, y: 16 }, { x: 12, y: 20 }] },
+    { label: 'diagonal', points: [{ x: 12, y: 12 }, { x: 16, y: 16 }, { x: 20, y: 20 }] },
+    { label: 'retrace', points: [{ x: 12, y: 12 }, { x: 20, y: 20 }, { x: 12, y: 12 }] },
+  ];
+  it.each(invalidClickLinePaths.flatMap((path) => [false, true].map((hasBaseline) => ({ ...path, hasBaseline }))))(
+    'rejects ClickLine Shift $label without metadata or history changes (baseline $hasBaseline)', ({ points, hasBaseline }) => {
+      const f = setup(hasBaseline, 'click-line');
+      points.forEach((point) => f.start(point, true));
+      expect(finalizeClickLineSelectionSession({ runtime: f.deps.selectionRuntimeRef.current,
+        dynamic: f.getDynamic(), outcome: 'invalid-append', append: true })).toBe(false);
+      expect(captureSelectionSnapshot()).toEqual(f.before);
+      expect(historyManager.entries()).toHaveLength(0); expect(historyManager.redoEntries()).toHaveLength(0);
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull();
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession).toEqual({ active: false, points: [] }); f.canonical();
+    });
+
+  it('preserves an existing redo branch after invalid ClickLine append', async () => {
+    const f = setup(true, 'click-line');
+    clickLinePoints.forEach((point) => f.start(point)); f.start(clickLinePoints[0]);
+    await historyManager.undo();
+    const before = captureSelectionSnapshot();
+    const entries = [...historyManager.entries()]; const redo = [...historyManager.redoEntries()];
+    expect(redo).toHaveLength(1);
+    invalidClickLinePaths[2].points.forEach((point) => f.start(point, true));
+    expect(finalizeClickLineSelectionSession({ runtime: f.deps.selectionRuntimeRef.current,
+      dynamic: f.getDynamic(), outcome: 'invalid-append-redo', append: true })).toBe(false);
+    expect(captureSelectionSnapshot()).toEqual(before);
+    expect(historyManager.entries()).toEqual(entries); expect(historyManager.redoEntries()).toEqual(redo);
+    await historyManager.redo(); expect(f.alpha()).toEqual(expectedClickLineAlpha(false)); f.canonical();
+  });
+
+  it.each(invalidClickLinePaths.flatMap((path) => [false, true].map((hasBaseline) => ({ ...path, hasBaseline }))))(
+    'records ClickLine reversible replacement clear for $label (baseline $hasBaseline)', async ({ points, hasBaseline }) => {
+      const f = setup(hasBaseline, 'click-line');
+      points.forEach((point) => f.start(point));
+      expect(finalizeClickLineSelectionSession({ runtime: f.deps.selectionRuntimeRef.current,
+        dynamic: f.getDynamic(), outcome: 'invalid-replacement' })).toBe(true);
+      expect(useAppStore.getState().selectionStart).toBeNull(); expect(useAppStore.getState().selectionMask).toBeNull();
+      expect(historyManager.entries()).toHaveLength(hasBaseline ? 1 : 0);
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull();
+      if (hasBaseline) {
+        await historyManager.undo();
+        const { provenance: beforeProvenance, ...before } = f.before;
+        const { provenance: undoProvenance, ...undo } = captureSelectionSnapshot();
+        expect(undo).toEqual(before); expect(undoProvenance?.t).toBe(beforeProvenance?.t);
+        await historyManager.redo(); expect(useAppStore.getState().selectionMask).toBeNull();
+      }
+      f.canonical();
+    });
+
+  it.each([0, 1, 2])('retains a recoverable %i-point ClickLine draft until Escape', (pointCount) => {
+    const f = setup(true, 'click-line');
+    clickLinePoints.slice(0, pointCount).forEach((point) => f.start(point));
+    const runtime = f.deps.selectionRuntimeRef.current;
+    const pending = runtime.pendingSelectionHistory;
+    expect(finalizeClickLineSelectionSession({ runtime, dynamic: f.getDynamic(), outcome: 'short' })).toBe(false);
+    expect(runtime.pendingSelectionHistory).toBe(pending);
+    expect(runtime.clickLineSession.points).toEqual(clickLinePoints.slice(0, pointCount));
+    expect(captureSelectionSnapshot()).toEqual(f.before); expect(historyManager.entries()).toHaveLength(0);
+    cancelSelectionSession({ runtime, interaction: f.deps.interaction });
+    expect(captureSelectionSnapshot()).toEqual(f.before); f.canonical();
+  });
+
+  it('clears pending native mouse admission when cancellation has no polygon draft', () => {
+    const f = setup(true, 'click-line');
+    const runtime = f.deps.selectionRuntimeRef.current;
+    runtime.admittedMousePointerId = 9;
+    expect(cancelSelectionSession({ runtime, interaction: f.deps.interaction })).toBe(false);
+    expect(runtime.admittedMousePointerId).toBeNull();
+    expect(captureSelectionSnapshot()).toEqual(f.before); expect(historyManager.entries()).toHaveLength(0); f.canonical();
+  });
+
+  it.each(['brush', 'marquee', 'freehand'] as const)(
+    'cancels ClickLine immediately after switching to %s between clicks', (transition) => {
+      const f = setup(true, 'click-line'); f.start(); f.start({ x: 20, y: 12 });
+      const isMouseDownRef = { current: false };
+      const suppressBootstrapUntilPointerUpRef = { current: false };
+      const stateMachine = { state: { mode: 'IDLE' }, dispatch: jest.fn() } as unknown as EventHandlerDependencies['stateMachine'];
+      const lifecycle = () => cancelStaleSelectionSession({
+        ...f.deps, runtime: f.deps.selectionRuntimeRef.current, tools: f.dynamic.tools,
+        isMouseDownRef, suppressBootstrapUntilPointerUpRef, stateMachine,
+      });
+      expect(lifecycle()).toBe(false);
+      f.deps.selectionRuntimeRef.current.admittedMousePointerId = 9;
+      if (transition === 'brush') f.dynamic.tools.currentTool = 'brush';
+      else f.dynamic.tools.selectionMode = transition;
+      expect(lifecycle()).toBe(true);
+      expect(f.deps.selectionRuntimeRef.current.admittedMousePointerId).toBeNull();
+      expect(captureSelectionSnapshot()).toEqual(f.before);
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession).toEqual({ active: false, points: [] });
+      expect(f.deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull();
+      expect(isMouseDownRef.current).toBe(false); expect(suppressBootstrapUntilPointerUpRef.current).toBe(true);
+      expect(stateMachine.dispatch).not.toHaveBeenCalled(); expect(f.deps.draw).toHaveBeenCalled();
+      f.dynamic.tools.currentTool = 'selection'; f.dynamic.tools.selectionMode = 'click-line';
+      expect(lifecycle()).toBe(false);
+      expect(finalizeClickLineSelectionSession({ runtime: f.deps.selectionRuntimeRef.current,
+        dynamic: f.getDynamic(), outcome: 'late-enter' })).toBe(false);
+      expect(captureSelectionSnapshot()).toEqual(f.before); expect(historyManager.entries()).toHaveLength(0); f.canonical();
+    });
+
+  it.each(['Enter', 'NumpadEnter'].flatMap((code) => [false, true].flatMap((initialShift) =>
+    [false, true].map((finalShift) => ({ code, initialShift, finalShift })))))(
+    'replays real keyboard $code with terminal Shift $initialShift -> $finalShift', async ({ code, initialShift, finalShift }) => {
+      const f = setup(true, 'click-line');
+      clickLinePoints.forEach((point) => f.start(point, initialShift));
+      const state = useAppStore.getState();
+      useAppStore.setState({ ui: { ...state.ui, keyboardScope: { ...state.ui.keyboardScope, active: 'canvas' } } });
+      const keyboardDeps = { ...f.deps, dynamicDepsRef: { current: f.getDynamic() },
+        drawingHandlers: {}, setNeedsRedraw: jest.fn(),
+      } as unknown as EventHandlerDependencies;
+      createKeyboardHandlers(keyboardDeps).handleKeyDown(new KeyboardEvent('keydown', { key: 'Enter', code, shiftKey: finalShift }));
+      expect(f.alpha()).toEqual(expectedClickLineAlpha(finalShift));
+      expect(historyManager.entries()).toHaveLength(1);
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession).toEqual({ active: false, points: [] });
+      const { provenance: afterProvenance, ...after } = captureSelectionSnapshot();
+      expect(afterProvenance?.source).toBe(finalShift ? 'append-selection-mask' : 'selection-mask');
+      await historyManager.undo();
+      const { provenance: beforeProvenance, ...before } = f.before;
+      const { provenance: undoProvenance, ...undo } = captureSelectionSnapshot();
+      expect(undo).toEqual(before); expect(undoProvenance?.t).toBe(beforeProvenance?.t);
+      await historyManager.redo();
+      const { provenance: redoProvenance, ...redo } = captureSelectionSnapshot();
+      expect(redo).toEqual(after); expect(redoProvenance?.restoredFromHistory).toBe(true);
+      expect(f.alpha()).toEqual(expectedClickLineAlpha(finalShift)); f.canonical();
+    });
+
 });

@@ -2,6 +2,7 @@ import type React from 'react';
 import { useEffect } from 'react';
 
 interface UseDrawingCanvasEventBindingsOptions {
+  eventHandleMouseDown: (event: MouseEvent) => void;
   eventHandleKeyDown: (event: KeyboardEvent) => void;
   eventHandleKeyUp: (event: KeyboardEvent) => void;
   eventHandleWheel: (event: WheelEvent) => void;
@@ -11,6 +12,7 @@ interface UseDrawingCanvasEventBindingsOptions {
 }
 
 export const useDrawingCanvasEventBindings = ({
+  eventHandleMouseDown,
   eventHandleKeyDown,
   eventHandleKeyUp,
   eventHandleWheel,
@@ -18,6 +20,18 @@ export const useDrawingCanvasEventBindings = ({
   wrapperRef,
   canvasRef,
 }: UseDrawingCanvasEventBindingsOptions) => {
+  useEffect(() => {
+    const target = wrapperRef.current ?? canvasRef.current;
+    if (!target) return;
+    const mouseDownListener: EventListener = (event) => {
+      eventHandleMouseDown(event as MouseEvent);
+    };
+    target.addEventListener('mousedown', mouseDownListener);
+    return () => {
+      target.removeEventListener('mousedown', mouseDownListener);
+    };
+  }, [eventHandleMouseDown, wrapperRef, canvasRef]);
+
   useEffect(() => {
     const listenerOptions: AddEventListenerOptions = { capture: true };
     window.addEventListener('keydown', eventHandleKeyDown, listenerOptions);

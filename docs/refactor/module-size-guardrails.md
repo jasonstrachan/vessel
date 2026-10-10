@@ -142,6 +142,24 @@ Completed freehand selection outlines remain in the rendering owner:
 
 - `components/canvas/drawingCanvasSelection.ts` uses the existing cached mask
   contour for freehand holes and project-clipped edges. Stored vector paths remain
-  unchanged, and Click Line retains its vector outline and anchor circles.
+  unchanged. Click Line uses the same mask contour while retaining authored anchor circles.
 - Its existing test exercises the real contour utility with recording Path2D at
   the rendering boundary, including hole loops and clipped top/right edges.
+
+Click Line mouse admission uses the existing canvas input binding:
+
+- `pointerHandlersRuntime.ts` retains real pointer capture and admits only mouse
+  Click Line presses to the native `mousedown` listener. `selectionRuntimeRef`
+  holds the admitted pointer ID across handler recreation; up, cancel and selection
+  cancellation clear it. Native click count is consumed before mutation. Pen/touch
+  remain direct pointer authors; compatibility mouse events cannot author twice.
+- The input hook and existing native binding only forward/register the callback.
+  Selection history, visible-mask validity, terminal Shift and lifecycle cancellation
+  stay in `selectionHandlers.ts` and `keyboardHandlers.ts`. No second snapshot,
+  input queue, timer or synthetic PointerEvent was added.
+- Protected shells remain 79/44/70 lines. The pointer owner is 5,086 lines under
+  its existing exception and split follow-up in
+  `docs/refactor/plan-useDrawingHandlers-decomposition.md`. Direct integration
+  tests cover native count, near-start tails, initial/active extraction, device
+  compatibility, bounds and cancellation; exact production evidence is tracked in
+  `docs/refactor/app-functionality-audit-2026-10-10.md`.

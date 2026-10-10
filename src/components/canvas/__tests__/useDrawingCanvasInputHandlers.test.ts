@@ -93,6 +93,7 @@ describe('useDrawingCanvasInputHandlers', () => {
       handlePointerEnter: jest.fn(),
       handlePointerLeave: jest.fn(),
       handlePointerCancel: jest.fn(),
+      handleMouseDown: jest.fn(),
       handleDoubleClick: jest.fn(),
       handleKeyDown: jest.fn(),
       handleKeyUp: jest.fn(),
@@ -109,6 +110,26 @@ describe('useDrawingCanvasInputHandlers', () => {
       handlePointerLeave: jest.fn(),
       handlePointerCancel: jest.fn(),
     });
+  });
+
+  it('binds the source native mouse intake without bypassing pointer adaptation', () => {
+    const options = buildOptions({
+      tools: buildTools({ currentTool: 'selection', selectionMode: 'click-line' }),
+    });
+    const { result } = renderHook(() => useDrawingCanvasInputHandlers(options));
+    const baseHandlers = mockUseCanvasEventHandlers.mock.results.at(-1)?.value;
+    expect(mockUseDrawingCanvasEventBindings.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        eventHandleMouseDown: baseHandlers.handleMouseDown,
+        wrapperRef: options.wrapperRef,
+        canvasRef: options.canvasRef,
+      }),
+    );
+    const event = { button: 0, pointerId: 8 } as React.PointerEvent<Element>;
+    result.current.handlePointerDown(event);
+    expect(mockUseDrawingCanvasPointerHandlers.mock.results.at(-1)?.value.handlePointerDown)
+      .toHaveBeenCalledWith(event);
+    expect(baseHandlers.handleMouseDown).not.toHaveBeenCalled();
   });
 
   it('captures sampling pointers and releases them on blur so brush input can resume', () => {

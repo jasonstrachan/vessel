@@ -1,6 +1,6 @@
 import { useLayoutEffect } from 'react';
 
-import { cancelStaleFreehandSelectionSession } from './handlers/selectionHandlers';
+import { cancelStaleSelectionSession } from './handlers/selectionHandlers';
 import type {
   EventHandlers,
 } from './utils/types';
@@ -36,7 +36,7 @@ export const useCanvasEventHandlers = (deps: EventHandlerDependenciesInput): Eve
   } = augmentedDeps;
 
   useLayoutEffect(() => {
-    cancelStaleFreehandSelectionSession({
+    cancelStaleSelectionSession({
       runtime: selectionRuntimeRef.current,
       tools,
       interaction,

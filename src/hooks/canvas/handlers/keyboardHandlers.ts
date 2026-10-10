@@ -277,6 +277,7 @@ export const createKeyboardHandlers = (
           clearOverlay: clearSelectionOverlay,
           outcome: 'selection-click-line-keyboard',
           historyMeta: { source: 'keyboard', key: event.key, code: event.code },
+          append: event.shiftKey,
         })
       ) {
         redrawCanvas();

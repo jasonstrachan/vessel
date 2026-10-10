@@ -128,6 +128,7 @@ export interface SelectionPathSession {
 }
 
 export interface SelectionRuntimeState {
+  admittedMousePointerId?: number | null;
   pendingSelectionHistory: {
     before: import('@/history/selectionState').SelectionSnapshot;
     description: string;
@@ -326,6 +327,7 @@ export interface EventHandlerDependencies {
 export type HandlerDeps = EventHandlerDependencies;
 
 export interface PointerHandlers {
+  handleMouseDown: (event: MouseEvent) => void;
   handlePointerDown: (event: React.PointerEvent<Element>) => void;
   handlePointerMove: (event: React.PointerEvent<Element>) => void;
   handlePointerUp: (event: React.PointerEvent<Element>) => void;

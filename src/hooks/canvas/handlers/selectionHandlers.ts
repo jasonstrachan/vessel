@@ -51,7 +51,6 @@ export type SelectionHandlers = {
   handleSelectionToolPointerDown: (args: {
     worldPos: Point;
     pointerId: number;
-    clickCount: number;
     shiftKey: boolean;
     tools: SelectionDynamicDeps['tools'];
     dynamic: SelectionDynamicDeps;
@@ -155,8 +154,8 @@ const applyMaskSelection = (
   append: boolean
 ): boolean => {
   const built = buildMaskFromPath(points, dynamic.project);
-  if (!built || (mode === 'freehand' && !hasVisibleSelectionMask(built.mask))) {
-    if (mode !== 'freehand' || !append) {
+  if (!built || !hasVisibleSelectionMask(built.mask)) {
+    if (!append) {
       getAppStoreState().clearSelection();
     }
     return false;
@@ -224,7 +223,7 @@ export const finalizeClickLineSelectionSession = ({
   runtime.clickLineSession.points = [];
   clearOverlay?.();
 
-  if (applyMaskSelection(dynamic, points, 'click-line', append)) {
+  if (applyMaskSelection(dynamic, points, 'click-line', append) || !append) {
     commitRuntimeSelectionHistory(runtime, {
       outcome,
       ...(historyMeta ?? {}),
@@ -260,6 +259,7 @@ export const cancelSelectionSession = ({
   interaction: SelectionHandlerDeps['interaction'];
   clearOverlay?: () => void;
 }): boolean => {
+  runtime.admittedMousePointerId = null;
   const isActive = Boolean(runtime.pendingSelectionHistory || runtime.freehandSession.active ||
     runtime.clickLineSession.active || interaction.refs.selectionStart.current ||
     runtime.marqueeAutoPan.frameId !== null);
@@ -287,7 +287,7 @@ export const cancelSelectionSession = ({
   return true;
 };
 
-export const cancelStaleFreehandSelectionSession = ({
+export const cancelStaleSelectionSession = ({
   runtime,
   tools,
   interaction,
@@ -303,8 +303,10 @@ export const cancelStaleFreehandSelectionSession = ({
     runtime: SelectionRuntimeState;
     tools: SelectionDynamicDeps['tools'];
   }): boolean => {
-  if (!runtime.freehandSession.active ||
-    (tools.currentTool === 'selection' && currentSelectionMode(tools) === 'freehand')) {
+  const mode = currentSelectionMode(tools);
+  const staleFreehand = runtime.freehandSession.active && (tools.currentTool !== 'selection' || mode !== 'freehand');
+  const staleClickLine = runtime.clickLineSession.active && (tools.currentTool !== 'selection' || mode !== 'click-line');
+  if (!staleFreehand && !staleClickLine) {
     return false;
   }
   cancelSelectionSession({
@@ -545,7 +547,7 @@ export const createSelectionHandlers = (
     }
     // Gesture admission must capture the original selection before authoring a replacement.
     const mode = currentSelectionMode(dynamic.tools);
-    if (mode === 'marquee' || mode === 'freehand') {
+    if (mode === 'marquee' || mode === 'freehand' || mode === 'click-line') {
       return false;
     }
     const { selectionStart, selectionEnd, selectionMask, selectionMaskBounds, floatingPaste } = dynamic;
@@ -582,14 +584,12 @@ export const createSelectionHandlers = (
   const handleSelectionToolPointerDown = ({
     worldPos,
     pointerId,
-    clickCount,
     shiftKey,
     tools,
     dynamic,
   }: {
     worldPos: Point;
     pointerId: number;
-    clickCount: number;
     shiftKey: boolean;
     tools: SelectionDynamicDeps['tools'];
     dynamic: SelectionDynamicDeps;
@@ -608,7 +608,7 @@ export const createSelectionHandlers = (
 
     if (mode === 'click-line' && tools.currentTool === 'selection') {
       if (!clickLineSession.active) {
-        beginHistory(tools, pointerId);
+        beginHistory(tools, pointerId, shiftKey);
         clickLineSession.active = true;
         clickLineSession.points = [worldPos];
         drawPathPreview(clickLineSession.points);
@@ -620,9 +620,8 @@ export const createSelectionHandlers = (
       const dy = worldPos.y - first.y;
       const hasEnoughPoints = clickLineSession.points.length >= 3;
       const nearStart = dx * dx + dy * dy <= 16 && hasEnoughPoints;
-      const shouldClose = hasEnoughPoints && (clickCount >= 2 || nearStart);
 
-      if (shouldClose) {
+      if (nearStart) {
         return finalizeClickLineSelectionSession({
           runtime,
           dynamic,

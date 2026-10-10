@@ -1,5 +1,6 @@
 import type React from 'react';
 import { createKeyboardHandlers } from '@/hooks/canvas/handlers/keyboardHandlers';
+import * as selectionHandlers from '@/hooks/canvas/handlers/selectionHandlers';
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape } from '@/types';
 
@@ -405,6 +406,22 @@ describe('createKeyboardHandlers', () => {
     expect(deps.setNeedsRedraw).toHaveBeenCalled();
     expect(deps.draw).toHaveBeenCalled();
   });
+
+  it.each(['Enter', 'NumpadEnter'].flatMap((code) => [false, true].map((shiftKey) => ({ code, shiftKey }))))(
+    'forwards terminal Shift $shiftKey from $code to ClickLine completion', ({ code, shiftKey }) => {
+      const deps = createDeps();
+      deps.dynamicDepsRef.current.tools.currentTool = 'selection';
+      deps.dynamicDepsRef.current.tools.selectionMode = 'click-line';
+      deps.selectionRuntimeRef.current.clickLineSession.active = true;
+      const finalize = jest.spyOn(selectionHandlers, 'finalizeClickLineSelectionSession').mockReturnValue(true);
+      try {
+        createKeyboardHandlers(deps).handleKeyDown(new KeyboardEvent('keydown', { key: 'Enter', code, shiftKey }));
+        expect(finalize).toHaveBeenCalledWith(expect.objectContaining({ append: shiftKey }));
+        expect(deps.draw).toHaveBeenCalledTimes(1);
+      } finally {
+        finalize.mockRestore();
+      }
+    });
 
   it('cancels click-line selection on Escape', () => {
     const deps = createDeps();

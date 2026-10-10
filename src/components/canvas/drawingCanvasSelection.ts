@@ -79,37 +79,16 @@ export const drawSelectionLayer = ({
   }
 
   if (selectionMask && selectionMaskBounds) {
-    // Freehand masks own the visible boundary, including holes and project-clipped edges.
-    const hasVectorPath = Boolean(selectionVectorPath?.mode === 'click-line' && selectionVectorPath.points.length >= 2);
-    if (!hasVectorPath) {
-      const contourPath = getSelectionMaskContourPath(selectionMask);
-      ctx.save();
-      ctx.translate(selectionMaskBounds.x, selectionMaskBounds.y);
-      strokeMarqueePath(ctx, contourPath, {
-        scale,
-        marchingAntsOffset,
-        animated: true,
-      });
-      ctx.restore();
-    } else {
-      const outlinePath = (() => {
-        const path = new Path2D();
-        const vectorPoints = selectionVectorPath!.points;
-        path.moveTo(vectorPoints[0].x, vectorPoints[0].y);
-        for (let i = 1; i < vectorPoints.length; i += 1) {
-          path.lineTo(vectorPoints[i].x, vectorPoints[i].y);
-        }
-        if (vectorPoints.length > 2) {
-          path.closePath();
-        }
-        return path;
-      })();
-      strokeMarqueePath(ctx, outlinePath, {
-        scale,
-        marchingAntsOffset,
-        animated: true,
-      });
-    }
+    // Completed masks own the boundary, including holes and project-clipped edges.
+    const contourPath = getSelectionMaskContourPath(selectionMask);
+    ctx.save();
+    ctx.translate(selectionMaskBounds.x, selectionMaskBounds.y);
+    strokeMarqueePath(ctx, contourPath, {
+      scale,
+      marchingAntsOffset,
+      animated: true,
+    });
+    ctx.restore();
 
     if (selectionVectorPath?.mode === 'click-line' && selectionVectorPath.points.length > 0) {
       const pointRadius = Math.max(1.25, 3 / scale);

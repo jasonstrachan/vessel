@@ -2000,7 +2000,7 @@ describe('pointerHandlers main flows', () => {
     dynamicDepsRef.current.tools = deps.tools;
 
     const handlers = createPointerHandlers(deps);
-    handlers.handlePointerDown(makePointerEvent({ clientX: 24, clientY: 36, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ pointerType: 'pen', clientX: 24, clientY: 36, detail: 1 }));
 
     const ctx = (deps.overlayCanvasRef.current!.getContext as jest.Mock).mock.results[0].value as any;
     expect(ctx.clearRect).toHaveBeenCalled();
@@ -2018,7 +2018,7 @@ describe('pointerHandlers main flows', () => {
     dynamicDepsRef.current.tools = deps.tools;
 
     const firstHandlers = createPointerHandlers(deps);
-    firstHandlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 12, detail: 1 }));
+    firstHandlers.handlePointerDown(makePointerEvent({ pointerType: 'pen', clientX: 10, clientY: 12, detail: 1 }));
 
     deps.interaction = {
       ...deps.interaction,
@@ -2029,7 +2029,7 @@ describe('pointerHandlers main flows', () => {
     } as any;
 
     const secondHandlers = createPointerHandlers(deps);
-    secondHandlers.handlePointerDown(makePointerEvent({ clientX: 30, clientY: 34, detail: 1 }));
+    secondHandlers.handlePointerDown(makePointerEvent({ pointerType: 'pen', clientX: 30, clientY: 34, detail: 1 }));
 
     const overlayGetContextMock = deps.overlayCanvasRef.current!.getContext as jest.Mock;
     const contexts = overlayGetContextMock.mock.results
@@ -2056,7 +2056,7 @@ describe('pointerHandlers main flows', () => {
     dynamicDepsRef.current.tools = deps.tools;
 
     const handlers = createPointerHandlers(deps);
-    handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 12, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ pointerType: 'pen', clientX: 10, clientY: 12, detail: 1 }));
 
     deps.tools = {
       ...deps.tools,
@@ -2064,10 +2064,10 @@ describe('pointerHandlers main flows', () => {
     } as any;
     dynamicDepsRef.current.tools = deps.tools;
 
-    handlers.handlePointerDown(makePointerEvent({ clientX: 20, clientY: 24, detail: 1 }));
+    handlers.handlePointerDown(makePointerEvent({ pointerType: 'pen', clientX: 20, clientY: 24, detail: 1 }));
     deps.interaction.state = { ...deps.interaction.state, isSelecting: true } as any;
 
-    handlers.handlePointerMove(makePointerEvent({ clientX: 30, clientY: 34 }));
+    handlers.handlePointerMove(makePointerEvent({ pointerType: 'pen', clientX: 30, clientY: 34 }));
 
     expect(deps.setSelectionBounds).toHaveBeenLastCalledWith(
       { x: 20, y: 24 },
@@ -4249,4 +4249,195 @@ describe('lasso pointer sample and composition lifetime regressions', () => {
       expect(fixture.layer.imageData.data).toEqual(fixture.canonical);
     } finally { hook.unmount(); fixture.unsubscribe(); }
   });
+});
+
+// Native mouse count is observed at mousedown; the actual PointerEvent retains
+// capture/device identity. Pen/touch continue to author directly.
+describe('Click Line native press authority', () => {
+  const originalRaf = global.requestAnimationFrame;
+  beforeEach(() => {
+    global.requestAnimationFrame = jest.fn(() => 1);
+    installPointerPolygonRaster();
+  });
+  afterEach(() => {
+    global.requestAnimationFrame = originalRaf;
+    historyManager.clear();
+    useAppStore.getState().clearSelection();
+    jest.restoreAllMocks();
+  });
+  const fixtureForClickLine = () => {
+    const fixture = createFreehandPointerFixture();
+    fixture.deps.tools = { ...fixture.deps.tools, selectionMode: 'click-line' };
+    fixture.dynamicDepsRef.current.tools = fixture.deps.tools;
+    return fixture;
+  };
+  const mouseDown = (handlers: ReturnType<typeof createPointerHandlers>, event: MouseEvent) => {
+    const nativeHandlers = handlers as typeof handlers & { handleMouseDown?: (event: MouseEvent) => void };
+    nativeHandlers.handleMouseDown?.(event);
+  };
+  const press = (handlers: ReturnType<typeof createPointerHandlers>, x: number, y: number, detail = 1, shiftKey = false) => {
+    const down = makePointerEvent({ clientX: x, clientY: y, detail: 0, buttons: 1, shiftKey });
+    handlers.handlePointerDown(down);
+    expect(down.preventDefault).not.toHaveBeenCalled();
+    mouseDown(handlers, new MouseEvent('mousedown', { clientX: x, clientY: y, button: 0, detail, shiftKey }));
+    handlers.handlePointerUp(makePointerEvent({ clientX: x, clientY: y, buttons: 0, shiftKey }));
+  };
+
+  it.each([0, 3])('consumes the native second press after near-start closure (%s px offset), then accepts a fresh polygon', async offset => {
+    const f = fixtureForClickLine();
+    try {
+      let handlers = createPointerHandlers(f.deps);
+      for (const [x, y] of [[60, 80], [80, 20], [20, 20]]) press(handlers, x, y);
+      press(handlers, 60 + offset, 80);
+      const completed = captureSelectionSnapshot();
+      const alpha = pointerSelectionAlpha();
+      expect(alpha.some(value => value > 0)).toBe(true);
+      expect(historyManager.entries()).toHaveLength(1);
+      // React can recreate the runtime between constituent native presses.
+      handlers = createPointerHandlers(f.deps);
+      press(handlers, 60 + offset, 80, 2);
+      expect(captureSelectionSnapshot()).toEqual(completed);
+      expect(pointerSelectionAlpha()).toEqual(alpha);
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession.active).toBe(false);
+      expect(f.deps.extractSelectionToFloatingPaste).not.toHaveBeenCalled();
+      expect(historyManager.entries()).toHaveLength(1);
+      for (const [x, y] of [[40, 40], [60, 40], [60, 60], [40, 60], [40, 40]]) press(handlers, x, y);
+      const fresh = new Uint8ClampedArray(10000);
+      for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) fresh[y * 100 + x] = 255;
+      expect(pointerSelectionAlpha()).toEqual(fresh);
+      expect(historyManager.entries()).toHaveLength(2);
+      await historyManager.undo();
+      expect(pointerSelectionAlpha()).toEqual(alpha);
+      await historyManager.redo();
+      expect(pointerSelectionAlpha()).toEqual(fresh);
+      expect(f.context.getImageData(0, 0, 100, 100).data).toEqual(f.canonical);
+      expect(f.layer.imageData.data).toEqual(f.canonical);
+    } finally { f.unsubscribe(); }
+  });
+
+  it('retains both committed native double-click terminal points and one reversible entry', async () => {
+    const f = fixtureForClickLine();
+    try {
+      const handlers = createPointerHandlers(f.deps);
+      for (const [x, y] of [[40, 40], [60, 40], [60, 60], [40, 60]]) press(handlers, x, y);
+      press(handlers, 40, 60, 2);
+      expect(useAppStore.getState().selectionVectorPath).toEqual({ mode: 'click-line', points: [
+        { x: 40, y: 40 }, { x: 60, y: 40 }, { x: 60, y: 60 }, { x: 40, y: 60 }, { x: 40, y: 60 },
+      ] });
+      const expected = new Uint8ClampedArray(10000);
+      for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) expected[y * 100 + x] = 255;
+      expect(pointerSelectionAlpha()).toEqual(expected);
+      expect(historyManager.entries()).toHaveLength(1);
+      await historyManager.undo();
+      expect(pointerSelectionAlpha()).toEqual(new Uint8ClampedArray(10000));
+      await historyManager.redo();
+      expect(pointerSelectionAlpha()).toEqual(expected);
+    } finally { f.unsubscribe(); }
+  });
+
+  it.each(['mouse', 'pen', 'touch'] as const)('keeps an admitted %s polygon vertex over retained alpha in the selection workflow', pointerType => {
+    const f = fixtureForClickLine();
+    try {
+      useAppStore.getState().setSelectionBounds({ x: 10, y: 10 }, { x: 30, y: 30 }, 'selection-marquee-final');
+      f.syncSelection();
+      const handlers = createPointerHandlers(f.deps);
+      if (pointerType === 'mouse') {
+        press(handlers, 50, 50, 1, true);
+        press(handlers, 80, 50);
+        press(handlers, 20, 20);
+      } else {
+        for (const [x, y, shiftKey] of [[50, 50, true], [80, 50, false], [20, 20, false]] as const) {
+          handlers.handlePointerDown(makePointerEvent({ clientX: x, clientY: y, pointerType, shiftKey, buttons: 1 }));
+          // Native pen can emit compatibility mouse-down before pointer-up.
+          mouseDown(handlers, new MouseEvent('mousedown', { clientX: x, clientY: y, detail: 1, button: 0 }));
+          handlers.handlePointerUp(makePointerEvent({ clientX: x, clientY: y, pointerType, buttons: 0 }));
+          // Native touch compatibility mouse-down can arrive after pointer-up.
+          mouseDown(handlers, new MouseEvent('mousedown', { clientX: x, clientY: y, detail: 1, button: 0 }));
+        }
+      }
+      expect(f.deps.extractSelectionToFloatingPaste).not.toHaveBeenCalled();
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession.points).toEqual([
+        { x: 50, y: 50 }, { x: 80, y: 50 }, { x: 20, y: 20 },
+      ]);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(f.context.getImageData(0, 0, 100, 100).data).toEqual(f.canonical);
+    } finally { f.unsubscribe(); }
+  });
+
+  it('rejects an outside-project native second press before appending or completing the active path', () => {
+    const f = fixtureForClickLine();
+    try {
+      const handlers = createPointerHandlers(f.deps);
+      for (const [x, y] of [[60, 40], [99, 40], [99, 60]]) press(handlers, x, y);
+      press(handlers, 101, 60, 2);
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession.points).toEqual([
+        { x: 60, y: 40 }, { x: 99, y: 40 }, { x: 99, y: 60 },
+      ]);
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession.active).toBe(true);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(pointerSelectionAlpha()).toEqual(new Uint8ClampedArray(10000));
+    } finally { f.unsubscribe(); }
+  });
+
+  it('preserves first-press selected-alpha extraction and cancels unconsumed native admission on pointer cancel', () => {
+    const f = fixtureForClickLine();
+    try {
+      useAppStore.getState().setSelectionBounds({ x: 10, y: 10 }, { x: 30, y: 30 }, 'selection-marquee-final');
+      f.syncSelection();
+      const handlers = createPointerHandlers(f.deps);
+      (f.deps.extractSelectionToFloatingPaste as jest.Mock).mockImplementation(() => useAppStore.getState().extractSelectionToFloatingPaste());
+      press(handlers, 20, 20);
+      expect(f.deps.extractSelectionToFloatingPaste).toHaveBeenCalledTimes(1);
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession.active).toBe(false);
+      handlers.handlePointerDown(makePointerEvent({ clientX: 50, clientY: 50, buttons: 1 }));
+      handlers.handlePointerCancel(makePointerEvent({ clientX: 50, clientY: 50 }));
+      mouseDown(handlers, new MouseEvent('mousedown', { clientX: 50, clientY: 50, detail: 1, button: 0 }));
+      expect(f.deps.selectionRuntimeRef.current.clickLineSession.active).toBe(false);
+    } finally { f.unsubscribe(); }
+  });
+});
+
+it.each(['tool', 'mode'] as const)('cancels Click Line immediately on %s change between released vertices, without resurrecting the draft', async change => {
+  const oldRaf = global.requestAnimationFrame;
+  global.requestAnimationFrame = jest.fn(() => 1);
+  installPointerPolygonRaster();
+  const f = createFreehandPointerFixture();
+  f.deps.tools = { ...f.deps.tools, selectionMode: 'click-line' };
+  f.dynamicDepsRef.current.tools = f.deps.tools;
+  useAppStore.getState().setSelectionBounds({ x: 10, y: 10 }, { x: 20, y: 20 }, 'selection-marquee-final');
+  f.syncSelection();
+  const before = captureSelectionSnapshot();
+  const hook = renderHook((input: EventHandlerDependenciesInput) => useCanvasEventHandlers(input), { initialProps: f.deps });
+  const vertex = (x: number, y: number) => {
+    hook.result.current.handlePointerDown(makePointerEvent({ clientX: x, clientY: y, pointerType: 'pen', buttons: 1 }));
+    hook.result.current.handlePointerUp(makePointerEvent({ clientX: x, clientY: y, pointerType: 'pen', buttons: 0 }));
+  };
+  try {
+    act(() => { vertex(40, 40); vertex(60, 40); });
+    expect(f.deps.interaction.refs.selectionStart.current).toBeNull();
+    (f.overlayContext.clearRect as jest.Mock).mockClear();
+    const originalTools = f.deps.tools;
+    const changedTools = change === 'tool' ? { ...originalTools, currentTool: 'brush' } : { ...originalTools, selectionMode: 'marquee' as const };
+    act(() => { f.deps.tools = changedTools; hook.rerender({ ...f.deps, tools: changedTools }); });
+    expect(captureSelectionSnapshot()).toEqual(before);
+    expect(f.overlayContext.clearRect).toHaveBeenCalled();
+    expect(f.deps.isMouseDownRef.current).toBe(false);
+    act(() => { f.deps.tools = originalTools; hook.rerender({ ...f.deps, tools: originalTools }); });
+    act(() => hook.result.current.handleKeyDown(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter' })));
+    expect(captureSelectionSnapshot()).toEqual(before);
+    expect(historyManager.entries()).toHaveLength(0);
+    act(() => { for (const [x, y] of [[40, 40], [60, 40], [60, 60], [40, 60], [40, 40]]) vertex(x, y); });
+    const expected = new Uint8ClampedArray(10000);
+    for (let y = 40; y < 60; y++) for (let x = 40; x < 60; x++) expected[y * 100 + x] = 255;
+    expect(pointerSelectionAlpha()).toEqual(expected);
+    expect(historyManager.entries()).toHaveLength(1);
+    await act(async () => { await historyManager.undo(); });
+    expect(pointerSelectionAlpha().filter(value => value > 0)).toHaveLength(100);
+    await act(async () => { await historyManager.redo(); });
+    expect(pointerSelectionAlpha()).toEqual(expected);
+    expect(f.context.getImageData(0, 0, 100, 100).data).toEqual(f.canonical);
+  } finally {
+    hook.unmount(); f.unsubscribe(); global.requestAnimationFrame = oldRaf; jest.restoreAllMocks();
+    historyManager.clear(); useAppStore.getState().clearSelection();
+  }
 });

@@ -295,7 +295,7 @@ import { getPresetStops } from '../../../utils/gradientPresets';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
 import { logContourFillDebug } from './utils/logContourFillDebug';
 import { createSelectionRuntime } from '@/canvas/runtime/SelectionRuntime';
-import { cancelSelectionSession } from '@/hooks/canvas/handlers/selectionHandlers';
+import { cancelSelectionSession, finalizeClickLineSelectionSession } from '@/hooks/canvas/handlers/selectionHandlers';
 import { CURSOR_FALLBACK_CROSSHAIR } from './utils/cursorFallbacks';
 import { resolveSpacePanCursor } from './utils/spacePanCursor';
 import { resolveToolCursorState } from './utils/toolCursor';
@@ -2396,7 +2396,166 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     getDynamicDeps
   );
 
+  const extractSelectedContentAtPress = (worldPos: Point, shiftKey: boolean): boolean => {
+    const {
+      floatingPaste, tools, selectionStart, selectionEnd, selectionMask,
+      selectionMaskBounds, project,
+    } = getDynamicDeps();
+    if (
+      !floatingPaste &&
+      tools.currentTool === 'selection' &&
+      !deps.selectionRuntimeRef.current.clickLineSession.active &&
+      selectionStart &&
+      selectionEnd
+    ) {
+      const isInsideSelection = (() => {
+        if (selectionMask && selectionMaskBounds) {
+          const localX = worldPos.x - selectionMaskBounds.x;
+          const localY = worldPos.y - selectionMaskBounds.y;
+          if (
+            localX < 0 ||
+            localY < 0 ||
+            localX >= selectionMask.width ||
+            localY >= selectionMask.height
+          ) {
+            return false;
+          }
+          const idx = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
+          return selectionMask.data[idx] > 0;
+        }
+
+        const minX = Math.min(selectionStart.x, selectionEnd.x);
+        const maxX = Math.max(selectionStart.x, selectionEnd.x);
+        const minY = Math.min(selectionStart.y, selectionEnd.y);
+        const maxY = Math.max(selectionStart.y, selectionEnd.y);
+        return (
+          worldPos.x >= minX &&
+          worldPos.x <= maxX &&
+          worldPos.y >= minY &&
+          worldPos.y <= maxY
+        );
+      })();
+
+      if (isInsideSelection && !shiftKey) {
+        const extracted = deps.extractSelectionToFloatingPaste();
+        if (extracted) {
+          const nextFloatingPaste = getAppStoreState().floatingPaste;
+          if (!nextFloatingPaste) {
+            return true;
+          }
+          clearSelection();
+          setIsDraggingFloatingPaste(true);
+          floatingPasteDragStart.current = worldPos;
+          floatingPasteOriginalPos.current = { ...nextFloatingPaste.position };
+          applyToolCursor({
+            isDraggingFloatingPaste: true,
+            isColorPicker: false,
+            useCrosshair: false,
+          });
+
+          compositeCanvasDirtyRef.current = true;
+          requestAnimationFrame(() => {
+            if (compositeCanvasRef.current && project) {
+              compositeLayersToCanvas(compositeCanvasRef.current);
+              setCurrentOffscreenCanvas(compositeCanvasRef.current);
+              compositeCanvasDirtyRef.current = false;
+              const canvasEl = canvasRef.current;
+              const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
+              if (ctx) {
+                deps.draw(ctx, deps.viewTransformRef.current);
+              }
+            }
+          });
+
+          setNeedsRedraw((value) => value + 1);
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  const handleClickLineSelectionPress = ({
+    worldPos, screenPos, pointerId, shiftKey, clickCount,
+  }: {
+    worldPos: Point;
+    screenPos: Point;
+    pointerId: number;
+    shiftKey: boolean;
+    clickCount: number;
+  }): void => {
+    const dynamic = getDynamicDeps();
+    const { project, tools } = dynamic;
+    if (project && (worldPos.x < 0 || worldPos.y < 0 ||
+      worldPos.x > project.width || worldPos.y > project.height)) {
+      isMouseDownRef.current = false;
+      return;
+    }
+    if (clickCount >= 2) {
+      // The native second press belongs to the completed gesture even when
+      // its first press already closed the path at the start point.
+      if (deps.selectionRuntimeRef.current.clickLineSession.active) {
+        selectionHandlers.handleSelectionToolPointerDown({
+          worldPos, pointerId, shiftKey, tools: dynamic.tools, dynamic,
+        });
+      }
+      finalizeClickLineSelectionSession({
+        runtime: deps.selectionRuntimeRef.current,
+        dynamic,
+        clearOverlay: clearOverlayCanvas,
+        outcome: 'selection-click-line',
+        historyMeta: { pointerId },
+        append: shiftKey,
+      });
+      return;
+    }
+    if (!shiftKey && selectionHandlers.handleSelectionHitTest({ worldPos, dynamic })) {
+      isMouseDownRef.current = false;
+      return;
+    }
+    isMouseDownRef.current = true;
+    if (extractSelectedContentAtPress(worldPos, shiftKey)) {
+      return;
+    }
+    applyToolCursor({ isColorPicker: false, useCrosshair: false });
+    stateMachine.dispatch({
+      type: 'MOUSE_DOWN', button: 0, position: screenPos,
+      tool: tools.currentTool, pressure: 0,
+    });
+    selectionHandlers.handleSelectionToolPointerDown({
+      worldPos, pointerId, shiftKey, tools,
+      dynamic: getDynamicDeps(),
+    });
+  };
+
+  const handleMouseDown = (event: MouseEvent): void => {
+    const runtime = deps.selectionRuntimeRef.current;
+    const pointerId = runtime.admittedMousePointerId;
+    runtime.admittedMousePointerId = null;
+    const { tools, canvas, floatingPaste } = getDynamicDeps();
+    if (pointerId == null || event.button !== 0 || isBusyRef.current ||
+      tools.currentTool !== 'selection' || tools.selectionMode !== 'click-line' ||
+      floatingPaste || isSpaceInteractionActive()) {
+      return;
+    }
+    event.preventDefault();
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const screenPos = rect
+      ? { x: event.clientX - rect.left, y: event.clientY - rect.top }
+      : { x: 0, y: 0 };
+    const worldPos = alignPointToPixel(
+      pan.screenToWorld(screenPos.x, screenPos.y, canvas?.zoom || 1),
+      shouldSnapPointerToPixelGrid(tools),
+    );
+    handleClickLineSelectionPress({
+      worldPos, screenPos, pointerId,
+      shiftKey: event.shiftKey, clickCount: event.detail,
+    });
+  };
+
   const handlePointerDown = (event: React.PointerEvent<Element>) => {
+    deps.selectionRuntimeRef.current.admittedMousePointerId = null;
     blurFocusedEditableElement();
     suppressBootstrapUntilPointerUpRef.current = false;
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
@@ -2467,8 +2626,15 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    // Always prevent default to avoid browser drag behavior
-    event.preventDefault();
+    const isClickLineSelectionPress = event.button === 0 &&
+      tools.currentTool === 'selection' && tools.selectionMode === 'click-line' &&
+      !floatingPaste && !isSpaceInteractionActive();
+    const deferMouseSelectionPress = isClickLineSelectionPress && event.pointerType === 'mouse';
+    // Native mouse click count arrives on mousedown; cancelling pointerdown
+    // suppresses that compatibility event in browsers.
+    if (!deferMouseSelectionPress) {
+      event.preventDefault();
+    }
 
     // Capture pointer for consistent events even when pointer moves outside canvas.
     // On synthesized starts (e.g., when we trigger from pointermove after entering),
@@ -2614,6 +2780,18 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
+    if (isClickLineSelectionPress) {
+      if (deferMouseSelectionPress) {
+        deps.selectionRuntimeRef.current.admittedMousePointerId = event.pointerId;
+      } else {
+        handleClickLineSelectionPress({
+          worldPos, screenPos: pointerPos, pointerId: event.pointerId,
+          shiftKey: event.shiftKey, clickCount: 0,
+        });
+      }
+      return;
+    }
+
     const shouldHandleSelectionHitTest =
       tools.currentTool === 'selection' || tools.currentTool === 'custom';
     if (
@@ -2733,76 +2911,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       return;
     }
 
-    if (
-      event.button === 0 &&
-      !floatingPaste &&
-      tools.currentTool === 'selection' &&
-      selectionStart &&
-      selectionEnd
-    ) {
-      const isInsideSelection = (() => {
-        if (selectionMask && selectionMaskBounds) {
-          const localX = worldPos.x - selectionMaskBounds.x;
-          const localY = worldPos.y - selectionMaskBounds.y;
-          if (
-            localX < 0 ||
-            localY < 0 ||
-            localX >= selectionMask.width ||
-            localY >= selectionMask.height
-          ) {
-            return false;
-          }
-          const idx = (Math.floor(localY) * selectionMask.width + Math.floor(localX)) * 4 + 3;
-          return selectionMask.data[idx] > 0;
-        }
-
-        const minX = Math.min(selectionStart.x, selectionEnd.x);
-        const maxX = Math.max(selectionStart.x, selectionEnd.x);
-        const minY = Math.min(selectionStart.y, selectionEnd.y);
-        const maxY = Math.max(selectionStart.y, selectionEnd.y);
-        return (
-          worldPos.x >= minX &&
-          worldPos.x <= maxX &&
-          worldPos.y >= minY &&
-          worldPos.y <= maxY
-        );
-      })();
-
-      if (isInsideSelection && !event.shiftKey) {
-        const extracted = deps.extractSelectionToFloatingPaste();
-        if (extracted) {
-          const nextFloatingPaste = getAppStoreState().floatingPaste;
-          if (!nextFloatingPaste) {
-            return;
-          }
-          clearSelection();
-          setIsDraggingFloatingPaste(true);
-          floatingPasteDragStart.current = worldPos;
-          floatingPasteOriginalPos.current = { ...nextFloatingPaste.position };
-          applyToolCursor({
-            isDraggingFloatingPaste: true,
-            isColorPicker: false,
-            useCrosshair: false,
-          });
-
-          compositeCanvasDirtyRef.current = true;
-          requestAnimationFrame(() => {
-            if (compositeCanvasRef.current && project) {
-              compositeLayersToCanvas(compositeCanvasRef.current);
-              setCurrentOffscreenCanvas(compositeCanvasRef.current);
-              compositeCanvasDirtyRef.current = false;
-              const canvasEl = canvasRef.current;
-              const ctx = canvasEl?.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                deps.draw(ctx, deps.viewTransformRef.current);
-              }
-            }
-          });
-
-          setNeedsRedraw((value) => value + 1);
-          return;
-        }
-      }
+    if (event.button === 0 && extractSelectedContentAtPress(worldPos, event.shiftKey)) {
+      return;
     }
 
     if (event.button === 0 && finalizePendingCcGradientDirectionStage(worldPos, event, pressure)) {
@@ -2998,7 +3108,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       if (selectionHandlers.handleSelectionToolPointerDown({
         worldPos,
         pointerId: event.pointerId,
-        clickCount: event.detail,
         shiftKey: event.shiftKey,
         tools,
         dynamic: getDynamicDeps(),
@@ -4132,6 +4241,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   };
 
   const handlePointerUp = (event: React.PointerEvent<Element>) => {
+    deps.selectionRuntimeRef.current.admittedMousePointerId = null;
     suppressBootstrapUntilPointerUpRef.current = false;
     const {
       canvas,
@@ -4785,6 +4895,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   };
 
   const handlePointerCancel = (event: React.PointerEvent<Element>) => {
+    deps.selectionRuntimeRef.current.admittedMousePointerId = null;
     const cancelledSelection = cancelSelectionSession({
       runtime: deps.selectionRuntimeRef.current,
       interaction,
@@ -4930,6 +5041,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   };
 
   return {
+    handleMouseDown,
     handlePointerDown,
     handlePointerMove,
     handlePointerUp,

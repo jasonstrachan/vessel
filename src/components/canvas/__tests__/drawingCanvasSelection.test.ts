@@ -65,7 +65,7 @@ describe('drawSelectionLayer', () => {
 });
 
 
-describe('completed freehand mask outline authority', () => {
+describe('completed polygon mask outline authority', () => {
   const originalPath2D = global.Path2D;
   class CapturedPath {
     commands: Array<{ type: 'move' | 'line' | 'close'; x?: number; y?: number }> = [];
@@ -98,14 +98,18 @@ describe('completed freehand mask outline authority', () => {
   });
   afterEach(() => { global.Path2D = originalPath2D; });
 
-  it.each(fixtures)('uses the mask contour and its offset for $name despite retained vector metadata', ({ bounds, rows, points }) => {
+  const polygonFixtures = fixtures.flatMap((fixture) =>
+    (['freehand', 'click-line'] as const).map((mode) => ({ ...fixture, mode }))
+  );
+
+  it.each(polygonFixtures)('uses the mask contour and its offset for $mode $name despite retained vector metadata', ({ bounds, rows, points, mode }) => {
     const ctx = context();
     const mask = new ImageData(bounds.width, bounds.height);
     rows.forEach((row, y) => Array.from(row).forEach((cell, x) => {
       if (cell === '1') mask.data[(y * mask.width + x) * 4 + 3] = 255;
     }));
     const originalBytes = mask.data.slice();
-    const vectorPath = { mode: 'freehand' as const, points };
+    const vectorPath = { mode, points };
     const originalVector = { ...vectorPath, points: points.map((point) => ({ ...point })) };
     const contourUtility = jest.requireActual<typeof import('@/utils/selectionMaskContourPath')>('@/utils/selectionMaskContourPath');
     const contourPath = contourUtility.getSelectionMaskContourPath(mask);
@@ -128,7 +132,14 @@ describe('completed freehand mask outline authority', () => {
     expect(ctx.rect).toHaveBeenCalledWith(0, 0, 32, 32);
     expect(ctx.clip).toHaveBeenCalledTimes(1);
     expect(ctx.save).toHaveBeenCalledTimes(2); expect(ctx.restore).toHaveBeenCalledTimes(2);
-    expect(ctx.arc).not.toHaveBeenCalled(); expect(strokeMarqueeRect).not.toHaveBeenCalled();
+    if (mode === 'click-line') {
+      expect(ctx.arc.mock.calls).toEqual(points.map((point) => [point.x, point.y, 1.5, 0, Math.PI * 2]));
+      expect(ctx.fill).toHaveBeenCalledTimes(points.length);
+      expect(ctx.stroke).toHaveBeenCalledTimes(points.length);
+    } else {
+      expect(ctx.arc).not.toHaveBeenCalled();
+    }
+    expect(strokeMarqueeRect).not.toHaveBeenCalled();
     expect(mask.data).toEqual(originalBytes); expect(vectorPath).toEqual(originalVector);
     const commands = (contourPath as unknown as CapturedPath).commands;
     const edges: string[] = [];
@@ -151,29 +162,6 @@ describe('completed freehand mask outline authority', () => {
       expect(commands.filter((command) => command.type === 'move')).toHaveLength(1);
       expect(edges).toEqual(expect.arrayContaining(['2,0:3,0', '3,0:4,0', '4,0:4,1', '4,3:4,4']));
     }
-  });
-
-  it('retains Click Line vector outline and anchor circles with a mask', () => {
-    const ctx = context();
-    const points = [{ x: 8, y: 10 }, { x: 14, y: 10 }, { x: 14, y: 16 }];
-    drawSelectionLayer({
-      ctx: ctx as unknown as CanvasRenderingContext2D, projectWidth: 32, projectHeight: 32,
-      scale: 2, offsetX: 75, offsetY: 45, marchingAntsOffset: 3,
-      selectionStart: points[0], selectionEnd: points[2],
-      selectionMask: new ImageData(6, 6), selectionMaskBounds: { x: 8, y: 10, width: 6, height: 6 },
-      selectionVectorPath: { mode: 'click-line', points }, activeCanvasShape: null, applyCanvasShapeClip: jest.fn(),
-    });
-    expect(getSelectionMaskContourPath).not.toHaveBeenCalled();
-    const outline = jest.mocked(strokeMarqueePath).mock.calls[0][1] as unknown as CapturedPath;
-    expect(outline.commands).toEqual([
-      { type: 'move', x: 8, y: 10 }, { type: 'line', x: 14, y: 10 },
-      { type: 'line', x: 14, y: 16 }, { type: 'close' },
-    ]);
-    expect(strokeMarqueePath).toHaveBeenCalledWith(ctx, outline, { scale: 2, marchingAntsOffset: 3, animated: true });
-    expect(ctx.translate.mock.calls).toEqual([[75, 45]]);
-    expect(ctx.arc.mock.calls).toEqual(points.map((point) => [point.x, point.y, 1.5, 0, Math.PI * 2]));
-    expect(ctx.fill).toHaveBeenCalledTimes(3); expect(ctx.stroke).toHaveBeenCalledTimes(3);
-    expect(strokeMarqueeRect).not.toHaveBeenCalled();
   });
 
   it('keeps rectangle rendering for a selection without a mask', () => {
