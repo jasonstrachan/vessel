@@ -1,4 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { useAppStore } from '@/stores/useAppStore';
+import type { SelectionSnapshot } from '@/history/selectionState';
 import type React from 'react';
 import { captureSelectionSnapshot, commitSelectionHistory, cloneSelectionSnapshot } from '@/history/helpers/selectionHistory';
 import { strokeCurrentMarqueePath } from '@/utils/marqueeStroke';
@@ -60,6 +62,7 @@ export type SelectionHandlers = {
   handleSelectionPointerMove: (args: {
     worldPos: Point;
     screenPos: Point;
+    shiftKey?: boolean;
   }) => boolean;
   handleSelectionPointerUp: (args: {
     event: React.PointerEvent<Element>;
@@ -229,20 +232,53 @@ export const finalizeClickLineSelectionSession = ({
   return false;
 };
 
-export const cancelClickLineSelectionSession = ({
+const restoreSelectionSnapshot = (snapshot: SelectionSnapshot): void => {
+  const restored = cloneSelectionSnapshot(snapshot);
+  useAppStore.setState({
+    selectionStart: restored.start,
+    selectionEnd: restored.end,
+    selectionMask: restored.mask
+      ? new ImageData(restored.mask.data, restored.mask.width, restored.mask.height)
+      : null,
+    selectionMaskBounds: restored.maskBounds ?? null,
+    selectionMaskLayerId: restored.maskLayerId ?? null,
+    selectionVectorPath: restored.vectorPath ?? null,
+    selectionLastAction: restored.provenance as ReturnType<typeof getAppStoreState>['selectionLastAction'],
+  });
+};
+
+export const cancelSelectionSession = ({
   runtime,
+  interaction,
   clearOverlay,
 }: {
   runtime: SelectionRuntimeState;
+  interaction: SelectionHandlerDeps['interaction'];
   clearOverlay?: () => void;
 }): boolean => {
-  if (!runtime.clickLineSession.active) {
+  const isActive = Boolean(runtime.pendingSelectionHistory || runtime.freehandSession.active ||
+    runtime.clickLineSession.active || interaction.refs.selectionStart.current ||
+    runtime.marqueeAutoPan.frameId !== null);
+  if (!isActive) {
     return false;
   }
 
+  const before = runtime.pendingSelectionHistory?.before;
+  if (runtime.marqueeAutoPan.frameId !== null) {
+    cancelAnimationFrame(runtime.marqueeAutoPan.frameId);
+  }
+  runtime.marqueeAutoPan.frameId = null;
+  runtime.marqueeAutoPan.screenPos = null;
+  runtime.freehandSession.active = false;
+  runtime.freehandSession.points = [];
   runtime.clickLineSession.active = false;
   runtime.clickLineSession.points = [];
   runtime.pendingSelectionHistory = null;
+  interaction.refs.selectionStart.current = null;
+  if (before) {
+    restoreSelectionSnapshot(before);
+  }
+  interaction.dispatch({ type: 'SELECTION_END' });
   clearOverlay?.();
   return true;
 };
@@ -321,17 +357,14 @@ export const createSelectionHandlers = (
       return;
     }
 
-    cancelClickLineSelectionSession({
+    cancelSelectionSession({
       runtime,
+      interaction: deps.interaction,
       clearOverlay,
     });
-    if (deps.interaction.state.isSelecting) {
-      deps.interaction.dispatch({ type: 'SELECTION_END' });
-    }
-    deps.interaction.refs.selectionStart.current = null;
   };
 
-  const beginHistory = (tools: SelectionDynamicDeps['tools'], pointerId: number) => {
+  const beginHistory = (tools: SelectionDynamicDeps['tools'], pointerId: number, append = false) => {
     const beforeSelection = captureSelectionSnapshot();
     runtime.pendingSelectionHistory = {
       before: cloneSelectionSnapshot(beforeSelection),
@@ -339,6 +372,7 @@ export const createSelectionHandlers = (
       meta: {
         source: tools.currentTool === 'custom' ? 'custom-selection-tool' : 'selection-tool',
         pointerId,
+        append,
       },
     };
   };
@@ -378,8 +412,20 @@ export const createSelectionHandlers = (
     };
   };
 
+  const applyMarqueeBounds = (start: Point, end: Point, append: boolean, source: string) => {
+    if (append) {
+      // Each preview/final result derives from the admitted selection, never a previous preview.
+      if (runtime.pendingSelectionHistory) {
+        restoreSelectionSnapshot(runtime.pendingSelectionHistory.before);
+      }
+      getAppStoreState().appendSelectionBounds(start, end);
+    } else {
+      deps.setSelectionBounds(start, end, source);
+    }
+  };
+
   const redrawSelectionPreview = (start: Point, end: Point) => {
-    deps.setSelectionBounds(start, end, 'selection-marquee-preview');
+    applyMarqueeBounds(start, end, runtime.pendingSelectionHistory?.meta?.append === true, 'selection-marquee-preview');
     const canvas = deps.canvasRef.current;
     const ctx = canvas?.getContext('2d', { willReadFrequently: true });
     if (ctx) {
@@ -456,6 +502,10 @@ export const createSelectionHandlers = (
     dynamic: SelectionDynamicDeps;
   }): boolean => {
     clearStaleClickLineSession();
+    // Marquee admission captures the original selection before authoring its replacement preview.
+    if (currentSelectionMode(dynamic.tools) === 'marquee') {
+      return false;
+    }
     const { selectionStart, selectionEnd, selectionMask, selectionMaskBounds, floatingPaste } = dynamic;
     const hasSelection = Boolean(selectionMask || (selectionStart && selectionEnd));
     if (!hasSelection || floatingPaste || clickLineSession.active) {
@@ -544,7 +594,7 @@ export const createSelectionHandlers = (
       return true;
     }
 
-    beginHistory(tools, pointerId);
+    beginHistory(tools, pointerId, shiftKey);
     deps.interaction.dispatch({ type: 'SELECTION_START' });
 
     if (mode === 'freehand' && tools.currentTool === 'selection') {
@@ -608,9 +658,11 @@ export const createSelectionHandlers = (
   const handleSelectionPointerMove = ({
     worldPos,
     screenPos,
+    shiftKey,
   }: {
     worldPos: Point;
     screenPos: Point;
+    shiftKey?: boolean;
   }): boolean => {
     clearStaleClickLineSession();
     if (clickLineSession.active) {
@@ -638,6 +690,9 @@ export const createSelectionHandlers = (
     }
 
     if (deps.interaction.refs.selectionStart.current) {
+      if (runtime.pendingSelectionHistory && typeof shiftKey === 'boolean') {
+        runtime.pendingSelectionHistory.meta = { ...runtime.pendingSelectionHistory.meta, append: shiftKey };
+      }
       redrawSelectionPreview(deps.interaction.refs.selectionStart.current, worldPos);
       if (currentSelectionMode(getDynamicDeps().tools) === 'marquee') {
         updateMarqueeAutoPan(screenPos);
@@ -706,17 +761,14 @@ export const createSelectionHandlers = (
     }
 
     if (deps.interaction.refs.selectionStart.current) {
-      if (event.shiftKey) {
-        getAppStoreState().appendSelectionBounds(
-          deps.interaction.refs.selectionStart.current,
-          worldPos
-        );
-      } else {
-        deps.setSelectionBounds(
-          deps.interaction.refs.selectionStart.current,
-          worldPos,
-          dynamic.tools.currentTool === 'custom' ? 'custom-selection-final' : 'selection-marquee-final'
-        );
+      applyMarqueeBounds(
+        deps.interaction.refs.selectionStart.current,
+        worldPos,
+        event.shiftKey,
+        dynamic.tools.currentTool === 'custom' ? 'custom-selection-final' : 'selection-marquee-final'
+      );
+      if (runtime.pendingSelectionHistory) {
+        runtime.pendingSelectionHistory.meta = { ...runtime.pendingSelectionHistory.meta, append: event.shiftKey };
       }
     }
 

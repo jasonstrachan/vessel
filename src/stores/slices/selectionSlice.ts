@@ -4,6 +4,7 @@ import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFram
 import type { Layer, Rectangle } from '@/types';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { selectionSnapshotFromState } from '@/history/selectionState';
+import { commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import type { SelectionSnapshot } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
 import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
@@ -47,7 +48,7 @@ import {
   type SelectionDeleteAuthorization,
   type SelectionOwnerKind,
 } from '@/stores/helpers/selectionDeleteAuthorization';
-import { adjustSelectionMaskByPixels } from '@/stores/helpers/selectionRoi';
+import { adjustSelectionMaskByPixels, clampMarqueeDragRectToBounds } from '@/stores/helpers/selectionRoi';
 import {
   captureCcSelectionBefore,
   runCcSelectionTransaction,
@@ -812,14 +813,14 @@ const resolveSelectionBoundsLimits = (state: Pick<
     : null;
 
   const resolvedWidth =
+    state.project?.width ??
     activeLayer?.imageData?.width ??
     activeLayer?.framebuffer?.width ??
-    state.project?.width ??
     state.selectionEnd?.x;
   const resolvedHeight =
+    state.project?.height ??
     activeLayer?.imageData?.height ??
     activeLayer?.framebuffer?.height ??
-    state.project?.height ??
     state.selectionEnd?.y;
 
   const width = Math.max(0, Math.floor(resolvedWidth ?? 0));
@@ -1316,7 +1317,8 @@ export const createSelectionSlice = ({
         selectionMaskLayerId: null,
         selectionLastAction: null,
       }),
-    adjustMarqueeSelection: (delta) =>
+    adjustMarqueeSelection: (delta) => {
+      const before = selectionSnapshotFromState(get());
       set((state) => {
         if (!Number.isFinite(delta) || delta === 0) {
           return state;
@@ -1375,8 +1377,8 @@ export const createSelectionSlice = ({
           return state;
         }
 
-        const currentBounds = normalizeSelectionRect(
-          computeBoundsFromSelection(state.selectionStart, state.selectionEnd),
+        const currentBounds = clampMarqueeDragRectToBounds(
+          state.selectionStart, state.selectionEnd, limits.width, limits.height,
         );
         if (!currentBounds) {
           return state;
@@ -1418,7 +1420,13 @@ export const createSelectionSlice = ({
             override: { ownerKind: 'direct-marquee' },
           }),
         };
-      }),
+      });
+      commitSelectionHistory({
+        before,
+        description: delta > 0 ? 'Expand selection' : 'Inset selection',
+        meta: { source: 'adjust-marquee-selection', delta },
+      });
+    },
     selectAllActiveLayerPixels: (source = 'selectAllActiveLayerPixels') => {
       const state = get();
       const { project, layers, activeLayerId } = state;

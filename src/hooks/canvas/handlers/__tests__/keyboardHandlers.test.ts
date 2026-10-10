@@ -61,8 +61,9 @@ const createDeps = (): KeyboardDeps => {
       finalizationComplete: jest.fn(),
     },
     interaction: {
-      state: { isDrawing: false },
+      state: { isDrawing: false, isSelecting: false },
       dispatch: jest.fn(),
+      refs: { selectionStart: { current: null } },
     },
     drawingHandlers: {
       endStrokeSession: jest.fn(),
@@ -427,5 +428,57 @@ describe('createKeyboardHandlers', () => {
     expect(deps.selectionRuntimeRef.current.clickLineSession.points).toHaveLength(0);
     expect(deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull();
     expect(deps.setNeedsRedraw).toHaveBeenCalled();
+  });
+});
+
+describe('keyboard selection gesture cancellation', () => {
+  it.each(['marquee', 'freehand'] as const)('cancels active %s on Escape and restores original provenance', (selectionMode) => {
+    const deps = createDeps();
+    const baseline = { start: { x: 2, y: 2 }, end: { x: 6, y: 6 },
+      provenance: { action: 'set-bounds' as const, source: 'original-selection', t: 123,
+        activeLayerId: 'original-owner', maskLayerId: null },
+      mask: null, maskBounds: null, maskLayerId: null, vectorPath: null };
+    mockedUseAppStore.getState.mockReturnValue({ ui: { keyboardScope: { active: 'canvas' } } });
+    mockedUseAppStore.setState.mockClear();
+    deps.dynamicDepsRef.current.tools.currentTool = 'selection';
+    deps.dynamicDepsRef.current.tools.selectionMode = selectionMode;
+    deps.selectionRuntimeRef.current.pendingSelectionHistory = { before: baseline, description: 'Adjust selection' };
+    deps.interaction.refs.selectionStart.current = { x: 20, y: 20 };
+    deps.interaction.state.isSelecting = true;
+    deps.isMouseDownRef.current = true;
+    deps.stateMachine.state.mode = 'SELECTING';
+    if (selectionMode === 'freehand') deps.selectionRuntimeRef.current.freehandSession.active = true;
+    const event = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' });
+    const preventDefault = jest.spyOn(event, 'preventDefault');
+    const stopPropagation = jest.spyOn(event, 'stopPropagation');
+    createKeyboardHandlers(deps).handleKeyDown(event);
+    expect(preventDefault).toHaveBeenCalled();
+    expect(stopPropagation).toHaveBeenCalled();
+    expect(deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull();
+    expect(deps.interaction.refs.selectionStart.current).toBeNull();
+    expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'SELECTION_END' });
+    expect(deps.isMouseDownRef.current).toBe(false);
+    expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(true);
+    expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'END_INTERACTION' });
+    expect(mockedUseAppStore.setState).toHaveBeenCalledWith(expect.objectContaining({
+      selectionStart: baseline.start, selectionEnd: baseline.end, selectionLastAction: baseline.provenance,
+    }));
+    expect(deps.draw).toHaveBeenCalled();
+  });
+
+  it.each(['canvas', 'modal'] as const)('leaves inactive selection and %s scope untouched', (scope) => {
+    const deps = createDeps();
+    mockedUseAppStore.getState.mockReturnValue({ ui: { keyboardScope: { active: scope } } });
+    if (scope === 'modal') deps.selectionRuntimeRef.current.pendingSelectionHistory = {
+      before: { start: null, end: null }, description: 'Create selection',
+    };
+    mockedUseAppStore.setState.mockClear();
+    const event = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape' });
+    const preventDefault = jest.spyOn(event, 'preventDefault');
+    createKeyboardHandlers(deps).handleKeyDown(event);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(mockedUseAppStore.setState).not.toHaveBeenCalled();
+    expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(false);
+    expect(deps.stateMachine.dispatch).not.toHaveBeenCalled();
   });
 });

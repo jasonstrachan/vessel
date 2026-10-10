@@ -6,6 +6,7 @@ import {
   resolveShapePreviewOpacity,
 } from '../pointerHandlersRuntime';
 import { useAppStore } from '@/stores/useAppStore';
+import historyManager from '@/history/historyService';
 import { BrushShape, type Project } from '@/types';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import type { EventHandlerDynamicDeps, EventHandlerDependencies } from '../../utils/types';
@@ -1220,7 +1221,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
   });
 
-  it('clears selection and immediately starts a replacement marquee when clicking outside', () => {
+  it('starts a replacement marquee without clearing its history baseline on an outside click', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: {
         ...baseDynamic.tools,
@@ -1238,7 +1239,7 @@ describe('pointerHandlers main flows', () => {
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerDown(makePointerEvent({ clientX: 90, clientY: 90 }));
 
-    expect(deps.clearSelection).toHaveBeenCalledTimes(1);
+    expect(deps.clearSelection).not.toHaveBeenCalled();
     expect(deps.setSelectionBounds).toHaveBeenCalledWith(
       { x: 90, y: 90 },
       { x: 90, y: 90 },
@@ -1483,7 +1484,7 @@ describe('pointerHandlers main flows', () => {
     expect(deps.toolStateMachine.handleRectangleGradientMouseDown).not.toHaveBeenCalled();
   });
 
-  it('clears mask selection and immediately starts a replacement marquee when hit test fails', () => {
+  it('starts a replacement marquee without clearing the original mask before admission', () => {
     const mask = new ImageData(2, 2);
     mask.data.fill(0);
     const maskBounds = { x: 0, y: 0, width: 2, height: 2 };
@@ -1503,7 +1504,7 @@ describe('pointerHandlers main flows', () => {
     const handlers = createPointerHandlers(deps);
     handlers.handlePointerDown(makePointerEvent({ clientX: 10, clientY: 10 }));
 
-    expect(deps.clearSelection).toHaveBeenCalled();
+    expect(deps.clearSelection).not.toHaveBeenCalled();
     expect(deps.setSelectionBounds).toHaveBeenCalledWith(
       { x: 10, y: 10 },
       { x: 10, y: 10 },
@@ -3897,4 +3898,91 @@ it('finalizes a cancelled CC stroke before clearing its session so playback clea
   finish();
   await Promise.resolve();
   expect(deps.stateMachine.finalizationComplete).toHaveBeenCalledTimes(1);
+});
+
+it.each(['complete', 'cancel'] as const)('forwards live marquee Shift and preserves the baseline through %s', async (outcome) => {
+  const previousRaf = global.requestAnimationFrame;
+  const callbacks: FrameRequestCallback[] = [];
+  global.requestAnimationFrame = (callback) => { callbacks.push(callback); return callbacks.length; };
+  historyManager.clear();
+  useAppStore.getState().clearSelection();
+  useAppStore.setState({ activeLayerId: null, layers: [], project: mockProject, floatingPaste: null });
+  useAppStore.getState().setSelectionBounds({ x: 20, y: 20 }, { x: 30, y: 30 }, 'selection-marquee-final');
+  const { deps, dynamicDepsRef } = createDeps({
+    tools: { ...baseDynamic.tools, currentTool: 'selection' },
+    selectionStart: useAppStore.getState().selectionStart,
+    selectionEnd: useAppStore.getState().selectionEnd,
+  }, {
+    setSelectionBounds: (start, end, source) => useAppStore.getState().setSelectionBounds(start, end, source),
+    clearSelection: () => useAppStore.getState().clearSelection(),
+    getMousePos: (event) => ({ x: event.clientX, y: event.clientY }),
+  });
+  deps.interaction.dispatch = (action) => { deps.interaction.state.isSelecting = action.type === 'SELECTION_START'; };
+  const unsubscribe = useAppStore.subscribe((state) => {
+    dynamicDepsRef.current = { ...dynamicDepsRef.current,
+      selectionStart: state.selectionStart, selectionEnd: state.selectionEnd,
+      selectionMask: state.selectionMask, selectionMaskBounds: state.selectionMaskBounds,
+    };
+  });
+  const alphaAt = (x: number, y: number) => {
+    const state = useAppStore.getState();
+    if (state.selectionMask && state.selectionMaskBounds) {
+      const lx = x - state.selectionMaskBounds.x; const ly = y - state.selectionMaskBounds.y;
+      return lx >= 0 && ly >= 0 && lx < state.selectionMask.width && ly < state.selectionMask.height
+        ? state.selectionMask.data[(ly * state.selectionMask.width + lx) * 4 + 3] : 0;
+    }
+    return state.selectionStart && state.selectionEnd && x >= state.selectionStart.x && x < state.selectionEnd.x &&
+      y >= state.selectionStart.y && y < state.selectionEnd.y ? 255 : 0;
+  };
+  try {
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 40, clientY: 40, shiftKey: false }));
+    expect(deps.selectionRuntimeRef.current.pendingSelectionHistory?.before.start).toEqual({ x: 20, y: 20 });
+    handlers.handlePointerMove(makePointerEvent({ clientX: 60, clientY: 60, buttons: 1, shiftKey: true }));
+    callbacks.shift()!(0);
+    expect(alphaAt(25, 25)).toBe(255);
+    expect(alphaAt(55, 55)).toBe(255);
+    handlers.handlePointerMove(makePointerEvent({ clientX: 50, clientY: 50, buttons: 1, shiftKey: false }));
+    callbacks.shift()!(1);
+    expect(alphaAt(25, 25)).toBe(0);
+    expect(alphaAt(45, 45)).toBe(255);
+    expect(alphaAt(55, 55)).toBe(0);
+    handlers.handlePointerMove(makePointerEvent({ clientX: 50, clientY: 50, buttons: 1, shiftKey: true }));
+    callbacks.shift()!(2);
+    expect(alphaAt(25, 25)).toBe(255);
+    expect(alphaAt(55, 55)).toBe(0);
+    if (outcome === 'cancel') {
+      deps.stateMachine.state.mode = 'SELECTING';
+      handlers.handlePointerMove(makePointerEvent({ clientX: 70, clientY: 70, buttons: 1, shiftKey: true }));
+      const lateMove = callbacks.shift()!;
+      handlers.handlePointerCancel(makePointerEvent({ clientX: 50, clientY: 50 }));
+      expect(alphaAt(25, 25)).toBe(255);
+      expect(alphaAt(45, 45)).toBe(0);
+      expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(true);
+      expect(deps.selectionRuntimeRef.current.pendingSelectionHistory).toBeNull();
+      expect(deps.interaction.refs.selectionStart.current).toBeNull();
+      expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'END_INTERACTION' });
+      deps.interaction.state.isSelecting = true;
+      lateMove(3);
+      handlers.handlePointerUp(makePointerEvent({ clientX: 70, clientY: 70, shiftKey: true }));
+      expect(alphaAt(25, 25)).toBe(255);
+      expect(alphaAt(65, 65)).toBe(0);
+      expect(historyManager.entries()).toHaveLength(0);
+      return;
+    }
+    handlers.handlePointerUp(makePointerEvent({ clientX: 50, clientY: 50, shiftKey: false }));
+    expect(alphaAt(25, 25)).toBe(0);
+    expect(historyManager.entries()).toHaveLength(1);
+    await historyManager.undo();
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 20, y: 20 });
+    expect(useAppStore.getState().selectionEnd).toEqual({ x: 30, y: 30 });
+    await historyManager.redo();
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 40, y: 40 });
+    expect(useAppStore.getState().selectionEnd).toEqual({ x: 50, y: 50 });
+  } finally {
+    unsubscribe();
+    global.requestAnimationFrame = previousRaf;
+    historyManager.clear();
+    useAppStore.getState().clearSelection();
+  }
 });

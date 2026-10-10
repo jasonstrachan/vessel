@@ -1,3 +1,5 @@
+import historyManager from '@/history/historyService';
+import { selectionSnapshotFromState } from '@/history/selectionState';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, Project } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -69,8 +71,13 @@ describe('selection slice bounds helpers', () => {
     });
   };
 
+  beforeEach(() => {
+    historyManager.clear();
+  });
+
   afterEach(() => {
     resetStore();
+    historyManager.clear();
   });
 
   it('selectAllActiveLayerPixels fills bounds from the active layer size', () => {
@@ -394,4 +401,122 @@ describe('selection slice bounds helpers', () => {
     expect(state.selectionMask).toBeNull();
     expect(state.selectionMaskBounds).toBeNull();
   });
+
+  it.each([
+    { name: 'negative both', start: { x: -8, y: -8 }, end: { x: 24, y: 24 }, delta: -1, left: 1, top: 1, right: 23, bottom: 23 },
+    { name: 'negative x', start: { x: -8, y: 8 }, end: { x: 24, y: 24 }, delta: -1, left: 1, top: 9, right: 23, bottom: 23 },
+    { name: 'negative y reversed', start: { x: 24, y: 24 }, end: { x: 8, y: -8 }, delta: -1, left: 9, top: 1, right: 23, bottom: 23 },
+    { name: 'right and bottom overflow', start: { x: 32, y: 32 }, end: { x: 48, y: 48 }, delta: -1, left: 33, top: 33, right: 39, bottom: 39 },
+    { name: 'positive inset', start: { x: 8, y: 8 }, end: { x: 24, y: 24 }, delta: -1, left: 9, top: 9, right: 23, bottom: 23 },
+    { name: 'positive expand', start: { x: 8, y: 8 }, end: { x: 24, y: 24 }, delta: 2, left: 6, top: 6, right: 26, bottom: 26 },
+  ])('adjusts visible marquee geometry with exact history: $name', async ({ start, end, delta, left, top, right, bottom }) => {
+    const layer = createLayer('adjust-history', 40, 40);
+    const context = layer.framebuffer!.getContext('2d')!;
+    context.fillStyle = '#a53c29';
+    context.fillRect(0, 0, 40, 40);
+    layer.imageData = context.getImageData(0, 0, 40, 40);
+    useAppStore.setState({ project: createProject(layer), layers: [layer], activeLayerId: layer.id, selectionVectorPath: null });
+    useAppStore.getState().setSelectionBounds(start, end, 'selection-marquee-final');
+    const geometry = () => {
+      const { provenance, ...snapshot } = selectionSnapshotFromState(useAppStore.getState());
+      void provenance;
+      return snapshot;
+    };
+    const before = geometry();
+    const pixels = layer.imageData.data.slice();
+    useAppStore.getState().adjustMarqueeSelection(delta);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: left, y: top });
+    expect(useAppStore.getState().selectionEnd).toEqual({ x: right, y: bottom });
+    expect(historyManager.entries()).toHaveLength(1);
+    const after = geometry();
+    await useAppStore.getState().undo();
+    expect(geometry()).toEqual(before);
+    expect(useAppStore.getState().selectionLastAction).toMatchObject({ ownerKind: 'history-restored', activeLayerId: layer.id });
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(historyManager.redoEntries()).toHaveLength(1);
+    await useAppStore.getState().redo();
+    expect(geometry()).toEqual(after);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+    expect(useAppStore.getState().layers[0]).toBe(layer);
+    expect(layer.imageData.data).toEqual(pixels);
+    expect(context.getImageData(0, 0, 40, 40).data).toEqual(pixels);
+  });
+
+  it.each([
+    { name: 'clipped collapse', start: { x: -8, y: -8 }, end: { x: 24, y: 24 }, delta: -12 },
+    { name: 'entirely outside', start: { x: -24, y: -24 }, end: { x: -8, y: -8 }, delta: 1 },
+    { name: 'saturated expansion', start: { x: 0, y: 0 }, end: { x: 40, y: 40 }, delta: 9999 },
+  ])('keeps geometry and history unchanged for $name', ({ start, end, delta }) => {
+    const layer = createLayer('adjust-noop', 40, 40);
+    useAppStore.setState({ project: createProject(layer), layers: [layer], activeLayerId: layer.id, selectionVectorPath: null });
+    useAppStore.getState().setSelectionBounds(start, end, 'selection-marquee-final');
+    const before = selectionSnapshotFromState(useAppStore.getState());
+    useAppStore.getState().adjustMarqueeSelection(delta);
+    const after = selectionSnapshotFromState(useAppStore.getState());
+    expect(after.start).toEqual(before.start);
+    expect(after.end).toEqual(before.end);
+    expect(after.mask).toEqual(before.mask);
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+  });
+
+  it.each([
+    { name: 'smaller image inset', imageSize: 24, start: 20, end: 35, delta: -1, left: 21, right: 34 },
+    { name: 'smaller image expand', imageSize: 24, start: 20, end: 35, delta: 1, left: 19, right: 36 },
+    { name: 'larger image expand', imageSize: 64, start: 32, end: 40, delta: 2, left: 30, right: 40 },
+    { name: 'larger image clipped inset', imageSize: 64, start: 32, end: 48, delta: -1, left: 33, right: 39 },
+  ])('uses document bounds for an imported $name', async ({ imageSize, start, end, delta, left, right }) => {
+    const layer = createLayer('unequal-image', imageSize, imageSize);
+    const project = { ...createProject(layer), width: 40, height: 40 };
+    useAppStore.setState({ project, layers: [layer], activeLayerId: layer.id, selectionVectorPath: null });
+    useAppStore.getState().setSelectionBounds({ x: start, y: start }, { x: end, y: end }, 'selection-marquee-final');
+    const geometry = () => {
+      const { provenance, ...snapshot } = selectionSnapshotFromState(useAppStore.getState());
+      void provenance;
+      return snapshot;
+    };
+    const before = geometry();
+    const pixels = layer.imageData!.data.slice();
+    useAppStore.getState().adjustMarqueeSelection(delta);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: left, y: left });
+    expect(useAppStore.getState().selectionEnd).toEqual({ x: right, y: right });
+    expect(historyManager.entries()).toHaveLength(1);
+    const after = geometry();
+    await useAppStore.getState().undo();
+    expect(geometry()).toEqual(before);
+    await useAppStore.getState().redo();
+    expect(geometry()).toEqual(after);
+    expect(useAppStore.getState().layers[0]).toBe(layer);
+    expect(layer.imageData!.data).toEqual(pixels);
+  });
+
+  it('restores immutable mask holes, owner and geometry through adjustment history', async () => {
+    const layer = createLayer('adjust-mask-history', 40, 40);
+    useAppStore.setState({ project: createProject(layer), layers: [layer], activeLayerId: layer.id, selectionVectorPath: null });
+    const mask = new ImageData(12, 12);
+    for (let y = 0; y < 12; y += 1) for (let x = 0; x < 12; x += 1) {
+      mask.data.set([17, 29, 41, x >= 4 && x < 8 && y >= 4 && y < 8 ? 0 : 255], (y * 12 + x) * 4);
+    }
+    useAppStore.getState().appendSelectionMask({ mask, bounds: { x: 4, y: 4, width: 12, height: 12 }, layerId: layer.id });
+    const before = selectionSnapshotFromState(useAppStore.getState());
+    const admittedMask = useAppStore.getState().selectionMask!;
+    const inputBytes = mask.data.slice();
+    const admittedBytes = admittedMask.data.slice();
+    useAppStore.getState().adjustMarqueeSelection(-1);
+    const after = selectionSnapshotFromState(useAppStore.getState());
+    expect(after.mask?.data).not.toEqual(before.mask?.data);
+    expect(historyManager.entries()).toHaveLength(1);
+    await useAppStore.getState().undo();
+    expect(useAppStore.getState().selectionMask?.data).toEqual(before.mask?.data);
+    expect(useAppStore.getState().selectionMaskBounds).toEqual(before.maskBounds);
+    expect(useAppStore.getState().selectionMaskLayerId).toBe(layer.id);
+    await useAppStore.getState().redo();
+    expect(useAppStore.getState().selectionMask?.data).toEqual(after.mask?.data);
+    expect(useAppStore.getState().selectionMaskBounds).toEqual(after.maskBounds);
+    expect(useAppStore.getState().selectionMaskLayerId).toBe(layer.id);
+    expect(mask.data).toEqual(inputBytes);
+    expect(admittedMask.data).toEqual(admittedBytes);
+  });
+
 });

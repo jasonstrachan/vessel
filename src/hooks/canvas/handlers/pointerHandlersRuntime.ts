@@ -295,6 +295,7 @@ import { getPresetStops } from '../../../utils/gradientPresets';
 import { createShapeToolHandler } from './shapes/ShapeToolHandler';
 import { logContourFillDebug } from './utils/logContourFillDebug';
 import { createSelectionRuntime } from '@/canvas/runtime/SelectionRuntime';
+import { cancelSelectionSession } from '@/hooks/canvas/handlers/selectionHandlers';
 import { CURSOR_FALLBACK_CROSSHAIR } from './utils/cursorFallbacks';
 import { resolveSpacePanCursor } from './utils/spacePanCursor';
 import { resolveToolCursorState } from './utils/toolCursor';
@@ -3612,7 +3613,7 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     updateBrushCursorVisibility();
 
     // Handle selection
-    if (selectionHandlers.handleSelectionPointerMove({ worldPos, screenPos: currentPointerPos })) {
+    if (selectionHandlers.handleSelectionPointerMove({ worldPos, screenPos: currentPointerPos, shiftKey: event.shiftKey })) {
       return;
     }
 
@@ -4774,7 +4775,18 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
   };
 
   const handlePointerCancel = (event: React.PointerEvent<Element>) => {
-    suppressBootstrapUntilPointerUpRef.current = false;
+    const cancelledSelection = cancelSelectionSession({
+      runtime: deps.selectionRuntimeRef.current,
+      interaction,
+      clearOverlay: () => {
+        const overlay = overlayCanvasRef.current;
+        overlay?.getContext('2d')?.clearRect(0, 0, overlay.width, overlay.height);
+      },
+    });
+    suppressBootstrapUntilPointerUpRef.current = cancelledSelection;
+    if (cancelledSelection && stateMachine.state.mode === 'SELECTING') {
+      stateMachine.dispatch({ type: 'END_INTERACTION' });
+    }
     // Handle pointer cancel (e.g., stylus moving out of range)
     isMouseDownRef.current = false;
     const { canvas: cancelCanvas, tools: cancelTools } = getDynamicDeps();
@@ -4857,6 +4869,15 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
         width: overlayCanvas.width,
         height: overlayCanvas.height,
       });
+    }
+
+    if (cancelledSelection) {
+      compositeCanvasDirtyRef.current = true;
+      setNeedsRedraw((value) => value + 1);
+      const ctx = canvasRef.current?.getContext('2d', { willReadFrequently: true });
+      if (ctx) {
+        deps.draw(ctx, deps.viewTransformRef.current);
+      }
     }
 
     const { tools } = getDynamicDeps();

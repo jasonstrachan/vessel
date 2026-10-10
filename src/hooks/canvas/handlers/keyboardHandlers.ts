@@ -2,7 +2,7 @@ import { isCcGradientPreset } from '@/presets/brushPresets';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import type React from 'react';
 import {
-  cancelClickLineSelectionSession,
+  cancelSelectionSession,
   finalizeClickLineSelectionSession,
 } from '@/hooks/canvas/handlers/selectionHandlers';
 import {
@@ -243,21 +243,27 @@ export const createKeyboardHandlers = (
     }
 
     const runtime = deps.selectionRuntimeRef.current;
+    if (event.key === 'Escape' && cancelSelectionSession({
+      runtime,
+      interaction: deps.interaction,
+      clearOverlay: clearSelectionOverlay,
+    })) {
+      event.preventDefault();
+      event.stopPropagation();
+      deps.isMouseDownRef.current = false;
+      deps.suppressBootstrapUntilPointerUpRef.current = true;
+      if (deps.stateMachine.state.mode === 'SELECTING') {
+        deps.stateMachine.dispatch({ type: 'END_INTERACTION' });
+      }
+      redrawCanvas();
+      return;
+    }
     const clickLineActive =
       dynamic.tools.currentTool === 'selection' &&
       dynamic.tools.selectionMode === 'click-line' &&
       runtime.clickLineSession.active;
 
     if (!clickLineActive) {
-      return;
-    }
-
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      if (cancelClickLineSelectionSession({ runtime, clearOverlay: clearSelectionOverlay })) {
-        redrawCanvas();
-      }
       return;
     }
 
