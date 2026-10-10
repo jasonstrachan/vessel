@@ -15,7 +15,6 @@ export const renderLiveStrokePreview = ({
   liveDirtyRectRef,
   shouldApplyStrokeDither,
   brushSettings,
-  isPixelDitherNoBg,
   warnIfDitherStrokePath,
   withAlphaLock,
   applyStrokeDither,
@@ -73,7 +72,7 @@ export const renderLiveStrokePreview = ({
   const presentation = hasReleasePresentation ? previewSource : null;
   const rawCanvas = presentation?.canvas ?? liveStrokeRawRef.current;
   const ditherCanvas = liveStrokeDitherRef.current;
-  const strokeBounds = hasReleasePresentation
+  const strokeBounds = hasReleasePresentation || shouldApplyStrokeDither
     ? strokeBoundsRef.current ?? liveStrokeBoundsRef.current
     : liveStrokeBoundsRef.current ?? strokeBoundsRef.current;
   if (!rawCanvas || !strokeBounds) {
@@ -117,9 +116,6 @@ export const renderLiveStrokePreview = ({
     visibleCtx.restore();
   };
 
-  // Raw paint and eraser masks are cumulative; publication must not repaint them.
-  const shouldRestoreBase = !shouldApplyStrokeDither || isEraserStroke || isPixelDitherNoBg;
-
   if (
     shouldApplyStrokeDither &&
     brushSettings.pressureLinkedFillResolution &&
@@ -135,9 +131,7 @@ export const renderLiveStrokePreview = ({
           dCtx.canvas?.width ?? 0,
           dCtx.canvas?.height ?? 0
         );
-        if (shouldRestoreBase) {
-          restoreBaseRegion({ x: bx, y: by, width: bw, height: bh });
-        }
+        restoreBaseRegion({ x: bx, y: by, width: bw, height: bh });
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
         withAlphaLock(visibleCtx, (targetCtx) => {
           targetCtx.drawImage(ditherCanvas as CanvasImageSource, bx, by, bw, bh, bx, by, bw, bh);
@@ -151,25 +145,16 @@ export const renderLiveStrokePreview = ({
   if (shouldApplyStrokeDither && ditherCanvas) {
     const dCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
     if (dCtx) {
-      // Coverage diffusion depends on the preceding stroke cells. Rebuild an
-      // eraser mask from the same complete raw region used by finalization.
-      const fullDirty = isEraserStroke ? region : liveDirtyRectRef.current ?? strokeBounds;
+      // Palette diffusion and pattern phase depend on the sampled domain. Match
+      // finalization instead of moving that domain with each pointer update.
+      const fullDirty = region;
       liveDirtyRectRef.current = null;
 
-      const ditherRegion = isEraserStroke ? effectRegion : fullDirty;
+      const ditherRegion = effectRegion;
 
-      const { x: dx, y: dy, width: dw, height: dh } = normalizeRectForCanvas(
-        ditherRegion,
-        dCtx.canvas?.width ?? 0,
-        dCtx.canvas?.height ?? 0
-      );
-
-      if (isEraserStroke) {
-        const clearRegion = normalizeRectForCanvas(fullDirty, canvasWidth, canvasHeight);
-        dCtx.clearRect(clearRegion.x, clearRegion.y, clearRegion.width, clearRegion.height);
-      }
+      const clearRegion = normalizeRectForCanvas(fullDirty, canvasWidth, canvasHeight);
+      dCtx.clearRect(clearRegion.x, clearRegion.y, clearRegion.width, clearRegion.height);
       if (brushSettings.ditherBackgroundFill !== false) {
-        dCtx.drawImage(rawCanvas as CanvasImageSource, dx, dy, dw, dh, dx, dy, dw, dh);
         applyStrokeDither(dCtx, ditherRegion, rawCtx);
       } else {
         applyStrokeDither(dCtx, ditherRegion, rawCtx, { mergeExisting: false });
@@ -182,9 +167,7 @@ export const renderLiveStrokePreview = ({
       );
 
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-      if (shouldRestoreBase) {
-        restoreBaseRegion(isEraserStroke ? fullDirty : blitRect);
-      }
+      restoreBaseRegion(fullDirty);
       withAlphaLock(visibleCtx, (targetCtx) => {
         targetCtx.drawImage(
           ditherCanvas as CanvasImageSource,
@@ -229,9 +212,7 @@ export const renderLiveStrokePreview = ({
   }
 
   const rawSource = rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null;
-  if (shouldRestoreBase) {
-    restoreBaseRegion(region);
-  }
+  restoreBaseRegion(region);
   withAlphaLock(visibleCtx, (targetCtx) => {
     targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
   }, presentationBounds);

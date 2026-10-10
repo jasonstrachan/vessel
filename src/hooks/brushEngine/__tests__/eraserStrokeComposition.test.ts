@@ -150,12 +150,12 @@ describe('cumulative eraser mask composition', () => {
     expect(blits).toEqual(Array.from({ length: 3 }, () => [0, 0, 128, 64, 0, 0, 128, 64]));
   });
 
-  it('preserves local dirty updates for color painting', () => {
+  it('rebuilds cumulative color dithering and restores its base after a local update', () => {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 64;
     const ctx = canvas.getContext('2d')!;
     ctx.globalCompositeOperation = 'source-over';
-    const bounds = { x: 0, y: 0, width: 64, height: 64 };
+    const bounds = { x: 4, y: 8, width: 48, height: 32 };
     const dirty = { x: 32, y: 16, width: 16, height: 16 };
     const dither = document.createElement('canvas');
     dither.width = dither.height = 64;
@@ -164,15 +164,17 @@ describe('cumulative eraser mask composition', () => {
     renderLiveStrokePreview({
       visibleCtx: ctx, liveRenderScheduledRef: { current: true },
       liveStrokeRawRef: { current: canvas }, liveStrokeDitherRef: { current: dither },
-      liveStrokeBaseRef: { current: canvas }, liveStrokeBoundsRef: { current: bounds },
+      liveStrokeBaseRef: { current: canvas },
+      liveStrokeBoundsRef: { current: { x: 0, y: 0, width: 64, height: 64 } },
       strokeBoundsRef: { current: bounds }, liveDirtyRectRef: { current: dirty },
       shouldApplyStrokeDither: true, brushSettings: { ditherBackgroundFill: false } as BrushSettings,
       isPixelDitherNoBg: false, warnIfDitherStrokePath: jest.fn(),
       withAlphaLock: (target, draw) => draw(target), applyStrokeDither, applyStrokeRisographOverlay: jest.fn(),
     });
-    expect(applyStrokeDither).toHaveBeenCalledWith(dither.getContext('2d'), dirty, ctx, { mergeExisting: false });
-    expect(drawImage).toHaveBeenCalledTimes(1);
-    expect(drawImage).toHaveBeenCalledWith(dither, 32, 16, 16, 16, 32, 16, 16, 16);
+    expect(applyStrokeDither).toHaveBeenCalledWith(dither.getContext('2d'), bounds, ctx, { mergeExisting: false });
+    expect(drawImage).toHaveBeenCalledTimes(2);
+    expect(drawImage.mock.calls[0][0]).toBe(canvas);
+    expect(drawImage).toHaveBeenCalledWith(dither, 4, 8, 48, 32, 4, 8, 48, 32);
   });
 });
 

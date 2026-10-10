@@ -134,8 +134,9 @@ export const ditherRegionWithCurrentPressure = ({
 
   const fillBackground = settings.ditherBackgroundFill !== false;
   const pressureMode = !!settings.pressureLinkedFillResolution || overridePressure != null || overridePixelSize != null;
-  let bgOffMode = options?.bgOffMode ?? 'accumulate';
-  let bgOffComposite = options?.bgOffComposite ?? 'source-over';
+  const replaceExisting = options?.mergeExisting === false;
+  let bgOffMode = options?.bgOffMode ?? (replaceExisting ? 'direct' : 'accumulate');
+  let bgOffComposite = options?.bgOffComposite ?? (replaceExisting ? 'copy' : 'source-over');
 
   if (!fillBackground && pressureMode && options?.bgOffMode == null) {
     bgOffMode = 'direct';
@@ -268,12 +269,12 @@ export const ditherRegionWithCurrentPressure = ({
 
   const data = dithered.data;
   const srcData = src.data;
+  const support = options?.writeSupportMask;
+  if (support && (support.width !== width || support.height !== height)) {
+    throw new Error('Dither support must match the sampled region.');
+  }
+  const previous = support ? ctx.getImageData(x, y, width, height).data : null;
   if (alphaSignal) {
-    const support = options?.writeSupportMask;
-    if (support && (support.width !== width || support.height !== height)) {
-      throw new Error('Alpha dither support must match the sampled region.');
-    }
-    const previous = support ? ctx.getImageData(x, y, width, height).data : null;
     for (let i = 0; i < data.length; i += 4) {
       if (support && support.data[i + 3] === 0 && previous) {
         data[i] = previous[i];
@@ -300,6 +301,23 @@ export const ditherRegionWithCurrentPressure = ({
     data[idx] === offR &&
     data[idx + 1] === offG &&
     data[idx + 2] === offB;
+
+  if (support && previous) {
+    // Sample the full cumulative stroke, but replace only this pressure run's
+    // authored pixels. Older islands and transparent holes retain their resolution.
+    for (let i = 0; i < data.length; i += 4) {
+      if (support.data[i + 3] === 0) {
+        data[i] = previous[i];
+        data[i + 1] = previous[i + 1];
+        data[i + 2] = previous[i + 2];
+        data[i + 3] = previous[i + 3];
+      } else {
+        data[i + 3] = !fillBackground && isOffColor(i) ? 0 : srcData[i + 3];
+      }
+    }
+    ctx.putImageData(dithered, x, y);
+    return;
+  }
 
   if (fillBackground) {
     for (let i = 0; i < data.length; i += 4) {
@@ -348,6 +366,13 @@ export const ditherRegionWithCurrentPressure = ({
       maskData[i] = 0;
       maskData[i + 1] = 0;
       maskData[i + 2] = 0;
+    }
+
+    if (bgOffMode === 'direct' && bgOffComposite === 'copy') {
+      // Cumulative raw owns this region, including its current transparent holes.
+      // putImageData replaces only this region; canvas copy would clear outside it.
+      ctx.putImageData(dithered, x, y);
+      return;
     }
 
     temp.ctx.setTransform(1, 0, 0, 1, 0, 0);

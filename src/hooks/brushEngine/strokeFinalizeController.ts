@@ -161,8 +161,9 @@ export const finalizeStrokeAfterEngine = ({
   warnIfDitherStrokePath: (context: string) => void;
   finalizeAndReset: (clearCoverage: boolean) => Rect | null;
 }): Rect | null => {
-  if ((restoreBase || ctx.globalCompositeOperation === 'destination-out' ||
-    (!shouldApplyStrokeDither && rawCtx)) && baseCanvas && region) {
+  // Dither publication restores its base in the shared final blit.
+  if (!shouldApplyStrokeDither &&
+    (restoreBase || ctx.globalCompositeOperation === 'destination-out' || rawCtx) && baseCanvas && region) {
     ctx.save();
     ctx.beginPath();
     ctx.rect(region.x, region.y, region.width, region.height);

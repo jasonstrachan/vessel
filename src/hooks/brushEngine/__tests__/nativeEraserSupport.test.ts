@@ -67,6 +67,9 @@ const createContext = () => {
     rotate: jest.fn((...args: number[]) => record('rotate', args)),
     beginPath: jest.fn(() => record('beginPath', [])),
     arc: jest.fn((...args: number[]) => record('arc', args)),
+    moveTo: jest.fn((...args: number[]) => record('moveTo', args)),
+    lineTo: jest.fn((...args: number[]) => record('lineTo', args)),
+    closePath: jest.fn(() => record('closePath', [])),
     fill: jest.fn(() => emit('fill', [])),
     fillRect: jest.fn((...args: number[]) => emit('fillRect', args)),
     drawImage: jest.fn((...args: unknown[]) => emit('drawImage', args)),
@@ -130,6 +133,30 @@ describe('native eraser authored support', () => {
     }
   });
 
+  it.each(['square', 'round', 'diamond', 'diamond5', 'diamond7', 'diamond9', 'triangle'] as const)(
+    'admits Dither Stroke %s and preserves its native emissions', (tip) => {
+      const raw = createContext();
+      const support = createContext();
+      const settings = { brushSettings: { ditherStrokeTipShape: tip } as BrushSettings };
+      createShapeDrawer(settings, { getNativeAuthoredSupportContext: () => support.ctx })(
+        raw.ctx, 30, 40, 16, BrushShape.PIXEL_DITHER, false,
+      );
+      expect(raw.emissions.length).toBeGreaterThan(0);
+      expect(support.emissions).toEqual(raw.emissions);
+      expect(raw.ctx.getImageData).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects the unsupported legacy checkered tip before drawing', () => {
+    const raw = createContext();
+    const support = createContext();
+    expect(() => createShapeDrawer(
+      { brushSettings: { ditherStrokeTipShape: 'checkered' } as BrushSettings },
+      { getNativeAuthoredSupportContext: () => support.ctx },
+    )(raw.ctx, 30, 40, 16, BrushShape.PIXEL_DITHER, false)).toThrow('supported native tip');
+    expect(raw.operations).toEqual([]);
+  });
+
   it('uses the original riso pattern and jitter once, including its support outside the native tip', () => {
     const raw = createContext();
     const support = createContext();
@@ -154,13 +181,12 @@ describe('native eraser authored support', () => {
     [BrushShape.SPAM_TEXT, false, undefined],
     [BrushShape.SQUARE, true, undefined],
     [BrushShape.SQUARE, false, new ImageData(1, 1)],
-    [BrushShape.PIXEL_DITHER, false, undefined],
   ] as const)('rejects unsupported support before mutating raw (%s)', (shape, antialiasing, pattern) => {
     const raw = createContext();
     const support = createContext();
     expect(() => createShapeDrawer({}, { getNativeAuthoredSupportContext: () => support.ctx })(
       raw.ctx, 30, 40, 10, shape, antialiasing, 0, 0, pattern,
-    )).toThrow('native eraser tip');
+    )).toThrow('supported native tip');
     expect(raw.operations).toEqual([]);
   });
 

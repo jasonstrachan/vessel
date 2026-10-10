@@ -45,8 +45,8 @@ export const blitDitheredRegionWithOverlay = ({
   const { x, y, width, height } = region;
   const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
 
-  if (bgOff && clearBgOffOnTarget) {
-    if (isDitherStrokeBrush && baseCanvas) {
+  if (!bgOff || clearBgOffOnTarget) {
+    if (baseCanvas) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(x, y, width, height);
@@ -59,7 +59,7 @@ export const blitDitheredRegionWithOverlay = ({
         x, y, width, height
       );
       ctx.restore();
-    } else {
+    } else if (isDitherStrokeBrush) {
       warnIfDitherStrokePath(warnContext);
     }
   }

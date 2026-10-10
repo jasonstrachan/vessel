@@ -76,10 +76,10 @@ export const drawShape = (
       shape === BrushShape.SQUARE ||
       shape === BrushShape.ROUND ||
       shape === BrushShape.PIXEL_ROUND ||
-      (shape === BrushShape.PIXEL_DITHER && settings?.brushSettings?.ditherStrokeTipShape === 'diamond5')
+      (shape === BrushShape.PIXEL_DITHER && settings?.brushSettings?.ditherStrokeTipShape !== 'checkered')
     )
   )) {
-    throw new Error('Native authored support requires a separate context and a native eraser tip.');
+    throw new Error('Native authored support requires a separate context and a supported native tip.');
   }
 
   // Save the current composite operation before save() overwrites it

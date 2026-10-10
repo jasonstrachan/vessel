@@ -1884,3 +1884,160 @@ receipt: output/playwright/area13-commit-receipt-session33.json. Dither Area14 s
 work is separate and excluded. Area14 already reproduces lost BG-off drag density;
 its native baseline/owner trace and in-progress repair remain unverified until the
 rebuilt preview passes exact checks. No push/deployment/branch/worktree change.
+
+
+## Session33 — Area14 Dither Stroke in progress
+
+No Area14 completion/commit claim. Native baseline20configs has80 passing checks
+and five invalid center-opacity assertions (a dither hole may occupy the center).
+All seven tips paint, but BG-off drags lose most pixels. Follow-up16configs proves
+Bayer/Bayer4x4 only20 painted pixels instead of1044; Sierra223 and Floyd95 versus
+roughly900–1200 expected. Clamping pressure-linked resolution to1 produces1044 Bayer
+and1021 Sierra with otherwise identical native input. Fixed resolution ignores its
+mergeExisting:false request and reuses accumulated historical holes.
+
+Owning repair in strokeDitherRegion.ts honors replacement requests and writes direct
+copy with putImageData so old holes disappear while pixels outside the ROI survive.
+Existing strokeDitherRegion.test.ts adds two deterministic contract regressions.
+Focused3suites57tests and production build pass. Exact retest16configs96/96 passes
+(area14-density-retest-session33.json). This repair is effective and retained.
+Initial file boundary: owner/test and these two ledgers.
+
+Broader preview check reproduces another defect: all four Bayer BG on/off ×
+opacity.5/1 cases change thousands of interior displayed channels on release
+(area14-preview-parity-session33.json), excluding the terminal cap. Source trace:
+nonpressure previews dither moving dirty regions rather than the cumulative effect
+domain; BG-on paint also lacks base capture/restore. Native opacity/control checks
+are in progress before a further owner repair. Do not confuse these pending checks
+with the accepted density repair. Shared advanced controls remain Area29.
+
+Raster Dither Stroke follows strokeDitherController/strokeDitherRegion/dithering/
+enginePalette, not principally CC strokeStampDither (which has original edits).
+UI/owner enumeration: area14-owner-trace-session33.md. Preview first-repair artifact:
+area14-preview-session33.json, page-e44e19264b457e3d.js,
+SHA2564b93b5b0705b56f0722f025a52670278b8865a66f646ed35311fdd24c56876ec,
+BUILD_TIMESTAMP2026-10-10T12:18:21.322Z. Areas01–13 remain locally committed.
+
+
+### Session33 Area14 checkpoint — pressure and publication repairs verified, coverage open
+
+Areas01–13 are locally committed; Area14 remains active and uncommitted. Areas15–65
+remain pending. Do not mark Area14 complete from these targeted repair proofs.
+
+The accepted density repair is retained. Further native proof found fixed-resolution
+preview/release differences and doubled BG-on50% taps (alpha192 instead of128).
+useBrushEngineSimplified now captures every stroke base; liveStrokePreview restores
+that base and uses cumulative stroke bounds for nonpressure dithering. Shared final
+blitting restores the base for BG-on and BG-off; strokeFinalizeController delegates
+dither restoration to that owner exactly once. Native fixed-preview4cases24/24 and
+tap-opacity8cases48/48 pass on area14-preview-publication-session33.json. All eight
+built-in pattern styles also passed16cases96/96 on that intermediate artifact.
+
+Pressure-linked color painting used a separate moving-region renderer and rebuilt
+all old paint at the last resolution on release. Constant Max1 BG/opacity matrix had
+four preview failures; variable8->2->8 BG/Smoosh matrix had10 failures in50 checks,
+including completed-region mutation with Smoosh off. The variable baseline freezes
+its reference immediately before the actual committed8->lower transition, observed
+read-only; desired pressure is not substituted for committed-resolution evidence.
+
+Dither Stroke's seven native tips now reuse the existing authored-support pressure
+run lifecycle from alphaPressureDither. Color quantization samples cumulative raw,
+but strokeDitherRegion writes only the current run's positive native support unless
+Smoosh is on. Square/rotated Diamond/Triangle support is emitted from the same native
+geometry/resources as painting; shapes.ts admits all seven supported tips. The
+existing run owner flushes old runs before new geometry and final buffered caps
+before commit. No duplicated temporary-stamp pipeline or raw-alpha differencing.
+Legacy checkered and antialiased painting keep their existing pressure path; they
+are not newly admitted or claimed fixed. The first pressure native attempt exposed
+an outdated eraser-only admission guard; its errors are retained and superseded by
+the corrected guard and passing native runs, not counted as successful evidence.
+
+Current boundary is15 files, all necessary owners/tests and these two ledgers,
+enumerated in output/playwright/area14-candidate-session33.json. Adds
+nativeShapeSupport.ts, shapePixelBrush.ts, shapes.ts and their two tests to the prior
+10-file publication boundary. All47 original dirty hashes and the original3-file
+staged patch remain exact. HEAD remains2fb9e04a6 (Area13 Soft); nothing pushed.
+
+Current production receipt: area14-preview-pressure-admission-session33.json,
+page-55f22b46135aa926.js, SHA25645b473b65cf7515743edacb6b6301c7622cf8d38bef0df3c6fb8465c37352f11,
+BUILD_TIMESTAMP2026-10-10T12:37:30.100Z. Passing native evidence on this artifact:
+- Constant pressure Max1 preview/release:4cases24checks.
+- Native software pen8->2->8, BG on/off and Smoosh on/off:4cases50checks.
+- All7 tips fixed1px versus pressure1px, taps/drags/opacity/history:40cases190checks.
+- Shared ordinary/dither eraser over native-painted bases:14cases70checks.
+- All11 algorithms through real controls, BG on/off:22cases132checks.
+- All8 built-in patterns through real controls, BG on/off:16cases96checks.
+The current artifact therefore has100 native configurations and562 passing checks.
+Actual browser-loaded bytes match its receipt (area14-loaded-pressure-artifact-session33.log).
+All completed runs above have zero failures, aborted cases and page errors. Physical
+stylus, other browsers and performance remain unverified. Full logs/JSON use
+area14-pressure-preview-admission-retest, area14-variable-pressure-retest,
+area14-tips-pressure-parity, area14-eraser-integration, area14-algorithms-final,
+area14-patterns-final, all suffixed-session33 under output/playwright.
+
+Isolated15-file candidate type-check/lint PASS;8 owner/hook suites121 tests PASS
+(area14-admission-candidate-{typecheck,lint}-session33.log and
+area14-pressure-integration-candidate-session33.log). Full Jest commit gate has NOT
+run for Area14. Earlier worktree type errors were in existing selection-test Canvas
+contexts; the isolated candidate excludes original edits. One preview build failed
+because audit backup .ts copies entered TypeScript scanning; all those copies now
+use .bak extensions, and the corrected production build passes. No runtime source
+changed after the accepted pressure artifact; later edits are audit documentation.
+
+Next: finish size1/2/500, spacing1/10/40, clipping/edges, overall size-pressure bounds,
+fixed Res1/4/64 and PresRes Max1/8/999, palette spread/canvas sampling, translucent and
+opaque overpainting, outside preservation and displayed composition. Do not assume
+a dither center or extremely coarse cell must paint. Custom pattern creation/import/
+local-library management is explicitly tracked in shared-controls Area29. Read
+area14-remaining-cases-session33.md and area14-pressure-owner-trace-session33.md before
+continuing. Complete native coverage, final isolated full gate, source/artifact and
+original-work preservation checks, then commit only Area14 files. Continue Areas15–65.
+
+
+### Session34 — Area14 Dither Stroke final software signoff
+
+Area14 software coverage is complete. Retains the Session33 density, publication,
+and authored pressure-run repairs. Adds two reproduced owner fixes:1–2px Triangle
+paths no longer collapse to zero area; fractional half-extents are shared with native
+support. The support canvas now requests the same CPU rasterization as raw strokes.
+A native Canvas experiment proved GPU/CPU tiny-path coverage differed; before-fix
+pressure support dropped a16-alpha edge pixel despite identical raw bytes and bounds.
+No threshold, dilation, palette, noise, or algorithm workaround was introduced.
+
+Boundary expanded explicitly from15 to17 paths for alphaPressureDither.ts and its
+existing test. The tiny Triangle owner/test were already in scope. Exact file list:
+output/playwright/area14-candidate-session34.json. All47 original dirty file hashes
+and the original3-file staged patch remain exact; original patch SHA256 is
+5d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09.
+
+Native coverage receipt: output/playwright/area14-native-coverage-session34.json,
+192 configurations /1,104 passing checks, zero failures/aborts/page errors in accepted
+runs. This combines accepted artifacts with carryover for unchanged nonpressure and
+Square branches; it is not a claim that every run used the final build. Earlier
+fixed preview/tap-opacity12configs72checks remain separate supporting evidence.
+Remaining coverage now includes all size1/2/500 tips, spacing1/10/40, canvas edges,
+selection clipping, size pressure independently of cell resolution and1–1000% UI
+bounds, fixed Res1/4/64, actual committed software-pen Max1/8/999, palette spread,
+Variety, native canvas sampling, opaque/translucent overpaint, BG holes, display
+composition, and exact history. Shared pattern creation/import/local library,
+rotation/dash/artistic controls remain explicitly Area29. Dither Stroke exposes no
+Shape or Pxl Edge toggle. Physical stylus, other browsers and performance unverified.
+
+Final artifact: page-86ce50a2c65743a6.js, SHA256
+f356609af692ea748718309ff008a7712d24a93808246146c3bc5b714ae8f49d,
+BUILD_TIMESTAMP2026-10-10T12:56:24.512Z. Receipt area14-preview-final-session34.json;
+actual loaded bytes verified by area14-loaded-final-session34.log. Final native
+support gate66configs354checks passes: tiny fixed/pressure parity8/44,8->2->8 BG/
+Smoosh4/50, all7 tip fixed/pressure parity40/190, and shared eraser14/70. All source
+hashes still match. Accepted preceding boundary sweep43/212 and palette/variety/
+sampling/overpaint21/164 apply to unchanged branches of the final source.
+
+Verification: isolated17-file candidate type-check/lint PASS; focused3suites42tests
+PASS; final full Jest596suites5,665tests PASS, existing1suite/test skipped,1snapshot
+PASS (area14-candidate-full-jest-session34.log). Production build and diff check PASS.
+The exploratory count>=0 tiny-tip sweep and duplicate-label sampling abort were
+superseded by explicit nonempty opaque-tip and corrected sampling checks. Failed
+native and unit evidence is retained; no signoff derives from those failed runs.
+
+Focused local commit receipt: output/playwright/area14-commit-receipt-session34.json.
+Remain on main; no push/deployment. Next active area is15 Dither Shape;16–65 pending.

@@ -1,7 +1,7 @@
 import { blitDitheredRegionWithOverlay } from '../strokeDitherBlit';
 
 describe('blitDitheredRegionWithOverlay', () => {
-  it('restores the pre-stroke pixels before a BG-off blit and preserves alpha lock', () => {
+  it.each([true, false])('restores the pre-stroke pixels with BG-off=%s and preserves alpha lock', (bgOff) => {
     const baseCanvas = document.createElement('canvas');
     const ditherCanvas = document.createElement('canvas');
     const ctx = document.createElement('canvas').getContext('2d')!;
@@ -40,8 +40,8 @@ describe('blitDitheredRegionWithOverlay', () => {
       region: { x: 2, y: 3, width: 4, height: 5 },
       withAlphaLock,
       applyStrokeRisographOverlay: jest.fn(),
-      bgOff: true,
-      clearBgOffOnTarget: true,
+      bgOff,
+      clearBgOffOnTarget: bgOff,
       isDitherStrokeBrush: true,
       warnIfDitherStrokePath: jest.fn(),
       warnContext: 'test',

@@ -135,6 +135,17 @@ const makeHarness = (smoosh = false, fillBackground = false) => {
 };
 
 describe('alpha pressure authored-support runs', () => {
+  it('creates and reuses support with the same CPU rasterization as raw strokes', () => {
+    const h = makeHarness();
+    const getContext = jest.spyOn(h.support.canvas, 'getContext');
+    h.draw({ x: 8, y: 8, width: 1, height: 1 }, 16, 1, 100);
+    h.draw({ x: 9, y: 8, width: 1, height: 1 }, 48, 1, 160);
+    expect(getContext).toHaveBeenCalledTimes(1);
+    expect(getContext).toHaveBeenCalledWith('2d', { willReadFrequently: true });
+    expect(h.support.ctx.getImageData(8, 8, 1, 1).data[3]).toBe(16);
+    expect(h.support.ctx.getImageData(9, 8, 1, 1).data[3]).toBe(48);
+  });
+
   it.each([false, true])('protects an older island inside a disconnected U-shaped run (background=%s)', (fillBackground) => {
     const h = makeHarness(false, fillBackground);
     const island = { x: 24, y: 24, width: 16, height: 16 };

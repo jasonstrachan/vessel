@@ -58,3 +58,22 @@ export const emitNativeSupportCircle = (
   supportCtx.fill();
   supportCtx.restore();
 };
+
+export const emitNativeSupportTriangle = (
+  rawCtx: CanvasRenderingContext2D,
+  supportCtx: CanvasRenderingContext2D | null | undefined,
+  x: number,
+  y: number,
+  halfWidth: number,
+  halfHeight: number,
+): void => {
+  if (!supportCtx) return;
+  prepareSupport(rawCtx, supportCtx);
+  supportCtx.beginPath();
+  supportCtx.moveTo(x, y - halfHeight);
+  supportCtx.lineTo(x - halfWidth, y + halfHeight);
+  supportCtx.lineTo(x + halfWidth, y + halfHeight);
+  supportCtx.closePath();
+  supportCtx.fill();
+  supportCtx.restore();
+};

@@ -389,16 +389,10 @@ export const useBrushEngineSimplified = () => {
       liveStrokeRawRef,
       liveStrokeDitherRef,
       liveStrokeBaseRef,
-      (!shouldApplyStrokeDitherForSettingsUtil(tools.brushSettings) ||
-        restoreStrokeBaseRef.current || ctx.globalCompositeOperation === 'destination-out' ||
-        (tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
-          tools.brushSettings.ditherBackgroundFill === false)) &&
-        strokeBoundsRef.current === null &&
+      strokeBoundsRef.current === null &&
         liveStrokeBoundsRef.current === null,
     );
-  }, [
-    tools.brushSettings,
-  ]);
+  }, []);
 
   const clearLiveStrokeBuffers = useCallback(() => {
     restoreStrokeBaseRef.current = false;
@@ -1096,14 +1090,18 @@ export const useBrushEngineSimplified = () => {
   }, [liveStrokeTrackingSettings]);
 
   const renderBrushStrokeToRaw = useCallback((rawCtx: CanvasRenderingContext2D, params: BrushStrokeParams) => {
-    if (tools.currentTool !== 'eraser' || !shouldApplyStrokeDither || !tools.brushSettings.pressureLinkedFillResolution) {
+    const usesNativePressureSupport = tools.currentTool === 'eraser' || (
+      isDitherStrokeBrush && !tools.brushSettings.antialiasing &&
+      tools.brushSettings.ditherStrokeTipShape !== 'checkered'
+    );
+    if (!usesNativePressureSupport || !shouldApplyStrokeDither || !tools.brushSettings.pressureLinkedFillResolution) {
       brushEngine.renderBrushStroke(rawCtx, params);
       return;
     }
     const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
     const fullBounds = strokeBoundsRef.current;
     if (!ditherCtx || !fullBounds) {
-      throw new Error('Pressure erasing requires initialized stroke buffers and bounds.');
+      throw new Error('Pressure dithering requires initialized stroke buffers and bounds.');
     }
     const runtime = alphaPressureRuntimeRef.current ??= createAlphaPressureDitherRuntime();
     const args: AlphaPressureDitherArgs = {
@@ -1121,7 +1119,7 @@ export const useBrushEngineSimplified = () => {
     alphaPressureSupportCtxRef.current = runtime.beforeRender(args);
     brushEngine.renderBrushStroke(rawCtx, params);
     runtime.afterRender(args);
-  }, [brushEngine, tools.currentTool, tools.brushSettings, shouldApplyStrokeDither, getStrokeDitherPixelSize, ditherRegionWithCurrentPressure]);
+  }, [brushEngine, tools.currentTool, tools.brushSettings, isDitherStrokeBrush, shouldApplyStrokeDither, getStrokeDitherPixelSize, ditherRegionWithCurrentPressure]);
 
   const strokeDrawRuntimeSettings = useMemo(() => ({
     lostEdge: tools.brushSettings.lostEdge ?? 0,

@@ -1,7 +1,7 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 
-import { emitNativeSupportCircle, emitNativeSupportImage, emitNativeSupportRect } from './nativeShapeSupport';
+import { emitNativeSupportCircle, emitNativeSupportImage, emitNativeSupportRect, emitNativeSupportTriangle } from './nativeShapeSupport';
 import {
   buildRotatedStampCacheKey,
   getRotatedPixelStamp,
@@ -123,6 +123,7 @@ const drawSquareOrDiamondTip = (
   quantizedRotation: number,
   isDiamond: boolean,
   deps: PixelBrushDependencies | undefined,
+  supportCtx?: CanvasRenderingContext2D | null,
 ) => {
   if (!isDiamond && Math.abs(quantizedRotation) < 0.01) {
     drawingCtx.fillRect(
@@ -130,6 +131,11 @@ const drawSquareOrDiamondTip = (
       Math.round(drawY - stampSize / 2),
       stampSize,
       stampSize,
+    );
+    emitNativeSupportRect(
+      drawingCtx, supportCtx,
+      Math.round(drawX - stampSize / 2), Math.round(drawY - stampSize / 2),
+      stampSize, stampSize,
     );
     return;
   }
@@ -147,6 +153,10 @@ const drawSquareOrDiamondTip = (
       cached,
       Math.round(drawX - cached.width / 2),
       Math.round(drawY - cached.height / 2),
+    );
+    emitNativeSupportImage(
+      drawingCtx, supportCtx, cached,
+      Math.round(drawX - cached.width / 2), Math.round(drawY - cached.height / 2),
     );
     return;
   }
@@ -166,6 +176,10 @@ const drawSquareOrDiamondTip = (
     Math.round(drawX - rotatedSquare.width / 2),
     Math.round(drawY - rotatedSquare.height / 2),
   );
+  emitNativeSupportImage(
+    drawingCtx, supportCtx, rotatedSquare,
+    Math.round(drawX - rotatedSquare.width / 2), Math.round(drawY - rotatedSquare.height / 2),
+  );
 };
 
 const drawTriangleTip = (
@@ -173,14 +187,21 @@ const drawTriangleTip = (
   drawX: number,
   drawY: number,
   stampSize: number,
+  supportCtx?: CanvasRenderingContext2D | null,
 ) => {
   drawingCtx.beginPath();
   const height = Math.floor(stampSize * 0.866);
-  drawingCtx.moveTo(drawX, drawY - Math.floor(height / 2));
-  drawingCtx.lineTo(drawX - Math.floor(stampSize / 2), drawY + Math.floor(height / 2));
-  drawingCtx.lineTo(drawX + Math.floor(stampSize / 2), drawY + Math.floor(height / 2));
+  // Integer half-extents collapse 1–2px triangles into a zero-area path.
+  const halfWidth = stampSize < 3 ? stampSize / 2 : Math.floor(stampSize / 2);
+  const halfHeight = stampSize < 3 ? stampSize * 0.866 / 2 : Math.floor(height / 2);
+  drawingCtx.moveTo(drawX, drawY - halfHeight);
+  drawingCtx.lineTo(drawX - halfWidth, drawY + halfHeight);
+  drawingCtx.lineTo(drawX + halfWidth, drawY + halfHeight);
   drawingCtx.closePath();
   drawingCtx.fill();
+  emitNativeSupportTriangle(
+    drawingCtx, supportCtx, drawX, drawY, halfWidth, halfHeight,
+  );
 };
 
 const drawSpecialDitherTip = (
@@ -209,9 +230,10 @@ const drawSpecialDitherTip = (
       quantizedRotation,
       ditherTipShape === 'diamond',
       deps,
+      supportCtx,
     );
   } else if (ditherTipShape === 'triangle') {
-    drawTriangleTip(drawingCtx, drawX, drawY, stampSize);
+    drawTriangleTip(drawingCtx, drawX, drawY, stampSize, supportCtx);
   }
 };
 

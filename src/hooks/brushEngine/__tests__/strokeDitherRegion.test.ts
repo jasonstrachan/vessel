@@ -5,6 +5,109 @@ import {
 import { BrushShape, type BrushSettings } from '@/types';
 
 describe('strokeDitherRegion', () => {
+  it.each([
+    { mergeExisting: false },
+    { overridePixelSize: 1, bgOffMode: 'direct' as const, bgOffComposite: 'copy' as const },
+  ])('replaces BG-off pixels without retaining old holes or clearing outside the region: %j', (options) => {
+    const makeContext = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 8;
+      return canvas.getContext('2d')!;
+    };
+    const target = makeContext();
+    const source = makeContext();
+    const temp = makeContext();
+    const hole = makeContext();
+    target.fillStyle = '#ff0000';
+    target.fillRect(0, 0, 8, 8);
+    source.fillStyle = '#808080';
+    source.fillRect(2, 2, 4, 4);
+    // An obsolete accumulated hole must not erase the newly resolved pattern.
+    hole.fillStyle = '#000000';
+    hole.fillRect(0, 0, 8, 8);
+    const getHole = jest.fn(() => ({ canvas: hole.canvas, ctx: hole }));
+    const settings = {
+      brushShape: BrushShape.PIXEL_DITHER, color: '#808080',
+      ditherEnabled: true, ditherAlgorithm: 'bayer', ditherBackgroundFill: false,
+      fillResolution: 1,
+    } as BrushSettings;
+    const args = {
+      ctx: target, sampleCtx: source, region: { x: 2, y: 2, width: 4, height: 4 },
+      options, toolsBrushSettings: settings, strokeDitherPalette: ['#000000', '#ffffff'],
+      transparentInk: [0, 0, 0] as [number, number, number],
+      computeStrokeDitherPaletteForSettings: () => ['#000000', '#ffffff'],
+      pickTransparentInk: (): [number, number, number] => [0, 0, 0],
+      computePressureScaledResolution: () => 1, getStrokeDitherPixelSize: () => 1,
+      applyLostEdgeToStrokeAlpha: jest.fn(),
+      ensureBgOffTemp: () => ({ canvas: temp.canvas, ctx: temp }),
+      ensureBgOffHole: getHole, bgOffMaskImageRef: { current: null },
+      strokePhaseOriginRef: { current: null }, DD: jest.fn(),
+    };
+    ditherRegionWithCurrentPressure(args);
+    const first = target.getImageData(2, 2, 4, 4).data;
+    expect(Array.from(first).filter((value, index) => index % 4 === 3 && value > 0)).toHaveLength(8);
+    expect(getHole).not.toHaveBeenCalled();
+    ditherRegionWithCurrentPressure(args);
+    expect(target.getImageData(2, 2, 4, 4).data).toEqual(first);
+    expect(Array.from(target.getImageData(0, 0, 1, 1).data)).toEqual([255, 0, 0, 255]);
+    source.clearRect(2, 2, 4, 4);
+    ditherRegionWithCurrentPressure(args);
+    expect(Array.from(target.getImageData(2, 2, 4, 4).data).every((value) => value === 0)).toBe(true);
+    expect(Array.from(target.getImageData(0, 0, 1, 1).data)).toEqual([255, 0, 0, 255]);
+  });
+
+  it.each([false, true])('preserves older pressure islands and replaces owned holes (BG=%s)', (fillBackground) => {
+    const makeContext = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 8;
+      return canvas.getContext('2d')!;
+    };
+    const target = makeContext();
+    const source = makeContext();
+    const support = new ImageData(8, 8);
+    target.fillStyle = '#ff0000';
+    target.fillRect(0, 0, 8, 8);
+    source.fillStyle = '#808080';
+    source.fillRect(0, 0, 8, 8);
+    // A disconnected run encloses an older island; its bounding rectangle is
+    // insufficient to decide which pixels this pressure is allowed to replace.
+    for (let y = 0; y < 8; y += 1) {
+      for (let x = 0; x < 8; x += 1) {
+        if (x < 2 || x >= 6 || y >= 6) support.data[(y * 8 + x) * 4 + 3] = 255;
+      }
+    }
+    const settings = {
+      brushShape: BrushShape.PIXEL_DITHER, color: '#808080',
+      ditherEnabled: true, ditherAlgorithm: 'bayer', ditherBackgroundFill: fillBackground,
+    } as BrushSettings;
+    const args = {
+      ctx: target, sampleCtx: source, region: { x: 0, y: 0, width: 8, height: 8 },
+      options: { overridePixelSize: 1, writeSupportMask: support },
+      toolsBrushSettings: settings, strokeDitherPalette: ['#000000', '#ffffff'],
+      transparentInk: [0, 0, 0] as [number, number, number],
+      computeStrokeDitherPaletteForSettings: () => ['#000000', '#ffffff'],
+      pickTransparentInk: (): [number, number, number] => [0, 0, 0],
+      computePressureScaledResolution: () => 1, getStrokeDitherPixelSize: () => 1,
+      applyLostEdgeToStrokeAlpha: jest.fn(), ensureBgOffTemp: jest.fn(), ensureBgOffHole: jest.fn(),
+      bgOffMaskImageRef: { current: null }, strokePhaseOriginRef: { current: null }, DD: jest.fn(),
+    };
+    ditherRegionWithCurrentPressure(args);
+    const first = target.getImageData(0, 0, 8, 8).data;
+    let ownedHoles = 0;
+    for (let i = 0; i < first.length; i += 4) {
+      if (support.data[i + 3] === 0) {
+        expect(Array.from(first.slice(i, i + 4))).toEqual([255, 0, 0, 255]);
+      } else {
+        expect(first[i + 1]).toBe(first[i]);
+        expect(first[i + 3]).toBe(fillBackground || first[i] === 255 ? 255 : 0);
+        if (!first[i + 3]) ownedHoles += 1;
+      }
+    }
+    expect(ownedHoles > 0).toBe(!fillBackground);
+    ditherRegionWithCurrentPressure(args);
+    expect(target.getImageData(0, 0, 8, 8).data).toEqual(first);
+  });
+
   it('promotes partially covered edge cells to full cells when pxlEdge is enabled', () => {
     const imageData = new ImageData(4, 2);
     const { data } = imageData;

@@ -112,7 +112,9 @@ export const createAlphaPressureDitherRuntime = ({
     if (!supportCtx || supportCanvas.width !== args.rawCtx.canvas.width || supportCanvas.height !== args.rawCtx.canvas.height) {
       supportCanvas.width = args.rawCtx.canvas.width;
       supportCanvas.height = args.rawCtx.canvas.height;
-      supportCtx = supportCanvas.getContext('2d') as CanvasRenderingContext2D | null;
+      // Match the raw stroke's CPU rasterization: GPU coverage can differ at
+      // fractional edges, causing authored pixels to disappear from this mask.
+      supportCtx = supportCanvas.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
       if (!supportCtx) {
         throw new Error('Cannot create alpha-pressure authored-support context');
       }
