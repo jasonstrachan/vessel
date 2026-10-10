@@ -498,6 +498,13 @@ export class HistoryManager {
         phase = 'rehydrate';
         failingDeltaTag = 'runtime-rehydration';
         await runtime.rehydrate(entry, direction, targets);
+        for (const delta of prepared) {
+          if (!delta.finalize) continue;
+          failingDeltaTag = delta.deltaTag;
+          // A completion-only delta still needs compensation if finalization throws.
+          if (!applied.includes(delta)) applied.push(delta);
+          await delta.finalize();
+        }
         return;
       } catch (error) {
         const recoveryTargets = runtime.createTargets();

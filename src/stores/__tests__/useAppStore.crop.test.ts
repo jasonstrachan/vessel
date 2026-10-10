@@ -6,13 +6,18 @@ import { TextDecoder, TextEncoder } from 'util';
 import { useAppStore } from '@/stores/useAppStore';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import historyManager from '@/history/historyService';
+import * as historyBlobs from '@/history/blobStore';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { applyColorCycleBrushLayerSnapshotToRuntime } from '@/lib/colorCycle/document';
 import { createDefaultLayerAlignment, createDefaultExportLayout } from '@/utils/layoutDefaults';
 import { createDefaultCanvasShape } from '@/utils/canvasShape';
-import type { Layer, Project, Rectangle, TxtShape, UiShape } from '@/types';
+import type { CanvasShape, Layer, Project, Rectangle, TxtShape, UiShape } from '@/types';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
 import { WINDOWS_31_UI_SHAPE_PALETTE } from '@/utils/uiShape';
+import { selectionSnapshotFromState } from '@/history/selectionState';
+import { ResizeLayerDelta } from '@/stores/helpers/resizeHistory';
+import { cloneRecolorSettings } from '@/history/deltas/recolorDelta';
+import { createCropGeometryDelta } from '@/history/deltas/cropGeometryDelta';
 
 
 const createImageData = (width: number, height: number): ImageData => {
@@ -73,6 +78,11 @@ const resetStore = () => {
     currentOffscreenCanvas: null,
     selectionStart: null,
     selectionEnd: null,
+    selectionMask: null,
+    selectionMaskBounds: null,
+    selectionMaskLayerId: null,
+    selectionVectorPath: null,
+    selectionLastAction: null,
     floatingPaste: null,
     history: {
       undoStack: [],
@@ -315,6 +325,381 @@ const primeStoreForResize = (
 };
 
 describe('useAppStore commitCrop', () => {
+  it('compensates a full-image replay back to null pixels and the original framebuffer dimensions', async () => {
+    const layer = createLayer(6, 4);
+    layer.imageData = null;
+    const context = layer.framebuffer.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    context?.clearRect(0, 0, 6, 4);
+    primeStoreForCrop(layer, 6, 4);
+    const delta = new ResizeLayerDelta(layer.id, null, createImageData(3, 2), false, {
+      before: { width: 6, height: 4 },
+      after: { width: 3, height: 2 },
+    });
+    const prepared = delta.prepare('forward');
+    await prepared.apply();
+    expect(useAppStore.getState().layers[0].imageData?.width).toBe(3);
+    expect(prepared.requiresCompensation()).toBe(true);
+    await prepared.compensate();
+    const restored = useAppStore.getState().layers[0];
+    expect(restored.imageData).toBeNull();
+    expect([restored.framebuffer.width, restored.framebuffer.height]).toEqual([6, 4]);
+    expect(context?.getImageData(0, 0, 6, 4).data).toEqual(new Uint8ClampedArray(6 * 4 * 4));
+  });
+
+  it.each([false, true])('roundtrips crop with the actual new-project default layers (resident CC: %s)', async (residentColorCycle) => {
+    useAppStore.getState().newProject(6, 4, 'Crop default layers');
+    const state = useAppStore.getState();
+    const raster = state.layers.find((layer) => layer.layerType === 'normal')!;
+    const colorCycle = state.layers.find((layer) => layer.layerType === 'color-cycle')!;
+    expect(colorCycle.imageData).toBeNull();
+    if (residentColorCycle) state.initColorCycleForLayer(colorCycle.id, 6, 4);
+    state.updateLayer(raster.id, { imageData: createImageData(6, 4) });
+    state.updateLayer(colorCycle.id, { visible: false });
+    state.setActiveLayer(raster.id);
+    state.pauseColorCycle('toolbar');
+    state.setCropState({ status: 'ready', marquee: { x: 1, y: 1, width: 3, height: 2 } });
+    historyManager.clear();
+    await useAppStore.getState().commitCrop();
+    const after = useAppStore.getState().layers.find((layer) => layer.id === raster.id)!.imageData!;
+    const pixels = new Uint8ClampedArray(after.data);
+    expect(historyManager.entries()).toHaveLength(1);
+    await historyManager.undo();
+    expect([useAppStore.getState().project?.width, useAppStore.getState().project?.height]).toEqual([6, 4]);
+    const undoneColorCycle = useAppStore.getState().layers.find((layer) => layer.id === colorCycle.id)!;
+    expect(undoneColorCycle.imageData).toBeNull();
+    expect([undoneColorCycle.framebuffer.width, undoneColorCycle.framebuffer.height]).toEqual([6, 4]);
+    await historyManager.redo();
+    expect([useAppStore.getState().project?.width, useAppStore.getState().project?.height]).toEqual([3, 2]);
+    const redone = useAppStore.getState().layers.find((layer) => layer.id === raster.id)!;
+    expect(redone.imageData?.data).toEqual(pixels);
+    expect([redone.framebuffer.width, redone.framebuffer.height]).toEqual([3, 2]);
+  });
+
+  it('retains the complete crop state when history is busy and retries after admission is available', async () => {
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const layer = createLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4);
+    const mask = new ImageData(3, 2);
+    mask.data[3] = 127;
+    useAppStore.setState({
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 4, y: 3 },
+      selectionMask: mask,
+      selectionMaskBounds: { x: 1, y: 1, width: 3, height: 2 },
+      selectionMaskLayerId: layer.id,
+      selectionVectorPath: { mode: 'freehand', points: [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 3 }] },
+    });
+    const before = useAppStore.getState();
+    const beforePixels = new Uint8ClampedArray(layer.imageData!.data);
+    const beforeSelection = selectionSnapshotFromState(before);
+    const held = historyManager.begin('selection-change');
+    try {
+      await before.commitCrop();
+      const refused = useAppStore.getState();
+      expect(refused.project).toBe(before.project);
+      expect(refused.layers).toBe(before.layers);
+      expect(refused.canvas).toBe(before.canvas);
+      expect(refused.crop).toBe(before.crop);
+      expect(refused.currentOffscreenCanvas).toBe(before.currentOffscreenCanvas);
+      expect(refused.layersNeedRecomposition).toBe(before.layersNeedRecomposition);
+      expect(refused.floatingPaste).toBe(before.floatingPaste);
+      expect(selectionSnapshotFromState(refused)).toEqual(beforeSelection);
+      expect(layer.imageData?.data).toEqual(beforePixels);
+      const context = layer.framebuffer.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+      expect(context?.getImageData(0, 0, 6, 4).data).toEqual(beforePixels);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(errorLog).toHaveBeenCalledWith('[crop] History is unavailable for crop', expect.any(Error));
+    } finally {
+      held.cancel();
+    }
+    await useAppStore.getState().commitCrop();
+    expect([useAppStore.getState().project?.width, useAppStore.getState().project?.height]).toEqual([3, 2]);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(useAppStore.getState().crop.commitInFlight).toBe(false);
+    await historyManager.undo();
+    expect(useAppStore.getState().layers[0].imageData?.data).toEqual(beforePixels);
+  });
+
+  it('restores admitted crop state after blob storage rejects and retries with exact history', async () => {
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const layer = createLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4, { x: 1, y: 1, width: 6, height: 4 });
+    const mask = new ImageData(3, 2);
+    mask.data[3] = 127;
+    const offscreen = document.createElement('canvas');
+    useAppStore.setState({
+      currentOffscreenCanvas: offscreen,
+      selectionStart: { x: 1, y: 1 }, selectionEnd: { x: 4, y: 3 },
+      selectionMask: mask, selectionMaskBounds: { x: 1, y: 1, width: 3, height: 2 },
+      selectionMaskLayerId: layer.id,
+      selectionVectorPath: { mode: 'freehand', points: [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 3 }] },
+    });
+    const before = useAppStore.getState();
+    const selection = selectionSnapshotFromState(before);
+    const pixels = layer.imageData!.data.slice();
+    const storage = jest.spyOn(historyBlobs, 'storeBlob').mockRejectedValueOnce(new Error('resident blob allocation failed'));
+    await before.commitCrop();
+    const failed = useAppStore.getState();
+    expect(storage).toHaveBeenCalled();
+    expect(failed.project).toEqual(before.project);
+    expect(failed.layers).toEqual(before.layers);
+    expect(failed.canvas).toEqual(before.canvas);
+    expect(failed.crop).toEqual(before.crop);
+    expect(failed.currentOffscreenCanvas).toBe(offscreen);
+    expect(selectionSnapshotFromState(failed)).toEqual(selection);
+    expect(layer.imageData!.data).toEqual(pixels);
+    expect(historyManager.entries()).toHaveLength(0);
+    const probe = historyManager.begin('selection-change'); probe.cancel();
+    expect(errorLog).toHaveBeenCalledWith('[crop] Failed to commit crop', expect.any(Error));
+    await failed.commitCrop();
+    const cropped = useAppStore.getState().layers[0].imageData!.data.slice();
+    expect(cropped).not.toEqual(pixels);
+    expect(historyManager.entries()).toHaveLength(1);
+    await historyManager.undo();
+    expect(useAppStore.getState().layers[0].imageData!.data).toEqual(pixels);
+    expect(selectionSnapshotFromState(useAppStore.getState())).toMatchObject({ ...selection, provenance: expect.objectContaining({ ownerKind: 'history-restored' }) });
+    await historyManager.redo();
+    expect(useAppStore.getState().layers[0].imageData!.data).toEqual(cropped);
+  });
+
+  it('preserves concurrent layer metadata, membership and playback speed when pending storage rejects', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const layer = createLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4, { x: 1, y: 1, width: 6, height: 4 });
+    const removed = { ...createLayer(6, 4), id: 'removed-during-crop', order: 1 };
+    useAppStore.setState((state) => ({ layers: [layer, removed], project: { ...state.project!, layers: [layer, removed] } }));
+    const originalPixels = layer.imageData!.data.slice();
+    const originalPlayback = useAppStore.getState().colorCyclePlayback;
+    let rejectStorage!: (error: Error) => void;
+    let storageReached!: () => void;
+    const reached = new Promise<void>((resolve) => { storageReached = resolve; });
+    jest.spyOn(historyBlobs, 'storeBlob').mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectStorage = reject;
+      storageReached();
+    }));
+    const pending = useAppStore.getState().commitCrop();
+    await reached;
+    useAppStore.getState().updateLayer(layer.id, { name: 'Renamed while pending', visible: false, opacity: 0.4 });
+    const added = { ...createLayer(6, 4), id: 'added-during-crop', order: 0 };
+    useAppStore.setState((state) => ({
+      layers: [added, ...state.layers.filter((candidate) => candidate.id !== removed.id)],
+      colorCyclePlayback: { ...state.colorCyclePlayback, playbackSpeedScale: 2 },
+    }));
+    rejectStorage(new Error('deferred resident allocation failed'));
+    await pending;
+    const failed = useAppStore.getState();
+    expect(failed.layers.map((candidate) => candidate.id)).toEqual([added.id, layer.id]);
+    expect(failed.layers[0]).toBe(added);
+    expect(failed.layers[1]).toMatchObject({ name: 'Renamed while pending', visible: false, opacity: 0.4 });
+    expect(failed.layers[1].imageData!.data).toEqual(originalPixels);
+    expect([failed.layers[1].framebuffer.width, failed.layers[1].framebuffer.height]).toEqual([6, 4]);
+    expect(failed.project?.layers).toBe(failed.layers);
+    expect(failed.colorCyclePlayback).toEqual({ ...originalPlayback, playbackSpeedScale: 2 });
+    expect(failed.crop.marquee).toEqual({ x: 1, y: 1, width: 6, height: 4 });
+    expect(historyManager.entries()).toHaveLength(0);
+  });
+
+  it.each([
+    { resident: false, failure: 'storage' },
+    { resident: true, failure: 'storage' },
+    { resident: true, failure: 'runtime' },
+  ])('restores the canonical CC document and residency after $failure rejection (resident: $resident)', async ({ resident, failure }) => {
+    const manager = getColorCycleBrushManager();
+    const layer = createColorCycleLayer(6, 4);
+    layer.id = `crop-rollback-cc-${resident}`;
+    primeStoreForCrop(layer, 6, 4);
+    useAppStore.getState().initColorCycleForLayer(layer.id, 6, 4);
+    const oldBrush = manager.getBrush(layer.id)!;
+    applyColorCycleBrushLayerSnapshotToRuntime(oldBrush, layer.id, {
+      paintBuffer: new Uint8Array(24).fill(1).buffer,
+      gradientIdBuffer: Uint8Array.from({ length: 24 }, (_, i) => i).buffer,
+      gradientDefIdBuffer: Uint16Array.from({ length: 24 }, (_, i) => i + 100).buffer,
+      speedBuffer: new Uint8Array(24).fill(12).buffer,
+      flowBuffer: new Uint8Array(24).fill(2).buffer,
+      phaseBuffer: Uint8Array.from({ length: 24 }, (_, i) => i * 7).buffer,
+      hasContent: true, strokeCounter: 3,
+    });
+    if (!resident) manager.discardRuntimeRetainingDocument(layer.id);
+    const originalDocument = manager.getDocument(layer.id)!;
+    const originalRead = originalDocument.read();
+    const originalAudit = originalDocument.getAuditLog();
+    const originalDirty = originalDocument.peekDirtyBatch();
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+    if (failure === 'storage') {
+      jest.spyOn(historyBlobs, 'storeBlob').mockRejectedValueOnce(new Error('CC history allocation failed'));
+    } else {
+      jest.spyOn(manager, 'createBrush').mockImplementationOnce(() => { throw new Error('CC runtime creation failed'); });
+    }
+    await useAppStore.getState().commitCrop();
+    expect(manager.getDocument(layer.id)).toBe(originalDocument);
+    expect(originalDocument.read()).toEqual(originalRead);
+    expect(originalDocument.getAuditLog()).toEqual(originalAudit);
+    expect(originalDocument.peekDirtyBatch()).toEqual(originalDirty);
+    expect([useAppStore.getState().project?.width, useAppStore.getState().project?.height]).toEqual([6, 4]);
+    expect(useAppStore.getState().crop.marquee).toEqual({ x: 1, y: 1, width: 3, height: 2 });
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(errorLog).not.toHaveBeenCalledWith('[crop] Failed to restore crop after error', expect.anything());
+    if (resident) {
+      const restoredBrush = manager.getBrush(layer.id)!;
+      expect(restoredBrush).not.toBe(oldBrush);
+      expect(useAppStore.getState().layers[0].colorCycleData!.colorCycleBrush).toBe(restoredBrush);
+      expect(readTestColorCycleBrushLayerSnapshot(restoredBrush, layer.id)?.paintBuffer).toEqual(originalRead.snapshot.paintBuffer);
+      expect([restoredBrush.getCanvas?.().width, restoredBrush.getCanvas?.().height]).toEqual([6, 4]);
+    } else {
+      expect(manager.getBrush(layer.id)).toBeUndefined();
+    }
+    manager.deleteBrush(layer.id);
+  });
+
+  it.each([
+    { name: 'shrink', rect: { x: 1, y: 1, width: 3, height: 2 }, transparent: false },
+    { name: 'extend', rect: { x: -2, y: -1, width: 9, height: 6 }, transparent: false },
+    { name: 'transparent shrink', rect: { x: 1, y: 1, width: 3, height: 2 }, transparent: true },
+    { name: 'transparent extend', rect: { x: -2, y: -1, width: 9, height: 6 }, transparent: true },
+  ])('restores exact raster dimensions and pixels through $name undo and redo', async ({ rect, transparent }) => {
+    const layer = createLayer(6, 4);
+    if (transparent) {
+      layer.imageData!.data.fill(0);
+      const context = layer.framebuffer.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+      context?.clearRect(0, 0, 6, 4);
+    }
+    const before = new ImageData(new Uint8ClampedArray(layer.imageData!.data), 6, 4);
+    const expected = new ImageData(rect.width, rect.height);
+    for (let y = 0; y < rect.height; y += 1) {
+      for (let x = 0; x < rect.width; x += 1) {
+        const sourceX = rect.x + x;
+        const sourceY = rect.y + y;
+        if (sourceX < 0 || sourceX >= before.width || sourceY < 0 || sourceY >= before.height) continue;
+        const source = (sourceY * before.width + sourceX) * 4;
+        expected.data.set(before.data.subarray(source, source + 4), (y * rect.width + x) * 4);
+      }
+    }
+    primeStoreForCrop(layer, 6, 4, rect);
+    const expectSurface = (image: ImageData) => {
+      const state = useAppStore.getState();
+      const current = state.layers[0];
+      expect([state.project?.width, state.project?.height]).toEqual([image.width, image.height]);
+      expect([current.imageData?.width, current.imageData?.height]).toEqual([image.width, image.height]);
+      expect(current.imageData?.data).toEqual(image.data);
+      expect([current.framebuffer.width, current.framebuffer.height]).toEqual([image.width, image.height]);
+      const context = current.framebuffer.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+      expect(context?.getImageData(0, 0, image.width, image.height).data).toEqual(image.data);
+    };
+    await useAppStore.getState().commitCrop();
+    expect(historyManager.entries()).toHaveLength(1);
+    expectSurface(expected);
+    await historyManager.undo();
+    expectSurface(before);
+    await historyManager.redo();
+    expectSurface(expected);
+  });
+
+  it.each([
+    { name: 'absent', shape: undefined, present: false },
+    { name: 'explicit undefined', shape: undefined, present: true },
+    { name: 'rectangle', shape: createDefaultCanvasShape(6, 4), present: true },
+    { name: 'circle', shape: { kind: 'circle', center: { x: 3, y: 2 }, radius: 2, bounds: { x: 1, y: 0, width: 4, height: 4 } } as CanvasShape, present: true },
+    { name: 'closed freehand', shape: { kind: 'freehand', points: [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 3, y: 4 }, { x: 0, y: 0 }], bounds: { x: 0, y: 0, width: 6, height: 4 } } as CanvasShape, present: true },
+  ])('replays exact $name shape and mixed auto alignment after the complete crop entry', async ({ shape, present }) => {
+    const layer = createLayer(6, 4);
+    layer.imageData!.data.fill(0, 0, 4 * 6);
+    primeStoreForCrop(layer, 6, 4);
+    const sequence: Layer = {
+      ...createLayer(6, 4), id: 'sequence', layerType: 'sequential', imageData: null,
+      alignment: { ...createDefaultLayerAlignment(), offsetPercent: { x: 25, y: 75 } },
+      sequentialData: { frameCount: 2, fps: 12, durationMs: 1000 / 6, events: [] },
+    };
+    useAppStore.setState((state) => {
+      const project = { ...state.project! };
+      if (present) project.canvasShape = shape;
+      else delete project.canvasShape;
+      return { project, layers: [layer, sequence] };
+    });
+    const geometry = () => {
+      const state = useAppStore.getState();
+      return {
+        shape: state.project?.canvasShape,
+        present: Object.prototype.hasOwnProperty.call(state.project, 'canvasShape'),
+        alignments: state.layers.map((entry) => entry.alignment),
+      };
+    };
+    const before = geometry();
+    await useAppStore.getState().commitCrop();
+    const after = geometry();
+    expect(after.shape).toEqual(shape);
+    for (let i = 0; i < 2; i += 1) {
+      await historyManager.undo();
+      expect(geometry()).toEqual(before);
+      await historyManager.redo();
+      expect(geometry()).toEqual(after);
+    }
+  });
+
+  it('compensates only Crop geometry while preserving unrelated layer edits and replacement projects', async () => {
+    const layer = createLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4);
+    const original = useAppStore.getState();
+    const before = { project: original.project!, alignments: new Map([[layer.id, layer.alignment]]) };
+    const after = {
+      project: { ...original.project!, canvasShape: createDefaultCanvasShape(3, 2) },
+      alignments: new Map([[layer.id, { ...layer.alignment, offsetPercent: { x: 1, y: 2 } }]]),
+    };
+    const prepared = await createCropGeometryDelta(before, after).prepare('forward');
+    await prepared.apply();
+    await prepared.finalize?.();
+    useAppStore.setState((state) => ({ layers: state.layers.map((entry) => ({
+      ...entry, name: 'Unrelated rename',
+      alignment: { ...entry.alignment, fit: 'cover', offsetPx: { x: 9, y: 10 } },
+    })) }));
+    await prepared.compensate();
+    expect(useAppStore.getState().project?.canvasShape).toEqual(original.project?.canvasShape);
+    expect(useAppStore.getState().layers[0].alignment).toEqual({
+      ...layer.alignment, fit: 'cover', offsetPx: { x: 9, y: 10 },
+    });
+    expect(useAppStore.getState().layers[0].name).toBe('Unrelated rename');
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(original.layersNeedRecomposition);
+    const replacement = { ...original.project!, id: 'replacement-document' };
+    useAppStore.setState({ project: replacement });
+    await prepared.finalize?.();
+    await prepared.compensate();
+    expect(useAppStore.getState().project).toBe(replacement);
+  });
+
+  it('records full selection reset in the same crop transaction', async () => {
+    const layer = createLayer(6, 4);
+    primeStoreForCrop(layer, 6, 4);
+    const mask = new ImageData(3, 2);
+    mask.data[3] = 127;
+    mask.data[7] = 255;
+    useAppStore.setState({
+      selectionStart: { x: 1, y: 1 },
+      selectionEnd: { x: 4, y: 3 },
+      selectionMask: mask,
+      selectionMaskBounds: { x: 1, y: 1, width: 3, height: 2 },
+      selectionMaskLayerId: layer.id,
+      selectionVectorPath: { mode: 'freehand', points: [{ x: 1, y: 1 }, { x: 4, y: 1 }, { x: 4, y: 3 }] },
+    });
+    const before = selectionSnapshotFromState(useAppStore.getState());
+    await useAppStore.getState().commitCrop();
+    expect(historyManager.entries()).toHaveLength(1);
+    const expectCleared = () => {
+      const state = useAppStore.getState();
+      expect([state.selectionStart, state.selectionEnd, state.selectionMask, state.selectionMaskBounds,
+        state.selectionMaskLayerId, state.selectionVectorPath, state.selectionLastAction]).toEqual(Array(7).fill(null));
+    };
+    expectCleared();
+    await historyManager.undo();
+    expect([useAppStore.getState().project?.width, useAppStore.getState().project?.height]).toEqual([6, 4]);
+    const restored = selectionSnapshotFromState(useAppStore.getState());
+    expect({ ...restored, provenance: null }).toEqual(before);
+    expect(restored.provenance?.restoredFromHistory).toBe(true);
+    await historyManager.redo();
+    expect([useAppStore.getState().project?.width, useAppStore.getState().project?.height]).toEqual([3, 2]);
+    const after = useAppStore.getState();
+    expect([after.selectionStart, after.selectionEnd, after.selectionMask, after.selectionMaskBounds,
+      after.selectionMaskLayerId, after.selectionVectorPath]).toEqual(Array(6).fill(null));
+  });
+
   it('crops the project and layer image data to the marquee bounds', async () => {
     const layer = createLayer(6, 4);
     primeStoreForCrop(layer, 6, 4);
@@ -577,7 +962,7 @@ describe('useAppStore commitCrop', () => {
     const brush = getColorCycleBrushManager().getBrush(layer.id);
     expect(brush).toBeDefined();
 
-    const paint = new Uint8Array(24).fill(0);
+    const paint = new Uint8Array(24).fill(1);
     const gradientIds = Uint8Array.from({ length: 24 }, (_, idx) => idx);
     const gradientDefIds = Uint16Array.from({ length: 24 }, (_, idx) => idx + 100);
     const speed = new Uint8Array(24).fill(12);
@@ -595,8 +980,8 @@ describe('useAppStore commitCrop', () => {
       strokeCounter: 3
     });
 
+    const original = readTestColorCycleBrushLayerSnapshot(brush, layer.id);
     await useAppStore.getState().commitCrop();
-    await new Promise((resolve) => setTimeout(resolve, 25));
 
     const updatedLayer = useAppStore.getState().layers[0];
     const updatedBrush = updatedLayer.colorCycleData?.colorCycleBrush;
@@ -625,6 +1010,15 @@ describe('useAppStore commitCrop', () => {
       47, 48, 49,
       53, 54, 55,
     ]);
+    expect(historyManager.entries()).toHaveLength(1);
+    const read = () => getColorCycleBrushManager().getDocument(layer.id)?.read().snapshot;
+    const fields = ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const;
+    await historyManager.undo();
+    expect([read()?.width, read()?.height]).toEqual([6, 4]);
+    for (const field of fields) expect(read()?.[field]).toEqual(original?.[field]);
+    await historyManager.redo();
+    expect([read()?.width, read()?.height]).toEqual([3, 2]);
+    for (const field of fields) expect(read()?.[field]).toEqual(snapshot?.[field]);
   });
 
   it('does not preserve phantom color-cycle content when the crop region is empty', async () => {
@@ -851,9 +1245,9 @@ describe('useAppStore commitCrop', () => {
     const layer = createRecolorLayer(6, 4);
     primeStoreForCrop(layer, 6, 4);
 
-    const processLayerMock = jest.fn().mockResolvedValue(true);
+    const restoreLayerMock = jest.fn().mockResolvedValue(true);
     jest.spyOn(RecolorManager, 'getInstance').mockReturnValue({
-      processLayer: processLayerMock
+      restoreLayer: restoreLayerMock
     } as unknown as RecolorManager);
 
     await useAppStore.getState().commitCrop();
@@ -869,14 +1263,145 @@ describe('useAppStore commitCrop', () => {
     expect(recolorSettings?.originalImageData?.width).toBe(3);
     expect(recolorSettings?.originalImageData?.height).toBe(2);
 
-    expect(processLayerMock).toHaveBeenCalledTimes(1);
-    const [passedLayer, options] = processLayerMock.mock.calls[0];
+    expect(restoreLayerMock).toHaveBeenCalledTimes(1);
+    const [passedLayer] = restoreLayerMock.mock.calls[0];
     expect(passedLayer.id).toBe(updatedLayer.id);
-    expect(options?.cycleColors).toBe(16);
-    expect(options?.customGradient).toEqual([
+    expect(passedLayer.colorCycleData.recolorSettings.cycleColors).toBe(16);
+    expect(passedLayer.colorCycleData.recolorSettings.gradient).toEqual([
       { position: 0, color: '#ff0000' },
       { position: 1, color: '#00ff00' }
     ]);
+  });
+
+  it.each([
+    { x: 1, y: 1, width: 3, height: 2 },
+    { x: -2, y: -1, width: 8, height: 6 },
+    { x: 1, y: 0, width: 6, height: 4 },
+  ])('projects complete indexed Recolor state and replays it exactly for %j', async (rect) => {
+    const layer = createRecolorLayer(6, 4);
+    const settings = layer.colorCycleData!.recolorSettings!;
+    settings.indexBuffer = Uint8Array.from({ length: 24 }, (_, index) => index + 1);
+    settings.phaseMap = Uint8Array.from({ length: 24 }, (_, index) => index * 3);
+    settings.indexPhaseMap = new Uint8Array([14, 28, 42]);
+    settings.palette = new Uint32Array([0, 0xff332211, 0xff665544]);
+    settings.colorMap = new Map([[0x332211, 1], [0x665544, 2]]);
+    settings.quantizationMode = 'oklab-median-cut';
+    settings.ditherMode = 'bayer4';
+    settings.animation.currentTick = 7.25;
+    const before = cloneRecolorSettings(settings)!;
+    // Derived pixels deliberately differ from the source to exercise the 2D readback path.
+    layer.colorCycleData!.canvas!.getContext('2d')!.fillRect(0, 0, 6, 4);
+    primeStoreForCrop(layer, 6, 4, rect);
+    const restoreLayer = jest.fn().mockResolvedValue(true);
+    jest.spyOn(RecolorManager, 'getInstance').mockReturnValue({ restoreLayer } as unknown as RecolorManager);
+
+    await useAppStore.getState().commitCrop();
+    const after = cloneRecolorSettings(useAppStore.getState().layers[0].colorCycleData!.recolorSettings)!;
+    expect(after.animation).toEqual(before.animation);
+    expect(after.gradient).toEqual(before.gradient);
+    expect(after.palette).toEqual(before.palette);
+    expect(after.colorMap).toEqual(before.colorMap);
+    expect(after.indexPhaseMap).toEqual(before.indexPhaseMap);
+    expect(after.quantizationMode).toBe(before.quantizationMode);
+    expect(after.ditherMode).toBe(before.ditherMode);
+    expect(after.originalImageData!.width).toBe(rect.width);
+    expect(after.originalImageData!.height).toBe(rect.height);
+    for (let y = 0; y < rect.height; y += 1) {
+      for (let x = 0; x < rect.width; x += 1) {
+        const inside = x + rect.x >= 0 && y + rect.y >= 0 && x + rect.x < 6 && y + rect.y < 4;
+        const source = (y + rect.y) * 6 + x + rect.x;
+        const target = y * rect.width + x;
+        expect(after.indexBuffer![target]).toBe(inside ? before.indexBuffer![source] : 0);
+        expect(after.phaseMap![target]).toBe(inside ? before.phaseMap![source] : 0);
+        expect(Array.from(after.originalImageData!.data.slice(target * 4, target * 4 + 4)))
+          .toEqual(inside ? Array.from(before.originalImageData!.data.slice(source * 4, source * 4 + 4)) : [0, 0, 0, 0]);
+      }
+    }
+    await historyManager.undo();
+    expect(useAppStore.getState().layers[0].colorCycleData!.recolorSettings).toEqual(before);
+    expect(useAppStore.getState().project).toMatchObject({ width: 6, height: 4 });
+    await historyManager.redo();
+    expect(useAppStore.getState().layers[0].colorCycleData!.recolorSettings).toEqual(after);
+    expect(useAppStore.getState().project).toMatchObject({ width: rect.width, height: rect.height });
+    expect(restoreLayer).toHaveBeenCalledTimes(3);
+  });
+
+  it('restores indexed Recolor settings and the real renderer after admitted storage failure', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const layer = createRecolorLayer(6, 4);
+    layer.id = 'crop-recolor-rollback';
+    const settings = layer.colorCycleData!.recolorSettings!;
+    settings.indexBuffer = Uint8Array.from({ length: 24 }, (_, index) => 1 + index % 2);
+    settings.palette = new Uint32Array([0, 0xff332211, 0xff665544]);
+    settings.phaseMap = Uint8Array.from({ length: 24 }, (_, index) => index * 3);
+    settings.indexPhaseMap = new Uint8Array([14, 28, 42]);
+    settings.colorMap = new Map([[0x332211, 1], [0x665544, 2]]);
+    primeStoreForCrop(layer, 6, 4, { x: 1, y: 0, width: 6, height: 4 });
+    const manager = RecolorManager.getInstance();
+    expect(await manager.restoreLayer(layer)).toBe(true);
+    const restore = jest.spyOn(manager, 'restoreLayer');
+    const before = cloneRecolorSettings(layer.colorCycleData!.recolorSettings);
+    const pixels = layer.imageData!.data.slice();
+    jest.spyOn(historyBlobs, 'storeBlob').mockRejectedValueOnce(new Error('Recolor history allocation failed'));
+    await useAppStore.getState().commitCrop();
+    const failed = useAppStore.getState();
+    expect(failed.layers[0].colorCycleData!.recolorSettings).toEqual(before);
+    expect(failed.layers[0].imageData!.data).toEqual(pixels);
+    expect(failed.project).toMatchObject({ width: 6, height: 4 });
+    expect(failed.crop.marquee).toEqual({ x: 1, y: 0, width: 6, height: 4 });
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(restore).toHaveBeenCalledTimes(2);
+    expect(restore.mock.calls[1][0].colorCycleData!.recolorSettings!.originalImageData!.width).toBe(6);
+  });
+
+  it('preserves Recolor settings edited during pending storage and restores spatial data before rerendering', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    const layer = createRecolorLayer(6, 4);
+    layer.id = 'crop-recolor-pending-settings';
+    const settings = layer.colorCycleData!.recolorSettings!;
+    settings.indexBuffer = Uint8Array.from({ length: 24 }, (_, index) => 1 + index % 2);
+    settings.palette = new Uint32Array([0, 0xff332211, 0xff665544]);
+    settings.phaseMap = Uint8Array.from({ length: 24 }, (_, index) => index * 3);
+    primeStoreForCrop(layer, 6, 4, { x: 1, y: 0, width: 6, height: 4 });
+    const manager = RecolorManager.getInstance();
+    expect(await manager.restoreLayer(layer)).toBe(true);
+    const restore = jest.spyOn(manager, 'restoreLayer');
+    const before = cloneRecolorSettings(layer.colorCycleData!.recolorSettings)!;
+    const originalPixels = layer.imageData!.data.slice();
+    let rejectStorage!: (error: Error) => void;
+    let storageReached!: () => void;
+    const reached = new Promise<void>((resolve) => { storageReached = resolve; });
+    jest.spyOn(historyBlobs, 'storeBlob').mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectStorage = reject;
+      storageReached();
+    }));
+    const pending = useAppStore.getState().commitCrop();
+    await reached;
+    const current = useAppStore.getState().layers[0];
+    const gradient = [{ position: 0, color: '#1040ff' }, { position: 1, color: '#1040ff' }];
+    const updatedSettings = {
+      ...current.colorCycleData!.recolorSettings!,
+      gradient, cycleColors: 8, mappingMode: 'continuous' as const,
+      animation: { ...current.colorCycleData!.recolorSettings!.animation, speed: 0.35, flowDirection: 'reverse' as const },
+    };
+    useAppStore.getState().updateLayer(current.id, { colorCycleData: { ...current.colorCycleData, recolorSettings: updatedSettings } });
+    rejectStorage(new Error('deferred Recolor history allocation failed'));
+    await pending;
+    const restored = useAppStore.getState().layers[0];
+    const result = restored.colorCycleData!.recolorSettings!;
+    expect(result).toMatchObject({ gradient, cycleColors: 8, mappingMode: 'continuous', animation: { speed: 0.35, flowDirection: 'reverse' } });
+    expect(result.originalImageData).toEqual(before.originalImageData);
+    expect(result.indexBuffer).toEqual(before.indexBuffer);
+    expect(result.phaseMap).toEqual(before.phaseMap);
+    expect(restore).toHaveBeenCalledTimes(2);
+    const rerendered = restore.mock.calls[1][0];
+    expect(rerendered.colorCycleData!.recolorSettings).toMatchObject({
+      gradient, originalImageData: { width: 6, height: 4 }, animation: { speed: 0.35 },
+    });
+    expect(restored.imageData!.data).toEqual(rerendered.imageData!.data);
+    expect(restored.imageData!.data).not.toEqual(originalPixels);
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(useAppStore.getState().crop.marquee).toEqual({ x: 1, y: 0, width: 6, height: 4 });
   });
 
   it('records crop actions in history with crop actionType', async () => {

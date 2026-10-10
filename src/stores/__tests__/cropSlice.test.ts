@@ -6,9 +6,10 @@ import { TextDecoder, TextEncoder } from 'util';
 import { useAppStore } from '@/stores/useAppStore';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { applyCroppedLayers } from '@/utils/crop/apply';
-import { rebuildCCLayerAfterCrop } from '@/utils/crop/ccRebuild';
+import { rebuildCCLayerAfterCrop, rebuildRecolorLayersAfterCrop } from '@/utils/crop/ccRebuild';
 import * as cropHistory from '@/stores/helpers/cropHistory';
 import type { Layer, Project } from '@/types';
+import historyManager from '@/history/historyService';
 
 jest.mock('@/utils/crop/apply', () => ({
   applyCroppedLayers: jest.fn(),
@@ -22,7 +23,7 @@ jest.mock('@/utils/crop/ccRebuild', () => ({
 jest.mock('@/lib/colorCycle/RecolorManager', () => ({
   RecolorManager: {
     getInstance: jest.fn(() => ({
-      processLayer: jest.fn(),
+      restoreLayer: jest.fn(),
     })),
   },
 }));
@@ -130,11 +131,13 @@ const createLayer = (overrides: Partial<Layer> = {}): Layer => ({
 
 describe('cropSlice.commitCrop', () => {
   beforeEach(() => {
+    historyManager.clear();
     seedCropState();
     jest.clearAllMocks();
   });
 
   afterEach(() => {
+    historyManager.clear();
     jest.restoreAllMocks();
     resetStoreState();
   });
@@ -153,8 +156,7 @@ describe('cropSlice.commitCrop', () => {
       .mockReturnValue(baseline);
     const recordHistorySpy = jest
       .spyOn(cropHistory, 'recordCropHistory')
-      .mockResolvedValue();
-    const recordSelectionSpy = jest.spyOn(cropHistory, 'recordCropSelectionHistory');
+      .mockImplementation(async ({ txn }) => { txn.cancel(); });
 
     const updatedLayer = createLayer();
     applyCroppedLayersMock.mockReturnValue({
@@ -171,17 +173,104 @@ describe('cropSlice.commitCrop', () => {
     expect(recordHistorySpy).toHaveBeenCalledWith(
       expect.objectContaining({
         beforeProject: baseline.projectSize,
+        txn: expect.objectContaining({ push: expect.any(Function), commit: expect.any(Function), cancel: expect.any(Function) }),
         beforeLayers: baseline.layerSnapshots,
+        beforeSelection: baseline.selectionSnapshot,
+        afterSelection: expect.objectContaining({ start: null, end: null }),
       }),
     );
-    expect(recordSelectionSpy).toHaveBeenCalledWith({
-      before: baseline.selectionSnapshot,
-      after: expect.objectContaining({ start: null, end: null }),
-      description: 'Crop selection reset',
+  });
+
+  it('releases the admitted transaction when the crop owner throws before publication', async () => {
+    const errorLog = jest.spyOn(console, 'error').mockImplementation(() => {});
+    applyCroppedLayersMock.mockImplementationOnce(() => {
+      throw new Error('crop readback failed');
     });
+    await useAppStore.getState().commitCrop();
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(useAppStore.getState().crop.commitInFlight).toBe(false);
+    expect(errorLog).toHaveBeenCalledWith('[crop] Failed to commit crop', expect.any(Error));
+    const next = historyManager.begin('selection-change');
+    next.cancel();
+  });
+
+  it('does not overwrite a replacement project when admitted history preparation rejects', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    let rejectPreparation!: (error: Error) => void;
+    jest.spyOn(cropHistory, 'recordCropHistory').mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectPreparation = reject;
+    }));
+    applyCroppedLayersMock.mockReturnValue({
+      updatedProject: { ...baseProject, width: 2, height: 2 },
+      updatedLayers: [createLayer()], colorCycleBrushResets: [], recolorRebuildQueue: [],
+    });
+    const pending = useAppStore.getState().commitCrop();
+    const replacement = { ...baseProject, id: 'replacement-project', width: 17, height: 19 };
+    const replacementCrop = { status: 'ready' as const, marquee: { x: 2, y: 3, width: 4, height: 5 }, activeHandle: null, commitInFlight: true };
+    const replacementLayer = createLayer({ id: 'replacement-layer' });
+    useAppStore.setState({ project: replacement, layers: [replacementLayer], crop: replacementCrop });
+    rejectPreparation(new Error('late old-project blob rejection'));
+    await pending;
+    expect(useAppStore.getState().project).toBe(replacement);
+    expect(useAppStore.getState().layers).toEqual([replacementLayer]);
+    expect(useAppStore.getState().crop).toBe(replacementCrop);
+  });
+
+  it('retains unrelated settings changed while crop history awaits storage', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    let rejectPreparation!: (error: Error) => void;
+    jest.spyOn(cropHistory, 'recordCropHistory').mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectPreparation = reject;
+    }));
+    applyCroppedLayersMock.mockReturnValue({
+      updatedProject: { ...baseProject, width: 2, height: 2 },
+      updatedLayers: [createLayer()], colorCycleBrushResets: [], recolorRebuildQueue: [],
+    });
+    const before = useAppStore.getState();
+    const pending = before.commitCrop();
+    useAppStore.setState((current) => ({
+      project: { ...current.project!, name: 'Renamed during preparation' },
+      canvas: { ...current.canvas, showRulers: false },
+    }));
+    rejectPreparation(new Error('late blob rejection'));
+    await pending;
+    const failed = useAppStore.getState();
+    expect(failed.project).toMatchObject({ width: baseProject.width, height: baseProject.height, name: 'Renamed during preparation' });
+    expect(failed.canvas.showRulers).toBe(false);
+    expect(failed.crop).toEqual(before.crop);
+  });
+
+  it('awaits Recolor restoration before publishing crop history', async () => {
+    let finishRebuild!: () => void;
+    jest.mocked(rebuildRecolorLayersAfterCrop).mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishRebuild = resolve;
+    }));
+    const recordSpy = jest.spyOn(cropHistory, 'recordCropHistory')
+      .mockImplementation(async ({ txn }) => { txn.cancel(); });
+    const layer = createLayer({ layerType: 'color-cycle', colorCycleData: { mode: 'recolor' } });
+    applyCroppedLayersMock.mockReturnValue({
+      updatedProject: { ...baseProject },
+      updatedLayers: [layer],
+      colorCycleBrushResets: [],
+      recolorRebuildQueue: [{ id: layer.id }],
+    });
+    const pending = useAppStore.getState().commitCrop();
+    await Promise.resolve();
+    expect(recordSpy).not.toHaveBeenCalled();
+    expect(useAppStore.getState().crop.commitInFlight).toBe(true);
+    finishRebuild();
+    await pending;
+    expect(recordSpy).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().crop.commitInFlight).toBe(false);
   });
 
   it('invokes color-cycle rebuild when crop returns brush reset entries', async () => {
+    let finishRebuild!: () => void;
+    const rebuild = new Promise<void>((resolve) => { finishRebuild = resolve; });
+    rebuildCCLayerAfterCropMock.mockReturnValueOnce(rebuild);
+    const recordSpy = jest.spyOn(cropHistory, 'recordCropHistory')
+      .mockImplementation(async ({ txn }) => { txn.cancel(); });
+
     const ccLayer = createLayer({
       id: 'layer-cc',
       layerType: 'color-cycle',
@@ -214,8 +303,13 @@ describe('cropSlice.commitCrop', () => {
       recolorRebuildQueue: [],
     });
 
-    await useAppStore.getState().commitCrop();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const pending = useAppStore.getState().commitCrop();
+    await Promise.resolve();
+    expect(recordSpy).not.toHaveBeenCalled();
+    expect(useAppStore.getState().crop.commitInFlight).toBe(true);
+    finishRebuild();
+    await pending;
+    expect(recordSpy).toHaveBeenCalledTimes(1);
 
     expect(rebuildCCLayerAfterCropMock).toHaveBeenCalledTimes(1);
     expect(rebuildCCLayerAfterCropMock.mock.calls[0][0].entries).toHaveLength(1);

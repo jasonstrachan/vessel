@@ -81,6 +81,7 @@ describe('RecolorManager (mocked)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRegisterLayer.mockReturnValue(true);
   });
 
   it('processes a layer and registers it', async () => {
@@ -102,6 +103,48 @@ describe('RecolorManager (mocked)', () => {
     });
     expect(result).not.toBeNull();
     expect(result?.length).toBeGreaterThan(0);
+  });
+
+  it('restores valid indexed state without quantization, gradient replacement or phase advance', async () => {
+    const settings = {
+      quantizationMode: 'oklab-median-cut' as const,
+      ditherMode: 'bayer4' as const,
+      cycleColors: 16,
+      gradient: [{ position: 0, color: '#ff0044' }, { position: 1, color: '#44ffaa' }],
+      animation: { speed: 0.1, fps: 30, ticksPerFrame: 0.2, isPlaying: false, currentTick: 7.25, flowDirection: 'reverse' as const },
+      currentLOD: 'full' as const,
+      indexBuffer: new Uint8Array([1, 2, 1, 2]),
+      palette: new Uint32Array([0, 0xff334455, 0xff667788]),
+    };
+    const recolorLayer: Layer = { ...layer, layerType: 'color-cycle', colorCycleData: { mode: 'recolor', recolorSettings: settings } };
+    expect(await RecolorManager.getInstance().restoreLayer(recolorLayer)).toBe(true);
+    expect(mockProcessLayer).not.toHaveBeenCalled();
+    expect(mockUpdateLayer).not.toHaveBeenCalled();
+    expect(mockRegisterLayer).toHaveBeenCalledWith(recolorLayer);
+    expect(mockRenderFrame).toHaveBeenCalledWith(recolorLayer, 7.25);
+    expect(settings.animation.currentTick).toBe(7.25);
+    expect(settings.gradient[0].color).toBe('#ff0044');
+  });
+
+  it('uses original source and saved options for cold indexed restoration', async () => {
+    const originalImageData = new ImageData(2, 2);
+    originalImageData.data[0] = 78;
+    const settings = {
+      quantizationMode: 'oklab-median-cut' as const,
+      ditherMode: 'bayer8' as const,
+      cycleColors: 32,
+      gradient: [{ position: 0, color: '#abcdef' }],
+      animation: { speed: 0.1, fps: 30, ticksPerFrame: 0.2, isPlaying: false, currentTick: 3.75, flowDirection: 'forward' as const },
+      currentLOD: 'full' as const,
+      originalImageData,
+    };
+    const recolorLayer: Layer = { ...layer, layerType: 'color-cycle', colorCycleData: { mode: 'recolor', recolorSettings: settings } };
+    expect(await RecolorManager.getInstance().restoreLayer(recolorLayer)).toBe(true);
+    expect(mockProcessLayer).toHaveBeenCalledWith(recolorLayer, {
+      quantizationMode: 'oklab-median-cut', ditherMode: 'bayer8', cycleColors: 32, customGradient: settings.gradient,
+    });
+    expect(mockRenderFrame).toHaveBeenCalledWith(recolorLayer, 3.75);
+    expect(mockUpdateLayer).not.toHaveBeenCalled();
   });
 
   it('controls animation via play/stop/fps', () => {

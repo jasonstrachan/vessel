@@ -573,6 +573,46 @@ export class RecolorManager {
     };
   }
 
+  /** Restore indexed Recolor state without requantizing it or advancing its phase. */
+  async restoreLayer(layer: Layer): Promise<boolean> {
+    try {
+      const settings = layer.colorCycleData?.recolorSettings;
+      if (layer.layerType !== 'color-cycle' || layer.colorCycleData?.mode !== 'recolor' || !settings) {
+        return false;
+      }
+      if (!settings.indexBuffer || !settings.palette) {
+        if (settings.originalImageData) {
+          layer.imageData = new ImageData(
+            new Uint8ClampedArray(settings.originalImageData.data),
+            settings.originalImageData.width,
+            settings.originalImageData.height,
+          );
+        }
+        if (!this.engine.processLayer(layer, {
+          quantizationMode: settings.quantizationMode,
+          ditherMode: settings.ditherMode,
+          cycleColors: settings.cycleColors,
+          customGradient: settings.gradient,
+        })) {
+          return false;
+        }
+      }
+      if (!this.animationController.registerLayer(layer)) {
+        return false;
+      }
+      const imageData = this.engine.renderFrame(layer, settings.animation.currentTick);
+      if (imageData) layer.imageData = imageData;
+      const colorCycleData = layer.colorCycleData;
+      colorCycleData.canvasWidth = layer.imageData?.width;
+      colorCycleData.canvasHeight = layer.imageData?.height;
+      this.layerUpdateCallbacks.forEach((callback) => callback(layer));
+      return true;
+    } catch (error) {
+      logError(`[RecolorManager] Failed to restore layer ${layer.id}:`, error);
+      return false;
+    }
+  }
+
   /**
    * Ensure a pre-converted recolor layer is registered with the animator
    * If recolorSettings are missing, attempts to (re)process the layer using its stored gradient

@@ -51,6 +51,10 @@ export interface HistoryDelta {
 export interface PreparedHistoryDelta {
   readonly deltaTag: string;
   apply(): Promise<void> | void;
+  /** Restore owned metadata after every delta and runtime resource has replayed.
+   * Completion mutations must be covered by this step's compensation.
+   */
+  finalize?(): Promise<void> | void;
   requiresCompensation(): boolean;
   compensate(): Promise<void> | void;
   collectRehydrationTargets?(targets: HistoryRehydrationTargets): void;

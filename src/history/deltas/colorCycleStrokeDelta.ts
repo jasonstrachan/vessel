@@ -220,19 +220,25 @@ const isHistoryBufferRef = (value: unknown): value is HistoryBufferRef =>
   );
 
 const blobifyBuffer = async (
-  buffer: ArrayBuffer | undefined
+  buffer: ArrayBuffer | undefined,
+  acquisitions: Promise<string>[],
 ): Promise<ArrayBuffer | HistoryBufferRef | undefined> => {
   if (!buffer) {
     return buffer;
   }
+  const acquisition = storeBlob(buffer);
+  acquisitions.push(acquisition);
   return {
     __historyBlobRef: true,
-    blobId: await storeBlob(buffer),
+    blobId: await acquisition,
     byteLength: buffer.byteLength,
   };
 };
 
-const blobifyState = async (state: ColorCycleBrushState | null): Promise<ColorCycleBrushState | null> => {
+const blobifyState = async (
+  state: ColorCycleBrushState | null,
+  acquisitions: Promise<string>[],
+): Promise<ColorCycleBrushState | null> => {
   if (!state) {
     return null;
   }
@@ -250,12 +256,12 @@ const blobifyState = async (state: ColorCycleBrushState | null): Promise<ColorCy
             flowBuffer,
             phaseBuffer,
           ] = await Promise.all([
-            blobifyBuffer(layer.strokeData.paintBuffer),
-            blobifyBuffer(layer.strokeData.gradientIdBuffer),
-            blobifyBuffer(layer.strokeData.gradientDefIdBuffer),
-            blobifyBuffer(layer.strokeData.speedBuffer),
-            blobifyBuffer(layer.strokeData.flowBuffer),
-            blobifyBuffer(layer.strokeData.phaseBuffer),
+            blobifyBuffer(layer.strokeData.paintBuffer, acquisitions),
+            blobifyBuffer(layer.strokeData.gradientIdBuffer, acquisitions),
+            blobifyBuffer(layer.strokeData.gradientDefIdBuffer, acquisitions),
+            blobifyBuffer(layer.strokeData.speedBuffer, acquisitions),
+            blobifyBuffer(layer.strokeData.flowBuffer, acquisitions),
+            blobifyBuffer(layer.strokeData.phaseBuffer, acquisitions),
           ]);
           return {
             ...layer,
@@ -921,20 +927,31 @@ export const createColorCycleStrokeDelta = async (
   const backwardLengths = measurePaintBufferLengths(options.backwardState);
   const forwardLengths = measurePaintBufferLengths(options.forwardState);
 
-  const forwardState = await blobifyState(cloneState(options.forwardState, forwardLengths));
-  const backwardState = await blobifyState(cloneState(options.backwardState, backwardLengths));
+  const acquisitions: Promise<string>[] = [];
+  try {
+    const forwardState = await blobifyState(cloneState(options.forwardState, forwardLengths), acquisitions);
+    const backwardState = await blobifyState(cloneState(options.backwardState, backwardLengths), acquisitions);
 
-  return new ColorCycleStrokeDelta({
-    layerId: options.layerId,
-    forwardState,
-    backwardState,
-    beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
-    afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
-    beforePixelVersion: options.beforePixelVersion ?? options.backwardState?.pixelVersion,
-    afterPixelVersion: options.afterPixelVersion ?? options.forwardState?.pixelVersion,
-    beforeDimensions: options.beforeDimensions,
-    afterDimensions: options.afterDimensions,
-  });
+    return new ColorCycleStrokeDelta({
+      layerId: options.layerId,
+      forwardState,
+      backwardState,
+      beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
+      afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
+      beforePixelVersion: options.beforePixelVersion ?? options.backwardState?.pixelVersion,
+      afterPixelVersion: options.afterPixelVersion ?? options.forwardState?.pixelVersion,
+      beforeDimensions: options.beforeDimensions,
+      afterDimensions: options.afterDimensions,
+    });
+  } catch (error) {
+    // Promise.all rejects before sibling allocations finish. Drain all acquired
+    // references before handing failure back to the transaction owner.
+    const settled = await Promise.allSettled(acquisitions);
+    settled.forEach((result) => {
+      if (result.status === 'fulfilled') releaseBlob(result.value);
+    });
+    throw error;
+  }
 };
 const toArrayBuffer = (
   value:

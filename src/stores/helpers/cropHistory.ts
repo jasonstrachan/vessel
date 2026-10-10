@@ -1,9 +1,11 @@
-import { debugWarn } from '@/utils/debug';
-import historyManager from '@/history/historyService';
-import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
+import type { ScopedTxn } from '@/history/actionTypes';
 import { createBitmapTileDelta } from '@/history/deltas/bitmapDelta';
-import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStrokePatchDelta';
+import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { createColorCycleEraseMaskDelta } from '@/history/deltas/colorCycleEraseMaskDelta';
+import { createColorCycleSoftEdgeMaskDelta } from '@/history/deltas/colorCycleSoftEdgeMaskDelta';
+import { cloneSequentialLayerData, createSequentialFrameDelta } from '@/history/deltas/sequentialFrameDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
+import { createSelectionDelta } from '@/history/deltas/selectionDelta';
 import { cloneTxtShapes, createTxtShapeDelta } from '@/history/deltas/txtShapeDelta';
 import { createUiShapeDelta } from '@/history/deltas/uiShapeDelta';
 import {
@@ -12,18 +14,23 @@ import {
 } from '@/history/helpers/colorCycle';
 import { cloneLayerImageData } from '@/history/helpers/layerHistory';
 import {
-  selectionSnapshotFromValues,
+  selectionSnapshotFromState,
   type SelectionSnapshot,
 } from '@/history/selectionState';
-import { commitSelectionHistory } from '@/history/helpers/selectionHistory';
+import { ResizeLayerDelta } from '@/stores/helpers/resizeHistory';
+import { cloneRecolorSettings, createRecolorDelta } from '@/history/deltas/recolorDelta';
 import type { Layer, Project, TxtShape, UiShape } from '@/types';
 import { cloneUiShapes } from '@/utils/uiShape';
+import { cloneCropAlignment, cloneCropProjectGeometry, createCropGeometryDelta, type CropProjectGeometry } from '@/history/deltas/cropGeometryDelta';
 
-export type ProjectSizeSnapshot = { width: number; height: number };
+export type ProjectSizeSnapshot = CropProjectGeometry;
 
 export interface CropLayerSnapshot {
   image: ImageData | null;
   colorState: ColorCycleSerializedState | null;
+  sequentialData?: Layer['sequentialData'];
+  recolorSettings?: NonNullable<Layer['colorCycleData']>['recolorSettings'];
+  alignment?: Layer['alignment'];
 }
 
 export type CropLayerSnapshotMap = Map<string, CropLayerSnapshot>;
@@ -39,27 +46,25 @@ export interface CropHistoryBaseline {
 interface CaptureCropHistoryBaselineArgs {
   project: Project | null;
   layers: Layer[];
-  selectionStart: { x: number; y: number } | null;
-  selectionEnd: { x: number; y: number } | null;
+  selectionState: Parameters<typeof selectionSnapshotFromState>[0];
 }
 
 export const captureCropHistoryBaseline = ({
   project,
   layers,
-  selectionStart,
-  selectionEnd,
+  selectionState,
 }: CaptureCropHistoryBaselineArgs): CropHistoryBaseline => {
   const projectSize = project
-    ? {
-        width: project.width,
-        height: project.height,
-      }
+    ? cloneCropProjectGeometry(project)
     : null;
 
   const layerSnapshots: CropLayerSnapshotMap = new Map();
   layers.forEach((layer) => {
     layerSnapshots.set(layer.id, {
       image: cloneLayerImageData(layer.imageData),
+      alignment: cloneCropAlignment(layer.alignment),
+      sequentialData: layer.sequentialData ? cloneSequentialLayerData(layer.sequentialData) : undefined,
+      recolorSettings: cloneRecolorSettings(layer.colorCycleData?.recolorSettings),
       colorState:
         layer.layerType === 'color-cycle'
           ? captureColorCycleBrushState(layer.id)
@@ -67,7 +72,7 @@ export const captureCropHistoryBaseline = ({
     });
   });
 
-  const selectionSnapshot = selectionSnapshotFromValues(selectionStart, selectionEnd);
+  const selectionSnapshot = selectionSnapshotFromState(selectionState);
 
   return {
     projectSize,
@@ -79,6 +84,7 @@ export const captureCropHistoryBaseline = ({
 };
 
 export interface RecordCropHistoryArgs {
+  txn: ScopedTxn;
   beforeProject: ProjectSizeSnapshot | null;
   afterProject: ProjectSizeSnapshot | null;
   beforeLayers: CropLayerSnapshotMap;
@@ -87,10 +93,13 @@ export interface RecordCropHistoryArgs {
   afterTxtShapes: readonly TxtShape[];
   beforeUiShapes: readonly UiShape[];
   afterUiShapes: readonly UiShape[];
+  beforeSelection: SelectionSnapshot;
+  afterSelection: SelectionSnapshot;
   description: string;
 }
 
 export const recordCropHistory = async ({
+  txn,
   beforeProject,
   afterProject,
   beforeLayers,
@@ -99,12 +108,11 @@ export const recordCropHistory = async ({
   afterTxtShapes,
   beforeUiShapes,
   afterUiShapes,
+  beforeSelection,
+  afterSelection,
   description,
 }: RecordCropHistoryArgs): Promise<void> => {
   let deltaCount = 0;
-  const txn = historyManager.begin(mapCanvasActionToHistoryId('crop'), {
-    description,
-  });
 
   try {
     for (const layer of afterLayers) {
@@ -112,43 +120,79 @@ export const recordCropHistory = async ({
         image: null,
         colorState: null,
       };
+      const afterColor = layer.layerType === 'color-cycle' ? captureColorCycleBrushState(layer.id) : null;
       const afterImage = cloneLayerImageData(layer.imageData);
-      const bitmapDelta = await createBitmapTileDelta({
-        layerId: layer.id,
-        before: baseline.image,
-        after: afterImage,
-      });
+      const beforeDimensions = baseline.image ?? beforeProject;
+      const afterDimensions = afterImage ?? afterProject;
+      const dimensionsChanged = beforeDimensions && afterDimensions && (
+        beforeDimensions.width !== afterDimensions.width || beforeDimensions.height !== afterDimensions.height
+      );
+      const presenceChanged = Boolean(baseline.image) !== Boolean(afterImage);
+      const useWholeImage = dimensionsChanged || presenceChanged;
+      const bitmapDelta = useWholeImage
+        ? new ResizeLayerDelta(
+            layer.id,
+            baseline.image,
+            afterImage,
+            Boolean(afterColor && baseline.colorState),
+            beforeDimensions && afterDimensions ? {
+              before: { width: beforeDimensions.width, height: beforeDimensions.height },
+              after: { width: afterDimensions.width, height: afterDimensions.height },
+            } : undefined,
+          )
+        : await createBitmapTileDelta({
+            layerId: layer.id,
+            before: baseline.image,
+            after: afterImage,
+          });
       if (bitmapDelta) {
         txn.push(bitmapDelta);
         deltaCount += 1;
       }
 
       if (layer.layerType === 'color-cycle' || baseline.colorState) {
-        const afterColor = captureColorCycleBrushState(layer.id);
-        const width = afterProject?.width ?? layer.imageData?.width ?? 0;
-        const height = afterProject?.height ?? layer.imageData?.height ?? 0;
-        const roi =
-          width > 0 && height > 0
-            ? { x: 0, y: 0, width, height }
-            : null;
-        const patchDelta = roi
-          ? await createColorCycleStrokePatchDelta({
-              layerId: layer.id,
-              forwardState: afterColor,
-              backwardState: baseline.colorState ?? null,
-              roi,
-              width,
-              height,
-              beforeDocumentVersion: baseline.colorState?.documentVersion,
-              afterDocumentVersion: afterColor?.documentVersion,
-              beforeVersion: baseline.colorState?.pixelVersion,
-              afterVersion: afterColor?.pixelVersion,
-            })
-          : null;
-        if (patchDelta) {
-          txn.push(patchDelta);
+        const colorDelta = await createColorCycleStrokeDelta({
+          layerId: layer.id,
+          forwardState: afterColor,
+          backwardState: baseline.colorState,
+          beforeDimensions: beforeProject ?? undefined,
+          afterDimensions: afterProject ?? undefined,
+        });
+        if (colorDelta) {
+          txn.push(colorDelta);
           deltaCount += 1;
         }
+        const maskOptions = {
+          layerId: layer.id,
+          forwardState: afterColor,
+          backwardState: baseline.colorState,
+        };
+        for (const maskDelta of [
+          createColorCycleEraseMaskDelta(maskOptions),
+          createColorCycleSoftEdgeMaskDelta(maskOptions),
+        ]) {
+          if (maskDelta) {
+            txn.push(maskDelta);
+            deltaCount += 1;
+          }
+        }
+      }
+      if (baseline.sequentialData && layer.sequentialData) {
+        txn.push(createSequentialFrameDelta({
+          layerId: layer.id,
+          before: baseline.sequentialData,
+          after: layer.sequentialData,
+        }));
+        deltaCount += 1;
+      }
+      const recolorDelta = createRecolorDelta({
+        layerId: layer.id,
+        before: baseline.recolorSettings,
+        after: layer.colorCycleData?.recolorSettings,
+      });
+      if (recolorDelta) {
+        txn.push(recolorDelta);
+        deltaCount += 1;
       }
     }
 
@@ -185,39 +229,29 @@ export const recordCropHistory = async ({
       deltaCount += 1;
     }
 
+    const selectionDelta = createSelectionDelta({ before: beforeSelection, after: afterSelection });
+    if (selectionDelta) {
+      txn.push(selectionDelta);
+      deltaCount += 1;
+    }
+
     if (deltaCount > 0) {
+      if (beforeProject && afterProject) {
+        txn.push(createCropGeometryDelta({
+          project: beforeProject,
+          alignments: new Map([...beforeLayers].flatMap(([id, layer]) =>
+            layer.alignment ? [[id, layer.alignment] as const] : [])),
+        }, {
+          project: afterProject,
+          alignments: new Map(afterLayers.map((layer) => [layer.id, layer.alignment])),
+        }));
+      }
       txn.commit(description);
     } else {
       txn.cancel();
     }
   } catch (error) {
     txn.cancel();
-    if (process.env.NODE_ENV !== 'production') {
-      debugWarn('raw-console', '[history] Failed to record crop history', error);
-    }
+    throw error;
   }
 };
-
-interface RecordCropSelectionHistoryArgs {
-  before: SelectionSnapshot;
-  after: SelectionSnapshot;
-  description?: string;
-}
-
-export const recordCropSelectionHistory = ({
-  before,
-  after,
-  description = 'Crop selection reset',
-}: RecordCropSelectionHistoryArgs): void => {
-  commitSelectionHistory({
-    before,
-    after,
-    description,
-    meta: { action: 'crop' },
-  });
-};
-
-export const selectionSnapshotFromCropState = (
-  selectionStart: { x: number; y: number } | null,
-  selectionEnd: { x: number; y: number } | null,
-): SelectionSnapshot => selectionSnapshotFromValues(selectionStart, selectionEnd);

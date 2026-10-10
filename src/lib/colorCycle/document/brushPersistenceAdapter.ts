@@ -2397,6 +2397,11 @@ export const executeColorCycleBrushLayerSnapshotRuntimeApply = <
     applyResult: snapshotApplyResult,
     reason,
   });
+  // Publication immediately rebuilds the derived surface, including paused layers.
+  // Bind its definition palettes before that render can mark the surface current.
+  try {
+    applyDefBindings(layerId, animator, strokeState);
+  } catch {}
   publishStrokeState(layerId, strokeState, snapshotCommit.publish);
 
   const clearAuditPlan = createColorCycleBrushLayerSnapshotClearAuditPlan({

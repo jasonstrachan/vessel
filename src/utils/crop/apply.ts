@@ -63,7 +63,11 @@ export function applyCroppedLayers({
   syncPercentOffsetsFromPixels
 }: ApplyCroppedLayersArgs): ApplyCroppedLayersResult {
   const readResults = layers.map((layer) =>
-    readLayerSourcesForCrop(layer, rect, { activeLayerId })
+    readLayerSourcesForCrop(layer, rect, {
+      activeLayerId,
+      sourceWidth: project.width,
+      sourceHeight: project.height,
+    })
   );
 
   const updatedLayers = readResults.map((result) => result.updatedLayer);

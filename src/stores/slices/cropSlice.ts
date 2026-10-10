@@ -1,4 +1,8 @@
 import type { StateCreator } from 'zustand';
+
+import historyManager from '@/history/historyService';
+import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
+import type { ScopedTxn } from '@/history/actionTypes';
 import type { CropState, Layer, Project, Rectangle } from '@/types';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { normalizeCropRect } from '@/utils/crop/normalize';
@@ -6,11 +10,12 @@ import { applyCroppedLayers } from '@/utils/crop/apply';
 import {
   captureCropHistoryBaseline,
   recordCropHistory,
-  recordCropSelectionHistory,
-  selectionSnapshotFromCropState,
 } from '@/stores/helpers/cropHistory';
+import { captureCropRollback } from '@/stores/helpers/cropRollback';
+import { selectionSnapshotFromState } from '@/history/selectionState';
 import { rebuildCCLayerAfterCrop, rebuildRecolorLayersAfterCrop } from '@/utils/crop/ccRebuild';
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
+import { cloneCropProjectGeometry } from '@/history/deltas/cropGeometryDelta';
 
 const DEFAULT_MARQUEE: Rectangle | null = null;
 
@@ -73,6 +78,16 @@ export const createCropSlice = ({
       return;
     }
 
+    let txn: ScopedTxn;
+    try {
+      txn = historyManager.begin(mapCanvasActionToHistoryId('crop'), {
+        description: 'Crop to selection',
+      });
+    } catch (error) {
+      logError('[crop] History is unavailable for crop', error);
+      return;
+    }
+
     set((prev) => ({
       crop: {
         ...prev.crop,
@@ -80,7 +95,10 @@ export const createCropSlice = ({
       },
     }));
 
+    let rollback: (() => Promise<void>) | undefined;
+    let published = false;
     try {
+      rollback = captureCropRollback(state, colorCycleBrushManager, get, set, syncPlaybackColorCycleLayers);
       const {
         projectSize: beforeProject,
         layerSnapshots: beforeLayerSnapshots,
@@ -90,8 +108,7 @@ export const createCropSlice = ({
       } = captureCropHistoryBaseline({
         project,
         layers: state.layers,
-        selectionStart: state.selectionStart,
-        selectionEnd: state.selectionEnd,
+        selectionState: state,
       });
 
       const {
@@ -135,6 +152,11 @@ export const createCropSlice = ({
         canvas: nextCanvasState,
         selectionStart: null,
         selectionEnd: null,
+        selectionMask: null,
+        selectionMaskBounds: null,
+        selectionMaskLayerId: null,
+        selectionVectorPath: null,
+        selectionLastAction: null,
         floatingPaste: null,
         crop: {
           ...prev.crop,
@@ -144,7 +166,30 @@ export const createCropSlice = ({
           commitInFlight: true,
         },
       }));
+      published = true;
       get().setLayersNeedRecomposition(true);
+
+      if (colorCycleBrushResets.length > 0) {
+        await rebuildCCLayerAfterCrop({
+          entries: colorCycleBrushResets,
+          colorCycleBrushManager,
+          getState: get,
+          setState: set,
+          syncPlaybackColorCycleLayers,
+          logError,
+        });
+      }
+
+      if (recolorRebuildQueue.length > 0) {
+        const manager = RecolorManager.getInstance();
+        await rebuildRecolorLayersAfterCrop({
+          queue: recolorRebuildQueue,
+          getState: get,
+          setState: set,
+          restoreLayer: (layer) => manager.restoreLayer(layer),
+          logError,
+        });
+      }
 
       const postState = get();
       const { compositeLayersToCanvas } = postState;
@@ -162,9 +207,10 @@ export const createCropSlice = ({
       }
 
       await recordCropHistory({
+        txn,
         beforeProject,
         afterProject: postState.project
-          ? { width: postState.project.width, height: postState.project.height }
+          ? cloneCropProjectGeometry(postState.project)
           : null,
         beforeLayers: beforeLayerSnapshots,
         afterLayers: postState.layers,
@@ -172,52 +218,33 @@ export const createCropSlice = ({
         afterTxtShapes: postState.project?.txtShapes ?? [],
         beforeUiShapes,
         afterUiShapes: postState.project?.uiShapes ?? [],
+        beforeSelection: selectionBefore,
+        afterSelection: selectionSnapshotFromState(postState),
         description: 'Crop to selection',
       });
 
-      const selectionAfter = selectionSnapshotFromCropState(
-        postState.selectionStart,
-        postState.selectionEnd,
-      );
-      recordCropSelectionHistory({
-        before: selectionBefore,
-        after: selectionAfter,
-        description: 'Crop selection reset',
-      });
-
       set({ crop: defaultCropState });
 
-      if (colorCycleBrushResets.length > 0) {
-        rebuildCCLayerAfterCrop({
-          entries: colorCycleBrushResets,
-          colorCycleBrushManager,
-          getState: get,
-          setState: set,
-          syncPlaybackColorCycleLayers,
-          logError,
-        });
-      }
-
-      if (recolorRebuildQueue.length > 0) {
-        const manager = RecolorManager.getInstance();
-        rebuildRecolorLayersAfterCrop({
-          queue: recolorRebuildQueue,
-          getState: get,
-          setState: set,
-          processLayer: (layer, options) => manager.processLayer(layer, options),
-          logError,
-        });
-      }
     } catch (error) {
+      txn.cancel();
       logError('[crop] Failed to commit crop', error);
-      set({ crop: defaultCropState });
+      try {
+        if (published) await rollback?.();
+      } catch (rollbackError) {
+        logError('[crop] Failed to restore crop after error', rollbackError);
+      }
+      if (get().project?.id === project.id) {
+        set({ crop: cropState });
+      }
     } finally {
-      set((prev) => ({
-        crop: {
-          ...prev.crop,
-          commitInFlight: false,
-        },
-      }));
+      if (get().project?.id === project.id) {
+        set((prev) => ({
+          crop: {
+            ...prev.crop,
+            commitInFlight: false,
+          },
+        }));
+      }
     }
   },
 });

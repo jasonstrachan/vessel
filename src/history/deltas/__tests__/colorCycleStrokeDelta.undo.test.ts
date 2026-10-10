@@ -19,6 +19,7 @@ import {
   mergeColorCycleBrushPersistenceLayerMetaForOwner,
 } from '@/lib/colorCycle/document';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
+import * as blobs from '@/history/blobStore';
 
 // eslint-disable-next-line no-var
 var mockManager: { getHistoryBrush: jest.Mock; getPlaybackBrush: jest.Mock; getDocument: jest.Mock };
@@ -116,11 +117,65 @@ describe('ColorCycleStrokeDelta undo resurrection', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     clearBlobStore();
     configureHistoryBlobStore({
       residentBudgetBytes: HISTORY_BLOB_DEFAULT_RESIDENT_BUDGET_BYTES,
       spillThresholdBytes: HISTORY_BLOB_DEFAULT_SPILL_THRESHOLD_BYTES,
     });
+  });
+
+  it.each([2, 8])('drains late allocations and releases only owned blob refs when preparation %i fails', async (failureAt) => {
+    const state = {
+      cycleSpeed: 1, fps: 30, brushSize: 1,
+      layers: [{
+        layerId: 'layer-cc', data: makeAnimatorState(),
+        strokeData: {
+          paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer,
+          gradientIdBuffer: new Uint8Array([2, 3, 4, 5]).buffer,
+          gradientDefIdBuffer: new Uint16Array([3, 4, 5, 6]).buffer,
+          speedBuffer: new Uint8Array([4, 5, 6, 7]).buffer,
+          flowBuffer: new Uint8Array([5, 6, 7, 8]).buffer,
+          phaseBuffer: new Uint8Array([6, 7, 8, 9]).buffer,
+          hasContent: true, strokeCounter: 1,
+        },
+      }],
+    };
+    const options = { layerId: 'layer-cc', forwardState: state, backwardState: state };
+    const existing = await createColorCycleStrokeDelta(options);
+    const baseline = getHistoryBlobMetrics();
+    const originalStore = blobs.storeBlob;
+    let releaseLate!: () => void;
+    let reachedLate!: () => void;
+    const gate = new Promise<void>((resolve) => { releaseLate = resolve; });
+    const reached = new Promise<void>((resolve) => { reachedLate = resolve; });
+    let calls = 0;
+    const storage = jest.spyOn(blobs, 'storeBlob').mockImplementation((buffer) => {
+      calls += 1;
+      if (calls === failureAt) return Promise.reject(new Error('CC allocation refused'));
+      if (calls === failureAt + 1) {
+        reachedLate();
+        return gate.then(() => originalStore(buffer));
+      }
+      return originalStore(buffer);
+    });
+    let settled = false;
+    const pending = createColorCycleStrokeDelta(options);
+    void pending.then(() => { settled = true; }, () => { settled = true; });
+    const rejected = expect(pending).rejects.toThrow('CC allocation refused');
+    await reached;
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    releaseLate();
+    await rejected;
+    const failed = getHistoryBlobMetrics();
+    expect([failed.blobCount, failed.totalBytes, failed.refCount])
+      .toEqual([baseline.blobCount, baseline.totalBytes, baseline.refCount]);
+    storage.mockRestore();
+    const retry = await createColorCycleStrokeDelta(options);
+    retry!.dispose?.();
+    existing!.dispose?.();
+    expect(getHistoryBlobMetrics()).toMatchObject({ blobCount: 0, totalBytes: 0, refCount: 0 });
   });
 
   it('restores def id buffers and allows slot GC to reassign', async () => {

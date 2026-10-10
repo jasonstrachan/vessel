@@ -1,4 +1,4 @@
-import { rebuildCCLayerAfterCrop } from '@/utils/crop/ccRebuild';
+import { rebuildCCLayerAfterCrop, rebuildRecolorLayersAfterCrop } from '@/utils/crop/ccRebuild';
 import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
@@ -33,6 +33,32 @@ const createColorCycleLayer = (): Layer => ({
   },
 });
 
+describe('rebuildRecolorLayersAfterCrop', () => {
+  it('awaits restoration and surfaces rejected runtime work', async () => {
+    const layer = createColorCycleLayer();
+    layer.colorCycleData!.mode = 'recolor';
+    let state = { layers: [layer], setLayersNeedRecomposition: jest.fn() } as unknown as AppState;
+    const setState: StoreApi<AppState>['setState'] = (updater) => {
+      const next = typeof updater === 'function' ? updater(state) : updater;
+      state = { ...state, ...next };
+    };
+    let finish!: (value: boolean) => void;
+    const restoreLayer = jest.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    const pending = rebuildRecolorLayersAfterCrop({
+      queue: [{ id: layer.id }], getState: () => state, setState, restoreLayer,
+    });
+    await Promise.resolve();
+    expect(state.setLayersNeedRecomposition).not.toHaveBeenCalled();
+    finish(true);
+    await pending;
+    expect(state.setLayersNeedRecomposition).toHaveBeenCalledWith(true);
+    await expect(rebuildRecolorLayersAfterCrop({
+      queue: [{ id: layer.id }], getState: () => state, setState,
+      restoreLayer: jest.fn().mockResolvedValue(false), logError: jest.fn(),
+    })).rejects.toThrow('Recolor runtime rejected cropped layer');
+  });
+});
+
 describe('rebuildCCLayerAfterCrop', () => {
   const createState = (): Pick<AppState, 'activeLayerId' | 'layers' | 'tools' | 'setLayersNeedRecomposition'> => ({
     activeLayerId: 'layer-cc',
@@ -44,6 +70,37 @@ describe('rebuildCCLayerAfterCrop', () => {
     } as AppState['tools'],
     setLayersNeedRecomposition: jest.fn(),
   });
+
+  it.each(['create-null', 'create-throw', 'snapshot-unregistered', 'snapshot-throw'])(
+    'rejects required runtime restoration failures (%s)', async (failure) => {
+      const state = createState();
+      const brush = { getCanvas: () => document.createElement('canvas') };
+      if (failure === 'snapshot-throw') {
+        registerColorCycleBrushLayerSnapshotRuntime(brush, { apply: () => { throw new Error('snapshot refused'); } });
+      }
+      const manager = {
+        removeColorCycleBrush: jest.fn(),
+        createBrush: jest.fn(() => {
+          if (failure === 'create-throw') throw new Error('creation refused');
+          return failure === 'create-null' ? null : brush;
+        }),
+        setActiveState: jest.fn(),
+      };
+      const sync = jest.fn();
+      await expect(rebuildCCLayerAfterCrop({
+        entries: [{
+          id: 'layer-cc', width: 2, height: 2, croppedCanvas: null,
+          imageData: new ImageData(2, 2), wasAnimating: false, wasPlaying: false, wasActiveLayer: true,
+          strokeSnapshot: { paintBuffer: new Uint8Array([1, 2, 3, 4]).buffer, hasContent: true, strokeCounter: 1 },
+        }],
+        colorCycleBrushManager: manager as never,
+        getState: () => state as AppState,
+        setState: jest.fn(), syncPlaybackColorCycleLayers: sync, logError: jest.fn(),
+      })).rejects.toThrow();
+      expect(sync).not.toHaveBeenCalled();
+      expect(state.setLayersNeedRecomposition).not.toHaveBeenCalled();
+    },
+  );
 
   it('preserves an external base when indexed stroke data was restored', async () => {
     const brushCanvas = document.createElement('canvas');

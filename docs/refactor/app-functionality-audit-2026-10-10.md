@@ -28,7 +28,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 08 | Move selected pixels: extract/drag, source clearing, commit/cancel, edges, CC metadata, history | selection handlers, selectionPaste | software-verified (Session23: final gate passed; local commit receipt below) |
 | 09 | Copy/cut/paste/duplicate/paste in place: internal/external clipboard, scaling, alpha, cross-layer/CC, failures | selection slice, clipboard handlers, selectionPaste | software-verified (Session25: C01–C07 repaired; 47configs254checks; local commit receipt below) |
 | 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | verified (software; Session27 signoff/local commit receipt) |
-| 11 | Crop: selection crop, handles/dimensions, outside bounds, commit/cancel/history, CC/sequence | crop slice/handlers, CropOptionsPanel | pending |
+| 11 | Crop: selection crop, handles/dimensions, outside bounds, commit/cancel/history, CC/sequence | crop slice/handlers, CropOptionsPanel | software-verified (Session31; 300 native checks; completed-area local commit receipt) |
 | 12 | Pixel brush: tap/drag, square/round tips, size, opacity, spacing, pressure, snap, shape mode | brush presets, brush engine/settings | pending |
 | 13 | Soft brush: edge/size/opacity, pressure, spacing, blend | brush engine/settings | pending |
 | 14 | Dither Stroke: algorithm, pattern, size, spacing, pressure, palette/alpha | strokeStampDither, brush controls | pending |
@@ -1653,3 +1653,317 @@ server is retained. Focused local commit follows; no push/deployment/branch chan
 **10/65areas software-complete; Area11Crop is next,11–65remain incomplete.**
 Area11 read-only preparation is `area11-owner-inventory-session27.md` and two prepared,
 unexecuted native scripts. Its Sequence/history/control leads require reproduction.
+
+
+### Session27 local Area10 commit receipt
+
+Committed locally on main: `6ac6b3d97f5c4272862311bbcc8df6a9674b3caf` (`fix: preserve floating transform previews and history`). Exactly20 audit paths committed; all47original file hashes and the staged3file7addition patch remain exact. No push/deployment. **10/65 areas software-complete; Area11 Crop next,11–65 incomplete.** Fresh preservation baseline: `output/playwright/area11-initial-baseline-session27.json`. First read `output/playwright/area10-root-facts-session27.md`; do not rerun historical commit scripts.
+
+
+## Session28 — Crop partial repairs and continuation
+
+Area11 remains **partial and uncommitted**; Areas01–10 are software-complete. Main
+HEAD remains `6ac6b3d97f5c4272862311bbcc8df6a9674b3caf`. Areas12–65 remain pending.
+
+Native reproduction established and the retained repairs address:
+- Crop creation bubbled into the canvas handler, which stole pointer capture and
+  left a 1×1 marquee. The overlay now owns its creation gesture.
+- Release coordinates were ignored, right/middle drags edited crops, Escape during
+  a drag resurrected the marquee, and Space dragged the crop body instead of panning.
+  The same overlay now handles terminal coordinates, primary admission, cancellation,
+  and inherited Space hit testing.
+- Crop and selection clearing created separate history entries. Full selection state
+  is now part of the crop transaction.
+- Dimension-changing bitmap history used a fixed-grid delta, losing dimensions and
+  causing Redo drift errors. Crop now reuses the existing whole-image resize delta
+  for every bitmap size/presence change, including null-image and initialized empty
+  CC layers. Same-size edits retain the fixed-grid delta and all its drift guards.
+- History admission occurred after document mutation. Admission now precedes capture
+  and publication; refusal preserves the complete pending crop for a successful retry.
+
+The first raster history attempts were incomplete: production Redo exposed the
+initialized default CC layer, absent from the original single-layer tests. A real
+newProject regression with initialized CC runtime now covers it. The layer-type
+filter was replaced, not retained as a workaround. The optional size contract on
+ResizeLayerDelta restores nullable images/framebuffer dimensions and compensates;
+existing resize callers keep their default behavior.
+
+Selected accepted production evidence: **12 configurations / 81 checks**,
+zero failed or aborted in selected runs. `area11-native-acceptance-session28.json`
+lists the exact runs. Controls/lifecycle/geometry ran on the first bound artifact;
+raster history and admission retry ran on the final artifact. No claim that every
+matrix ran on one artifact. The final source is bound by
+`area11-preview-dimension-session28.json` (timestamp 2026-10-10T07:35:32.955Z).
+Full type-check, lint, sequential production build and **60 tests in 3 focused suites**
+pass. Full Jest/commit gate is deferred until Area11 is complete. No partial-area
+commit, push, deployment, branch change, or worktree change.
+
+### Remaining Crop work
+
+- **CC rendered colors:** valid native selection cropping preserves all six data
+  planes and erase/soft masks, but 1,280 painted pixels change from red to gray;
+  differences are R/G/B 1,280 each and alpha zero. Final canonical metadata differs
+  only in width/height; gradientDefStore, slots and all other fields match exactly.
+  The earlier metadata-deletion hypothesis is disproven. Trace runtime color binding
+  and update ordering; do not remove registry calls from that hypothesis alone.
+  Evidence: `area11-cc-metadata-before-session28.results.json` and compact facts JSON.
+- **CC history:** forward capture precedes deferred rebuild; dimension-changing
+  canonical/mask history remains unverified/broken. Full stroke delta supports two
+  dimensions but omits mask snapshots. Resolve at crop/runtime history owners.
+- **Sequence:** valid native crop leaves event coordinates unchanged, causing 5,120
+  renderer-channel differences. Exact projection must preserve authored/held/blank
+  frames, pattern anchoring, alpha and Goblet parity. Read the refined owner artifact
+  before choosing event translation versus canonical bitmap-frame replacement.
+- Still verify mixed visible/hidden/locked layers, same-size offset crop, fractional
+  CC masks/metadata, multiple Sequence frames, non-default layer layout, canvas-shape
+  behavior, and failure after admitted history/delta preparation. Admission refusal
+  is repaired; post-publication rollback is not claimed.
+- CropOptionsPanel still has stale C-shortcut and release-to-extend text. Native entry
+  is Selection → Crop; dimensions are read-only; Enter commits, Escape cancels.
+
+Seven source/test owners changed plus the two audit docs. All47 original file hashes
+and the original staged3-file patch remain exact. Fresh preservation authority and
+browser/process cleanup are recorded in `output/playwright/area11-root-facts-session28.md`.
+Continue Area11, then12–65 under the existing authorization, including bounded agents
+and local continuation chats before70%context. Never restore historical wholefiles.
+
+Final-artifact animation receipt: `area11-animation-selection-final-session28`
+completed both configurations without aborts or runtime errors: 12/16 checks pass.
+The four open assertions are CC projected rendered pixels, CC full Undo, CC full
+Redo, and Sequence projected frame pixels. Raster/selection history transaction
+counts pass. Keep these explicit failures open for Session29.
+
+
+## Session29 — Crop animation repairs, Area11 still partial
+
+Areas01–10 remain software-verified and locally committed. Area11 is **partial and
+uncommitted**; Areas12–65 pending. No branch change, push, deployment or commit.
+
+The four inherited native animation assertions are repaired on the final production
+artifact: exact CC crop rendering, complete CC Undo/Redo, and Sequence projection.
+The same before/after script went from12/16 to16/16 without runtime errors.
+
+- **CC palette publication order:** occupied pixels referenced red slot1/definition2
+  both before and after crop, yet rendered gray. A native diagnostic force-render
+  changed [86,86,86,255] to [192,32,48,255] without canonical mutation. The shared
+  snapshot owner now binds definitions before publication immediately renders the
+  derived surface. Existing post-publication synchronization remains. No registry
+  metadata deletion change was made. Fresh/existing runtime regressions pass.
+- **CC history:** crop awaits rebuild before forward capture and uses the existing
+  full indexed delta with before/after dimensions. Whole erase-mask history now
+  preserves presence, dimensions, fractional alpha and version; existing whole
+  soft-edge history is reused. Bitmap replay preserves the CC framebuffer only when
+  both canonical snapshots exist, allowing the indexed owner to detect and perform
+  runtime resize while preserving cold-layer bitmap behavior. A failed speculative
+  change to colorCycleStrokeDelta was removed completely; that file is unchanged.
+- **Sequence:** crop materializes each authored frame at original document dimensions
+  through the existing renderer, projects pixels, and uses existing bitmap events.
+  This preserves world-anchored patterns, alpha, erase, explicit blank vs absent/held
+  frames. IDs/chunk indexes are regenerated and renderer caches cleared. Complete
+  before/after sequentialData belongs to the same crop transaction. Storage grows
+  with cropped area × authored frames. No Goblet algorithm change was required.
+- **Panel text:** corrected nonexistent C shortcut and release-to-extend instruction;
+  Selection→Crop enters the tool, Enter applies, Escape cancels.
+
+Final six focused suites:114tests pass; fulltype-check/lint/sequential production
+build pass. Source/artifact binding: `output/playwright/area11-preview-session29.json`,
+18source/test owner hashes, BUILD_TIMESTAMP2026-10-10T07:45:53.304Z. All47original
+file hashes and original3-file staged patch remain exact. FullJest/commit gate not
+run because Area11 remains incomplete.
+
+Selected native final evidence: `area11-animation-after-session29`2configs16/16;
+`area11-sequence-frames-final-session29`3configs22/22 (all6raw+held frames, positive,
+negative-extension and same-size crops, fractional alpha/erase, blank frame, exact
+Undo/Redo); `area11-raster-session29`4configs26/26; admission/retry receipt in rootfacts.
+Earlier extended Sequence runs were fixture-invalid (dense eraser left no fractional
+alpha, stale selection clipped source, selection entry clamps out-of-document bounds).
+Final fixtures clear source selection, use a native erase tap and native crop drags
+for extension; these are not application failures or retained repair attempts.
+
+Open: native Goblet pre-encoding parity (serializer absent from loaded production
+modules; recorded explicitly in result.unverified), mixed visible/hidden/locked
+painted layers, non-default layout/alignment, canvas-shape crop/history, more CC
+soft-mask/active metadata edges, and admitted storage/rebuild failure rollback/retry.
+Actual renderer+Goblet serializer focused test passes, but native export is not claimed.
+Read-only review adds a concrete Recolor lead: crop replaces originalImageData and
+clears recolor indices but history omits recolorSettings; rebuild is still deferred
+past commit. Reproduce native Recolor crop→Undo/Redo/rapidUndo before repairing.
+A suspected erase-mask replay issue was retracted: settled native pixels pass, and
+canvas segment refresh re-presents unmasked CC surfaces before compositor masking.
+
+Continue Area11 then12–65 under existing authorization. Fresh preservation authority,
+remaining cases, browser cleanup and continuation routes are in
+`output/playwright/area11-root-facts-session29.md`. Never restore historical wholefiles
+or rerun older commit scripts.
+
+
+## Session30 — Crop Recolor and failure recovery
+
+Area11 remains **partial and uncommitted**; Areas01–10 remain software-verified and
+locally committed, Areas12–65 pending. No push/deployment/branch/worktree change.
+Preserve the original47 dirty files, staged patch and all inherited Crop work.
+
+Native Recolor reproduction: `area11-recolor-extended-before-session30` completes
+4 configurations with9/21 passing, twelve failures and no runtime errors. Native
+raster strokes are converted through the Recolor gradient UI, paused, cropped and
+replayed with ordinary/rapid Undo, negative extension, same-size offset, continuous
+Luminance/Directional variants. Actual GPU draw-time readPixels confirms nonempty
+source output. Crop resets the saved tick; Undo restores document dimensions but
+leaves Recolor original/index/output at cropped dimensions. Initial GPU source/index/
+render projection was correct; do not claim derived-source replacement was reproduced
+there. The distinct 2D readback case has focused source-vs-output regression coverage.
+
+Retained Recolor repair stores complete deep settings in a dedicated history delta,
+spatially projects original/index/phase data without requantization, preserves palette/
+map/gradient/tick, and awaits runtime restoration before forward history capture.
+Recolor replay goes through its restoration owner before brush runtime initialization.
+Six focused suites initially63/63; exact native after gate follows in the final receipt.
+
+Admitted storage reproduction: `area11-failure-resident-before-session30` completes
+one configuration6/12, six failures. A one-shot resident history blob insertion
+failure occurs after native Enter admission. Crop leaves changed artwork/view and
+loses its marquee, making retry ineffective. The probe intercepts only a precisely
+identified Map entry while Crop is in flight, restores the prototype in finally,
+and changes no pixels. Earlier IndexedDB probe could not find tree-shaken production
+configuration exports and is not product evidence. Recovery now belongs to Crop's
+scoped rollback helper; canonical resident/cold CC and Recolor restoration are tested.
+Independent review required preserving concurrent unrelated layer/playback edits;
+that correction is included before final production validation.
+
+Native Goblet pre-encoding parity is now proved on the inherited Session29 artifact:
+`area11-goblet-frames-session30`,3configs25/25. The actual Export→Goblet→JSON→Export→
+Download flow observes all six timeline frame encodes and compares every channel to
+the independently cropped source frames. The leading layer texture and trailing
+preview encode are separately counted according to the exporter call order. Lossy
+encoding delegates unchanged. Earlier attempts omitted Download or counted the two
+preview encodes as timeline frames; those fixture failures are not product defects.
+
+Mixed-layer matrix `area11-mixed-canonical-session30` completes4configs36/45 on the
+inherited artifact. Actual raster/CC/Sequence source planes and rendered timeline
+frames project correctly, including hidden/locked layers. Auto-alignment percentages
+and canvasShape history have remaining exact replay differences. Four additional
+assertions demand a1×1 disposable CC/Sequence framebuffer return to1×1 after Undo;
+authored/raw output is exact and these require source-contract classification, not
+automatic pixel-loss fixes. Noncanonical anchor offsetPercent fixtures were removed;
+native anchor setup clears that field. Initial disabled Crop and canvas-vs-overlay
+hit-test failures were probe prerequisites, corrected before valid evidence.
+
+Remaining: resolve shape/auto-alignment history and classify disposable framebuffer/
+CC metadata differences; expand CC soft-edge/active-metadata coverage; test required
+runtime rebuild failure recovery and later preparation failures. Full Jest and the
+completed-area local commit remain deferred until Area11 is complete. Final source
+binding, settled gates, native after results and continuation are in Session30 root facts.
+
+### Session30 final validation receipt
+
+Final artifact `area11-preview-session30.json` binds all26 accumulated Crop source/test
+owners to BUILD_TIMESTAMP2026-10-10T08:06:34.360Z; no later source changes. Final
+10 focused suites151/151, fulltype-check/lint, sequential production build and diff
+check pass. No fullJest/commit gate because Area11 remains incomplete.
+
+Final selected native repairs:10configs74/74 in `area11-native-acceptance-session30.json`:
+Recolor4/21, admitted storage failure+retry1/12, inherited CC/Sequence2/16, actual
+Goblet frame export3/25. Exact Recolor baseline9/21 becomes21/21; storage6/12 becomes
+12/12. Zero aborted cases/page/unhandled errors. New rollback regression preserves
+concurrent name/visibility/opacity, layer membership/order, playback speed and Recolor
+nonspatial controls. No registry/shape/alignment source change in this session.
+
+Final mixed matrix `area11-mixed-final-session30` is4configs40/45, zeroaborts/errors.
+The five remaining failures are two auto-alignment Undo metadata checks and three
+canvasShape Redo metadata checks; the freehand Undo case also appends closure. Native
+CC/Sequence transparent1×1 placeholder framebuffers legitimately hydrate to document
+size on replay, as confirmed at their layer-creation/composition owners. The oracle
+now permits only that exact placeholder case, retaining all authoritative pixel,
+canonical plane, mask and frame checks. No framebuffer source repair was warranted.
+CC metadata aggregate differences remain diagnostic only; inspect concrete fields
+before inferring a defect. Root facts preserve final sources, process state, cleanup,
+and the next owning scope. All47original files/staged patch remain exact;10/65complete.
+
+
+## Session31 — Crop geometry, runtime failure, and history allocation ownership
+
+Area11 remains uncommitted pending the completed-area gate; Areas01–10 remain committed.
+The requested gpt-6.2-sol model is unavailable; no substitute-model agents were launched.
+All47 original file hashes and the original three-file staged patch remain exact.
+
+Native mixed-layer reproduction is40/45, with the same five shape/auto-alignment
+replay failures from Session30. Crop now captures raw canvasShape including optional
+property presence and exact alignment percentages. A prepared-history completion
+step restores these after all deltas/runtime work; compensation covers failures.
+The delta preserves unrelated fit/anchor/offset edits and replacement projects.
+Initial Crop shape behavior and global alignment math are unchanged. Native geometry
+after is45/45 on the first Session31 artifact. Focused lifecycle/store tests also
+cover absent/undefined/rectangle/circle/closed-freehand shapes and repeated replay.
+
+Native required CC creation null/throw failures previously committed128×128 crops
+with no runtime and no retry marquee (7/9). ccRebuild now rejects missing brushes,
+missing snapshot restoration adapters, and thrown canonical restoration so Crop's
+existing rollback can recover. Native after29/29 proves exact planes/metadata,
+restored marquee, retry, and Undo/Redo for both creation failures.
+
+A second raster blob failure rolled back content but leaked an earlier allocation
+(12/13). Bitmap delta preparation now records each successful reference before
+starting the next allocation and releases all owned references on rejection.
+Native after13/13. CC preparation has the same leak under second/fifth allocation
+failures; its factory now tracks all allocation promises, drains pending siblings
+and releases each acquired reference when preparation rejects. Native after31/31.
+A tenth-allocation probe never reached injection; it is fixture-invalid and excluded.
+Deterministic tests cover dedupe against another live history owner, forward/backward
+preparation, late completion, retry/dispose, and zero leaked references.
+
+Native CC soft-edge creation and enabled/disabled Crop replay pass2configs25/25.
+Playing Recolor passes4configs29/29 for canonical original/index/phase/non-clock
+settings and playback flags; moving-frame pixel equality is not claimed. Paused
+Recolor's existing GPU oracle retains its stricter exact rendered comparisons.
+
+CC metadata classification: compatibility slot palettes gain the default hard seam;
+nextGradientDefId is a derived allocation hint, with allocation scanning used IDs.
+The expanded canonical observer's eight initial failures concern only the native
+unpainted default CC document (zero paint; prior metadata only flowMode=forward),
+which hydrates default palette/active slot/speed fields. All painted canonical
+metadata is exact. The corrected oracle permits only that explicit unpainted-default
+case; field-level diagnostics remain. No metadata source repair was justified.
+
+Latest targeted gate before the final alignment-ownership refinement:8suites109tests.
+Refinement retest:2suites72tests. Full type-check/lint/build and final native artifact
+receipt are recorded in the final Session31 root facts; do not infer completion from
+this intermediate entry. Full Jest/local commit follow only after Area11 native gates.
+
+
+### Session31 Area11 final software signoff
+
+Area11 Crop is software-verified and ready for its focused local commit:11/65 areas
+complete;12–65 pending. Final selected native matrix:31 configurations,300/300 checks,
+no aborted cases or page/unhandled errors. The final soft-mask run adds explicit
+active-layer and enabled/disabled toggle replay checks (2configs31/31), superseding
+its earlier25-check variant. Detailed runs/limitations are in
+`output/playwright/area11-native-acceptance-session31.json`.
+
+All34 Crop source/test owners bind to `area11-preview-session31.json`, timestamp
+2026-10-10T11:39:03.524Z, page-730f02662a337a9e.js, SHA256
+fc6af4395c494d3a450630af502c96f57bcf0c0cb98abb31b846fc4abcff04ac. The browser resource
+timing entry and fetched byte digest match that artifact in
+`area11-loaded-artifact-session31.json`. An earlier DOM-script locator returned no
+match and cleaned the session; its failure log remains, and the corrected resource
+observer supplies the successful receipt. Exact final browser cleanup passes.
+
+Final native coverage: mixed shapes/layout/hidden/locked layers and authored CC
+metadata4/57; soft masks/active ownership2/31; required CC creation failure recovery
+2/29; later raster blob failure1/13; later CC allocation failures2/31; paused GPU
+Recolor4/21; playing Recolor canonical state4/29; native Goblet timeline download
+3/25; inherited CC/Sequence2/16; complete raw/held Sequence timeline3/22; raster
+planes/history4/26. Earlier unchanged pointer/handles/lifecycle/admission cases retain
+their bound Session28–30 evidence. Physical input, other browsers, performance, and
+a new initial canvas-shape Crop policy are not claimed.
+
+Completed-area candidate is HEAD plus only36 audit paths (34 owners and2 audit docs);
+all47 original paths/staged patch are excluded. Candidate fulltype/lint pass and
+fullJest passes595suites/5634tests, one existing suite/test skipped, one snapshot
+passed (`area11-candidate-full-jest-session31.log`). Settled worktree type/lint,
+production build and diff check also pass. Source hashes remain unchanged since
+final build. No remaining actionable finding in the enumerated Area11 software scope.
+
+Local commit hash/preservation receipt: `output/playwright/area11-commit-receipt-session31.json`.
+Next: Area12 Pixel, then13–65. Initial owner trace is
+`output/playwright/area12-owner-trace-session31.md`. No push/deployment/branch/worktree
+change; original47 file hashes and staged3-file patch remain protected.

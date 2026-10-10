@@ -53,9 +53,9 @@ const CropOptionsPanel: React.FC = () => {
       <p className="mt-3 text-[10px] text-[#94A3B8] leading-snug">
         {isCropActive
           ? selectionExtendsBounds
-            ? 'Release to extend the canvas to fit this selection.'
-            : 'Drag handles past the edges to add space, or press Enter to crop.'
-          : 'Select the Crop tool (C) to adjust the canvas bounds.'}
+            ? 'Press Enter to extend the canvas to this selection, or Escape to cancel.'
+            : 'Drag handles to adjust the bounds. Enter crops; Escape cancels.'
+          : 'Choose Crop in the Selection options to adjust the canvas bounds.'}
       </p>
     </div>
   );

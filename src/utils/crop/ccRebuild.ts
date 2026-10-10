@@ -4,7 +4,6 @@ import {
   applyColorCycleBrushLayerSnapshotToRuntime,
   cloneColorCycleBrushLayerSnapshot,
 } from '@/lib/colorCycle/document';
-import type { RecolorOptions } from '@/lib/colorCycle/RecolorManager';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
@@ -66,21 +65,21 @@ interface RebuildArgs {
   logError?: Logger;
 }
 
-export function rebuildCCLayerAfterCrop({
+export async function rebuildCCLayerAfterCrop({
   entries,
   colorCycleBrushManager,
   getState,
   setState,
   syncPlaybackColorCycleLayers,
   logError
-}: RebuildArgs): void {
+}: RebuildArgs): Promise<void> {
   if (!entries.length || typeof window === 'undefined') {
     return;
   }
 
   const logger = logError ?? defaultLogError;
 
-  Promise.resolve().then(() => {
+  return Promise.resolve().then(() => {
     const rebuiltLayerIds: string[] = [];
 
     for (const entry of entries) {
@@ -115,7 +114,7 @@ export function rebuildCCLayerAfterCrop({
         );
 
         if (!freshBrush) {
-          continue;
+          throw new Error(`Color-cycle runtime could not be created for cropped layer ${entry.id}.`);
         }
 
         if (typeof freshBrush.setLayerId === 'function') {
@@ -131,18 +130,14 @@ export function rebuildCCLayerAfterCrop({
         }
 
         if (entry.strokeSnapshot) {
-          try {
-            const strokeSnapshot = cloneColorCycleBrushLayerSnapshot(entry.strokeSnapshot);
-            if (strokeSnapshot) {
-              applyColorCycleBrushLayerSnapshotToRuntime(
+          const strokeSnapshot = cloneColorCycleBrushLayerSnapshot(entry.strokeSnapshot);
+          if (!strokeSnapshot || !applyColorCycleBrushLayerSnapshotToRuntime(
                 freshBrush,
                 entry.id,
                 strokeSnapshot,
                 entry.animatorIndex
-              );
-            }
-          } catch (snapshotError) {
-            logger('[crop] Failed to restore color-cycle stroke snapshot after crop', snapshotError);
+              )) {
+            throw new Error(`Color-cycle runtime rejected cropped snapshot for ${entry.id}.`);
           }
         }
 
@@ -278,6 +273,7 @@ export function rebuildCCLayerAfterCrop({
         rebuiltLayerIds.push(entry.id);
       } catch (brushError) {
         logger('[crop] Failed to rebuild color-cycle brush after crop', brushError);
+        throw brushError;
       }
     }
 
@@ -313,7 +309,7 @@ interface RecolorArgs {
   queue: RecolorRebuildRequest[];
   getState: () => AppState;
   setState: StoreApi<AppState>['setState'];
-  processLayer: (layer: Layer, options: Partial<RecolorOptions>) => Promise<boolean>;
+  restoreLayer: (layer: Layer) => Promise<boolean>;
   logError?: Logger;
 }
 
@@ -321,16 +317,16 @@ export function rebuildRecolorLayersAfterCrop({
   queue,
   getState,
   setState,
-  processLayer,
+  restoreLayer,
   logError
-}: RecolorArgs): void {
+}: RecolorArgs): Promise<void> {
   if (!queue.length || typeof window === 'undefined') {
-    return;
+    return Promise.resolve();
   }
 
   const logger = logError ?? defaultLogError;
 
-  Promise.resolve().then(async () => {
+  return Promise.resolve().then(async () => {
     for (const entry of queue) {
       const latestState = getState();
       const targetLayer = latestState.layers.find((l) => l.id === entry.id);
@@ -339,9 +335,9 @@ export function rebuildRecolorLayersAfterCrop({
       }
 
       try {
-        const success = await processLayer(targetLayer, entry.options);
+        const success = await restoreLayer(targetLayer);
         if (!success) {
-          continue;
+          throw new Error(`Recolor runtime rejected cropped layer ${entry.id}.`);
         }
 
         setState((current) => {
@@ -375,6 +371,7 @@ export function rebuildRecolorLayersAfterCrop({
         getState().setLayersNeedRecomposition(true);
       } catch (recolorError) {
         logger('[crop] Failed to rebuild recolor layer after crop', recolorError);
+        throw recolorError;
       }
     }
   });

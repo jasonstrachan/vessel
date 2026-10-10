@@ -3,6 +3,7 @@ import { cloneLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { resolveLayerColorCycleBaseSpeed } from '@/utils/colorCycleLayerSpeed';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { cropSequentialLayerData } from '@/utils/crop/sequential';
 import {
   cropColorCycleBrushLayerSnapshotRegion,
   readColorCycleBrushLayerSnapshotFromRuntime,
@@ -413,6 +414,17 @@ export function readLayerSourcesForCrop(
     }
   }
 
+  // Recolor owns indexed source data; its displayed GPU canvas is a derived frame.
+  // Preserve the original source instead of quantizing that rendered frame again.
+  const recolorSource = layer.colorCycleData?.mode === 'recolor'
+    ? layer.colorCycleData.recolorSettings?.originalImageData ?? layer.imageData
+    : null;
+  if (recolorSource) {
+    croppedImageData = sliceImageData(recolorSource, rect, targetWidth, targetHeight);
+    targetCtx?.clearRect(0, 0, targetWidth, targetHeight);
+    targetCtx?.putImageData(croppedImageData, 0, 0);
+  }
+
   const clonedAlignment = cloneLayerAlignment(layer.alignment);
   let brushReset: ColorCycleBrushResetEntry | undefined;
   let recolorRequest: RecolorRebuildRequest | undefined;
@@ -456,50 +468,29 @@ export function readLayerSourcesForCrop(
     }
 
     const originalRecolor = layer.colorCycleData.recolorSettings;
-    let refreshedOriginalImage: ImageData | undefined;
-
-    if (croppedImageData && typeof ImageData !== 'undefined') {
-      try {
-        refreshedOriginalImage = new ImageData(
-          new Uint8ClampedArray(croppedImageData.data),
-          targetWidth,
-          targetHeight
-        );
-      } catch {
-        refreshedOriginalImage = undefined;
-      }
-    }
+    const sourceWidth = recolorSource?.width ?? layer.imageData?.width ?? options.sourceWidth;
+    const sourceHeight = recolorSource?.height ?? layer.imageData?.height ?? options.sourceHeight;
 
     const recolorSettings = originalRecolor
       ? {
           ...originalRecolor,
-          originalImageData: refreshedOriginalImage ?? originalRecolor.originalImageData,
-          indexBuffer: undefined,
-          palette: undefined,
-          colorMap: undefined,
-          phaseMap: undefined,
-          indexPhaseMap: undefined,
-          animation: {
-            ...originalRecolor.animation,
-            currentTick: 0
-          }
+          originalImageData: cloneImageData(croppedImageData),
+          indexBuffer: originalRecolor.indexBuffer
+            ? copyScalarRegion(originalRecolor.indexBuffer, sourceWidth, sourceHeight, rect)
+            : undefined,
+          phaseMap: originalRecolor.phaseMap
+            ? copyScalarRegion(originalRecolor.phaseMap, sourceWidth, sourceHeight, rect)
+            : undefined,
+          palette: originalRecolor.palette?.slice(),
+          colorMap: originalRecolor.colorMap ? new Map(originalRecolor.colorMap) : undefined,
+          indexPhaseMap: originalRecolor.indexPhaseMap?.slice(),
+          gradient: originalRecolor.gradient.map((stop) => ({ ...stop })),
+          animation: { ...originalRecolor.animation },
         }
       : undefined;
 
     if (recolorSettings && originalRecolor) {
-      const customGradient = Array.isArray(originalRecolor.gradient)
-        ? originalRecolor.gradient.map((stop) => ({ ...stop }))
-        : undefined;
-
-      recolorRequest = {
-        id: layer.id,
-        options: {
-          quantizationMode: originalRecolor.quantizationMode,
-          ditherMode: originalRecolor.ditherMode,
-          cycleColors: originalRecolor.cycleColors,
-          customGradient
-        }
-      };
+      recolorRequest = { id: layer.id };
     }
 
     const nextColorCycleCanvas =
@@ -733,6 +724,12 @@ export function readLayerSourcesForCrop(
     imageData: croppedImageData,
     framebuffer: targetCanvas,
     alignment: clonedAlignment,
+    sequentialData: cropSequentialLayerData({
+      layer,
+      sourceWidth: options.sourceWidth,
+      sourceHeight: options.sourceHeight,
+      rect,
+    }),
     colorCycleData: updatedColorCycleData
   };
 

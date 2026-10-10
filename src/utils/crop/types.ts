@@ -1,4 +1,3 @@
-import type { RecolorOptions } from '@/lib/colorCycle/RecolorManager';
 import type { ColorCycleBrushLayerSnapshot } from '@/lib/colorCycle/document';
 import type { Layer, Rectangle } from '@/types';
 
@@ -40,7 +39,6 @@ export interface ColorCycleBrushResetEntry {
 
 export interface RecolorRebuildRequest {
   id: string;
-  options: Partial<RecolorOptions>;
 }
 
 export interface LayerCropReadResult {
@@ -52,4 +50,6 @@ export interface LayerCropReadResult {
 
 export interface LayerCropReadContext {
   activeLayerId: string | null;
+  sourceWidth: number;
+  sourceHeight: number;
 }

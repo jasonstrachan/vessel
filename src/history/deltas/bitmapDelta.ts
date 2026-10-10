@@ -652,144 +652,149 @@ export const createBitmapTileDelta = async ({
     tyEnd,
     beforeIsRoi,
   });
-  for (let ty = tyStart; ty <= tyEnd; ty += 1) {
-    for (let tx = txStart; tx <= txEnd; tx += 1) {
-      const tileX = tx * tileSize;
-      const tileY = ty * tileSize;
-      const tileRight = Math.min(width, tileX + tileSize);
-      const tileBottom = Math.min(height, tileY + tileSize);
-      const x = afterIsRoi && normalizedRoi ? Math.max(tileX, normalizedRoi.x) : tileX;
-      const y = afterIsRoi && normalizedRoi ? Math.max(tileY, normalizedRoi.y) : tileY;
-      const right = afterIsRoi && normalizedRoi
-        ? Math.min(tileRight, normalizedRoi.right)
-        : tileRight;
-      const bottom = afterIsRoi && normalizedRoi
-        ? Math.min(tileBottom, normalizedRoi.bottom)
-        : tileBottom;
-      const tileWidth = right - x;
-      const tileHeight = bottom - y;
-      if (tileWidth <= 0 || tileHeight <= 0) continue;
-      const afterTile = extractTile(
-        afterData,
-        after.width,
-        after.height,
-        afterIsRoi && normalizedRoi ? x - normalizedRoi.x : x,
-        afterIsRoi && normalizedRoi ? y - normalizedRoi.y : y,
-        tileWidth,
-        tileHeight,
-      );
-      let beforeTile = extractTile(
-        beforeData,
-        before?.width ?? width,
-        before ? before.height : height,
-        beforeIsRoi ? x - beforeOffsetX : x,
-        beforeIsRoi ? y - beforeOffsetY : y,
-        tileWidth,
-        tileHeight
-      );
-      if (beforeIsRoi && beforeData && normalizedRoi && !afterIsRoi) {
-        // Preserve pixels outside ROI by seeding from afterTile, then overwrite ROI pixels only.
-        beforeTile = afterTile.slice();
-        const ix0 = Math.max(x, normalizedRoi.x);
-        const iy0 = Math.max(y, normalizedRoi.y);
-        const ix1 = Math.min(x + tileWidth, normalizedRoi.right);
-        const iy1 = Math.min(y + tileHeight, normalizedRoi.bottom);
-        const roiWidthPx = normalizedRoi.right - normalizedRoi.x;
-        for (let py = iy0; py < iy1; py += 1) {
-          const srcY = py - normalizedRoi.y;
-          const destY = py - y;
-          const srcRow = srcY * roiWidthPx * 4;
-          const destRow = destY * tileWidth * 4;
-          for (let px = ix0; px < ix1; px += 1) {
-            const srcX = px - normalizedRoi.x;
-            const destX = px - x;
-            const srcIndex = srcRow + srcX * 4;
-            const destIndex = destRow + destX * 4;
-            beforeTile[destIndex] = beforeData[srcIndex];
-            beforeTile[destIndex + 1] = beforeData[srcIndex + 1];
-            beforeTile[destIndex + 2] = beforeData[srcIndex + 2];
-            beforeTile[destIndex + 3] = beforeData[srcIndex + 3];
+  try {
+    for (let ty = tyStart; ty <= tyEnd; ty += 1) {
+      for (let tx = txStart; tx <= txEnd; tx += 1) {
+        const tileX = tx * tileSize;
+        const tileY = ty * tileSize;
+        const tileRight = Math.min(width, tileX + tileSize);
+        const tileBottom = Math.min(height, tileY + tileSize);
+        const x = afterIsRoi && normalizedRoi ? Math.max(tileX, normalizedRoi.x) : tileX;
+        const y = afterIsRoi && normalizedRoi ? Math.max(tileY, normalizedRoi.y) : tileY;
+        const right = afterIsRoi && normalizedRoi
+          ? Math.min(tileRight, normalizedRoi.right)
+          : tileRight;
+        const bottom = afterIsRoi && normalizedRoi
+          ? Math.min(tileBottom, normalizedRoi.bottom)
+          : tileBottom;
+        const tileWidth = right - x;
+        const tileHeight = bottom - y;
+        if (tileWidth <= 0 || tileHeight <= 0) continue;
+        const afterTile = extractTile(
+          afterData,
+          after.width,
+          after.height,
+          afterIsRoi && normalizedRoi ? x - normalizedRoi.x : x,
+          afterIsRoi && normalizedRoi ? y - normalizedRoi.y : y,
+          tileWidth,
+          tileHeight,
+        );
+        let beforeTile = extractTile(
+          beforeData,
+          before?.width ?? width,
+          before ? before.height : height,
+          beforeIsRoi ? x - beforeOffsetX : x,
+          beforeIsRoi ? y - beforeOffsetY : y,
+          tileWidth,
+          tileHeight
+        );
+        if (beforeIsRoi && beforeData && normalizedRoi && !afterIsRoi) {
+          // Preserve pixels outside ROI by seeding from afterTile, then overwrite ROI pixels only.
+          beforeTile = afterTile.slice();
+          const ix0 = Math.max(x, normalizedRoi.x);
+          const iy0 = Math.max(y, normalizedRoi.y);
+          const ix1 = Math.min(x + tileWidth, normalizedRoi.right);
+          const iy1 = Math.min(y + tileHeight, normalizedRoi.bottom);
+          const roiWidthPx = normalizedRoi.right - normalizedRoi.x;
+          for (let py = iy0; py < iy1; py += 1) {
+            const srcY = py - normalizedRoi.y;
+            const destY = py - y;
+            const srcRow = srcY * roiWidthPx * 4;
+            const destRow = destY * tileWidth * 4;
+            for (let px = ix0; px < ix1; px += 1) {
+              const srcX = px - normalizedRoi.x;
+              const destX = px - x;
+              const srcIndex = srcRow + srcX * 4;
+              const destIndex = destRow + destX * 4;
+              beforeTile[destIndex] = beforeData[srcIndex];
+              beforeTile[destIndex + 1] = beforeData[srcIndex + 1];
+              beforeTile[destIndex + 2] = beforeData[srcIndex + 2];
+              beforeTile[destIndex + 3] = beforeData[srcIndex + 3];
+            }
           }
         }
+
+        if (before && tilesEqual(beforeTile, afterTile)) {
+          continue;
+        }
+        changedTileCount += 1;
+        const patchRegion = { x, y, width: tileWidth, height: tileHeight };
+        forwardPatchHasher.addPatch(patchRegion, afterTile);
+        backwardPatchHasher.addPatch(patchRegion, beforeTile);
+
+        const forward = await encodeTileData(afterTile);
+        forwardPatches.push({
+          x,
+          y,
+          width: tileWidth,
+          height: tileHeight,
+          blobId: forward.blobId,
+          encoding: forward.encoding,
+          approxBytes: forward.approxBytes
+        });
+        const backward = await encodeTileData(beforeTile);
+        backwardPatches.push({
+          x,
+          y,
+          width: tileWidth,
+          height: tileHeight,
+          blobId: backward.blobId,
+          encoding: backward.encoding,
+          approxBytes: backward.approxBytes
+        });
       }
-
-      if (before && tilesEqual(beforeTile, afterTile)) {
-        continue;
-      }
-      changedTileCount += 1;
-      const patchRegion = { x, y, width: tileWidth, height: tileHeight };
-      forwardPatchHasher.addPatch(patchRegion, afterTile);
-      backwardPatchHasher.addPatch(patchRegion, beforeTile);
-
-      const forward = await encodeTileData(afterTile);
-      const backward = await encodeTileData(beforeTile);
-
-      forwardPatches.push({
-        x,
-        y,
-        width: tileWidth,
-        height: tileHeight,
-        blobId: forward.blobId,
-        encoding: forward.encoding,
-        approxBytes: forward.approxBytes
-      });
-      backwardPatches.push({
-        x,
-        y,
-        width: tileWidth,
-        height: tileHeight,
-        blobId: backward.blobId,
-        encoding: backward.encoding,
-        approxBytes: backward.approxBytes
-      });
     }
-  }
-  strokeFinalizeProbeMark('createBitmapTileDelta:tileLoop', 'end', {
-    ...probeMetaBase,
-    tileCount,
-    changedTileCount,
-    forwardPatchCount: forwardPatches.length,
-    backwardPatchCount: backwardPatches.length,
-    beforeIsRoi,
-    afterIsRoi,
-  });
-
-  if (forwardPatches.length === 0) {
-    return null;
-  }
-
-  const beforeHash = strokeFinalizeProbeTimeSync(
-    'createBitmapTileDelta:beforeHash',
-    () =>
-      validationMode === 'patches'
-        ? backwardPatchHasher.digest()
-        : before && beforeIsRoi && normalizedRoi
-          ? hashRoiBeforeOverAfter(before, after, normalizedRoi)
-          : hashNormalizedImageData(before, width, height),
-    {
+    strokeFinalizeProbeMark('createBitmapTileDelta:tileLoop', 'end', {
       ...probeMetaBase,
+      tileCount,
+      changedTileCount,
+      forwardPatchCount: forwardPatches.length,
+      backwardPatchCount: backwardPatches.length,
       beforeIsRoi,
       afterIsRoi,
-      validationMode,
-    }
-  );
-  const afterHash = strokeFinalizeProbeTimeSync(
-    'createBitmapTileDelta:afterHash',
-    () => validationMode === 'patches' ? forwardPatchHasher.digest() : hashImageData(after, width, height),
-    {
-      ...probeMetaBase,
-      validationMode,
-    }
-  );
+    });
 
-  return new BitmapTileDelta({
-    layerId,
-    width,
-    height,
-    forward: forwardPatches,
-    backward: backwardPatches,
-    beforeHash,
-    afterHash,
-    validationMode,
-  });
+    if (forwardPatches.length === 0) {
+      return null;
+    }
+
+    const beforeHash = strokeFinalizeProbeTimeSync(
+      'createBitmapTileDelta:beforeHash',
+      () =>
+        validationMode === 'patches'
+          ? backwardPatchHasher.digest()
+          : before && beforeIsRoi && normalizedRoi
+            ? hashRoiBeforeOverAfter(before, after, normalizedRoi)
+            : hashNormalizedImageData(before, width, height),
+      {
+        ...probeMetaBase,
+        beforeIsRoi,
+        afterIsRoi,
+        validationMode,
+      }
+    );
+    const afterHash = strokeFinalizeProbeTimeSync(
+      'createBitmapTileDelta:afterHash',
+      () => validationMode === 'patches' ? forwardPatchHasher.digest() : hashImageData(after, width, height),
+      {
+        ...probeMetaBase,
+        validationMode,
+      }
+    );
+
+    return new BitmapTileDelta({
+      layerId,
+      width,
+      height,
+      forward: forwardPatches,
+      backward: backwardPatches,
+      beforeHash,
+      afterHash,
+      validationMode,
+    });
+  } catch (error) {
+    forwardPatches.forEach((patch) => releaseBlob(patch.blobId));
+    backwardPatches.forEach((patch) => releaseBlob(patch.blobId));
+    throw error;
+  }
 };

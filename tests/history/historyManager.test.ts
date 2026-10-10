@@ -106,6 +106,49 @@ describe('HistoryManager', () => {
     useAppStore.getState().clearSelection();
   });
 
+  it.each([false, true])('finalizes after runtime replay and compensates completion failures (failure=%s)', async (fail) => {
+    const log: string[] = [];
+    let value = 1;
+    const manager = new HistoryManager({
+      runtimeRehydration: {
+        createTargets: () => ({ layerIds: new Set(), colorCycleLayerIds: new Set(), sequentialLayerIds: new Set(), workerScopes: new Set() }),
+        rehydrate: async () => { log.push('runtime'); },
+      },
+    });
+    const txn = manager.begin('crop');
+    txn.push({
+      _tag: 'completion',
+      prepare: (direction) => {
+        const compensation = value;
+        return {
+          deltaTag: 'completion',
+          apply: () => { log.push('apply'); },
+          requiresCompensation: () => value !== compensation,
+          finalize: () => {
+            log.push('finalize');
+            value = direction === 'backward' ? 0 : 1;
+            if (fail) throw new Error('completion failed');
+          },
+          compensate: () => { log.push('compensate'); value = compensation; },
+        };
+      },
+    });
+    txn.commit('Crop');
+    if (fail) {
+      await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+      expect(value).toBe(1);
+      expect(manager.entries()).toHaveLength(1);
+      expect(manager.isFaulted).toBe(false);
+      expect(log).toEqual(['apply', 'runtime', 'finalize', 'compensate', 'runtime']);
+    } else {
+      await manager.undo();
+      expect(value).toBe(0);
+      await manager.redo();
+      expect(value).toBe(1);
+      expect(log).toEqual(['apply', 'runtime', 'finalize', 'apply', 'runtime', 'finalize']);
+    }
+  });
+
   it('commits transactions and clears redo stack', () => {
     const manager = new HistoryManager({ maxEntries: 5 });
     const log: Array<{ direction: HistoryDirection }> = [];

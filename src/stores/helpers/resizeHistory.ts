@@ -25,7 +25,7 @@ export interface ResizeHistoryBaseline {
   layerSnapshots: ResizeLayerSnapshotMap;
 }
 
-class ResizeLayerDelta implements HistoryDelta {
+export class ResizeLayerDelta implements HistoryDelta {
   readonly _tag = 'resize-layer';
   readonly approxBytes: number;
 
@@ -34,6 +34,10 @@ class ResizeLayerDelta implements HistoryDelta {
     private readonly beforeImage: ImageData | null,
     private readonly afterImage: ImageData | null,
     private readonly preserveColorCycleFramebuffer: boolean,
+    private readonly dimensions?: {
+      before: ResizeProjectSizeSnapshot;
+      after: ResizeProjectSizeSnapshot;
+    },
   ) {
     this.approxBytes =
       (beforeImage?.data.byteLength ?? 0) + (afterImage?.data.byteLength ?? 0);
@@ -43,16 +47,20 @@ class ResizeLayerDelta implements HistoryDelta {
     const currentState = useAppStore.getState();
     const currentLayer = currentState.layers.find((layer) => layer.id === this.layerId);
     const compensationImage = cloneLayerImageData(currentLayer?.imageData);
+    const compensationDimensions = this.dimensions && currentLayer?.framebuffer
+      ? { width: currentLayer.framebuffer.width, height: currentLayer.framebuffer.height }
+      : undefined;
     const compensationVersion = currentLayer?.version;
     const compensationNeedsRecomposition = currentState.layersNeedRecomposition;
     const compensationLayers = currentState.layers;
     const projectId = currentState.project?.id ?? null;
     const targetImage = direction === 'forward' ? this.afterImage : this.beforeImage;
+    const targetDimensions = direction === 'forward' ? this.dimensions?.after : this.dimensions?.before;
     const targetVersion = (compensationVersion ?? 0) + 1;
 
     return {
       deltaTag: this._tag,
-      apply: () => this.applyState(targetImage, targetVersion),
+      apply: () => this.applyState(targetImage, targetVersion, targetDimensions),
       requiresCompensation: () => {
         const state = useAppStore.getState();
         return (
@@ -65,7 +73,7 @@ class ResizeLayerDelta implements HistoryDelta {
       },
       compensate: () => {
         if ((useAppStore.getState().project?.id ?? null) !== projectId) return;
-        this.applyState(compensationImage, compensationVersion);
+        this.applyState(compensationImage, compensationVersion, compensationDimensions);
         useAppStore.setState({
           layersNeedRecomposition: compensationNeedsRecomposition,
         });
@@ -78,10 +86,15 @@ class ResizeLayerDelta implements HistoryDelta {
     const currentVersion = useAppStore.getState().layers.find(
       (layer) => layer.id === this.layerId,
     )?.version;
-    this.applyState(targetImage, (currentVersion ?? 0) + 1);
+    const targetDimensions = direction === 'forward' ? this.dimensions?.after : this.dimensions?.before;
+    this.applyState(targetImage, (currentVersion ?? 0) + 1, targetDimensions);
   }
 
-  private applyState(targetImage: ImageData | null, targetVersion: number | undefined): void {
+  private applyState(
+    targetImage: ImageData | null,
+    targetVersion: number | undefined,
+    dimensions?: ResizeProjectSizeSnapshot,
+  ): void {
     useAppStore.setState((state) => {
       const updatedLayers = state.layers.map((layer) => {
         if (layer.id !== this.layerId) {
@@ -91,17 +104,17 @@ class ResizeLayerDelta implements HistoryDelta {
         const framebuffer = layer.framebuffer;
         if (
           framebuffer &&
-          targetImage &&
+          (targetImage || dimensions) &&
           !(layer.layerType === 'color-cycle' && this.preserveColorCycleFramebuffer)
         ) {
-          framebuffer.width = targetImage.width;
-          framebuffer.height = targetImage.height;
+          framebuffer.width = targetImage?.width ?? dimensions!.width;
+          framebuffer.height = targetImage?.height ?? dimensions!.height;
           const ctx = framebuffer.getContext(
             '2d',
             { willReadFrequently: true } as CanvasRenderingContext2DSettings
           ) as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
           ctx?.clearRect(0, 0, framebuffer.width, framebuffer.height);
-          ctx?.putImageData(targetImage, 0, 0);
+          if (targetImage) ctx?.putImageData(targetImage, 0, 0);
         }
 
         return {

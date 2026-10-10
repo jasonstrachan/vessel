@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useCropState } from '@/hooks/useCropState';
 import type { CropHandle, CropState, Rectangle } from '@/types';
 import {
@@ -29,9 +29,9 @@ interface CropOverlayProps {
 
 type InteractionState =
   | { type: 'idle' }
-  | { type: 'creating'; start: Point; handle: CropHandle }
-  | { type: 'resizing'; start: Point; initialRect: Rectangle; handle: CropHandle }
-  | { type: 'moving'; start: Point; initialRect: Rectangle };
+  | { type: 'creating'; pointerId: number; start: Point; handle: CropHandle }
+  | { type: 'resizing'; pointerId: number; start: Point; initialRect: Rectangle; handle: CropHandle }
+  | { type: 'moving'; pointerId: number; start: Point; initialRect: Rectangle };
 
 const CropOverlay: React.FC<CropOverlayProps> = ({
   projectWidth,
@@ -45,6 +45,19 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
   const { crop, setCropState } = useCropState();
   const overlayRef = useRef<HTMLDivElement>(null);
   const interactionRef = useRef<InteractionState>({ type: 'idle' });
+
+  useEffect(() => {
+    if (active && crop.status !== 'idle') {
+      return;
+    }
+
+    const interaction = interactionRef.current;
+    interactionRef.current = { type: 'idle' };
+    const overlayEl = overlayRef.current;
+    if (interaction.type !== 'idle' && overlayEl?.hasPointerCapture(interaction.pointerId)) {
+      overlayEl.releasePointerCapture(interaction.pointerId);
+    }
+  }, [active, crop.status]);
 
   const getWorldPoint = useCallback(
     (event: PointerEvent | React.PointerEvent<HTMLDivElement>): Point | null => {
@@ -88,7 +101,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
 
   const handleOverlayPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!active) {
+      if (!active || isSpacePressed || event.button !== 0) {
         return;
       }
 
@@ -109,6 +122,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
       overlayEl.setPointerCapture(event.pointerId);
       interactionRef.current = {
         type: 'creating',
+        pointerId: event.pointerId,
         start: worldPoint,
         handle: 'bottom-right',
       };
@@ -127,13 +141,14 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
 
       applyRectUpdate(initialRect, 'creating', 'bottom-right');
       event.preventDefault();
+      event.stopPropagation();
     },
-    [active, applyRectUpdate, getWorldPoint, projectHeight, projectWidth],
+    [active, applyRectUpdate, getWorldPoint, isSpacePressed, projectHeight, projectWidth],
   );
 
   const handleMovePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!active || !crop.marquee) {
+      if (!active || isSpacePressed || event.button !== 0 || !crop.marquee) {
         return;
       }
 
@@ -151,6 +166,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
 
       interactionRef.current = {
         type: 'moving',
+        pointerId: event.pointerId,
         start: worldPoint,
         initialRect: crop.marquee,
       };
@@ -164,12 +180,12 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
       event.preventDefault();
       event.stopPropagation();
     },
-    [active, crop.marquee, getWorldPoint, setCropState],
+    [active, crop.marquee, getWorldPoint, isSpacePressed, setCropState],
   );
 
   const handleResizePointerDown = useCallback(
     (handle: CropHandle) => (event: React.PointerEvent<HTMLDivElement>) => {
-      if (!active || !crop.marquee) {
+      if (!active || isSpacePressed || event.button !== 0 || !crop.marquee) {
         return;
       }
 
@@ -187,6 +203,7 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
 
       interactionRef.current = {
         type: 'resizing',
+        pointerId: event.pointerId,
         start: worldPoint,
         initialRect: crop.marquee,
         handle,
@@ -201,17 +218,20 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
       event.preventDefault();
       event.stopPropagation();
     },
-    [active, crop.marquee, getWorldPoint, setCropState],
+    [active, crop.marquee, getWorldPoint, isSpacePressed, setCropState],
   );
 
   const finalizeInteraction = useCallback(
     (pointerId: number) => {
+      if (interactionRef.current.type === 'idle') {
+        return;
+      }
+
+      interactionRef.current = { type: 'idle' };
       const overlayEl = overlayRef.current;
       if (overlayEl && overlayEl.hasPointerCapture(pointerId)) {
         overlayEl.releasePointerCapture(pointerId);
       }
-
-      interactionRef.current = { type: 'idle' };
 
       if (crop.marquee) {
         setCropState({ status: 'ready', activeHandle: null });
@@ -271,10 +291,14 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
 
   const handlePointerUp = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      if (interactionRef.current.type === 'idle') {
+        return;
+      }
+      handlePointerMove(event);
       finalizeInteraction(event.pointerId);
       event.preventDefault();
     },
-    [finalizeInteraction],
+    [finalizeInteraction, handlePointerMove],
   );
 
   const handlePointerCancel = useCallback(
@@ -368,7 +392,6 @@ const CropOverlay: React.FC<CropOverlayProps> = ({
               height: marqueeScreenRect.height,
               border: '1px dashed rgba(255, 255, 255, 0.9)',
               boxShadow: '0 0 0 9999px rgba(15, 23, 42, 0.45)',
-              pointerEvents: 'auto',
               cursor: handleCursor('center'),
             }}
             onPointerDown={handleMovePointerDown}

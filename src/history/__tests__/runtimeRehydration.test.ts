@@ -17,6 +17,11 @@ const mockBrushManager = {
 };
 
 const clearSequentialLayerRendererLayer = jest.fn();
+const mockRestoreRecolorLayer = jest.fn().mockResolvedValue(true);
+
+jest.mock('@/lib/colorCycle/RecolorManager', () => ({
+  RecolorManager: { getInstance: () => ({ restoreLayer: mockRestoreRecolorLayer }) },
+}));
 
 jest.mock('@/lib/sequential/SequentialLayerRenderer', () => ({
   __esModule: true,
@@ -86,7 +91,37 @@ const createRuntimeBrush = () => {
 describe('runtimeRehydration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRestoreRecolorLayer.mockResolvedValue(true);
     mockStoreState.layers = [];
+  });
+
+  it('restores Recolor through its indexed owner without initializing a brush runtime', async () => {
+    const canvas = document.createElement('canvas');
+    const layer = makeLayer(canvas, new ImageData(2, 2));
+    layer.colorCycleData!.mode = 'recolor';
+    mockStoreState.layers = [layer];
+    const targets = createRehydrationTargets();
+    targets.colorCycleLayerIds.add(layer.id);
+    await rehydrateEntryResources(
+      { id: 'entry', action: 'crop', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward', targets,
+    );
+    expect(mockRestoreRecolorLayer).toHaveBeenCalledWith(layer);
+    expect(mockBrushManager.validateColorCycleBrush).not.toHaveBeenCalled();
+    expect(mockBrushManager.initColorCycleForLayer).not.toHaveBeenCalled();
+  });
+
+  it('rejects failed Recolor restoration so replay can compensate', async () => {
+    const layer = makeLayer(document.createElement('canvas'), new ImageData(2, 2));
+    layer.colorCycleData!.mode = 'recolor';
+    mockStoreState.layers = [layer];
+    mockRestoreRecolorLayer.mockResolvedValue(false);
+    const targets = createRehydrationTargets();
+    targets.colorCycleLayerIds.add(layer.id);
+    await expect(rehydrateEntryResources(
+      { id: 'entry', action: 'crop', label: 'test', ts: 1, docId: 'doc', deltas: [] },
+      'backward', targets,
+    )).rejects.toThrow('Failed to rehydrate recolor output');
   });
 
   it('does not overwrite a restored color-cycle brush surface with compatibility pixels', async () => {

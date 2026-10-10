@@ -150,6 +150,18 @@ const rehydrateColorCycleRuntime = async (
       continue;
     }
 
+    if (colorState.mode === 'recolor') {
+      try {
+        if (!await RecolorManager.getInstance().restoreLayer(layer)) {
+          throw new Error('Recolor runtime rejected the restored indexed state.');
+        }
+        flaggedForRecomposition = true;
+      } catch (error) {
+        throw runtimeRehydrationError(layer.id, 'rehydrate recolor output', error);
+      }
+      continue;
+    }
+
     let restoredCanonicalSurface = false;
     let rejectedEmptySerializedBrushState = false;
 
@@ -296,15 +308,6 @@ const rehydrateColorCycleRuntime = async (
         ctx.putImageData(colorState.canvasImageData, 0, 0);
       } catch (error) {
         throw runtimeRehydrationError(layer.id, 'restore preview canvas', error);
-      }
-    }
-
-    if (colorState.mode === 'recolor') {
-      try {
-        await RecolorManager.getInstance().processLayer(layer);
-        flaggedForRecomposition = true;
-      } catch (error) {
-        throw runtimeRehydrationError(layer.id, 'rehydrate recolor output', error);
       }
     }
   }

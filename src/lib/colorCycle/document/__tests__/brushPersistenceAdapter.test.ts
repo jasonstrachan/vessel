@@ -1791,6 +1791,7 @@ describe('brushPersistenceAdapter', () => {
       'create:4',
       'palette:3',
       'active:3',
+      'defs',
       'publish:history-restore:true:6',
       'upload:1:2',
       'bind',
@@ -1799,6 +1800,80 @@ describe('brushPersistenceAdapter', () => {
       'dirty:2x2',
       'layer-dirty:layer-a',
     ]);
+  });
+
+  it.each([false, true])('publishes restored definition colors without adopting stale animator IDs (existing runtime: %s)', (hasExistingRuntime) => {
+    const strokeState: ColorCycleBrushLayerSnapshotMutableStrokeState = {
+      buffers: makeBuffers(1),
+      hasContent: hasExistingRuntime,
+      strokeCounter: 0,
+    };
+    strokeState.buffers.paint[0] = hasExistingRuntime ? 86 : 0;
+    strokeState.buffers.def[0] = hasExistingRuntime ? 1 : 0;
+    const animator: { defIds: Uint16Array | null; paletteColors: Map<number, string> } = {
+      defIds: hasExistingRuntime ? new Uint16Array([1]) : null,
+      paletteColors: new Map<number, string>(),
+    };
+    const publishedColors: Array<string | undefined> = [];
+    let publishedDefIds: number[] = [];
+
+    executeColorCycleBrushLayerSnapshotRuntimeApply({
+      layerId: 'layer-a',
+      snapshot: {
+        paintBuffer: new Uint8Array([86]).buffer,
+        gradientIdBuffer: new Uint8Array([1]).buffer,
+        gradientDefIdBuffer: new Uint16Array([2]).buffer,
+        hasContent: true,
+        strokeCounter: 1,
+      },
+      reason: 'history-restore',
+      canvasWidth: 1,
+      canvasHeight: 1,
+      flowSlotMask: 0xff,
+      getExistingStrokeState: () => hasExistingRuntime ? strokeState : undefined,
+      hasCanonicalPaintPayload: () => hasExistingRuntime,
+      resolveRestoreAction: () => null,
+      brushStateHasPaintPayload: () => false,
+      logBlockedWrite: jest.fn(),
+      applyRecoveredSnapshot: jest.fn(),
+      ensureAnimator: () => animator,
+      resizeAnimator: jest.fn(),
+      createStrokeState: () => strokeState,
+      captureAuditSnapshot: () => null,
+      getFallbackAnimationPlanOptions: () => ({}),
+      encodeFallbackSpeedByte: () => 0,
+      encodeFallbackFlowByte: () => 0,
+      applySlotPalette: jest.fn(),
+      applyActiveGradientSlot: jest.fn(),
+      publishStrokeState: (_layerId, state) => {
+        // Document publication rebuilds the animator from the canonical snapshot
+        // and renders immediately, before the later upload/bind synchronization.
+        publishedDefIds = Array.from(state.buffers.def);
+        animator.defIds = state.buffers.def.slice();
+        publishedColors.push(animator.paletteColors.get(animator.defIds[0]));
+      },
+      recordClearAudit: jest.fn(),
+      setIndexBuffers: jest.fn(),
+      bindStrokeBuffersToAnimator: (state) => {
+        // Existing runtimes retain a definition buffer until publication replaces it.
+        if (animator.defIds) state.buffers.def = animator.defIds;
+      },
+      applyDefBindings: (_layerId, target, state) => {
+        if (!target) throw new Error('Expected the restored animator');
+        target.defIds = state.buffers.def;
+        target.paletteColors.set(1, '#565656');
+        target.paletteColors.set(2, '#c02030');
+      },
+      snapshotFromBuffers: jest.fn(),
+      getAnimatorDimensions: () => ({ width: 1, height: 1 }),
+      markDirtyBounds: jest.fn(),
+      markLayerDirty: jest.fn(),
+    });
+
+    expect(publishedColors).toEqual(['#c02030']);
+    expect(publishedDefIds).toEqual([2]);
+    expect(Array.from(strokeState.buffers.def)).toEqual([2]);
+    expect(Array.from(animator.defIds ?? [])).toEqual([2]);
   });
 
   it('executes layer snapshot animator sync in upload-bind-def-snapshot-dirty order', () => {
