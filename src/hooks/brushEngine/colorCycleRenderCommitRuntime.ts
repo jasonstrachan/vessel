@@ -188,7 +188,8 @@ const renderColorCycleLayerToCanvas = (
       context.getSampledStrokePreviewDither),
     hasRenderableContent,
     preserveExternalBase: Boolean(strokeData?.externalBase.hasExternalBase),
-    applyMask: applyColorCycleMask,
+    // Current-frame surfaces are masked by the canvas compositor; direct consumers need baked masks.
+    applyMask: forceRender ? applyColorCycleMask : undefined,
   };
   if (forceRender) {
     context.renderDirectToCanvas(params);

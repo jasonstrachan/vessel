@@ -214,12 +214,16 @@ export function useToolStateMachine({
   }, [polygonGradientStateRef]);
   
   // Check which tool is active
-  const isRectangleGradient = tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT;
-  const isPolygonGradient = tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
-  const isColorCycleShape = tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
+  const isRectangleGradient =
+    tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.RECTANGLE_GRADIENT;
+  const isPolygonGradient =
+    tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.POLYGON_GRADIENT;
+  const isColorCycleShape =
+    tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.COLOR_CYCLE_SHAPE;
   const isContourPolygon =
-    tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
-    tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2;
+    tools.currentTool === 'brush' &&
+    (tools.brushSettings.brushShape === BrushShape.CONTOUR_POLYGON ||
+      tools.brushSettings.brushShape === BrushShape.CONTOUR_LINES2);
   
   return {
     // Rectangle gradient

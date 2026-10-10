@@ -477,7 +477,7 @@ describe('colorCycleBrushManager integration', () => {
     expect(activationBrush).toBe(secondActivationBrush);
     expect(activationBrush).not.toBe(brush);
     expect(Object.keys(activationBrush ?? {}).sort()).toEqual([
-      'endStroke',
+      'finalizeCurrentStroke',
       'setActiveLayer',
     ]);
     expect('getCanvas' in (activationBrush ?? {})).toBe(false);
@@ -485,11 +485,25 @@ describe('colorCycleBrushManager integration', () => {
     expect('setBrushSize' in (activationBrush ?? {})).toBe(false);
     expect('cleanup' in (activationBrush ?? {})).toBe(false);
 
-    activationBrush?.endStroke?.('layer-1');
+    activationBrush?.finalizeCurrentStroke?.('layer-1');
     activationBrush?.setActiveLayer?.('layer-1');
 
-    expect(brush.endStroke).toHaveBeenCalledWith('layer-1');
+    expect(brush.finalizeCurrentStroke).toHaveBeenCalledWith('layer-1');
+    expect(brush.endStroke).not.toHaveBeenCalled();
     expect(brush.setActiveLayer).toHaveBeenCalledWith('layer-1');
+  });
+
+  it('never exposes unsafe endStroke as a fallback when safe activation finalization is absent', () => {
+    const manager = createColorCycleBrushManager();
+    expect(manager.initColorCycleForLayer('layer-1', 64, 64)).toBe(true);
+    const brush = manager.getBrush('layer-1') as unknown as MockBrush;
+    Object.defineProperty(brush, 'finalizeCurrentStroke', { value: undefined, configurable: true });
+
+    const activationBrush = manager.getLayerActivationBrush('layer-1');
+    expect(activationBrush?.finalizeCurrentStroke).toBeUndefined();
+    expect('endStroke' in (activationBrush ?? {})).toBe(false);
+    activationBrush?.finalizeCurrentStroke?.('layer-1');
+    expect(brush.endStroke).not.toHaveBeenCalled();
   });
 
   it('exposes stable narrow hook brush facades without document or teardown controls', () => {

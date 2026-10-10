@@ -1,7 +1,12 @@
-import { getAppStoreState } from '@/stores/appStoreAccess';
+import { useEffect, useRef } from 'react';
 import type React from 'react';
+
+import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
 import { BrushShape, type Layer, type Tool } from '@/types';
+import { isStrokeBrush } from '@/utils/brushCategories';
+import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
 
 interface UseDrawingCanvasKeyboardOptions {
   switchTool: (tool: Tool) => Promise<void> | void;
@@ -63,6 +68,9 @@ interface UseDrawingCanvasKeyboardOptions {
     dispatchInteractionEnd: boolean;
   }) => boolean;
   interactionDispatch: (action: { type: 'DRAWING_END' }) => void;
+  interactionStateRef: React.MutableRefObject<{ isDrawing: boolean }>;
+  isMouseDownRef: React.MutableRefObject<boolean>;
+  suppressBootstrapUntilPointerUpRef: React.MutableRefObject<boolean>;
   canvasShapeEditor: {
     active: boolean;
     draft: unknown;
@@ -130,6 +138,9 @@ export const useDrawingCanvasKeyboard = ({
   setNeedsRedraw,
   cancelActiveOperations,
   interactionDispatch,
+  interactionStateRef,
+  isMouseDownRef,
+  suppressBootstrapUntilPointerUpRef,
   canvasShapeEditor,
   commitCanvasShape,
   cancelCanvasShapeEdit,
@@ -147,8 +158,59 @@ export const useDrawingCanvasKeyboard = ({
   previousTool,
   cancelCrop,
 }: UseDrawingCanvasKeyboardOptions) => {
+  const strokeTransitionRef = useRef<Promise<void> | null>(null);
+  const finalizeStrokeForToolTransition = (): Promise<void> | void => {
+    if (strokeTransitionRef.current) {
+      return strokeTransitionRef.current;
+    }
+    if (!interactionStateRef.current.isDrawing) {
+      return;
+    }
+    // The held pointer must not bootstrap a new stroke after the tool changes.
+    suppressBootstrapUntilPointerUpRef.current = true;
+    isMouseDownRef.current = false;
+    interactionDispatch({ type: 'DRAWING_END' });
+    const pending = (async () => {
+      try {
+        await drawingHandlers.finalizeDrawing();
+        // CC finalization enqueues history; retain the original tool until it commits.
+        await waitForPendingHistoryCommits();
+      } finally {
+        stateMachine.finalizationComplete();
+        compositeCanvasDirtyRef.current = true;
+        setNeedsRedraw((value) => value + 1);
+        strokeTransitionRef.current = null;
+      }
+    })();
+    strokeTransitionRef.current = pending;
+    return pending;
+  };
+  const finalizeStrokeForToolTransitionRef = useRef(finalizeStrokeForToolTransition);
+  finalizeStrokeForToolTransitionRef.current = finalizeStrokeForToolTransition;
+
+  useEffect(() => {
+    const key = 'drawing-canvas:finalize-strokes';
+    registerToolFlush(key, async () => {
+      const currentTools = getAppStoreState().tools;
+      const ownsStroke = currentTools.currentTool === 'eraser' || (
+        currentTools.currentTool === 'brush' &&
+        !currentTools.shapeMode &&
+        currentTools.brushSettings.brushShape !== undefined &&
+        isStrokeBrush(currentTools.brushSettings.brushShape)
+      );
+      if (strokeTransitionRef.current || ownsStroke) {
+        await finalizeStrokeForToolTransitionRef.current();
+        // Pointerup may have completed drawing finalization while CC history is still queued.
+        await waitForPendingHistoryCommits();
+      }
+    }, { passive: false });
+    return () => unregisterToolFlush(key);
+  }, []);
+
   // Space/pan ownership lives in hooks/canvas/handlers/keyboardHandlers.ts to avoid dual state updates.
   useComprehensiveKeyboard({
+    onEraserPressed: finalizeStrokeForToolTransition,
+    onEraserReleased: finalizeStrokeForToolTransition,
     onSave: () => {
       void saveProject().catch(() => {});
     },

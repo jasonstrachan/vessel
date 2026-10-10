@@ -1,5 +1,7 @@
 import { getRisographPattern, getRisographEffectSettings } from '@/utils/risographTexture';
 
+import { emitNativeSupportRect } from './nativeShapeSupport';
+
 type Point = { x: number; y: number };
 
 type CanvasPoolLike = {
@@ -163,6 +165,14 @@ export const applyRisographEffect = ({
   ctx.restore();
 };
 
+const NATIVE_RISOGRAPH_SCALE = 1.1;
+
+/** Includes texture jitter and rounded native center/edge coverage in a scratch copy. */
+export const getNativeRisographStampRadius = (size: number, intensity: number): number => {
+  const { jitter } = getRisographEffectSettings(intensity, { isPixelBrush: true });
+  return Math.ceil(Math.max(0, size) * NATIVE_RISOGRAPH_SCALE / 2 + jitter / 2 + 1);
+};
+
 /**
  * Apply per-stamp risograph texture to a drawn shape.
  */
@@ -172,6 +182,8 @@ export const applyRisographTexture = (
   y: number,
   size: number,
   intensity: number,
+  supportCtx?: CanvasRenderingContext2D | null,
+  risographRandom?: () => number,
 ) => {
   if (intensity <= 0) {
     return;
@@ -198,11 +210,13 @@ export const applyRisographTexture = (
   ctx.globalAlpha = originalAlpha * effect.alpha;
   ctx.fillStyle = risoPattern;
 
-  const risoSize = size * 1.1;
+  const risoSize = size * NATIVE_RISOGRAPH_SCALE;
   const halfSize = risoSize / 2;
-  const jitterX = (Math.random() - 0.5) * effect.jitter;
-  const jitterY = (Math.random() - 0.5) * effect.jitter;
+  const random = risographRandom ?? Math.random;
+  const jitterX = (random() - 0.5) * effect.jitter;
+  const jitterY = (random() - 0.5) * effect.jitter;
   ctx.fillRect(x - halfSize + jitterX, y - halfSize + jitterY, risoSize, risoSize);
+  emitNativeSupportRect(ctx, supportCtx, x - halfSize + jitterX, y - halfSize + jitterY, risoSize, risoSize);
 
   ctx.globalAlpha = originalAlpha;
   ctx.globalCompositeOperation = originalComposite;

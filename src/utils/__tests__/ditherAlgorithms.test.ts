@@ -2,6 +2,8 @@
  * Unit tests for pressure-sensitive dithering algorithms
  */
 
+import { createHash } from 'crypto';
+
 import {
   applyFloydSteinbergDither,
   applyBayerDither,
@@ -17,7 +19,7 @@ import {
   BAYER_2x2_MATRIX,
   DitherSettings
 } from '../ditherAlgorithms';
-import { applyDithering } from '@/hooks/brushEngine/dithering';
+import { applyDithering, applyDitheringWithFillResolution } from '@/hooks/brushEngine/dithering';
 import { resolveLostEdgeTileSize } from '../ditherConstants';
 
 // Mock ImageData for Node.js environment
@@ -711,4 +713,141 @@ describe('Dithering Algorithms', () => {
       }
     });
   });
+});
+
+
+describe('alpha coverage signal', () => {
+  const algorithms = [
+    'sierra-lite', 'bayer', 'bayer-4x4', 'void-and-cluster', 'blue-noise',
+    'floyd-steinberg', 'jarvis-judice-ninke', 'stucki', 'burkes', 'atkinson',
+    'sierra-3', 'sierra-2',
+  ] as const;
+
+  const renderCoverage = (alpha: number, algorithm: typeof algorithms[number], pressure: number) => {
+    const source = new ImageData(128, 128);
+    for (let i = 0; i < source.data.length; i += 4) source.data.set([alpha, alpha, alpha, 255], i);
+    return applyPressureDither(source, {
+      algorithm, pressure, intensity: 1, bayerMatrixSize: 8,
+      palette: [[0, 0, 0], [255, 255, 255]], signal: 'alpha',
+    } as DitherSettings);
+  };
+
+  it.each(algorithms)('preserves mean opacity using the selected %s algorithm', (algorithm) => {
+    for (const alpha of [0, 64, 128, 192, 255]) {
+      const output = renderCoverage(alpha, algorithm, 0.5);
+      let total = 0;
+      for (let i = 0; i < output.data.length; i += 4) total += output.data[i];
+      expect(Math.abs(total / (128 * 128) - alpha)).toBeLessThan(6);
+      if (alpha === 0 || alpha === 255) expect(total).toBe(alpha * 128 * 128);
+      expect(renderCoverage(alpha, algorithm, 1).data).toEqual(output.data);
+    }
+  });
+
+  it.each([
+    'sierra-lite', 'floyd-steinberg', 'jarvis-judice-ninke', 'stucki',
+    'burkes', 'atkinson', 'sierra-3', 'sierra-2',
+  ] as const)(
+    'retains coverage on finite and disconnected support with %s',
+    (algorithm) => {
+      const supports = [
+        { width: 5, height: 5, includes: () => true },
+        { width: 31, height: 1, includes: () => true },
+        { width: 1, height: 31, includes: () => true },
+        { width: 29, height: 9, includes: (x: number, y: number) => y >= 2 && y < 7 && x % 12 < 5 },
+        { width: 16, height: 16, includes: (x: number, y: number) => x <= y },
+      ];
+      for (const support of supports) {
+        for (const alpha of [0, 64, 192, 255]) {
+          const source = new ImageData(support.width, support.height);
+          let supportedCount = 0;
+          for (let y = 0; y < support.height; y += 1) {
+            for (let x = 0; x < support.width; x += 1) {
+              if (!support.includes(x, y)) continue;
+              source.data.set([alpha, alpha, alpha, 255], (y * support.width + x) * 4);
+              supportedCount += 1;
+            }
+          }
+          const before = source.data.slice();
+          const output = applyPressureDither(source, {
+            algorithm, pressure: 0.5, intensity: 1, bayerMatrixSize: 8,
+            palette: [[0, 0, 0], [255, 255, 255]], signal: 'alpha',
+          });
+          let total = 0;
+          for (let i = 0; i < output.data.length; i += 4) {
+            expect(output.data[i + 3]).toBe(before[i + 3]);
+            expect(output.data[i]).toBe(before[i + 3] ? output.data[i + 1] : 0);
+            expect([0, 255]).toContain(output.data[i]);
+            total += output.data[i];
+          }
+          expect(Math.abs(total / supportedCount - alpha)).toBeLessThan(6);
+          expect(source.data).toEqual(before);
+        }
+      }
+    },
+  );
+});
+
+
+it('preserves the existing complete color output for every algorithm at both resolutions', () => {
+  const expected: Record<string, [string, string]> = {
+    'sierra-lite': ['0af97d1fe66e4d35', 'a040c2fd7e796551'],
+    bayer: ['0b6401d813fab24b', 'f9b751ac60cda6d3'],
+    'bayer-4x4': ['caec3da5d8f2de76', 'f9b751ac60cda6d3'],
+    pattern: ['5a87d2a15890285e', 'f9286b43742de224'],
+    'floyd-steinberg': ['92f24798a3463511', 'a7e3e7862e368e8f'],
+    'jarvis-judice-ninke': ['c9618538b78d1036', '1c1d98b13e65f8b0'],
+    stucki: ['aa085961c3431cfd', '91820a096fc3a01b'],
+    burkes: ['db9d5c8b1b10d52b', '4c0591534e52651a'],
+    atkinson: ['9e5c911ea4240995', '8472acafaaebe577'],
+    'blue-noise': ['7fbe139cf86e4b7c', '307b4124a8fdb8eb'],
+    'void-and-cluster': ['d64c9adb344278fc', '87144d15fae25ef1'],
+    'sierra-3': ['bbd21e82ca6eb1de', '1c1d98b13e65f8b0'],
+    'sierra-2': ['50057739253b5989', 'b3f026eb1db1d966'],
+  };
+  const image = new ImageData(48, 48);
+  for (let y = 0; y < 48; y += 1) {
+    for (let x = 0; x < 48; x += 1) {
+      image.data.set([
+        (x * 7 + y * 3) % 256, (x * 2 + y * 11) % 256, (x * 17 + y) % 256,
+        (x + y) % 5 ? ((x * 13 + y * 7) % 255) + 1 : 0,
+      ], (y * 48 + x) * 4);
+    }
+  }
+  for (const [algorithm, hashes] of Object.entries(expected)) {
+    for (const [index, resolution] of [1, 4].entries()) {
+      const output = applyDitheringWithFillResolution(
+        image, 2, resolution, algorithm, 'lines', ['#123456', '#eac908'],
+        { x: -3, y: 5 }, undefined, { diversity: 0.7, seed: 11 },
+      );
+      expect(createHash('sha256').update(output.data).digest('hex').slice(0, 16)).toBe(hashes[index]);
+    }
+  }
+});
+
+it('uses native full-range pattern thresholds for coverage without pressure attenuation', () => {
+  const source = new ImageData(64, 1);
+  for (let i = 0; i < source.data.length; i += 4) source.data.set([64, 64, 64, 255], i);
+  const resolver = (x: number) => (x + 0.5) / 64;
+  const output = applyPressureDither(source, {
+    algorithm: 'pattern', pressure: 1, intensity: 1, bayerMatrixSize: 8,
+    palette: [[0, 0, 0], [255, 255, 255]], signal: 'alpha',
+    patternStyle: 'image-tile', imageTileThresholdResolver: resolver,
+  });
+  for (let x = 0; x < 64; x += 1) expect(output.data[x * 4]).toBe(x < 16 ? 255 : 0);
+});
+
+it('passes coverage tone through the selected cumulative image-pattern policy', () => {
+  const source = new ImageData(64, 1);
+  for (let i = 0; i < source.data.length; i += 4) source.data.set([64, 64, 64, 255], i);
+  const resolveTone = jest.fn((tone: number) => tone);
+  const resolver = Object.assign((x: number) => (x + 0.5) / 64, {
+    payloadHash: 'fixture', resolveTone,
+  });
+  const output = applyPressureDither(source, {
+    algorithm: 'pattern', pressure: 1, intensity: 1, bayerMatrixSize: 8,
+    palette: [[0, 0, 0], [255, 255, 255]], signal: 'alpha',
+    patternStyle: 'image-tile', imageTileThresholdResolver: resolver,
+  });
+  expect(resolveTone).toHaveBeenCalledWith(64 / 255);
+  for (let x = 0; x < 64; x += 1) expect(output.data[x * 4]).toBe(x < 16 ? 255 : 0);
 });

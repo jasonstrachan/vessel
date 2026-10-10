@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/useAppStore';
+import { refreshCapturedAutoAlignment } from '@/stores/layers/layerCaptureActions';
 import type { Layer } from '@/types';
 
 import {
@@ -522,10 +523,10 @@ class BitmapTileDelta implements HistoryDelta {
 
       const updatedLayers = state.layers.map((layer) =>
         layer.id === this.layerId
-          ? {
+          ? refreshCapturedAutoAlignment({
               ...layer,
               imageData: base
-            }
+            }, state.project)
           : layer
       );
 

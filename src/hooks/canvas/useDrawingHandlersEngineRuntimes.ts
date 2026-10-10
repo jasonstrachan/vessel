@@ -12,6 +12,7 @@ export const useDrawingHandlersEngineRuntimes = () => {
     const brushStampRuntime = {
       drawBrush: brushRuntime.drawBrush,
       updateConfig,
+      finalizeStroke: brushRuntime.finalizeStroke,
     };
     const strokeBrushRuntime: UseDrawingHandlersRuntimeSetupBridgeOptions['strokeBrushRuntime'] = {
       updateConfig,

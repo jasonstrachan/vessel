@@ -149,10 +149,88 @@ describe('useComprehensiveKeyboard – temporary eraser hold', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     jest.useRealTimers();
     act(() => {
       resetStore();
     });
+  });
+
+  const interruptEraserHold = (event: 'blur' | 'visibilitychange' | 'pointerleave'): void => {
+    if (event === 'visibilitychange') {
+      jest.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      fireEvent(document, new Event(event));
+    } else {
+      if (event === 'blur') {
+        jest.spyOn(document, 'hasFocus').mockReturnValue(false);
+      }
+      fireEvent(window, new Event(event));
+    }
+  };
+
+  it.each(['blur', 'visibilitychange', 'pointerleave'] as const)(
+    'restores the original brush and shape mode when %s interrupts held E',
+    async (event) => {
+      const onEraserReleased = jest.fn();
+      const keyboard = render(<KeyboardHarness onEraserReleased={onEraserReleased} />);
+      act(() => useAppStore.getState().setShapeMode(true));
+      await act(async () => {
+        fireEvent.keyDown(window, { key: 'e', code: 'KeyE' });
+      });
+      expect(useAppStore.getState().tools.currentTool).toBe('eraser');
+      expect(useAppStore.getState().tools.shapeMode).toBe(false);
+
+      await act(async () => {
+        jest.advanceTimersByTime(250);
+        interruptEraserHold(event);
+      });
+
+      expect(onEraserReleased).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().tools.currentTool).toBe('brush');
+      expect(useAppStore.getState().tools.shapeMode).toBe(true);
+      keyboard.unmount();
+    },
+  );
+
+  it.each(['blur', 'visibilitychange', 'pointerleave'] as const)(
+    'preserves a deliberate tap-selected eraser after %s',
+    async (event) => {
+      const onEraserReleased = jest.fn();
+      const keyboard = render(<KeyboardHarness onEraserReleased={onEraserReleased} />);
+      await act(async () => {
+        fireEvent.keyDown(window, { key: 'e', code: 'KeyE' });
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(50);
+        fireEvent.keyUp(window, { key: 'e', code: 'KeyE' });
+      });
+      expect(useAppStore.getState().tools.currentTool).toBe('eraser');
+
+      await act(async () => interruptEraserHold(event));
+
+      expect(useAppStore.getState().tools.currentTool).toBe('eraser');
+      expect(onEraserReleased).toHaveBeenCalledTimes(1);
+      keyboard.unmount();
+    },
+  );
+
+  it('finalizes and restores an interrupted held eraser only once across overlapping events', async () => {
+    const onEraserReleased = jest.fn(async () => Promise.resolve());
+    const keyboard = render(<KeyboardHarness onEraserReleased={onEraserReleased} />);
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'e', code: 'KeyE' });
+    });
+
+    await act(async () => {
+      jest.advanceTimersByTime(250);
+      interruptEraserHold('blur');
+      interruptEraserHold('visibilitychange');
+      interruptEraserHold('pointerleave');
+    });
+
+    expect(onEraserReleased).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().tools.currentTool).toBe('brush');
+    keyboard.unmount();
   });
 
   it('restores the previous brush + shape mode after holding E', async () => {

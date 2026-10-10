@@ -19,6 +19,9 @@ export const buildDrawingCanvasRuntimeEffectsFromStateKeyboardArgs = ({
   refs: {
     canvasRef: state.canvasRef,
     viewTransformRef: interactionRuntime.viewTransformRef,
+    interactionStateRef: interactionRuntime.interaction.stateRef,
+    isMouseDownRef: state.isMouseDownRef,
+    suppressBootstrapUntilPointerUpRef: interactionRuntime.suppressBootstrapUntilPointerUpRef,
   },
   state: {
     toolStateMachine,

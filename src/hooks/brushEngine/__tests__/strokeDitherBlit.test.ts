@@ -4,15 +4,28 @@ describe('blitDitheredRegionWithOverlay', () => {
   it('restores the pre-stroke pixels before a BG-off blit and preserves alpha lock', () => {
     const baseCanvas = document.createElement('canvas');
     const ditherCanvas = document.createElement('canvas');
-    const drawImage = jest.fn();
-    const clearRect = jest.fn();
-    const ctx = {
-      save: jest.fn(),
-      restore: jest.fn(),
-      drawImage,
-      clearRect,
-      globalCompositeOperation: 'source-over',
-    } as unknown as CanvasRenderingContext2D;
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    ctx.globalAlpha = 0.35;
+    ctx.globalCompositeOperation = 'source-over';
+    const drawStates: Array<{ alpha: number; composite: GlobalCompositeOperation }> = [];
+    const savedStates: typeof drawStates = [];
+    // The shared canvas mock does not implement the native context state stack.
+    jest.spyOn(ctx, 'save').mockImplementation(() => {
+      savedStates.push({ alpha: ctx.globalAlpha, composite: ctx.globalCompositeOperation });
+    });
+    jest.spyOn(ctx, 'restore').mockImplementation(() => {
+      const saved = savedStates.pop();
+      if (saved) {
+        ctx.globalAlpha = saved.alpha;
+        ctx.globalCompositeOperation = saved.composite;
+      }
+    });
+    const drawImage = jest.spyOn(ctx, 'drawImage').mockImplementation(() => {
+      drawStates.push({ alpha: ctx.globalAlpha, composite: ctx.globalCompositeOperation });
+    });
+    const clearRect = jest.spyOn(ctx, 'clearRect');
+    const rect = jest.spyOn(ctx, 'rect');
+    const clip = jest.spyOn(ctx, 'clip');
     const withAlphaLock = jest.fn((
       targetCtx: CanvasRenderingContext2D,
       draw: (lockedCtx: CanvasRenderingContext2D) => void
@@ -38,6 +51,14 @@ describe('blitDitheredRegionWithOverlay', () => {
     expect(clearRect).not.toHaveBeenCalled();
     expect(drawImage.mock.calls[0][0]).toBe(baseCanvas);
     expect(drawImage.mock.calls[1][0]).toBe(ditherCanvas);
+    expect(rect).toHaveBeenCalledWith(2, 3, 4, 5);
+    expect(clip.mock.invocationCallOrder[0]).toBeLessThan(drawImage.mock.invocationCallOrder[0]);
+    expect(drawStates).toEqual([
+      { alpha: 1, composite: 'copy' },
+      { alpha: 0.35, composite: 'source-over' },
+    ]);
+    expect(ctx.globalAlpha).toBe(0.35);
+    expect(savedStates).toHaveLength(0);
     expect(withAlphaLock).toHaveBeenCalled();
   });
 });

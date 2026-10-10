@@ -20,6 +20,7 @@ jest.mock('@/stores/colorCycleBrushManager', () => ({
 
 jest.mock('@/hooks/brushEngine/BrushEngineFacade', () => ({
   createBrushEngineFacade: () => ({
+    beginStroke: jest.fn(),
     drawBrush: jest.fn(),
     resetStroke: jest.fn(),
     updateConfig: jest.fn(),

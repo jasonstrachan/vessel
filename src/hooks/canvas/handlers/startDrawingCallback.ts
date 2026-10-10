@@ -14,7 +14,7 @@ export const createStartDrawingCallback = (sharedArgs: StartDrawingSharedArgs) =
     rawWorldPos: StartDrawingRawWorldPos,
     pressure: StartDrawingPressure = 0.5
   ) => {
-    startDrawingHandler({
+    return startDrawingHandler({
       rawWorldPos,
       pressure,
       ...sharedArgs,

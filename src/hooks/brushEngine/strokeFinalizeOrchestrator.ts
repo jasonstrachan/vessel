@@ -10,6 +10,8 @@ import type { Rect } from './engineShared';
 type MutableRef<T> = { current: T };
 
 export const finalizeStrokeOrchestrated = ({
+  restoreBase = false,
+  preparedPressureMask = false,
   ctx,
   strokeBoundsRef,
   liveStrokeBoundsRef,
@@ -34,6 +36,8 @@ export const finalizeStrokeOrchestrated = ({
   isDitherStrokeBrush,
   warnIfDitherStrokePath,
 }: {
+  restoreBase?: boolean;
+  preparedPressureMask?: boolean;
   ctx: CanvasRenderingContext2D;
   strokeBoundsRef: MutableRef<Rect | null>;
   liveStrokeBoundsRef: MutableRef<Rect | null>;
@@ -123,6 +127,8 @@ export const finalizeStrokeOrchestrated = ({
   finalizeStrokeEngineBuffers({ ctx, strokeBounds, rawCtx, finalizeStroke, withAlphaLock });
 
   return finalizeStrokeAfterEngine({
+    preparedPressureMask,
+    restoreBase,
     ctx,
     strokeBounds,
     region,

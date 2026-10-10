@@ -141,7 +141,10 @@ const applyErrorDiffusionDither = (
   const data = new Uint8ClampedArray(imageData.data);
   const { width, height } = imageData;
   const palette = settings.palette;
-  const errorIntensity = calculatePressureDitherThreshold(settings.pressure, settings.intensity);
+  const coverageSignal = settings.signal === 'alpha';
+  // Coverage must retain the full quantization error; color keeps its pressure-shaped byte diffusion.
+  const working = coverageSignal ? new Float32Array(data) : data;
+  const errorIntensity = coverageSignal ? 1 : calculatePressureDitherThreshold(settings.pressure, settings.intensity);
 
   for (let y = 0; y < height; y++) {
     const leftToRight = serpentine ? (y & 1) === 0 : true;
@@ -155,9 +158,9 @@ const applyErrorDiffusionDither = (
       if (data[idx + 3] === 0) {
         continue;
       }
-      const oldR = data[idx];
-      const oldG = data[idx + 1];
-      const oldB = data[idx + 2];
+      const oldR = working[idx];
+      const oldG = working[idx + 1];
+      const oldB = working[idx + 2];
 
       const [newR, newG, newB] = findNearestPaletteColor(oldR, oldG, oldB, palette);
 
@@ -169,16 +172,30 @@ const applyErrorDiffusionDither = (
       data[idx + 1] = newG;
       data[idx + 2] = newB;
 
+      // Keep coverage error within authored support, including narrow disconnected stamps.
+      let resolvedDivisor = divisor;
+      if (coverageSignal) {
+        resolvedDivisor = 0;
+        for (const tap of taps) {
+          const nx = x + tap.dx * dir;
+          const ny = y + tap.dy;
+          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
+          if (data[(ny * width + nx) * 4 + 3] !== 0) resolvedDivisor += tap.weight;
+        }
+      }
       for (const tap of taps) {
         const nx = x + tap.dx * dir;
         const ny = y + tap.dy;
         if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
         const nIdx = (ny * width + nx) * 4;
         if (data[nIdx + 3] === 0) continue;
-        const factor = tap.weight / divisor;
-        data[nIdx] = Math.max(0, Math.min(255, data[nIdx] + errR * factor));
-        data[nIdx + 1] = Math.max(0, Math.min(255, data[nIdx + 1] + errG * factor));
-        data[nIdx + 2] = Math.max(0, Math.min(255, data[nIdx + 2] + errB * factor));
+        const factor = tap.weight / resolvedDivisor;
+        const nextR = working[nIdx] + errR * factor;
+        working[nIdx] = coverageSignal ? nextR : Math.max(0, Math.min(255, nextR));
+        const nextG = working[nIdx + 1] + errG * factor;
+        working[nIdx + 1] = coverageSignal ? nextG : Math.max(0, Math.min(255, nextG));
+        const nextB = working[nIdx + 2] + errB * factor;
+        working[nIdx + 2] = coverageSignal ? nextB : Math.max(0, Math.min(255, nextB));
       }
     }
   }
@@ -213,6 +230,7 @@ export type PatternStyle =
   | 'tone-adaptive';
 
 export interface DitherSettings {
+  signal?: 'color' | 'alpha';
   algorithm: DitherAlgorithm;
   pressure: number; // 0-1
   intensity: number; // 0-1
@@ -393,6 +411,29 @@ const ASCII_GLYPH_BUCKETS = [
   ],
 ] as const;
 
+// Alpha selects by visible coverage; painting keeps its original artistic buckets.
+const ASCII_ALPHA_GROUPS = (() => {
+  const groups = new Map<number, (readonly string[])[]>([[0, []], [ASCII_CELL_WIDTH * ASCII_CELL_HEIGHT, []]]);
+  for (const bucket of ASCII_GLYPH_BUCKETS) {
+    for (const glyph of bucket) {
+      let count = 0;
+      for (let y = 0; y < ASCII_CELL_HEIGHT; y += 1) {
+        for (let x = 0; x < ASCII_CELL_WIDTH; x += 1) {
+          if (glyph[y][x] === '1') count += 1;
+        }
+      }
+      const group = groups.get(count) ?? [];
+      group.push(glyph);
+      groups.set(count, group);
+    }
+  }
+  const ordered = Array.from(groups, ([count, glyphs]) => ({ count, glyphs })).sort((a, b) => a.count - b.count);
+  return Array.from({ length: 256 }, (_, alpha) => {
+    const target = alpha / 255 * ASCII_CELL_WIDTH * ASCII_CELL_HEIGHT;
+    return ordered.reduce((best, group) => Math.abs(group.count - target) < Math.abs(best.count - target) ? group : best);
+  });
+})();
+
 /**
  * Calculates pressure-sensitive dither threshold
  * Light pressure = more dithering (lower threshold)
@@ -450,6 +491,12 @@ export const applyFloydSteinbergDither = (
   imageData: ImageData,
   settings: DitherSettings
 ): ImageData => {
+  if (settings.signal === 'alpha') {
+    return applyErrorDiffusionDither(imageData, settings, [
+      { dx: 1, dy: 0, weight: 7 },
+      { dx: -1, dy: 1, weight: 3 }, { dx: 0, dy: 1, weight: 5 }, { dx: 1, dy: 1, weight: 1 },
+    ], 16, false);
+  }
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
@@ -633,6 +680,14 @@ export const applyBayerDither = (
       const idx = (y * width + x) * 4;
       // Get Bayer threshold for this position
       const bayerValue = matrix[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
+      if (settings.signal === 'alpha') {
+        const ink = data[idx] / 255 >= bayerValue + 0.5 / (matrixSize * matrixSize)
+          ? palette[palette.length - 1] : palette[0];
+        data[idx] = ink[0];
+        data[idx + 1] = ink[1];
+        data[idx + 2] = ink[2];
+        continue;
+      }
       const threshold = (bayerValue - 0.5) * thresholdMultiplier * 128; // Scale to ±64
 
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
@@ -664,6 +719,13 @@ export const applyAtkinsonDither = (
   imageData: ImageData,
   settings: DitherSettings
 ): ImageData => {
+  if (settings.signal === 'alpha') {
+    return applyErrorDiffusionDither(imageData, settings, [
+      { dx: 1, dy: 0, weight: 1 }, { dx: 2, dy: 0, weight: 1 },
+      { dx: -1, dy: 1, weight: 1 }, { dx: 0, dy: 1, weight: 1 }, { dx: 1, dy: 1, weight: 1 },
+      { dx: 0, dy: 2, weight: 1 },
+    ], 8);
+  }
   const data = new Uint8ClampedArray(imageData.data);
   const width = imageData.width;
   const height = imageData.height;
@@ -748,6 +810,13 @@ export const applyBlueNoiseDither = (
 
       // Get blue noise threshold for this position
       const noiseValue = BLUE_NOISE_16x16[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
+      if (settings.signal === 'alpha') {
+        const ink = data[idx] > 0 && data[idx] / 255 >= noiseValue ? palette[palette.length - 1] : palette[0];
+        data[idx] = ink[0];
+        data[idx + 1] = ink[1];
+        data[idx + 2] = ink[2];
+        continue;
+      }
       const threshold = (noiseValue - 0.5) * thresholdMultiplier * 255;
 
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
@@ -789,6 +858,14 @@ export const applyVoidAndClusterDither = (
     for (let x = xStart; x !== xEnd; x += xStep) {
       const idx = (y * width + x) * 4;
       const vcVal = matrix[mod(y + offsetY, matrixSize)][mod(x + offsetX, matrixSize)];
+      if (settings.signal === 'alpha') {
+        const ink = data[idx] / 255 >= vcVal + 0.5 / (matrixSize * matrixSize)
+          ? palette[palette.length - 1] : palette[0];
+        data[idx] = ink[0];
+        data[idx + 1] = ink[1];
+        data[idx + 2] = ink[2];
+        continue;
+      }
       const threshold = (vcVal - 0.5) * thresholdMultiplier * 128;
 
       const r = Math.max(0, Math.min(255, data[idx] + threshold));
@@ -830,6 +907,12 @@ export const applySierraLitePressureDither = (
   const lowInkKey = Math.round(0.2126 * lowInk[0] + 0.7152 * lowInk[1] + 0.0722 * lowInk[2]);
   const highInkKey = Math.round(0.2126 * highInk[0] + 0.7152 * highInk[1] + 0.0722 * highInk[2]);
   const varietyStrength = Math.max(0, Math.min(1, settings.sierraLiteVariety?.diversity ?? 0));
+
+  if (settings.signal === 'alpha' && varietyStrength === 0) {
+    return applyErrorDiffusionDither(imageData, settings, [
+      { dx: 1, dy: 0, weight: 2 }, { dx: -1, dy: 1, weight: 1 }, { dx: 0, dy: 1, weight: 1 },
+    ], 4, false);
+  }
 
   if (paletteByLuminance.length === 2) {
     const mixField = new Float32Array(width * height);
@@ -1175,8 +1258,10 @@ export const applyPatternDither = (
                 data[idx + 1] * 0.7152 +
                 data[idx + 2] * 0.0722
               ) / 255;
-              const tone = imageTileThresholdResolver.resolveTone(1 - luminance);
-              const paletteIndex = tone >= tileThreshold ? 0 : palette.length - 1;
+              const tone = imageTileThresholdResolver.resolveTone(settings.signal === 'alpha' ? luminance : 1 - luminance);
+              const paletteIndex = settings.signal === 'alpha'
+                ? (tone >= tileThreshold ? palette.length - 1 : 0)
+                : (tone >= tileThreshold ? 0 : palette.length - 1);
               const [newR, newG, newB] = palette[Math.max(0, paletteIndex)] ?? [0, 0, 0];
               data[idx] = newR;
               data[idx + 1] = newG;
@@ -1243,6 +1328,17 @@ export const applyPatternDither = (
           const lum = (data[idx] + data[idx + 1] + data[idx + 2]) / (3 * 255);
           const cellX = Math.floor(px / ASCII_CELL_WIDTH);
           const cellY = Math.floor(py / ASCII_CELL_HEIGHT);
+          if (settings.signal === 'alpha') {
+            const group = ASCII_ALPHA_GROUPS[data[idx]];
+            const glyph = group.glyphs[hashCell(cellX, cellY) % group.glyphs.length];
+            const isInk = group.count === ASCII_CELL_WIDTH * ASCII_CELL_HEIGHT ||
+              (glyph !== undefined && glyph[mod(py, ASCII_CELL_HEIGHT)][mod(px, ASCII_CELL_WIDTH)] === '1');
+            const ink = isInk ? palette[palette.length - 1] : palette[0];
+            data[idx] = ink[0];
+            data[idx + 1] = ink[1];
+            data[idx + 2] = ink[2];
+            continue;
+          }
           const glyphIndex = Math.max(
             0,
             Math.min(
@@ -1280,6 +1376,13 @@ export const applyPatternDither = (
       }
 
       // Apply threshold with pressure sensitivity
+      if (settings.signal === 'alpha') {
+        const ink = data[idx] > 0 && data[idx] / 255 >= patternValue ? palette[palette.length - 1] : palette[0];
+        data[idx] = ink[0];
+        data[idx + 1] = ink[1];
+        data[idx + 2] = ink[2];
+        continue;
+      }
       const threshold = (patternValue - 0.5) * thresholdMultiplier * 128;
 
       const r = Math.max(0, Math.min(255, data[idx] + threshold));

@@ -82,7 +82,8 @@ export const prepareStrokeCapture = async (
 
   let captureRoi: CaptureRegion | undefined;
   if (captureRegionOverride) {
-    captureRoi = captureRegionOverride;
+    // Snapshot dimensions and history coordinates must describe the same clipped pixels.
+    captureRoi = deps.rectToCaptureRegion(captureRegionOverride, 0, project);
   } else {
     captureRoi = deps.unionCaptureRegions(pointerRoi, engineRoi) ?? pointerRoi ?? engineRoi;
   }

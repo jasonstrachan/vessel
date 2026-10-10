@@ -16,6 +16,7 @@ export interface BrushEngineConfig {
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
   createPixelSquareStamp?: (size: number) => HTMLCanvasElement | null;
   getRotationTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
+  getNativeAuthoredSupportContext?: (rawCtx: CanvasRenderingContext2D) => CanvasRenderingContext2D | null;
   customBrushes?: CustomBrush[];
 }
 

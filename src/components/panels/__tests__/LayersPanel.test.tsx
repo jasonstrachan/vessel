@@ -1,7 +1,9 @@
 import React from 'react';
-import { createEvent, fireEvent, render, screen } from '@testing-library/react';
+import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 
+import { trackPendingHistoryCommit, waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 import { BrushShape, type BrushPreset, type Layer } from '@/types';
+import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
 
 jest.mock('@/components/MinimalLayerList', () => ({
   LayerColorSwatches: () => <div data-testid="layer-swatches" />,
@@ -383,6 +385,85 @@ describe('LayersPanel interactions', () => {
   beforeEach(() => {
     window.localStorage.clear();
     setupLayers();
+  });
+
+  it.each([false, true])('waits for source finalization and history before row activation (shift=%s)', async (shiftKey) => {
+    let finishFinalize!: () => void;
+    let finishHistory!: () => void;
+    const finalization = new Promise<void>((resolve) => { finishFinalize = resolve; });
+    const history = new Promise<void>((resolve) => { finishHistory = resolve; });
+    const flush = jest.fn(async () => {
+      await finalization;
+      await waitForPendingHistoryCommits();
+    });
+    const key = 'test:layers-panel-held-stroke';
+    const sourceSettings = { ...state.tools.brushSettings };
+    trackPendingHistoryCommit(history);
+    registerToolFlush(key, flush, { passive: false });
+    state.setActiveLayer.mockImplementation((layerId: string | null) => {
+      state.activeLayerId = layerId;
+      state.tools.brushSettings = { ...state.tools.brushSettings, brushShape: BrushShape.PIXEL_ROUND };
+    });
+
+    try {
+      render(<LayersPanel />);
+      fireEvent.click(screen.getByText('layer-a', { exact: true }), { shiftKey });
+
+      expect(flush).toHaveBeenCalledTimes(1);
+      expect(state.activeLayerId).toBe('layer-c');
+      expect(state.selectedLayerIds).toEqual(['layer-c']);
+      expect(state.tools.brushSettings).toEqual(sourceSettings);
+      expect(state.setActiveLayer).not.toHaveBeenCalled();
+      expect(state.setSelectedLayerIds).not.toHaveBeenCalled();
+
+      await act(async () => { finishFinalize(); });
+      expect(state.activeLayerId).toBe('layer-c');
+      expect(state.selectedLayerIds).toEqual(['layer-c']);
+      expect(state.tools.brushSettings).toEqual(sourceSettings);
+      expect(state.setActiveLayer).not.toHaveBeenCalled();
+
+      await act(async () => { finishHistory(); await waitForPendingHistoryCommits(); });
+      expect(state.activeLayerId).toBe('layer-a');
+      expect(state.selectedLayerIds).toEqual(shiftKey ? ['layer-c', 'layer-a'] : ['layer-a']);
+      expect(state.setActiveLayer).toHaveBeenCalledTimes(1);
+      expect(state.setActiveLayer).toHaveBeenCalledWith('layer-a', ...(shiftKey ? [{ preserveSelection: true }] : []));
+      expect(state.tools.brushSettings.brushShape).toBe(BrushShape.PIXEL_ROUND);
+    } finally {
+      unregisterToolFlush(key);
+      await act(async () => { finishFinalize(); finishHistory(); await waitForPendingHistoryCommits(); });
+      state.setActiveLayer.mockImplementation((layerId: string | null) => { state.activeLayerId = layerId; });
+    }
+  });
+
+  it('applies queued row clicks in order and extends the current selection after the flush', async () => {
+    let finishFlush!: () => void;
+    const pending = new Promise<void>((resolve) => { finishFlush = resolve; });
+    const key = 'test:layers-panel-queued-clicks';
+    registerToolFlush(key, () => pending, { passive: false });
+    try {
+      render(<LayersPanel />);
+      fireEvent.click(screen.getByText('layer-a', { exact: true }));
+      fireEvent.click(screen.getByText('layer-b', { exact: true }), { shiftKey: true });
+      expect(state.setActiveLayer).not.toHaveBeenCalled();
+      expect(state.selectedLayerIds).toEqual(['layer-c']);
+
+      await act(async () => { finishFlush(); });
+      expect(state.setActiveLayer.mock.calls).toEqual([
+        ['layer-a'], ['layer-b', { preserveSelection: true }],
+      ]);
+      expect(state.activeLayerId).toBe('layer-b');
+      expect(state.selectedLayerIds).toEqual(['layer-a', 'layer-b']);
+    } finally {
+      unregisterToolFlush(key);
+      await act(async () => { finishFlush(); });
+    }
+  });
+
+  it.each([false, true])('selects an idle row after the flush (shift=%s)', async (shiftKey) => {
+    render(<LayersPanel />);
+    await act(async () => { fireEvent.click(screen.getByText('layer-a', { exact: true }), { shiftKey }); });
+    expect(state.activeLayerId).toBe('layer-a');
+    expect(state.selectedLayerIds).toEqual(shiftKey ? ['layer-c', 'layer-a'] : ['layer-a']);
   });
 
   it('shows an in-button loading animation while color-cycle payloads warm', () => {

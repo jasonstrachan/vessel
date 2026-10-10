@@ -2,7 +2,7 @@ import type { AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
 import { BrushShape } from '@/types';
 import { resolveBrushPressureRange } from '@/utils/pressureSettings';
-import { sanitizeEraserTipSettings } from '@/stores/helpers/eraserSettings';
+import { resolveEraserBrushSettings } from '@/stores/helpers/eraserSettings';
 
 export type ColorCycleEraserSettings = {
   size: number;
@@ -10,6 +10,10 @@ export type ColorCycleEraserSettings = {
   minPressure: number;
   maxPressure: number;
   brushShape: BrushShape;
+  rotationEnabled?: boolean;
+  risographIntensity?: number;
+  gridSnapEnabled?: boolean;
+  gridSnapSize?: number;
   customStamp?: CustomBrushStrokeData;
 };
 
@@ -19,21 +23,25 @@ export const getColorCycleBrushEraserSettings = ({
   state: AppState;
   resamplerBrushData?: CustomBrushStrokeData;
 }): ColorCycleEraserSettings => {
-  const settings = state.tools.eraserSettings;
-  const sanitized = sanitizeEraserTipSettings(settings);
-  const brushSize = state.tools.brushSettings.size ?? state.globalBrushSize ?? 1;
-  const size =
-    settings.linkSizeToBrush === false
-      ? settings.size ?? brushSize
-      : brushSize;
+  const settings = resolveEraserBrushSettings(
+    {
+      ...state.tools.brushSettings,
+      size: state.tools.brushSettings.size ?? state.globalBrushSize ?? 1,
+    },
+    state.tools.eraserSettings,
+  );
 
   const pressureRange = resolveBrushPressureRange(settings);
   return {
-    size,
+    size: settings.size,
     pressureEnabled: !!pressureRange.enabled,
     minPressure: pressureRange.minPercent,
     maxPressure: pressureRange.maxPercent,
-    brushShape: sanitized.brushShape ?? BrushShape.SQUARE,
+    brushShape: settings.brushShape ?? BrushShape.SQUARE,
+    rotationEnabled: !!(settings.rotationEnabled || settings.rotationConfig?.enabled),
+    risographIntensity: settings.risographIntensity,
+    gridSnapEnabled: settings.gridSnapEnabled,
+    gridSnapSize: settings.gridSnapSize,
   };
 };
 

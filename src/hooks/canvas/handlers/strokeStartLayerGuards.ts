@@ -40,9 +40,18 @@ export const runStrokeStartLayerGuards = ({
     return false;
   }
 
+  if (activeLayer.locked) {
+    feedbackMessageRef.current?.("Can't draw on a locked layer. Unlock it to edit.");
+    return false;
+  }
+
   if (activeLayer.layerType === 'adjustment') {
     feedbackMessageRef.current?.("Can't draw on an Adjustment layer. Switch to a paint layer.");
     return false;
+  }
+
+  if (currentTool === 'eraser') {
+    return true;
   }
 
   const isColorCycleLayer = activeLayer.layerType === 'color-cycle';
@@ -53,7 +62,7 @@ export const runStrokeStartLayerGuards = ({
     return false;
   }
 
-  if (!isAnyColorCycleBrush && isColorCycleLayer && currentTool !== 'eraser') {
+  if (!isAnyColorCycleBrush && isColorCycleLayer) {
     feedbackMessageRef.current?.("Can't use regular brushes on a Color Cycle layer. Switch layers.");
     return false;
   }

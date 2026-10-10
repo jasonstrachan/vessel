@@ -328,6 +328,54 @@ describe('SelectionMarqueeHandles', () => {
     expect(state.selectionEnd?.x).toBe(45);
   });
 
+  it('keeps selection handles pass-through after switching to eraser', () => {
+    const originalExtract = useAppStore.getState().extractSelectionToFloatingPaste;
+    const extractSelectionToFloatingPaste = jest.fn(() => false);
+    act(() => {
+      useAppStore.setState({ extractSelectionToFloatingPaste });
+    });
+    try {
+      render(
+        <SelectionMarqueeHandles
+          zoom={1}
+          offsetX={0}
+          offsetY={0}
+          projectWidth={100}
+          projectHeight={100}
+        />,
+      );
+      const overlay = screen.getByTestId('selection-marquee-overlay');
+      expect(overlay.querySelector('[data-handle="right"]')).toHaveStyle({ pointerEvents: 'auto' });
+
+      act(() => {
+        useAppStore.getState().setCurrentTool('eraser');
+      });
+
+      for (const handle of ['right', 'rotate']) {
+        const element = overlay.querySelector(`[data-handle="${handle}"]`);
+        expect(element).toHaveStyle({ pointerEvents: 'none' });
+        if (!element) throw new Error(`${handle} handle not found`);
+        fireEvent.pointerDown(element, { pointerId: 43, clientX: 30, clientY: 20, button: 0 });
+        fireEvent.pointerMove(overlay, { pointerId: 43, clientX: 45, clientY: 20, buttons: 1 });
+        fireEvent.pointerUp(overlay, { pointerId: 43, clientX: 45, clientY: 20 });
+      }
+
+      expect(extractSelectionToFloatingPaste).not.toHaveBeenCalled();
+      expect(useAppStore.getState().selectionStart).toEqual({ x: 10, y: 10 });
+      expect(useAppStore.getState().selectionEnd).toEqual({ x: 30, y: 30 });
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+
+      act(() => {
+        useAppStore.getState().setCurrentTool('selection');
+      });
+      expect(overlay.querySelector('[data-handle="right"]')).toHaveStyle({ pointerEvents: 'auto' });
+    } finally {
+      act(() => {
+        useAppStore.setState({ extractSelectionToFloatingPaste: originalExtract });
+      });
+    }
+  });
+
   it('continues a resize on the original pointer gesture after extracting a floating paste', () => {
     const originalExtract = useAppStore.getState().extractSelectionToFloatingPaste;
     const extractSelectionToFloatingPaste = jest.fn(() => {

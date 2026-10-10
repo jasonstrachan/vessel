@@ -192,10 +192,9 @@ describe('SequentialLayerRenderer', () => {
     setFeatureFlag('enableSequentialWorkerMaterialization', true);
     clearSequentialLayerRendererAll();
 
-    const layer = createLayer([
-      createEvent('f0', 0, '#ff0000'),
-      createEvent('f1', 1, '#00ff00'),
-    ]);
+    const partialGreen = createEvent('f1', 1, '#00ff00');
+    partialGreen.stamps = partialGreen.stamps.map((stamp) => ({ ...stamp, alpha: 85 / 255 }));
+    const layer = createLayer([createEvent('f0', 0, '#ff0000'), partialGreen]);
     const frame1TileSet = new SequentialCpuMaterializer({ tileSize: 128 }).materializeFrame({
       width: 16,
       height: 16,
@@ -203,6 +202,7 @@ describe('SequentialLayerRenderer', () => {
       events: [layer.sequentialData!.events[1]],
       eventsAreFrameScoped: true,
     });
+    const originalWorkerBytes = frame1TileSet.tiles.map((tile) => tile.data.slice());
     const frameReady = jest.fn();
     window.addEventListener('vessel:sequentialFrameUpdate', frameReady);
     const materializeFrameSpy = jest.spyOn(
@@ -246,7 +246,11 @@ describe('SequentialLayerRenderer', () => {
       });
       expect(frame1).not.toBe(frame0);
       const pixel = readCenterPixel(frame1!);
-      expect(pixel[1]).toBeGreaterThan(pixel[0]);
+      expect(pixel).toEqual([0, 255, 0, 85]);
+      expect(frame1TileSet.tiles.map((tile) => tile.data)).toEqual(originalWorkerBytes);
+      const cachedFrame = getSequentialLayerRenderCanvas({ layer, width: 16, height: 16, frameIndex: 1 });
+      expect(readCenterPixel(cachedFrame!)).toEqual([0, 255, 0, 85]);
+      expect(frame1TileSet.tiles.map((tile) => tile.data)).toEqual(originalWorkerBytes);
       expect(getSequentialLayerRendererDiagnostics().workerHits).toBe(1);
     } finally {
       materializeFrameSpy.mockRestore();
@@ -415,6 +419,119 @@ describe('SequentialLayerRenderer', () => {
     expect(erased[3]).toBe(0);
     expect(untouched).toEqual(readPixel(replayed!, 6, 8));
     expect(erased).toEqual(readPixel(replayed!, 9, 8));
+  });
+
+  it.each([
+    { label: 'partial paint', paintAlpha: 128 / 255, eraseCount: 0, expectedAlpha: 128 },
+    { label: 'partial erase', paintAlpha: 1, eraseCount: 1, expectedAlpha: 128 },
+    { label: 'accumulated overlap', paintAlpha: 1, eraseCount: 2, expectedAlpha: 64 },
+  ])('presents $label as straight RGBA through append, cache and clean replay', ({ paintAlpha, eraseCount, expectedAlpha }) => {
+    const materialize = SequentialCpuMaterializer.prototype.materializeFrame;
+    const materializeRect = SequentialCpuMaterializer.prototype.materializeRect;
+    const outputs: { data: Uint8ClampedArray; original: Uint8ClampedArray }[] = [];
+    const remember = <T extends Pick<ReturnType<typeof materialize>, 'tiles'>>(result: T): T => {
+      outputs.push(...result.tiles.map((tile) => ({ data: tile.data, original: tile.data.slice() })));
+      return result;
+    };
+    const fullSpy = jest.spyOn(SequentialCpuMaterializer.prototype, 'materializeFrame')
+      .mockImplementation(function (this: SequentialCpuMaterializer, input) {
+        return remember(materialize.call(this, input));
+      });
+    const rectSpy = jest.spyOn(SequentialCpuMaterializer.prototype, 'materializeRect')
+      .mockImplementation(function (this: SequentialCpuMaterializer, input) {
+        return remember(materializeRect.call(this, input));
+      });
+    try {
+      const paint = createEvent('paint', 0, '#ff0000');
+      paint.stamps = [{ ...paint.stamps[0], alpha: paintAlpha }];
+      const neighbor = createEvent('neighbor', 0, '#00ff00');
+      neighbor.stamps = [{ ...neighbor.stamps[0], x: 2, y: 2, size: 2 }];
+      const blue = createEvent('other-frame', 1, '#0000ff');
+      const initial = createLayer([neighbor, blue]);
+      getSequentialLayerRenderCanvas({ layer: initial, width: 16, height: 16, frameIndex: 0 });
+      const events = [...initial.sequentialData!.events, paint];
+      for (let index = 0; index < eraseCount; index += 1) {
+        events.push({
+          ...createEvent(`erase-${index}`, 0, '#000000'),
+          brush: { ...paint.brush, tool: 'eraser', blendMode: 'destination-out', size: 2 },
+          stamps: [{ x: 8, y: 8, pressure: 1, rotation: 0, size: 2, alpha: 0.5 }],
+        });
+      }
+      const layer = { ...initial, sequentialData: { ...initial.sequentialData!, events } };
+      const options = { layer, width: 16, height: 16, frameIndex: 0 };
+      const appended = getSequentialLayerRenderCanvas(options)!;
+      const appendedBytes = (appended.getContext('2d') as CanvasRenderingContext2D).getImageData(0, 0, 16, 16).data.slice();
+      const cached = getSequentialLayerRenderCanvas(options)!;
+      expect((cached.getContext('2d') as CanvasRenderingContext2D).getImageData(0, 0, 16, 16).data).toEqual(appendedBytes);
+      clearSequentialLayerRendererAll();
+      const replayed = getSequentialLayerRenderCanvas(options)!;
+      expect((replayed.getContext('2d') as CanvasRenderingContext2D).getImageData(0, 0, 16, 16).data).toEqual(appendedBytes);
+      expect(readPixel(replayed, 2, 2)).toEqual([0, 255, 0, 255]);
+      expect(readPixel(replayed, 0, 15)).toEqual([0, 0, 0, 0]);
+      const otherFrame = getSequentialLayerRenderCanvas({ ...options, frameIndex: 1 })!;
+      expect(readCenterPixel(otherFrame)).toEqual([0, 0, 255, 255]);
+      for (const output of outputs) {
+        expect(output.data).toEqual(output.original);
+      }
+      const sourceTile = [...outputs].reverse().find(({ original }) => original[(8 * 16 + 8) * 4 + 3] === expectedAlpha);
+      expect(sourceTile).toBeDefined();
+      expect(Array.from(sourceTile!.original.slice((8 * 16 + 8) * 4, (8 * 16 + 8) * 4 + 4))).toEqual([expectedAlpha, 0, 0, expectedAlpha]);
+      expect(readCenterPixel(replayed)).toEqual([255, 0, 0, expectedAlpha]);
+    } finally {
+      fullSpy.mockRestore();
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('reuses presentation scratch by full/edge tile dimensions and resets it with runtime dimensions', () => {
+    const putImageDataSpy = jest.spyOn(CanvasRenderingContext2D.prototype, 'putImageData');
+    try {
+      const positions = [[2.5, 2.5], [129.5, 2.5], [2.5, 128.5], [129.5, 128.5]];
+      const events = positions.map(([x, y], index) => {
+        const event = createEvent(`edge-${index}`, 0, '#996633');
+        return {
+          ...event,
+          brush: { ...event.brush, brushShape: BrushShape.SQUARE, size: 1 },
+          stamps: [{ x, y, pressure: 1, rotation: 0, size: 1, alpha: 85 / 255 }],
+        };
+      });
+      const initial = createLayer(events);
+      const options = { layer: initial, width: 130, height: 129, frameIndex: 0 };
+      const canvas = getSequentialLayerRenderCanvas(options)!;
+      const initialCopies = putImageDataSpy.mock.calls.map(([image]) => image);
+      expect(initialCopies.map(({ width, height }) => [width, height])).toEqual([
+        [128, 128], [2, 128], [128, 1], [2, 1],
+      ]);
+      for (const [x, y] of positions) {
+        expect(readPixel(canvas, Math.floor(x), Math.floor(y))).toEqual([153, 102, 51, 85]);
+      }
+      const updated = {
+        ...initial,
+        sequentialData: {
+          ...initial.sequentialData!,
+          events: [...events, ...events.map((event) => ({
+            ...event, id: `${event.id}-opaque`,
+            brush: { ...event.brush, color: '#ff0000' },
+            stamps: event.stamps.map((stamp) => ({ ...stamp, alpha: 1 })),
+          }))],
+        },
+      };
+      const next = getSequentialLayerRenderCanvas({ ...options, layer: updated })!;
+      const nextCopies = putImageDataSpy.mock.calls.slice(initialCopies.length).map(([image]) => image);
+      expect(nextCopies).toHaveLength(4);
+      for (const image of nextCopies) {
+        expect(image).toBe(initialCopies.find((copy) => copy.width === image.width && copy.height === image.height));
+      }
+      for (const [x, y] of positions) {
+        expect(readPixel(next, Math.floor(x), Math.floor(y))).toEqual([255, 0, 0, 255]);
+      }
+      const copiesBeforeResize = putImageDataSpy.mock.calls.length;
+      getSequentialLayerRenderCanvas({ ...options, width: 131, height: 130 });
+      const resizedCopies = putImageDataSpy.mock.calls.slice(copiesBeforeResize).map(([image]) => image);
+      expect(resizedCopies.find(({ width, height }) => width === 128 && height === 128)).not.toBe(initialCopies[0]);
+    } finally {
+      putImageDataSpy.mockRestore();
+    }
   });
 
   it('defers committed append patching during active sequential preview capture', () => {

@@ -566,6 +566,14 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
     flushBufferedSequentialEvents({ state });
   };
 
+  const clearRejectedStrokeStart = () => {
+    drawingHandlers.clearStrokeSession();
+    resetSequentialPointerDownNow();
+    isMouseDownRef.current = false;
+    suppressBootstrapUntilPointerUpRef.current = true;
+    stateMachine.dispatch({ type: 'FORCE_IDLE' });
+  };
+
   const getCcGradientDirectionPlaybackSnapshot = () => {
     const state = getAppStoreState();
     const ccLayers = state.layers
@@ -2941,9 +2949,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
         brushId: brushPresetId ?? undefined,
       });
       // Use the existing drawing system with brush engine
+      if (drawingHandlers.startDrawing(worldPos, pressure) === false) {
+        clearRejectedStrokeStart();
+        return;
+      }
       compositeCanvasDirtyRef.current = true;
       interaction.dispatch({ type: 'DRAWING_START', pressure });
-      drawingHandlers.startDrawing(worldPos, pressure);
       return;
     }
 
@@ -3134,7 +3145,6 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             interaction.dispatch({ type: 'DRAWING_START', pressure });
           }
         } else {
-          interaction.dispatch({ type: 'DRAWING_START', pressure });
           const brushPresetId = getDynamicDeps().currentBrushPresetId;
           drawingHandlers.beginStrokeSession({
             pointerId: event.pointerId,
@@ -3142,8 +3152,12 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
             tool: tools.currentTool,
             brushId: brushPresetId ?? undefined,
           });
+          if (drawingHandlers.startDrawing(worldPos, pressure) === false) {
+            clearRejectedStrokeStart();
+            return;
+          }
           compositeCanvasDirtyRef.current = true;
-          drawingHandlers.startDrawing(worldPos, pressure);
+          interaction.dispatch({ type: 'DRAWING_START', pressure });
         }
       }
     }
@@ -3356,9 +3370,12 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             tool: tools.currentTool,
             brushId: brushPresetId ?? undefined,
           });
+          if (drawingHandlers.startDrawing(worldPos, pressure) === false) {
+            clearRejectedStrokeStart();
+            return;
+          }
           compositeCanvasDirtyRef.current = true;
           interaction.dispatch({ type: 'DRAWING_START', pressure });
-          drawingHandlers.startDrawing(worldPos, pressure);
           return;
         }
       } else {
@@ -3381,9 +3398,12 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           tool: tools.currentTool,
           brushId: brushPresetId ?? undefined,
         });
+        if (drawingHandlers.startDrawing(worldPos, pressure) === false) {
+          clearRejectedStrokeStart();
+          return;
+        }
         compositeCanvasDirtyRef.current = true;
         interaction.dispatch({ type: 'DRAWING_START', pressure });
-        drawingHandlers.startDrawing(worldPos, pressure);
         return;
       }
     }
@@ -4789,15 +4809,18 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     releasePointerCaptureSafely(event);
 
     drawingHandlers.endStrokeSession(Date.now());
-    const finishCancelledCcStroke = interaction.state.isDrawing && !cancelTools.shapeMode &&
-      cancelTools.currentTool === 'brush' && (isColorCycleBrush(cancelTools.brushSettings.brushShape) ||
-        (cancelTools.brushSettings.brushShape === BrushShape.CUSTOM && cancelTools.brushSettings.customBrushColorCycle));
-    if (finishCancelledCcStroke) {
+    const isCancelledEraser = cancelTools.currentTool === 'eraser';
+    const eraserFinalizationPending = isCancelledEraser && isBusyRef.current;
+    const finishCancelledStroke = !eraserFinalizationPending && interaction.state.isDrawing &&
+      (isCancelledEraser || (!cancelTools.shapeMode && cancelTools.currentTool === 'brush' &&
+        (isColorCycleBrush(cancelTools.brushSettings.brushShape) ||
+          (cancelTools.brushSettings.brushShape === BrushShape.CUSTOM && cancelTools.brushSettings.customBrushColorCycle))));
+    if (finishCancelledStroke) {
       interaction.dispatch({ type: 'DRAWING_END' });
       compositeCanvasDirtyRef.current = true;
       // Complete the visible partial stroke before releasing its playback hold.
       void drawingHandlers.finalizeDrawing(false).finally(() => stateMachine.finalizationComplete());
-    } else {
+    } else if (!eraserFinalizationPending) {
       drawingHandlers.clearStrokeSession();
     }
 
@@ -4826,7 +4849,8 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
     }
 
     const overlayCanvas = overlayCanvasRef.current;
-    if (overlayCanvas) {
+    // Eraser finalization still needs the overlay for buffered stamps and capture.
+    if (overlayCanvas && !(isCancelledEraser && (finishCancelledStroke || eraserFinalizationPending))) {
       overlayCanvas.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
       logLivePreview('pointercancel-overlay-cleared', {
         pointerId: event.pointerId,

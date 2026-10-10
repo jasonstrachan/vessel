@@ -1,3 +1,4 @@
+import { unpremultiplyAlphaBytes } from '@/lib/brush/color';
 import { SequentialCpuMaterializer } from '@/lib/sequential/materializer/SequentialCpuMaterializer';
 import type { FrameTileSet } from '@/lib/sequential/types';
 import type { SequentialStrokeEvent } from '@/types';
@@ -9,6 +10,7 @@ interface LivePreviewRuntime {
   height: number;
   materializer: SequentialCpuMaterializer;
   frames: Map<number, LivePreviewFrame>;
+  presentationScratch: Map<string, ImageData>;
 }
 
 interface LivePreviewFrame {
@@ -74,10 +76,12 @@ const copyChangedTilesToCanvas = ({
   canvas,
   previousTileSet,
   nextTileSet,
+  scratch,
 }: {
   canvas: HTMLCanvasElement | OffscreenCanvas;
   previousTileSet: FrameTileSet;
   nextTileSet: FrameTileSet;
+  scratch: Map<string, ImageData>;
 }): boolean => {
   const ctx = canvas.getContext(
     '2d',
@@ -101,7 +105,13 @@ const copyChangedTilesToCanvas = ({
     if (previousTilesByKey.get(tileKey(tile)) === tile) {
       continue;
     }
-    const imageData = new ImageData(tile.data, tile.width, tile.height);
+    const dimensions = `${tile.width}:${tile.height}`;
+    let imageData = scratch.get(dimensions);
+    if (!imageData) {
+      imageData = new ImageData(tile.width, tile.height);
+      scratch.set(dimensions, imageData);
+    }
+    unpremultiplyAlphaBytes(tile.data, imageData.data);
     ctx.putImageData(imageData, tile.x, tile.y);
   }
 
@@ -138,6 +148,7 @@ const getOrCreateRuntime = ({
     height: safeHeight,
     materializer: new SequentialCpuMaterializer({ tileSize: TILE_SIZE }),
     frames: new Map(),
+    presentationScratch: new Map(),
   };
   livePreviewRuntimes.set(layerId, runtime);
   return runtime;
@@ -292,6 +303,7 @@ export const appendSequentialLivePreviewEvents = ({
         canvas: frame.canvas,
         previousTileSet,
         nextTileSet,
+        scratch: runtime.presentationScratch,
       })
     ) {
       frame.tileSet = nextTileSet;

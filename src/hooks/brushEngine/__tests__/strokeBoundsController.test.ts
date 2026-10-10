@@ -12,6 +12,30 @@ const createSettings = (overrides: Partial<BrushSettings> = {}): BrushSettings =
   }) as BrushSettings;
 
 describe('strokeBoundsController', () => {
+  it.each([
+    { pressureEnabled: false, maxPressure: 100, snappedCenter: 128 },
+    { pressureEnabled: true, maxPressure: 200, snappedCenter: 256 },
+  ])('contains large snapped stamps even after pressure falls: %j', (grid) => {
+    const raw = grid.snappedCenter * 0.6;
+    const result = estimateStrokeBounds({
+      from: { x: raw, y: raw }, to: { x: raw, y: raw }, pressure: 0,
+      brushSettings: createSettings({
+        size: 4, gridSnapEnabled: true, gridSnapSize: 128,
+        pressureEnabled: grid.pressureEnabled, minPressure: 50, maxPressure: grid.maxPressure,
+      }),
+      clamp: (value, min, max) => Math.max(min, Math.min(max, value)),
+      inflateRect: (rect, padding) => ({
+        x: rect.x - padding, y: rect.y - padding,
+        width: rect.width + padding * 2, height: rect.height + padding * 2,
+      }),
+    });
+
+    expect(result.x).toBeLessThanOrEqual(grid.snappedCenter - 2);
+    expect(result.y).toBeLessThanOrEqual(grid.snappedCenter - 2);
+    expect(result.x + result.width).toBeGreaterThanOrEqual(grid.snappedCenter + 2);
+    expect(result.y + result.height).toBeGreaterThanOrEqual(grid.snappedCenter + 2);
+  });
+
   it('expands bounds around a basic stroke', () => {
     const result = estimateStrokeBounds({
       from: { x: 10, y: 20 },

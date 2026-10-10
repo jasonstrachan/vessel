@@ -5,7 +5,7 @@ import {
 import { canDrawWithAlphaLockPolicy } from './alphaLockDrawPolicy';
 import { BrushStampTracker } from './brushStampTracker';
 import { createStrokeProcessor } from './strokeProcessor';
-import { createShapeDrawer, type DrawShapeSettings, type ShapeDrawingDependencies } from './shapes';
+import { createShapeDrawer, drawShape, type DrawShapeSettings, type ShapeDrawingDependencies } from './shapes';
 import { createBrushUtilities } from './utilities';
 import { applyThrottledColorJitter } from './colorUtils';
 import { CustomBrushCycleReplayService } from './customBrushCycleReplay';
@@ -17,7 +17,10 @@ import { RotatedStampCache } from './shapeRotatedStamp';
 import type { PixelQueue, RenderSettings } from './types';
 import { GridSnapSession } from './gridSnapSession';
 import { renderBrushStrokeWithServices } from './brushStrokeRenderer';
-import { finalizePixelStroke } from './strokeFinalizer';
+import { finalizePixelStroke, resolveDeferredPixelStamp } from './strokeFinalizer';
+import { getNativeRisographStampRadius } from './shapeRisographEffect';
+import { createForkableSeededRng, type ForkableSeededRng } from '@/utils/risographTexture';
+import { mergeRectBounds, normalizeRectForCanvas, type Rect } from './engineShared';
 import { renderSmoothStroke as renderSmoothStrokeWithServices } from './smoothStrokeRenderer';
 import { CustomPatternCache } from './shapeCustomPattern';
 import {
@@ -33,6 +36,36 @@ export type {
 } from './brushEngineFacadeTypes';
 
 export class BrushEngineFacade {
+  private eraserRisographRandom: ForkableSeededRng | null = null;
+  private readonly nextRisographRandom = (): number => this.supportsNativePixelStroke() && this.eraserRisographRandom
+    ? this.eraserRisographRandom.next()
+    : Math.random();
+
+  private supportsNativePixelStroke(): boolean {
+    const settings = this.config.brushSettings;
+    return !this.lastCustomBrushData && !settings.antialiasing && (
+      settings.brushShape === BrushShape.SQUARE ||
+      settings.brushShape === BrushShape.PIXEL_ROUND ||
+      (settings.brushShape === BrushShape.PIXEL_DITHER && settings.ditherStrokeTipShape === 'diamond5')
+    );
+  }
+
+  beginStroke(target: 'paint' | 'erase-mask'): void {
+    // New eraser strokes own their texture randomness, including later Riso activation.
+    this.eraserRisographRandom = target === 'erase-mask'
+      ? createForkableSeededRng(Math.floor(Math.random() * 0xffffffff))
+      : null;
+    this.pixelStrokePreview = null;
+  }
+
+  private strokePreviewRevision = -1;
+  private pixelStrokePreviewCanvas: HTMLCanvasElement | null = null;
+  private pixelStrokePreview: {
+    canvas: HTMLCanvasElement;
+    bounds: Rect;
+    rawCanvas: HTMLCanvasElement | OffscreenCanvas;
+    revision: number;
+  } | null = null;
   private lastStrokePressure: number | null = null;
   private lastCustomBrushData: CustomBrushStrokeData | null = null;
   private strokeProcessor: ReturnType<typeof createStrokeProcessor>;
@@ -76,9 +109,11 @@ export class BrushEngineFacade {
       createPixelCircleStamp: config.createPixelCircleStamp,
       createPixelSquareStamp: config.createPixelSquareStamp,
       getRotationTempContext: config.getRotationTempContext,
+      getNativeAuthoredSupportContext: config.getNativeAuthoredSupportContext,
       getNextSpamChar: this.getNextSpamChar.bind(this),
       rotatedStampCache: this.rotatedStampCache,
       customPatternCache: this.customPatternCache,
+      risographRandom: this.nextRisographRandom,
     };
 
     this._shapeDrawer = this.createTrackedShapeDrawer(
@@ -99,6 +134,9 @@ export class BrushEngineFacade {
    */
   updateConfig(config: Partial<BrushEngineConfig>) {
     this.config = { ...this.config, ...config };
+    if (this.strokePreviewRevision >= 0) {
+      this.strokePreviewRevision++;
+    }
     
     // Always re-create shape drawer to ensure deps are updated
     const shapeSettings: DrawShapeSettings = {
@@ -112,9 +150,11 @@ export class BrushEngineFacade {
       createPixelCircleStamp: this.config.createPixelCircleStamp,
       createPixelSquareStamp: this.config.createPixelSquareStamp,
       getRotationTempContext: this.config.getRotationTempContext,
+      getNativeAuthoredSupportContext: this.config.getNativeAuthoredSupportContext,
       getNextSpamChar: this.getNextSpamChar.bind(this),
       rotatedStampCache: this.rotatedStampCache,
       customPatternCache: this.customPatternCache,
+      risographRandom: this.nextRisographRandom,
     };
 
     this._shapeDrawer = this.createTrackedShapeDrawer(
@@ -142,6 +182,7 @@ export class BrushEngineFacade {
     ctx: CanvasRenderingContext2D,
     params: BrushStrokeParams
   ): void {
+    this.strokePreviewRevision = Math.max(0, this.strokePreviewRevision) + 1;
     renderBrushStrokeWithServices(ctx, params, {
       config: this.config,
       utilities: this.utilities,
@@ -319,25 +360,107 @@ export class BrushEngineFacade {
     );
   }
 
-  /**
-   * Finalize the current stroke by drawing any waiting pixels
-   */
-  finalizeStroke(ctx: CanvasRenderingContext2D): void {
-    finalizePixelStroke({
-      ctx,
-      brushSettings: this.config.brushSettings,
+  /** Presentation-only release cap; accepted raw pixels and stroke state stay unchanged. */
+  getPixelStrokePreview({ rawCanvas, bounds }: {
+    rawCanvas: HTMLCanvasElement | OffscreenCanvas;
+    bounds: Rect;
+  }): { canvas: HTMLCanvasElement; bounds: Rect } | null {
+    const brushSettings = this.config.brushSettings;
+    if (this.strokePreviewRevision < 0 || rawCanvas.width <= 0 || rawCanvas.height <= 0) {
+      return null;
+    }
+    const canPreviewCap = this.supportsNativePixelStroke() &&
+      !(brushSettings.ditherEnabled && brushSettings.pressureLinkedFillResolution) &&
+      ((brushSettings.risographIntensity ?? 0) <= 0 || this.eraserRisographRandom !== null);
+    if (
+      this.pixelStrokePreview?.revision === this.strokePreviewRevision &&
+      this.pixelStrokePreview.rawCanvas === rawCanvas &&
+      this.pixelStrokePreview.canvas.width === rawCanvas.width &&
+      this.pixelStrokePreview.canvas.height === rawCanvas.height
+    ) {
+      return this.pixelStrokePreview;
+    }
+    const stamp = canPreviewCap ? resolveDeferredPixelStamp({
+      brushSettings,
       pixelQueue: this.pixelQueue,
       lastStrokePressure: this.lastStrokePressure,
       lastCustomBrushData: this.lastCustomBrushData,
       utilities: this.utilities,
-      shapeDrawer: this.shapeDrawer,
-    });
+      composite: 'source-over',
+    }) : null;
+    if (!stamp && !this.pixelStrokePreview) return null;
+
+    // Include the old tentative cap so a suppressed corner is restored on publication.
+    let previewBounds = mergeRectBounds(this.pixelStrokePreview?.bounds ?? null, bounds);
+    if (stamp) {
+      const radius = Math.max(
+        Math.ceil(stamp.settings.size / 2) + 5,
+        stamp.settings.risographIntensity > 0
+          ? getNativeRisographStampRadius(stamp.settings.size, stamp.settings.risographIntensity)
+          : 0,
+      );
+      previewBounds = mergeRectBounds(previewBounds, {
+        x: stamp.x - radius, y: stamp.y - radius, width: radius * 2, height: radius * 2,
+      });
+    }
+    previewBounds = normalizeRectForCanvas(previewBounds, rawCanvas.width, rawCanvas.height);
+    const canvas = this.pixelStrokePreviewCanvas ??= document.createElement('canvas');
+    if (canvas.width !== rawCanvas.width || canvas.height !== rawCanvas.height) {
+      canvas.width = rawCanvas.width;
+      canvas.height = rawCanvas.height;
+    }
+    // Match raw authoring so copying then blending a texture cap uses the same precision.
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    const { x, y, width, height } = previewBounds;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.clearRect(x, y, width, height);
+    ctx.drawImage(rawCanvas, x, y, width, height, x, y, width, height);
+    if (stamp) {
+      ctx.fillStyle = stamp.settings.color;
+      ctx.globalAlpha = stamp.settings.opacity;
+      // Reuse native geometry without the tracked drawer or authored-support sink.
+      drawShape(
+        ctx, stamp.x, stamp.y, stamp.settings.size, stamp.settings.shape, false, 0, stamp.settings.risographIntensity,
+        undefined, undefined, undefined, { brushSettings },
+        {
+          createPixelCircleStamp: this.config.createPixelCircleStamp,
+          risographRandom: stamp.settings.risographIntensity > 0 ? this.eraserRisographRandom?.fork().next : undefined,
+        },
+      );
+    }
+    this.pixelStrokePreview = { canvas, bounds: previewBounds, rawCanvas, revision: this.strokePreviewRevision };
+    return this.pixelStrokePreview;
+  }
+
+  /** Finalize the current stroke by drawing any waiting pixels. */
+  finalizeStroke(ctx: CanvasRenderingContext2D): void {
+    this.strokePreviewRevision = -1;
+    this.pixelStrokePreview = null;
+    try {
+      finalizePixelStroke({
+        ctx,
+        brushSettings: this.config.brushSettings,
+        pixelQueue: this.pixelQueue,
+        lastStrokePressure: this.lastStrokePressure,
+        lastCustomBrushData: this.lastCustomBrushData,
+        utilities: this.utilities,
+        shapeDrawer: this.shapeDrawer,
+      });
+    } finally {
+      this.eraserRisographRandom = null;
+    }
   }
 
   /**
    * Reset the pixel queue for a new stroke
    */
   resetStroke(): void {
+    this.eraserRisographRandom = null;
+    this.strokePreviewRevision = -1;
+    this.pixelStrokePreview = null;
     this.strokeProcessor.resetPixelQueue(this.pixelQueue);
     this.strokeProcessor.reset();
     this.lastStrokePressure = null;

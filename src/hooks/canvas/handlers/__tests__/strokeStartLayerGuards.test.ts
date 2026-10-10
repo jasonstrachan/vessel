@@ -42,6 +42,90 @@ const createLayer = (layerType: Layer['layerType']): Layer => {
 };
 
 describe('runStrokeStartLayerGuards', () => {
+  it.each([
+    ['normal', 'brush', false],
+    ['normal', 'eraser', false],
+    ['normal', 'eraser', true],
+    ['color-cycle', 'brush', true],
+    ['color-cycle', 'eraser', false],
+    ['color-cycle', 'eraser', true],
+    ['sequential', 'brush', true],
+    ['sequential', 'eraser', false],
+    ['sequential', 'eraser', true],
+  ] as const)('blocks %s layer %s strokes while locked with CC preset %s', (layerType, currentTool, isAnyColorCycleBrush) => {
+    const feedback = jest.fn();
+    const initColorCycleForLayer = jest.fn();
+    const getColorCycleBrushManager = jest.fn(() => ({ getSurfaceBrush: () => null }));
+    const ensureActiveColorCycleGradientSlot = jest.fn();
+    const allowed = runStrokeStartLayerGuards({
+      activeLayer: { ...createLayer(layerType), locked: true },
+      currentTool,
+      isAnyColorCycleBrush,
+      runtimeProject: { width: 64, height: 64 },
+      currentState: { ...useAppStore.getState(), initColorCycleForLayer },
+      feedbackMessageRef: { current: feedback },
+      logError: jest.fn(),
+      getColorCycleBrushManager,
+      ensureActiveColorCycleGradientSlot,
+    });
+
+    expect(allowed).toBe(false);
+    expect(feedback).toHaveBeenCalledWith("Can't draw on a locked layer. Unlock it to edit.");
+    expect(initColorCycleForLayer).not.toHaveBeenCalled();
+    expect(getColorCycleBrushManager).not.toHaveBeenCalled();
+    expect(ensureActiveColorCycleGradientSlot).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['normal', false],
+    ['normal', true],
+    ['color-cycle', false],
+    ['color-cycle', true],
+    ['sequential', false],
+    ['sequential', true],
+  ] as const)(
+    'allows erasing an unlocked %s layer with CC preset %s',
+    (layerType, isAnyColorCycleBrush) => {
+      const feedback = jest.fn();
+      const getColorCycleBrushManager = jest.fn(() => ({ getSurfaceBrush: () => null }));
+      const ensureActiveColorCycleGradientSlot = jest.fn();
+      const allowed = runStrokeStartLayerGuards({
+        activeLayer: createLayer(layerType),
+        currentTool: 'eraser',
+        isAnyColorCycleBrush,
+        runtimeProject: { width: 64, height: 64 },
+        currentState: useAppStore.getState(),
+        feedbackMessageRef: { current: feedback },
+        logError: jest.fn(),
+        getColorCycleBrushManager,
+        ensureActiveColorCycleGradientSlot,
+      });
+
+      expect(allowed).toBe(true);
+      expect(feedback).not.toHaveBeenCalled();
+      expect(getColorCycleBrushManager).not.toHaveBeenCalled();
+      expect(ensureActiveColorCycleGradientSlot).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still blocks regular brushes on unlocked Color Cycle layers', () => {
+    const feedback = jest.fn();
+    const allowed = runStrokeStartLayerGuards({
+      activeLayer: createLayer('color-cycle'),
+      currentTool: 'brush',
+      isAnyColorCycleBrush: false,
+      runtimeProject: { width: 64, height: 64 },
+      currentState: useAppStore.getState(),
+      feedbackMessageRef: { current: feedback },
+      logError: jest.fn(),
+      getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
+      ensureActiveColorCycleGradientSlot: jest.fn(),
+    });
+
+    expect(allowed).toBe(false);
+    expect(feedback).toHaveBeenCalledWith("Can't use regular brushes on a Color Cycle layer. Switch layers.");
+  });
+
   it('blocks drawing on adjustment layers', () => {
     const feedback = jest.fn();
     const allowed = runStrokeStartLayerGuards({

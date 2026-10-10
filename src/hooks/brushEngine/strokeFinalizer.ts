@@ -18,15 +18,16 @@ interface FinalizeStrokeArgs {
   shapeDrawer: ShapeDrawer;
 }
 
-export const finalizePixelStroke = ({
-  ctx,
+export const resolveDeferredPixelStamp = ({
+  composite,
   brushSettings,
   pixelQueue,
   lastStrokePressure,
   lastCustomBrushData,
   utilities,
-  shapeDrawer,
-}: FinalizeStrokeArgs): void => {
+}: Omit<FinalizeStrokeArgs, 'ctx' | 'shapeDrawer'> & {
+  composite: GlobalCompositeOperation;
+}): { x: number; y: number; settings: RenderSettings } | null => {
   if (
     brushSettings.antialiasing ||
     !pixelQueue.initialized ||
@@ -35,7 +36,7 @@ export const finalizePixelStroke = ({
       pixelQueue.waitingPixelY === pixelQueue.lastDrawnY
     )
   ) {
-    return;
+    return null;
   }
 
   let baseSize = brushSettings.size;
@@ -59,16 +60,25 @@ export const finalizePixelStroke = ({
     rotation: 0,
     shape: brushSettings.brushShape || BrushShape.ROUND,
     risographIntensity: brushSettings.risographIntensity || 0,
-    blendMode: ctx.globalCompositeOperation,
+    blendMode: composite,
   };
 
+  return { x: pixelQueue.waitingPixelX, y: pixelQueue.waitingPixelY, settings };
+};
+
+export const finalizePixelStroke = ({ ctx, shapeDrawer, ...args }: FinalizeStrokeArgs): void => {
+  const stamp = resolveDeferredPixelStamp({ ...args, composite: ctx.globalCompositeOperation });
+  if (!stamp) {
+    return;
+  }
+  const { x, y, settings } = stamp;
   ctx.fillStyle = settings.color;
   ctx.globalAlpha = settings.opacity;
 
   shapeDrawer(
     ctx,
-    pixelQueue.waitingPixelX,
-    pixelQueue.waitingPixelY,
+    x,
+    y,
     settings.size,
     settings.shape,
     false,

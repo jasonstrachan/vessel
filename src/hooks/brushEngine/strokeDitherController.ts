@@ -10,11 +10,13 @@ type DitherRegionWithCurrentPressureArgs = {
   region: { x: number; y: number; width: number; height: number };
   sampleCtx?: CanvasRenderingContext2D;
   options?: StrokeDitherRegionOptions;
+  signal?: 'color' | 'alpha';
   ditherRegionWithCurrentPressureUtil: (args: {
     ctx: CanvasRenderingContext2D;
     region: { x: number; y: number; width: number; height: number };
     sampleCtx?: CanvasRenderingContext2D;
     options?: StrokeDitherRegionOptions;
+    signal?: 'color' | 'alpha';
     toolsBrushSettings: BrushSettings;
     strokeDitherPalette: string[];
     transparentInk: [number, number, number];
@@ -63,6 +65,7 @@ export const ditherRegionWithCurrentPressure = ({
   region,
   sampleCtx,
   options,
+  signal,
   ditherRegionWithCurrentPressureUtil,
   toolsBrushSettings,
   strokeDitherPalette,
@@ -84,6 +87,7 @@ export const ditherRegionWithCurrentPressure = ({
     region,
     sampleCtx,
     options,
+    signal,
     toolsBrushSettings,
     strokeDitherPalette,
     transparentInk,

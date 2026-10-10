@@ -470,6 +470,87 @@ describe('pointerHandlers main flows', () => {
     );
   });
 
+  it.each(['brush', 'eraser'] as const)(
+    'does not enter drawing or finalize a rejected %s start',
+    (currentTool) => {
+      const { deps } = createDeps({
+        tools: { ...baseDynamic.tools, currentTool },
+      });
+      deps.stateMachine.state.mode = 'IDLE';
+      deps.drawingHandlers.startDrawing = jest.fn().mockReturnValue(false);
+      deps.interaction.dispatch = jest.fn((action) => {
+        deps.interaction.state.isDrawing = action.type === 'DRAWING_START';
+      });
+      const handlers = createPointerHandlers(deps);
+
+      handlers.handlePointerDown(makePointerEvent({ buttons: 1 }));
+      handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 20 }));
+      handlers.handlePointerUp(makePointerEvent({ buttons: 0 }));
+
+      expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledTimes(1);
+      expect(deps.interaction.dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DRAWING_START' }),
+      );
+      expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'FORCE_IDLE' });
+      expect(deps.drawingHandlers.clearStrokeSession).toHaveBeenCalledTimes(1);
+      expect(deps.isMouseDownRef.current).toBe(false);
+      expect(deps.drawingHandlers.continueDrawing).not.toHaveBeenCalled();
+      expect(deps.drawingHandlers.finalizeDrawing).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['brush', 'eraser'] as const)(
+    'enters drawing only after the %s start accepts',
+    (currentTool) => {
+      const { deps } = createDeps({
+        tools: { ...baseDynamic.tools, currentTool },
+      });
+      deps.stateMachine.state.mode = 'IDLE';
+      deps.drawingHandlers.startDrawing = jest.fn(() => {
+        expect(deps.interaction.state.isDrawing).toBe(false);
+        return true;
+      });
+      deps.interaction.dispatch = jest.fn((action) => {
+        deps.interaction.state.isDrawing = action.type === 'DRAWING_START';
+      });
+      const handlers = createPointerHandlers(deps);
+
+      handlers.handlePointerDown(makePointerEvent({ buttons: 1 }));
+
+      expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledTimes(1);
+      expect(deps.interaction.state.isDrawing).toBe(true);
+      expect(deps.drawingHandlers.clearStrokeSession).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['brush', 'eraser'] as const)(
+    'does not bootstrap or finalize a rejected %s start on canvas entry',
+    (currentTool) => {
+      const { deps } = createDeps({
+        tools: { ...baseDynamic.tools, currentTool },
+      });
+      deps.drawingHandlers.startDrawing = jest.fn().mockReturnValue(false);
+      deps.interaction.dispatch = jest.fn((action) => {
+        deps.interaction.state.isDrawing = action.type === 'DRAWING_START';
+      });
+      const handlers = createPointerHandlers(deps);
+
+      handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 20 }));
+      handlers.handlePointerMove(makePointerEvent({ buttons: 1, clientX: 25 }));
+      handlers.handlePointerUp(makePointerEvent({ buttons: 0 }));
+
+      expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledTimes(1);
+      expect(deps.interaction.dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'DRAWING_START' }),
+      );
+      expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'FORCE_IDLE' });
+      expect(deps.drawingHandlers.clearStrokeSession).toHaveBeenCalledTimes(1);
+      expect(deps.isMouseDownRef.current).toBe(false);
+      expect(deps.drawingHandlers.continueDrawing).not.toHaveBeenCalled();
+      expect(deps.drawingHandlers.finalizeDrawing).not.toHaveBeenCalled();
+    },
+  );
+
   it('starts a regular shape at its outside-document anchor', () => {
     const { deps, dynamicDepsRef } = createDeps({
       tools: { ...baseDynamic.tools, shapeMode: true },
@@ -3740,6 +3821,62 @@ describe('pointerHandlers main flows', () => {
       activeLayerId: null,
     });
   });
+});
+
+it.each([
+  ['normal', false],
+  ['color-cycle', false],
+  ['sequential', false],
+  ['normal', true],
+  ['color-cycle', true],
+  ['sequential', true],
+] as const)('finalizes a cancelled %s eraser with inherited shape mode %s before clearing its overlay', async (layerType, shapeMode) => {
+  const overlay = createCanvas();
+  const overlayCtx = overlay.getContext('2d')!;
+  overlay.getContext = jest.fn(() => overlayCtx) as unknown as typeof overlay.getContext;
+  const layer = { id: 'interrupted-layer', layerType } as EventHandlerDynamicDeps['layers'][number];
+  const { deps, dynamicDepsRef } = createDeps({
+    layers: [layer],
+    activeLayerId: layer.id,
+  }, { overlayCanvasRef: { current: overlay } });
+  const tools = { ...dynamicDepsRef.current.tools, currentTool: 'eraser' as const, shapeMode };
+  dynamicDepsRef.current.tools = tools;
+  deps.tools = tools;
+  deps.interaction.state.isDrawing = true;
+  (deps.interaction.dispatch as jest.Mock).mockImplementation((action) => {
+    if (action.type === 'DRAWING_END') deps.interaction.state.isDrawing = false;
+  });
+  let finish!: () => void;
+  (deps.drawingHandlers.finalizeDrawing as jest.Mock).mockImplementation(() => {
+    deps.isBusyRef.current = true;
+    return new Promise<void>((resolve) => { finish = resolve; });
+  });
+  const handlers = createPointerHandlers(deps);
+  const event = makePointerEvent({ clientX: 10, clientY: 10 });
+
+  handlers.handlePointerCancel(event);
+
+  expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledTimes(1);
+  expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledWith(false);
+  expect(deps.drawingHandlers.clearStrokeSession).not.toHaveBeenCalled();
+  expect(deps.interaction.dispatch).toHaveBeenCalledWith({ type: 'DRAWING_END' });
+  expect(deps.compositeCanvasDirtyRef.current).toBe(true);
+  expect(overlayCtx.clearRect).not.toHaveBeenCalled();
+  expect(deps.stateMachine.finalizationComplete).not.toHaveBeenCalled();
+
+  // A repeated cancellation must not destroy pixels/session needed by the pending capture.
+  handlers.handlePointerCancel(event);
+  expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledTimes(1);
+  expect(deps.drawingHandlers.clearStrokeSession).not.toHaveBeenCalled();
+  expect(overlayCtx.clearRect).not.toHaveBeenCalled();
+
+  finish();
+  await Promise.resolve();
+  deps.isBusyRef.current = false;
+  expect(deps.stateMachine.finalizationComplete).toHaveBeenCalledTimes(1);
+  handlers.handlePointerUp(event);
+  handlers.handlePointerCancel(event);
+  expect(deps.drawingHandlers.finalizeDrawing).toHaveBeenCalledTimes(1);
 });
 
 it('finalizes a cancelled CC stroke before clearing its session so playback cleanup runs', async () => {

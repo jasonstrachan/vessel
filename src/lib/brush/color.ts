@@ -150,3 +150,24 @@ export function unpremultiplyAlpha(color: RGBA): RGBA {
     a: color.a
   };
 }
+
+/** Writes straight RGBA into caller-owned storage without changing premultiplied tiles. */
+export function unpremultiplyAlphaBytes(
+  source: Uint8ClampedArray,
+  target: Uint8ClampedArray,
+): void {
+  for (let i = 0; i < source.length; i += 4) {
+    const alpha = source[i + 3];
+    if (alpha === 0) {
+      target[i] = 0;
+      target[i + 1] = 0;
+      target[i + 2] = 0;
+    } else {
+      const scale = alpha === 255 ? 1 : 255 / alpha;
+      target[i] = source[i] * scale;
+      target[i + 1] = source[i + 1] * scale;
+      target[i + 2] = source[i + 2] * scale;
+    }
+    target[i + 3] = alpha;
+  }
+}

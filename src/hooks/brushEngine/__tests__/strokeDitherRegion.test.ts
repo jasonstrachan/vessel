@@ -189,3 +189,139 @@ describe('strokeDitherRegion', () => {
     );
   });
 });
+
+
+describe('eraser alpha dithering', () => {
+  const renderMask = (
+    alpha: number | ((x: number, y: number) => number),
+    pixelSize = 1,
+    settingsOverride: Partial<BrushSettings> = {},
+    signal: 'color' | 'alpha' = 'alpha',
+    imageTileThresholdResolver?: (x: number, y: number) => number | null,
+  ) => {
+    const source = new ImageData(64, 64);
+    for (let y = 8; y < 56; y += 1) {
+      for (let x = 8; x < 56; x += 1) {
+        const i = (y * 64 + x) * 4;
+        source.data.set([255, 255, 255, typeof alpha === 'number' ? alpha : alpha(x, y)], i);
+      }
+    }
+    const putImageData = jest.fn();
+    const ctx = {
+      canvas: { width: 64, height: 64 },
+      getImageData: () => source,
+      putImageData,
+      imageSmoothingEnabled: true,
+    } as unknown as CanvasRenderingContext2D;
+    const settings = {
+      brushShape: BrushShape.SQUARE,
+      color: '#ffffff',
+      ditherEnabled: true,
+      ditherAlgorithm: 'sierra-lite',
+      ditherBackgroundFill: false,
+      fillResolution: pixelSize,
+      ...settingsOverride,
+    } as BrushSettings;
+    ditherRegionWithCurrentPressure({
+      ctx,
+      region: { x: 0, y: 0, width: 64, height: 64 },
+      signal,
+      toolsBrushSettings: settings,
+      strokeDitherPalette: ['#ffffff', '#000000'],
+      transparentInk: [0, 0, 0],
+      computeStrokeDitherPaletteForSettings: () => ['#ffffff', '#000000'],
+      pickTransparentInk: () => [0, 0, 0],
+      computePressureScaledResolution: () => pixelSize,
+      getStrokeDitherPixelSize: () => pixelSize,
+      applyLostEdgeToStrokeAlpha: jest.fn(),
+      ensureBgOffTemp: jest.fn(),
+      ensureBgOffHole: jest.fn(),
+      bgOffMaskImageRef: { current: null },
+      strokePhaseOriginRef: { current: null },
+      imageTileThresholdResolver,
+      DD: jest.fn(),
+    });
+    const output = putImageData.mock.calls.at(-1)?.[0] as ImageData;
+    expect(output).toBeDefined();
+    return { source, output };
+  };
+
+  it.each([1, 4])('spatially dithers opacity without applying it twice at resolution %i', (resolution) => {
+    const strengths = [0, 64, 128, 192, 255].map((alpha) => {
+      const { output } = renderMask(alpha, resolution);
+      let total = 0;
+      for (let y = 0; y < 64; y += 1) {
+        for (let x = 0; x < 64; x += 1) {
+          const i = (y * 64 + x) * 4;
+          const value = output.data[i + 3];
+          expect([0, 255]).toContain(value);
+          if (x < 8 || x >= 56 || y < 8 || y >= 56) expect(value).toBe(0);
+          else total += value;
+          if (value) expect(Array.from(output.data.subarray(i, i + 3))).toEqual([255, 255, 255]);
+        }
+      }
+      const mean = total / (48 * 48);
+      expect(Math.abs(mean - alpha)).toBeLessThan(12);
+      return mean;
+    });
+    expect(strengths[0]).toBe(0);
+    expect(strengths.at(-1)).toBe(255);
+    expect(strengths).toEqual([...strengths].sort((a, b) => a - b));
+  });
+
+  it.each([
+    'bayer', 'bayer-4x4', 'void-and-cluster', 'blue-noise',
+    'floyd-steinberg', 'jarvis-judice-ninke', 'stucki', 'burkes', 'atkinson',
+  ] as const)('preserves low and high erase strength with %s', (algorithm) => {
+    for (const resolution of [1, 4]) {
+      for (const alpha of [64, 192]) {
+        const { output } = renderMask(alpha, resolution, { ditherAlgorithm: algorithm });
+        let total = 0;
+        for (let i = 3; i < output.data.length; i += 4) total += output.data[i];
+        expect(Math.abs(total / (48 * 48) - alpha)).toBeLessThan(20);
+      }
+    }
+  });
+
+  it('averages nonzero coverage within coarse cells without extending zero geometry', () => {
+    const { source, output } = renderMask((x) => x % 4 === 0 ? 255 : x % 4 === 3 ? 0 : 1, 4);
+    let sourceTotal = 0;
+    let total = 0;
+    for (let i = 3; i < output.data.length; i += 4) {
+      sourceTotal += source.data[i];
+      total += output.data[i];
+      if (source.data[i] === 0) expect(output.data[i]).toBe(0);
+    }
+    expect(Math.abs(total - sourceTotal) / (48 * 48)).toBeLessThan(12);
+  });
+
+  it('keeps solid continuous opacity when background fill is on', () => {
+    const { source, output } = renderMask(128, 4, { ditherBackgroundFill: true });
+    expect(output.data).toEqual(source.data);
+  });
+
+  it('ignores painting tint and palette spread and is deterministic', () => {
+    const plain = renderMask(128, 4).output;
+    const tinted = renderMask(128, 4, { color: '#123456', ditherPaletteSpread: 100 }).output;
+    expect(tinted.data).toEqual(plain.data);
+    expect(renderMask(128, 4).output.data).toEqual(plain.data);
+  });
+
+  it.each(['bayer', 'pattern', 'sierra-lite'])('uses the selected %s algorithm for coverage', (algorithm) => {
+    const resolver = jest.fn((x: number) => x % 2 ? 1 : 0);
+    const { output } = renderMask(128, 1, {
+      ditherAlgorithm: algorithm as BrushSettings['ditherAlgorithm'],
+      patternStyle: 'image-tile',
+    }, 'alpha', resolver);
+    const alphas = Array.from(output.data).filter((_, i) => i % 4 === 3);
+    expect(alphas.filter(value => value === 255).length).toBeGreaterThan(500);
+    expect(alphas.filter(value => value === 255).length).toBeLessThan(1800);
+    if (algorithm === 'pattern') expect(resolver).toHaveBeenCalled();
+  });
+
+  it('retains the default color-brush source alpha contract', () => {
+    const { output } = renderMask(128, 1, { ditherBackgroundFill: true }, 'color');
+    expect(output.data[(12 * 64 + 12) * 4 + 3]).toBe(128);
+    expect(output.data[3]).toBe(0);
+  });
+});

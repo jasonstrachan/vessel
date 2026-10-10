@@ -31,7 +31,9 @@ export interface ShapeDrawingDependencies {
   createPixelCircleStamp?: (size: number) => HTMLCanvasElement | null;
   createPixelSquareStamp?: (size: number) => HTMLCanvasElement | null;
   getRotationTempContext?: (width: number, height: number) => CanvasRenderingContext2D | null;
+  getNativeAuthoredSupportContext?: (rawCtx: CanvasRenderingContext2D) => CanvasRenderingContext2D | null;
   getNextSpamChar?: () => string;
+  risographRandom?: () => number;
   rotatedStampCache?: RotatedStampCache;
   customPatternCache?: CustomPatternCache;
 }
@@ -66,6 +68,18 @@ export const drawShape = (
   
   if (!targetCtx) {
     return;
+  }
+
+  const supportCtx = deps?.getNativeAuthoredSupportContext?.(ctx);
+  if (supportCtx && (
+    supportCtx === ctx || pattern || antiAliasing || !(
+      shape === BrushShape.SQUARE ||
+      shape === BrushShape.ROUND ||
+      shape === BrushShape.PIXEL_ROUND ||
+      (shape === BrushShape.PIXEL_DITHER && settings?.brushSettings?.ditherStrokeTipShape === 'diamond5')
+    )
+  )) {
+    throw new Error('Native authored support requires a separate context and a native eraser tip.');
   }
 
   // Save the current composite operation before save() overwrites it
@@ -331,6 +345,7 @@ export const drawShape = (
   } else {
     drawStandardShape({
       targetCtx,
+      supportCtx,
       drawX,
       drawY,
       size,
@@ -348,7 +363,7 @@ export const drawShape = (
   if (risographIntensity > 0) {
     const risX = drawX;
     const risY = drawY;
-    applyRisographTexture(targetCtx, risX, risY, size, risographIntensity);
+    applyRisographTexture(targetCtx, risX, risY, size, risographIntensity, supportCtx, deps?.risographRandom);
   }
   
   targetCtx.restore();

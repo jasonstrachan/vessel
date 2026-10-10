@@ -12,6 +12,11 @@ jest.mock('@/extensions/studioExtension', () => ({
   },
 }));
 
+jest.mock('@/components/toolbar/ShapeFillControls', () => ({
+  __esModule: true,
+  default: () => <div data-testid="shape-fill-controls" />,
+}));
+
 const baseBrushSettings = {
   brushShape: BrushShape.SQUARE,
   customBrushSizePercent: 100,
@@ -19,8 +24,11 @@ const baseBrushSettings = {
   size: 12,
   spacing: 2,
   color: '#000000',
+  ditherEnabled: false,
+  pigmentLiftEnabled: false,
 };
 const mockStore = {
+  globalBrushSize: 12,
   currentBrushPreset: { id: 'pixel-square', name: 'Pixel' },
   tools: {
     brushSettings: { ...baseBrushSettings },
@@ -29,6 +37,7 @@ const mockStore = {
       brushShape: BrushShape.ROUND,
       size: 8,
       linkSizeToBrush: true,
+      ditherPaletteSpread: 0,
       color: '#ffffff',
     },
     currentTool: 'brush',
@@ -76,6 +85,32 @@ describe('BrushControls', () => {
     mockStore.currentBrushPreset = { id: 'pixel-square', name: 'Pixel' };
     mockStore.tools.brushSettings = { ...baseBrushSettings };
     mockStore.tools.currentTool = 'brush';
+  });
+
+  it.each(['brush', 'eraser'] as const)('keeps the %s maximum pressure display coherent when a clamp leaves the stored range unchanged', (tool) => {
+    const savedEraserSettings = { ...mockStore.tools.eraserSettings };
+    mockStore.tools.currentTool = tool;
+    Object.assign(mockStore.tools.brushSettings, {
+      pressureEnabled: true,
+      minPressure: 1000,
+      maxPressure: 1000,
+    });
+    Object.assign(mockStore.tools.eraserSettings, {
+      pressureEnabled: true,
+      minPressure: 1000,
+      maxPressure: 1000,
+    });
+
+    const { unmount } = render(<BrushControls />);
+    const maximum = screen.getByRole('spinbutton', { name: 'Pressure maximum percent' });
+    fireEvent.change(maximum, { target: { value: '0' } });
+    fireEvent.blur(maximum);
+
+    expect(maximum).toHaveValue(1000);
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+    unmount();
+    mockStore.tools.eraserSettings = savedEraserSettings;
   });
 
   it('shows the combined pixel tip selector first and selects the round tip', () => {
@@ -139,6 +174,226 @@ describe('BrushControls', () => {
     fireEvent.blur(sizeSlider);
 
     expect(mockStore.setGlobalBrushSize).toHaveBeenCalled();
+  });
+
+  it('displays and edits independent eraser size without resizing the brush', () => {
+    mockStore.tools.currentTool = 'eraser';
+    mockStore.tools.eraserSettings = {
+      ...mockStore.tools.eraserSettings,
+      linkSizeToBrush: false,
+      size: 40,
+    };
+
+    try {
+      render(<BrushControls />);
+      const sizeSlider = screen.getByLabelText('Brush Size (px)');
+      expect(sizeSlider).toHaveValue('40');
+
+      fireEvent.change(sizeSlider, { target: { value: '50' } });
+      fireEvent.blur(sizeSlider);
+
+      expect(mockStore.setEraserSettings).toHaveBeenCalledWith({ size: 50 });
+      expect(mockStore.setGlobalBrushSize).not.toHaveBeenCalled();
+      expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+    } finally {
+      mockStore.tools.eraserSettings = {
+        ...mockStore.tools.eraserSettings,
+        linkSizeToBrush: true,
+        size: 8,
+      };
+    }
+  });
+
+  it.each([
+    ['dither-grad', 'Dither Grad', BrushShape.DITHER_GRADIENT],
+    ['shape-fill', 'Shape Pattern', BrushShape.SHAPE_FILL],
+  ] as const)('shows working eraser controls after selecting %s', (id, name, brushShape) => {
+    mockStore.currentBrushPreset = { id, name };
+    mockStore.tools.brushSettings = { ...baseBrushSettings, brushShape };
+    mockStore.tools.currentTool = 'eraser';
+
+    render(<BrushControls />);
+
+    expect(screen.queryByTestId('shape-fill-controls')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Dither Gradient drawing shape' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Square$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Round$/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Diamond5$/ }));
+    expect(mockStore.setEraserSettings).toHaveBeenCalledWith({
+      brushShape: BrushShape.PIXEL_DITHER,
+      ditherStrokeTipShape: 'diamond5',
+      antialiasing: false,
+    });
+
+    const sizeSlider = screen.getByLabelText('Brush Size (px)');
+    fireEvent.change(sizeSlider, { target: { value: '20' } });
+    fireEvent.blur(sizeSlider);
+    expect(mockStore.setEraserSettings).toHaveBeenCalledWith({ size: 20 });
+
+    const opacitySlider = screen.getByLabelText('Opacity');
+    fireEvent.change(opacitySlider, { target: { value: '0.5' } });
+    fireEvent.blur(opacitySlider);
+    expect(mockStore.setEraserSettings).toHaveBeenCalledWith({ opacity: 0.5 });
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['pixel-square', BrushShape.SQUARE],
+    ['dither-stroke', BrushShape.PIXEL_DITHER],
+    ['dither-shape', BrushShape.PIXEL_DITHER],
+    ['dither-grad', BrushShape.DITHER_GRADIENT],
+    ['shape-fill', BrushShape.SHAPE_FILL],
+  ] as const)('keeps eraser dithering independent of the %s painting preset', (id, brushShape) => {
+    mockStore.currentBrushPreset = { id, name: id };
+    mockStore.tools.brushSettings = { ...baseBrushSettings, brushShape, ditherEnabled: true };
+    mockStore.tools.eraserSettings = { ...mockStore.tools.eraserSettings, ditherEnabled: false };
+    mockStore.tools.currentTool = 'eraser';
+
+    const { rerender } = render(<BrushControls key="dither-off" />);
+    const ditherRow = screen.getByText('Dither', { selector: 'label' }).parentElement;
+    const ditherSwitch = ditherRow?.querySelector('input[type="checkbox"]');
+
+    expect(ditherSwitch).toBeInTheDocument();
+    expect(ditherSwitch).not.toBeChecked();
+    expect(screen.queryByLabelText('Dither Resolution')).not.toBeInTheDocument();
+
+    fireEvent.click(ditherSwitch!);
+    expect(mockStore.setEraserSettings).toHaveBeenLastCalledWith({ ditherEnabled: true });
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+
+    mockStore.tools.eraserSettings = { ...mockStore.tools.eraserSettings, ditherEnabled: true };
+    rerender(<BrushControls key="dither-on" />);
+
+    const enabledDitherSwitch = screen.getByText('Dither', { selector: 'label' })
+      .parentElement?.querySelector('input[type="checkbox"]');
+    expect(enabledDitherSwitch).toBeChecked();
+    expect(screen.getAllByLabelText('Dither Resolution')).not.toHaveLength(0);
+    fireEvent.click(enabledDitherSwitch!);
+    expect(mockStore.setEraserSettings).toHaveBeenLastCalledWith({ ditherEnabled: false });
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+    expect(mockStore.tools.brushSettings.ditherEnabled).toBe(true);
+    mockStore.tools.eraserSettings = { ...mockStore.tools.eraserSettings, ditherEnabled: false };
+  });
+
+  it('preserves forced-on painting dither controls for the Dither Stroke preset', () => {
+    mockStore.currentBrushPreset = { id: 'dither-stroke', name: 'Dither Stroke' };
+    mockStore.tools.brushSettings = { ...baseBrushSettings, brushShape: BrushShape.PIXEL_DITHER };
+
+    render(<BrushControls />);
+
+    expect(screen.queryByText('Dither', { selector: 'label' })).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('Dither Resolution')).not.toHaveLength(0);
+    expect(mockStore.setBrushSettings).toHaveBeenCalledWith({ ditherEnabled: true });
+  });
+
+  it.each([false, true])('hides unsupported eraser Riso hue and edges with dithering %s while keeping intensity usable', (ditherEnabled) => {
+    const previousEraserSettings = { ...mockStore.tools.eraserSettings };
+    mockStore.tools.currentTool = 'eraser';
+    Object.assign(mockStore.tools.eraserSettings, {
+      brushShape: BrushShape.SQUARE,
+      ditherEnabled,
+      risographIntensity: 100,
+      risographColorShift: 10,
+      risographOutline: true,
+    });
+    const savedEraserSettings = { ...mockStore.tools.eraserSettings };
+
+    try {
+      render(<BrushControls />);
+
+      expect(screen.queryByLabelText('Riso Hue Jitter')).not.toBeInTheDocument();
+      expect(screen.queryByRole('checkbox', { name: 'Edges' })).not.toBeInTheDocument();
+      expect(mockStore.tools.eraserSettings).toEqual(savedEraserSettings);
+      expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+      expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+
+      const intensity = screen.getByLabelText('Risograph Intensity');
+      expect(intensity).toHaveValue('100');
+      fireEvent.change(intensity, { target: { value: '50' } });
+      fireEvent.blur(intensity);
+      expect(mockStore.setEraserSettings).toHaveBeenLastCalledWith({ risographIntensity: 50 });
+      expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+      expect(mockStore.tools.eraserSettings).toEqual(savedEraserSettings);
+    } finally {
+      mockStore.tools.eraserSettings = previousEraserSettings;
+    }
+  });
+
+  it('keeps painting Riso hue and edges usable without changing eraser settings', () => {
+    Object.assign(mockStore.tools.brushSettings, {
+      risographIntensity: 100,
+      risographColorShift: 10,
+      risographOutline: true,
+    });
+    const savedEraserSettings = { ...mockStore.tools.eraserSettings };
+
+    render(<BrushControls />);
+
+    const hue = screen.getByLabelText('Riso Hue Jitter');
+    expect(hue).toHaveValue('10');
+    fireEvent.change(hue, { target: { value: '7' } });
+    fireEvent.blur(hue);
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ risographColorShift: 7 });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Edges' }));
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ risographOutline: false });
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+    expect(mockStore.tools.eraserSettings).toEqual(savedEraserSettings);
+  });
+
+  it.each([false, true])('hides unsupported eraser pigment lift controls with dithering %s', (ditherEnabled) => {
+    mockStore.tools.currentTool = 'eraser';
+    mockStore.tools.eraserSettings = {
+      ...mockStore.tools.eraserSettings,
+      ditherEnabled,
+      pigmentLiftEnabled: true,
+    };
+    const savedEraserSettings = { ...mockStore.tools.eraserSettings };
+
+    render(<BrushControls />);
+
+    expect(screen.queryByText('PigLift', { selector: 'label' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pigment Lift Strength')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pigment Lift Feather')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pigment Lift Texture')).not.toBeInTheDocument();
+    expect(mockStore.tools.eraserSettings).toEqual(savedEraserSettings);
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+  });
+
+  it('hides color-only palette spread for erasers and retains it for painting', () => {
+    mockStore.tools.currentTool = 'eraser';
+    mockStore.tools.eraserSettings = { ...mockStore.tools.eraserSettings, ditherPaletteSpread: 75 };
+    const { rerender } = render(<BrushControls key="eraser-spread" />);
+
+    expect(screen.queryByLabelText('Dither Palette Spread')).not.toBeInTheDocument();
+    expect(mockStore.tools.eraserSettings.ditherPaletteSpread).toBe(75);
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+
+    mockStore.tools.currentTool = 'brush';
+    rerender(<BrushControls key="brush-spread" />);
+    const spread = screen.getByLabelText('Dither Palette Spread');
+    fireEvent.change(spread, { target: { value: '50' } });
+    fireEvent.blur(spread);
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ ditherPaletteSpread: 50 });
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+  });
+
+  it('keeps pigment lift controls available for painting', () => {
+    mockStore.tools.brushSettings = {
+      ...baseBrushSettings,
+      ditherEnabled: true,
+      pigmentLiftEnabled: true,
+    };
+
+    render(<BrushControls />);
+
+    expect(screen.getByText('PigLift', { selector: 'label' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Pigment Lift Strength')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pigment Lift Feather')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pigment Lift Texture')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'PigLift' }));
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ pigmentLiftEnabled: false });
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
   });
 
   it.each(['eraser', 'color-picker'] as const)(

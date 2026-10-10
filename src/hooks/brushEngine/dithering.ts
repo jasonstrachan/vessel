@@ -31,6 +31,7 @@ export const applyDithering = (
   phaseOffset?: { x: number; y: number },
   imageTileThresholdResolver?: (x: number, y: number) => number | null,
   sierraLiteVariety?: SierraLiteVariety,
+  signal: DitherSettings['signal'] = 'color',
 ): ImageData => {
   const palette = resolveDitherPalette(imageData, numColors, customPalette);
   const resolvedAlgorithm = (algorithm as DitherAlgorithmType) || 'sierra-lite';
@@ -81,6 +82,7 @@ export const applyDithering = (
       : undefined,
     imageTileThresholdResolver,
     sierraLiteVariety,
+    signal,
   };
 
   const dithered = applyPressureDither(input, ditherSettings);
@@ -242,6 +244,7 @@ export const applyDitheringWithFillResolution = (
   phaseOffset?: { x: number; y: number },
   imageTileThresholdResolver?: (x: number, y: number) => number | null,
   sierraLiteVariety?: SierraLiteVariety,
+  signal: DitherSettings['signal'] = 'color',
 ): ImageData => {
   const pixelSize = Math.max(1, Math.floor(fillResolution));
   const resolvedAlgorithm = algorithm || 'sierra-lite';
@@ -256,6 +259,7 @@ export const applyDitheringWithFillResolution = (
       phaseOffset,
       imageTileThresholdResolver,
       sierraLiteVariety,
+      signal,
     );
   }
 
@@ -266,6 +270,7 @@ export const applyDitheringWithFillResolution = (
       pixelSize,
       customPalette,
       sierraLiteVariety,
+      signal,
     );
   }
 
@@ -279,6 +284,7 @@ export const applyDitheringWithFillResolution = (
     phaseOffset,
     imageTileThresholdResolver,
     sierraLiteVariety,
+    signal,
   );
 };
 
@@ -288,6 +294,7 @@ const applySierraLiteDitherWithPixelSize = (
   pixelSize: number,
   customPalette?: string[],
   sierraLiteVariety?: SierraLiteVariety,
+  signal: DitherSettings['signal'] = 'color',
 ): ImageData => {
   return downsampleDitherAndScale(
     imageData,
@@ -299,6 +306,7 @@ const applySierraLiteDitherWithPixelSize = (
     undefined,
     undefined,
     sierraLiteVariety,
+    signal,
   );
 };
 
@@ -312,8 +320,9 @@ const downsampleDitherAndScale = (
   phaseOffset?: { x: number; y: number },
   imageTileThresholdResolver?: (x: number, y: number) => number | null,
   sierraLiteVariety?: SierraLiteVariety,
+  signal: DitherSettings['signal'] = 'color',
 ): ImageData => {
-  const downsampled = createDownsampledImageData(imageData, pixelSize);
+  const downsampled = createDownsampledImageData(imageData, pixelSize, signal);
   const resolvedPhase = phaseOffset
     ? {
         x: Math.floor(phaseOffset.x / pixelSize),
@@ -329,11 +338,12 @@ const downsampleDitherAndScale = (
     resolvedPhase,
     imageTileThresholdResolver,
     sierraLiteVariety,
+    signal,
   );
   return expandNearestNeighbor(dithered, imageData.width, imageData.height, pixelSize);
 };
 
-const createDownsampledImageData = (imageData: ImageData, blockSize: number): ImageData => {
+const createDownsampledImageData = (imageData: ImageData, blockSize: number, signal: DitherSettings['signal']): ImageData => {
   const width = imageData.width;
   const height = imageData.height;
   const blockWidth = Math.max(1, Math.ceil(width / blockSize));
@@ -350,12 +360,18 @@ const createDownsampledImageData = (imageData: ImageData, blockSize: number): Im
       const endX = Math.min(startX + blockSize, width);
 
       let bestA = -1;
+      let coverageSum = 0;
+      let supportedCount = 0;
       let r = 0, g = 0, b = 0, a = 0;
 
       for (let y = startY; y < endY; y++) {
         for (let x = startX; x < endX; x++) {
           const idx = (y * width + x) * 4;
           const alpha = source[idx + 3];
+          if (signal === 'alpha' && alpha > 0) {
+            coverageSum += source[idx];
+            supportedCount += 1;
+          }
           if (alpha > bestA) {
             bestA = alpha;
             r = source[idx];
@@ -364,6 +380,11 @@ const createDownsampledImageData = (imageData: ImageData, blockSize: number): Im
             a = alpha;
           }
         }
+      }
+
+      // Coverage cells average only supported pixels; raw geometry is clipped after expansion.
+      if (signal === 'alpha' && supportedCount > 0) {
+        r = g = b = coverageSum / supportedCount;
       }
 
       const target = (by * blockWidth + bx) * 4;

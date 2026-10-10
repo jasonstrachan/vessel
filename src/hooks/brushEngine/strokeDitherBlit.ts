@@ -48,7 +48,11 @@ export const blitDitheredRegionWithOverlay = ({
   if (bgOff && clearBgOffOnTarget) {
     if (isDitherStrokeBrush && baseCanvas) {
       ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, width, height);
+      ctx.clip();
       ctx.globalCompositeOperation = 'copy';
+      ctx.globalAlpha = 1;
       ctx.drawImage(
         baseCanvas as CanvasImageSource,
         x, y, width, height,

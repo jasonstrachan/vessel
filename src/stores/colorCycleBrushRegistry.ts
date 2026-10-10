@@ -634,8 +634,8 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     }
 
     const context: ColorCycleLayerActivationBrushContext = {
-      endStroke: typeof brush.endStroke === 'function'
-        ? brush.endStroke.bind(brush)
+      finalizeCurrentStroke: typeof brush.finalizeCurrentStroke === 'function'
+        ? brush.finalizeCurrentStroke.bind(brush)
         : undefined,
       setActiveLayer: typeof brush.setActiveLayer === 'function'
         ? brush.setActiveLayer.bind(brush)

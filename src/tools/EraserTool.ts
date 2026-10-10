@@ -2,7 +2,7 @@ import type { Layer } from '@/types';
 import { BrushShape } from '@/types';
 import { ROITracker, type ROI } from '@/utils/ROITracker';
 import type { MaskManager } from '@/layers/MaskManager';
-import type { BrushStampSource } from './stamps/BrushStampSource';
+import type { BrushStampMotion, BrushStampSource } from './stamps/BrushStampSource';
 import { RasterEraseStrategy } from './strategies/RasterEraseStrategy';
 import {
   CCMaskEraseStrategy,
@@ -13,12 +13,15 @@ import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacad
 import { observeCanvasAuthoring, type CanvasAuthoringObservation } from '@/utils/canvasAuthoringObserver';
 import type { SelectionRasterScopeInput } from '@/stores/helpers/selectionRoi';
 import { getSelectionMaskContourPath } from '@/utils/selectionMaskContourPath';
+import { calculatePressureAwareGridSpacing } from '@/hooks/brushEngine/utilities';
+import { snapPointToGrid, type GridSpacing } from '@/hooks/brushEngine/gridStroke';
+import { getNativeRisographStampRadius } from '@/hooks/brushEngine/shapeRisographEffect';
 
 export type CanvasPoint = { x: number; y: number };
 
 export interface StrokeTool {
   begin(point: CanvasPoint, pressure?: number): void;
-  move(point: CanvasPoint, pressure?: number, from?: CanvasPoint | null): void;
+  move(point: CanvasPoint, pressure?: number, from?: CanvasPoint | null, motion?: BrushStampMotion): void;
   end(): void | Promise<void>;
   cancel(): void;
   getROI(): ROI | null;
@@ -40,6 +43,10 @@ export interface EraserToolDeps {
     minPressure: number;
     maxPressure: number;
     brushShape: BrushShape;
+    rotationEnabled?: boolean;
+    risographIntensity?: number;
+    gridSnapEnabled?: boolean;
+    gridSnapSize?: number;
     customStamp?: CustomBrushStrokeData;
   };
 }
@@ -53,10 +60,11 @@ export class EraserTool implements StrokeTool {
 
   private readonly roi = new ROITracker();
   private strategy: EraseStrategy;
-  private stampSource: BrushStampSource | null;
+  private readonly stampSource: BrushStampSource;
   private activeContext: CanvasRenderingContext2D | null = null;
   private isActive = false;
   private observation: CanvasAuthoringObservation | null = null;
+  private gridSpacing: GridSpacing | null = null;
 
   constructor(layer: Layer, options: EraserToolOptions, deps: EraserToolDeps) {
     this.layer = layer;
@@ -64,15 +72,21 @@ export class EraserTool implements StrokeTool {
     this.deps = deps;
     const isColorCycleLayer = layer.layerType === 'color-cycle';
     if (!isColorCycleLayer) this.observation = observeCanvasAuthoring(deps.overlayCtx, { layerId: layer.id, operation: 'destination-out' });
-    this.stampSource = isColorCycleLayer ? null : deps.createStampSource();
+    this.stampSource = deps.createStampSource();
     this.strategy = isColorCycleLayer
-      ? new CCMaskEraseStrategy(deps.maskManager, layer.id, deps.getBrushSettings, deps.overlayCtx)
+      ? new CCMaskEraseStrategy(deps.maskManager, layer.id)
       : new RasterEraseStrategy(this.observation?.context ?? deps.overlayCtx);
   }
 
   begin(point: CanvasPoint, pressure = 1): void {
     this.roi.reset();
     this.isActive = true;
+    const settings = this.deps.getBrushSettings();
+    // The renderer latches pressure-aware snap spacing at the first stamp.
+    const spacing = settings.gridSnapEnabled
+      ? calculatePressureAwareGridSpacing(settings, pressure)
+      : null;
+    this.gridSpacing = spacing === null ? null : { x: spacing, y: spacing };
 
     const target = this.layer.layerType === 'color-cycle' ? this.layer : this.deps.overlayCtx;
     const ctx = this.strategy.begin(target, { opacity: this.options.opacity });
@@ -80,24 +94,23 @@ export class EraserTool implements StrokeTool {
     if (ctx) {
       // Clip the authoring target, so raster pixels, CC masks and sequence diffs agree.
       this.applySelectionClip(ctx);
-    }
-    if (ctx && this.stampSource) {
-      this.stampSource.begin(ctx, point, pressure);
-    } else if (ctx) {
-      // Color-cycle erasing uses the mask strategy directly, so stamp once on pointer-down
-      // to keep taps and the first preview frame visible before any move event arrives.
-      this.strategy.stamp(point, point, pressure, null);
+      this.stampSource.begin(
+        ctx,
+        point,
+        pressure,
+        this.layer.layerType === 'color-cycle' ? { target: 'erase-mask' } : undefined,
+      );
     }
 
     this.recordROI(null, point);
   }
 
-  move(point: CanvasPoint, pressure = 1, from?: CanvasPoint | null): void {
+  move(point: CanvasPoint, pressure = 1, from?: CanvasPoint | null, motion?: BrushStampMotion): void {
     if (!this.isActive || !this.activeContext) {
       return;
     }
-    const lastPoint = from ?? this.stampSource?.last() ?? null;
-    this.strategy.stamp(lastPoint ?? point, point, pressure, this.stampSource);
+    const lastPoint = from ?? this.stampSource.last() ?? null;
+    this.strategy.stamp(lastPoint ?? point, point, pressure, this.stampSource, motion);
     this.recordROI(lastPoint, point);
   }
 
@@ -105,11 +118,14 @@ export class EraserTool implements StrokeTool {
     if (!this.isActive) {
       return;
     }
-    this.strategy.end(cancelled);
-    this.stampSource?.end();
-    this.observation?.finish(cancelled);
-    this.isActive = false;
-    this.activeContext = null;
+    try {
+      this.stampSource.end(cancelled);
+    } finally {
+      this.strategy.end(cancelled);
+      this.observation?.finish(cancelled);
+      this.isActive = false;
+      this.activeContext = null;
+    }
   }
 
   cancel(): void {
@@ -142,10 +158,12 @@ export class EraserTool implements StrokeTool {
 
   private recordROI(from: CanvasPoint | null, to: CanvasPoint): void {
     const padding = this.computeRoiPadding();
+    const authoredTo = this.gridSpacing ? snapPointToGrid(to, this.gridSpacing) : to;
     if (from) {
-      this.roi.addSegment(from, to, padding);
+      const authoredFrom = this.gridSpacing ? snapPointToGrid(from, this.gridSpacing) : from;
+      this.roi.addSegment(authoredFrom, authoredTo, padding);
     } else {
-      this.roi.addPoint(to, padding);
+      this.roi.addPoint(authoredTo, padding);
     }
   }
 
@@ -170,7 +188,15 @@ export class EraserTool implements StrokeTool {
 
     size = resolveCCMaskEraserStampSize(size, snapshot.brushShape);
 
-    const brushPadding = Math.ceil(size / 2) + ROI_PADDING;
+    // Cornered stamps can reach their circumscribed radius at any rotation.
+    const hasRotatedCorners = snapshot.rotationEnabled &&
+      (snapshot.brushShape === BrushShape.SQUARE || snapshot.brushShape === BrushShape.PIXEL_DITHER);
+    const radius = hasRotatedCorners ? Math.hypot(size, size) / 2 : size / 2;
+    const risographIntensity = snapshot.risographIntensity ?? 0;
+    const textureRadius = risographIntensity > 0
+      ? getNativeRisographStampRadius(size, risographIntensity)
+      : 0;
+    const brushPadding = Math.max(Math.ceil(radius) + ROI_PADDING, textureRadius);
     return Math.max(basePadding, brushPadding);
   }
 }

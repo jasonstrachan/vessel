@@ -12,7 +12,7 @@ import {
 } from '@/history/errors';
 import { commitLayerHistory } from '@/history/helpers/layerHistory';
 import { useAppStore } from '@/stores/useAppStore';
-import type { Layer, LayerAlignmentSettings } from '@/types';
+import type { Layer, LayerAlignmentSettings, Project } from '@/types';
 
 const DEFAULT_ALIGNMENT: LayerAlignmentSettings = {
   fit: 'none',
@@ -742,5 +742,128 @@ describe('eraser history persistence', () => {
         rects: [{ x: 0, y: 0, width: 2, height: 2 }],
       },
     ]);
+  });
+});
+
+describe('bitmap history auto alignment', () => {
+  const size = 8;
+  const edges = [
+    { name: 'top', roi: { x: 0, y: 0, width: size, height: 1 }, percent: { x: 50, y: 100 } },
+    { name: 'right', roi: { x: size - 1, y: 0, width: 1, height: size }, percent: { x: 0, y: 50 } },
+    { name: 'bottom', roi: { x: 0, y: size - 1, width: size, height: 1 }, percent: { x: 50, y: 0 } },
+    { name: 'left', roi: { x: 0, y: 0, width: 1, height: size }, percent: { x: 100, y: 50 } },
+  ];
+
+  beforeEach(() => {
+    resetHistoryAndStore();
+    const project: Project = {
+      id: 'bitmap-alignment-project',
+      name: 'Bitmap alignment',
+      width: size,
+      height: size,
+      layers: [],
+      backgroundColor: 'transparent',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      customBrushes: [],
+    };
+    useAppStore.setState({ project });
+  });
+
+  afterEach(() => {
+    resetHistoryAndStore();
+  });
+
+  const prepareEdgeErase = async (
+    edge: typeof edges[number],
+    alignment: LayerAlignmentSettings = { ...DEFAULT_ALIGNMENT, fit: 'contain', positioning: 'auto' },
+  ) => {
+    const filled = new ImageData(size, size);
+    for (let index = 0; index < filled.data.length; index += 4) {
+      filled.data.set([255, 0, 0, 255], index);
+    }
+    const layer = { ...createLayer(`alignment-${edge.name}`, filled), alignment };
+    installLayer(layer);
+    const source = document.createElement('canvas');
+    source.width = source.height = size;
+    const ctx = source.getContext('2d')!;
+    ctx.putImageData(filled, 0, 0);
+    await useAppStore.getState().captureCanvasToActiveLayer(source, undefined, { mode: 'replace' });
+    const before = useAppStore.getState().layers[0];
+    const beforeAlignment = before.alignment;
+    const beforeImage = cloneImage(before.imageData!);
+    const { x, y, width, height } = edge.roi;
+    const beforeRoi = ctx.getImageData(x, y, width, height);
+    ctx.clearRect(x, y, width, height);
+    await useAppStore.getState().captureCanvasToActiveLayer(source, edge.roi, { mode: 'replace' });
+    const after = useAppStore.getState().layers[0];
+    const afterImage = cloneImage(after.imageData!);
+    const { imageData: _image, framebuffer: _framebuffer, ...afterMetadata } = after;
+    void _image;
+    void _framebuffer;
+    await commitLayerHistory({
+      layerId: layer.id,
+      beforeImage: beforeRoi,
+      beforeColorState: null,
+      actionType: 'eraser',
+      description: 'Erase full raster edge',
+      tool: 'eraser',
+      bitmapRoi: edge.roi,
+      bitmapSize: { width: size, height: size },
+    });
+    const expectState = (image: ImageData, expectedAlignment: LayerAlignmentSettings) => {
+      const current = useAppStore.getState().layers[0];
+      expect(current.imageData?.data).toEqual(image.data);
+      const framebuffer = current.framebuffer!.getContext('2d') as CanvasRenderingContext2D;
+      expect(framebuffer.getImageData(0, 0, size, size).data).toEqual(image.data);
+      const { imageData: _currentImage, framebuffer: _currentFramebuffer, ...metadata } = current;
+      void _currentImage;
+      void _currentFramebuffer;
+      expect(metadata).toEqual({ ...afterMetadata, alignment: expectedAlignment });
+    };
+    return { beforeAlignment, beforeImage, afterAlignment: after.alignment, afterImage, expectState };
+  };
+
+  it.each(edges)('refreshes derived offsets when undoing and redoing a $name edge erase', async (edge) => {
+    const fixture = await prepareEdgeErase(edge);
+    expect(fixture.beforeAlignment.offsetPercent).toEqual({ x: 50, y: 50 });
+    expect(fixture.beforeAlignment.offsetPx).toEqual({ x: 4, y: 4 });
+    expect(fixture.afterAlignment.offsetPercent).toEqual(edge.percent);
+    expect(fixture.afterAlignment.offsetPx).toEqual({
+      x: edge.percent.x * size / 100,
+      y: edge.percent.y * size / 100,
+    });
+    await historyManager.undo();
+    fixture.expectState(fixture.beforeImage, fixture.beforeAlignment);
+    await historyManager.redo();
+    fixture.expectState(fixture.afterImage, fixture.afterAlignment);
+  });
+
+  it('preserves manual offsets and other current metadata during bitmap undo and redo', async () => {
+    const alignment: LayerAlignmentSettings = {
+      ...DEFAULT_ALIGNMENT,
+      fit: 'contain',
+      offsetPx: { x: 3, y: -2 },
+      offsetPercent: { x: 37, y: -25 },
+    };
+    const fixture = await prepareEdgeErase(edges[0], alignment);
+    expect(fixture.beforeAlignment).toEqual(alignment);
+    expect(fixture.afterAlignment).toEqual(alignment);
+    await historyManager.undo();
+    fixture.expectState(fixture.beforeImage, alignment);
+    await historyManager.redo();
+    fixture.expectState(fixture.afterImage, alignment);
+  });
+
+  it('restores derived offsets consistently when a prepared bitmap replay is compensated', async () => {
+    const fixture = await prepareEdgeErase(edges[0]);
+    const entry = historyManager.entries()[0]!;
+    expect(entry.deltas).toHaveLength(1);
+    const prepared = await entry.deltas[0].prepare('backward');
+    await prepared.apply();
+    fixture.expectState(fixture.beforeImage, fixture.beforeAlignment);
+    expect(prepared.requiresCompensation()).toBe(true);
+    await prepared.compensate();
+    fixture.expectState(fixture.afterImage, fixture.afterAlignment);
   });
 });

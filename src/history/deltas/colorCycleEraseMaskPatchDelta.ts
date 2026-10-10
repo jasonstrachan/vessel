@@ -31,6 +31,8 @@ export interface ColorCycleEraseMaskPatchDeltaOptions {
   backwardState: ColorCycleSerializedState;
   beforeVersion?: number;
   afterVersion?: number;
+  /** Set false when an indexed delta in the same transaction restores these anchors. */
+  restoreDocumentAnchors?: boolean;
 }
 
 const encodeRLE = (input: Uint8Array): Uint8Array => {
@@ -152,6 +154,9 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
   private readonly backwardVersion: number;
   private readonly beforeVersion?: number;
   private readonly afterVersion?: number;
+  private readonly beforePixelVersion?: number;
+  private readonly afterPixelVersion?: number;
+  private readonly restoreDocumentAnchors: boolean;
 
   constructor(options: {
     layerId: string;
@@ -162,6 +167,9 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
     backwardVersion: number;
     beforeVersion?: number;
     afterVersion?: number;
+    beforePixelVersion?: number;
+    afterPixelVersion?: number;
+    restoreDocumentAnchors: boolean;
   }) {
     this.layerId = options.layerId;
     this.roi = options.roi;
@@ -171,6 +179,9 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
     this.backwardVersion = options.backwardVersion;
     this.beforeVersion = options.beforeVersion;
     this.afterVersion = options.afterVersion;
+    this.beforePixelVersion = options.beforePixelVersion;
+    this.afterPixelVersion = options.afterPixelVersion;
+    this.restoreDocumentAnchors = options.restoreDocumentAnchors;
     this.approxBytes = this.forwardMask.approxBytes + this.backwardMask.approxBytes;
   }
 
@@ -293,6 +304,18 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
         }
       );
     }
+    const targetDocumentVersion = direction === 'forward' ? this.afterVersion : this.beforeVersion;
+    const targetPixelVersion = direction === 'forward' ? this.afterPixelVersion : this.beforePixelVersion;
+    if (
+      this.restoreDocumentAnchors &&
+      (typeof targetDocumentVersion === 'number' || typeof targetPixelVersion === 'number')
+    ) {
+      // Mask-only entries may omit an unchanged indexed patch, which normally restores these anchors.
+      getColorCycleBrushManager().getDocument(this.layerId)?.rebaseVersionAnchors({
+        version: targetDocumentVersion,
+        pixelVersion: targetPixelVersion,
+      });
+    }
     useAppStore.setState({ layersNeedRecomposition: true });
   }
 
@@ -343,5 +366,8 @@ export const createColorCycleEraseMaskPatchDelta = async (
     backwardVersion: backwardMask.version,
     beforeVersion: options.beforeVersion ?? options.backwardState?.documentVersion,
     afterVersion: options.afterVersion ?? options.forwardState?.documentVersion,
+    beforePixelVersion: options.backwardState?.pixelVersion,
+    afterPixelVersion: options.forwardState?.pixelVersion,
+    restoreDocumentAnchors: options.restoreDocumentAnchors ?? true,
   });
 };

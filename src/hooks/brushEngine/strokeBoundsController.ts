@@ -4,6 +4,7 @@ import { resolvePressureSizing } from '@/utils/pressureSizing';
 
 import type { Rect } from './engineShared';
 import { DEFAULT_MOSAIC_SIZE } from './mosaic';
+import { calculatePressureAwareGridSpacing } from './utilities';
 
 type CustomBrushData = {
   width?: number;
@@ -72,7 +73,12 @@ export const estimateStrokeBounds = ({
 
   const spacing = brushSettings.spacing || 0;
   const halfExtent = Math.max(1, effectiveSize * 0.5);
-  const safetyMargin = Math.max(halfExtent, spacing * 0.5, 32);
+  // Snap spacing is latched on the first stamp, which may have higher pressure
+  // than this segment. Any authored center can move up to half that grid cell.
+  const snapDisplacement = brushSettings.gridSnapEnabled
+    ? calculatePressureAwareGridSpacing(brushSettings, 1) * 0.5
+    : 0;
+  const safetyMargin = Math.max(halfExtent, spacing * 0.5, snapDisplacement, 32);
   const padding = halfExtent + safetyMargin;
 
   const minX = Math.min(from.x, to.x);

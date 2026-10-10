@@ -21,6 +21,7 @@ import {
 import { useAppStore } from '@/stores/useAppStore';
 import { BrushShape, type Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
+import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
 
 const LAYER_GROUPS_COLLAPSED_STORAGE_KEY = 'vessel-layer-groups-collapsed';
 const GROUP_DRAG_PAYLOAD_PREFIX = 'group:';
@@ -1038,12 +1039,16 @@ const LayersPanel: React.FC = () => {
     setLayerDropTarget(null);
   }, []);
 
-  const handleRowClick = React.useCallback((event: React.MouseEvent, layerId: string) => {
+  const handleRowClick = React.useCallback(async (event: React.MouseEvent, layerId: string) => {
+    const preserveSelection = event.shiftKey;
+    // The source layer must own capture and history before activation changes its context.
+    await flushPendingToolWork();
     // Shift+click adds the layer to the current selection without toggling others.
-    if (event.shiftKey) {
-      const nextSelection = selectedLayerIds.includes(layerId)
-        ? selectedLayerIds
-        : [...selectedLayerIds, layerId];
+    if (preserveSelection) {
+      const currentSelection = getAppStoreState().selectedLayerIds;
+      const nextSelection = currentSelection.includes(layerId)
+        ? currentSelection
+        : [...currentSelection, layerId];
       setSelectedLayerIds(nextSelection);
       setActiveLayer(layerId, { preserveSelection: true });
       setLayerMenuState(null);
@@ -1054,7 +1059,7 @@ const LayersPanel: React.FC = () => {
     setActiveLayer(layerId);
     setSelectedLayerIds([layerId]);
     setLayerMenuState(null);
-  }, [selectedLayerIds, setActiveLayer, setLayerMenuState, setSelectedLayerIds]);
+  }, [setActiveLayer, setLayerMenuState, setSelectedLayerIds]);
 
   const generateGradientCSS = React.useCallback((gradient?: Array<{ position: number; color: string }>) => {
     if (!gradient || gradient.length === 0) {

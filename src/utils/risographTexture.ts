@@ -14,14 +14,35 @@ const clamp01 = (value: number): number => {
   return value;
 };
 
-// Simple seeded RNG (mulberry32) for deterministic pattern generation
-const mulberry32 = (seed: number) => {
-  let t = seed >>> 0;
+const mulberry32Value = (state: number): number => {
+  let result = Math.imul(state ^ (state >>> 15), 1 | state);
+  result ^= result + Math.imul(result ^ (result >>> 7), 61 | result);
+  return ((result ^ (result >>> 14)) >>> 0) / 4294967296;
+};
+
+export interface ForkableSeededRng {
+  next: () => number;
+  fork: () => ForkableSeededRng;
+}
+
+/** Forks native texture randomness without advancing the admitted stroke's stream. */
+export const createForkableSeededRng = (seed: number): ForkableSeededRng => {
+  let state = seed >>> 0;
+  return {
+    next: () => {
+      state = (state + 0x6d2b79f5) >>> 0;
+      return mulberry32Value(state);
+    },
+    fork: () => createForkableSeededRng(state),
+  };
+};
+
+// Preserve the legacy accumulator for existing seeded pattern callers.
+const mulberry32 = (seed: number): (() => number) => {
+  let state = seed >>> 0;
   return () => {
-    t += 0x6d2b79f5;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r ^= r + Math.imul(r ^ (r >>> 7), 61 | r);
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    state += 0x6d2b79f5;
+    return mulberry32Value(state);
   };
 };
 

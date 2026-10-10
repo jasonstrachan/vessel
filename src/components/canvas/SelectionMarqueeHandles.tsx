@@ -44,6 +44,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
   const selectionMask = useAppStore((state) => state.selectionMask);
   const selectionMaskBounds = useAppStore((state) => state.selectionMaskBounds);
   const floatingPaste = useAppStore(selectFloatingPaste);
+  const currentTool = useAppStore((state) => state.tools.currentTool);
   const canRotateSelection = useAppStore((state) => {
     const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId);
     return activeLayer?.layerType !== 'color-cycle';
@@ -108,6 +109,7 @@ const SelectionMarqueeHandles: React.FC<SelectionMarqueeHandlesProps> = ({
   }, [selectionRect]);
 
   const canInteract =
+    currentTool !== 'eraser' &&
     !floatingPaste &&
     Boolean(selectionRect) &&
     projectWidth > 0 &&

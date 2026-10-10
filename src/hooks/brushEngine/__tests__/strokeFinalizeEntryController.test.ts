@@ -13,6 +13,8 @@ describe('strokeFinalizeEntryController', () => {
 
     const result = finalizeStrokeCurrent({
       ctx,
+      restoreBase: true,
+      preparedPressureMask: true,
       strokeBoundsRef: { current: null },
       liveStrokeBoundsRef: { current: null },
       liveStrokeRawRef: { current: null },
@@ -42,6 +44,8 @@ describe('strokeFinalizeEntryController', () => {
     expect(finalizeStrokeOrchestrated).toHaveBeenCalledWith(expect.objectContaining({
       ctx,
       finalizeStroke: expect.any(Function),
+      restoreBase: true,
+      preparedPressureMask: true,
       lostEdge: 9,
       ditherBackgroundFill: true,
       pressureLinkedFillResolution: false,

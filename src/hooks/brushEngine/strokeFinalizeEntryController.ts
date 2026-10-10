@@ -3,6 +3,8 @@ import { finalizeStrokeOrchestrated } from './strokeFinalizeOrchestrator';
 import type { Rect } from './engineShared';
 
 export const finalizeStrokeCurrent = ({
+  restoreBase = false,
+  preparedPressureMask = false,
   ctx,
   strokeBoundsRef,
   liveStrokeBoundsRef,
@@ -25,6 +27,8 @@ export const finalizeStrokeCurrent = ({
   isDitherStrokeBrush,
   warnIfDitherStrokePath,
 }: {
+  restoreBase?: boolean;
+  preparedPressureMask?: boolean;
   ctx: CanvasRenderingContext2D;
   strokeBoundsRef: { current: Rect | null };
   liveStrokeBoundsRef: { current: Rect | null };
@@ -86,6 +90,8 @@ export const finalizeStrokeCurrent = ({
   warnIfDitherStrokePath: (context: string) => void;
 }): Rect | null => {
   return finalizeStrokeOrchestrated({
+    preparedPressureMask,
+    restoreBase,
     ctx,
     strokeBoundsRef,
     liveStrokeBoundsRef,

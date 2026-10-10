@@ -384,6 +384,7 @@ export const commitLayerHistory = async ({
                 height: projectHeight,
                 beforeVersion: beforeColorState?.documentVersion,
                 afterVersion: afterColorState?.documentVersion,
+                restoreDocumentAnchors: patchDelta === null,
               }),
               probeMeta
             )

@@ -31,7 +31,7 @@ export interface LayerCaptureActionDeps {
   ) => framebuffer is HTMLCanvasElement | OffscreenCanvas;
 }
 
-const refreshCapturedAutoAlignment = (layer: Layer, project: Project | null): Layer => {
+export const refreshCapturedAutoAlignment = (layer: Layer, project: Project | null): Layer => {
   if (!project || layer.alignment?.positioning !== 'auto') {
     return layer;
   }

@@ -40,7 +40,7 @@ const resolveExactCustomBrushSpacing = (
 /**
  * Calculate grid spacing from brush settings
  */
-export const calculateGridSpacing = (brushSettings?: BrushSettings): number => {
+export const calculateGridSpacing = (brushSettings?: Pick<BrushSettings, 'gridSnapSize'>): number => {
   const defaultSpacing = 16;
   const configuredSpacing = brushSettings?.gridSnapSize ?? defaultSpacing;
   const normalized = Number.isFinite(configuredSpacing)
@@ -53,7 +53,7 @@ export const calculateGridSpacing = (brushSettings?: BrushSettings): number => {
  * Scale grid spacing with live pressure so snap distance tracks the rendered brush size.
  */
 export const calculatePressureAwareGridSpacing = (
-  brushSettings?: BrushSettings,
+  brushSettings?: Pick<BrushSettings, 'gridSnapSize' | 'pressureEnabled' | 'minPressure' | 'maxPressure' | 'brushShape'>,
   pressure?: number
 ): number => {
   const baseSpacing = calculateGridSpacing(brushSettings);

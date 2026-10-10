@@ -1,3 +1,4 @@
+import { dispatchCanvasFrameUpdate } from '@/hooks/canvas/handlers/animation/animationRuntime';
 import type { BrushSettings } from '@/types';
 
 import type { Rect } from './engineShared';
@@ -157,7 +158,10 @@ export const scheduleLiveStrokeRender = ({
     return;
   }
   liveRenderScheduledRef.current = true;
-  const cb = () => renderLiveStrokePreview(visibleCtx);
+  const cb = () => {
+    renderLiveStrokePreview(visibleCtx);
+    dispatchCanvasFrameUpdate();
+  };
   if (typeof requestAnimationFrame !== 'undefined') {
     requestAnimationFrame(cb);
   } else {

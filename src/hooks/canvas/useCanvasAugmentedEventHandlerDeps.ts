@@ -24,7 +24,7 @@ export const useCanvasAugmentedEventHandlerDeps = ({
     snapStrokeStartRef: refs.snapStrokeStartRef,
     snapShiftAnchorRef: refs.snapShiftAnchorRef,
     snapLastBrushSampleRef: refs.snapLastBrushSampleRef,
-    suppressBootstrapUntilPointerUpRef: refs.suppressBootstrapUntilPointerUpRef,
+    suppressBootstrapUntilPointerUpRef: staticDeps.suppressBootstrapUntilPointerUpRef,
     contourLinesStateRef: refs.contourLinesStateRef,
     contourLinesDefaultsCacheRef: refs.contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef: refs.contourLinesFinalizingRef,

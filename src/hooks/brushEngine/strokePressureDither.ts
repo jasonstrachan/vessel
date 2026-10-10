@@ -16,7 +16,10 @@ export const resolveCommittedPressurePixelSize = ({
   pendingSinceRef: NumberRef;
   stableMs?: number;
 }): number => {
-  const committedPixelSize = committedPixelSizeRef.current ?? desiredPixelSize;
+  if (committedPixelSizeRef.current === null) {
+    committedPixelSizeRef.current = desiredPixelSize;
+  }
+  const committedPixelSize = committedPixelSizeRef.current;
   if (desiredPixelSize !== committedPixelSize) {
     if (desiredPixelSize < committedPixelSize) {
       committedPixelSizeRef.current = desiredPixelSize;

@@ -30,7 +30,9 @@ export interface ResolvedPressureRange {
   maxPercent: number;
 }
 
-export const resolveBrushPressureRange = (settings: BrushSettings): ResolvedPressureRange => {
+export const resolveBrushPressureRange = (
+  settings: Pick<BrushSettings, 'pressureEnabled' | 'minPressure' | 'maxPressure' | 'brushShape'>,
+): ResolvedPressureRange => {
   const enabled = Boolean(settings.pressureEnabled);
   const minPercent = clampPressurePercent(settings.minPressure ?? PRESSURE_MIN_PERCENT);
   const maxPercent = clampPressurePercent(

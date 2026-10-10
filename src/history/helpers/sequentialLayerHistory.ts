@@ -9,6 +9,7 @@ import {
 import { mapCanvasActionToHistoryId } from '@/history/helpers/actions';
 import type { CanvasSnapshot, SequentialLayerData } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
+import { enqueueHistoryFinalizeTask } from '@/stores/pendingColorCycleSaves';
 
 type SequentialHistoryCoalesce = {
   key: string;
@@ -76,6 +77,14 @@ export const commitSequentialLayerHistory = async ({
     return;
   }
 
+  const before = cloneSequentialLayerData(beforeSequentialData);
+  const after = cloneSequentialLayerData(afterSequentialData);
+  const capturedCoalesce = coalesce
+    ? {
+        ...coalesce,
+        pointerSession: coalesce.pointerSession ? { ...coalesce.pointerSession } : undefined,
+      }
+    : undefined;
   const historyId = resolveSequentialHistoryAction(actionType);
   const meta: Record<string, unknown> = {
     layerId,
@@ -83,43 +92,39 @@ export const commitSequentialLayerHistory = async ({
     mode: 'sequential',
   };
 
-  if (coalesce) {
-    meta.coalesceKey = coalesce.key;
-    if (coalesce.pointerSession) {
+  if (capturedCoalesce) {
+    meta.coalesceKey = capturedCoalesce.key;
+    if (capturedCoalesce.pointerSession) {
       meta.pointerSession = {
-        pointerId: coalesce.pointerSession.pointerId,
-        startedAt: coalesce.pointerSession.startedAt,
-        endedAt: coalesce.pointerSession.endedAt,
+        pointerId: capturedCoalesce.pointerSession.pointerId,
+        startedAt: capturedCoalesce.pointerSession.startedAt,
+        endedAt: capturedCoalesce.pointerSession.endedAt,
       };
     }
   }
 
-  const txn = historyManager.begin(
-    historyId,
-    meta,
-    undefined,
-    coalesce
-      ? {
-          coalesce: {
-            key: coalesce.key,
-            maxIntervalMs: coalesce.maxIntervalMs,
-            mergeLabel: coalesce.mergeLabel,
-          },
-        }
-      : undefined
-  );
+  await enqueueHistoryFinalizeTask(async () => {
+    const txn = historyManager.begin(
+      historyId,
+      meta,
+      undefined,
+      capturedCoalesce
+        ? {
+            coalesce: {
+              key: capturedCoalesce.key,
+              maxIntervalMs: capturedCoalesce.maxIntervalMs,
+              mergeLabel: capturedCoalesce.mergeLabel,
+            },
+          }
+        : undefined
+    );
 
-  const createDelta = canUseSequentialAppendDelta(beforeSequentialData, afterSequentialData)
-    ? createSequentialAppendFrameDelta
-    : createSequentialFrameDelta;
+    const createDelta = canUseSequentialAppendDelta(before, after)
+      ? createSequentialAppendFrameDelta
+      : createSequentialFrameDelta;
 
-  txn.push(
-    createDelta({
-      layerId,
-      before: cloneSequentialLayerData(beforeSequentialData),
-      after: cloneSequentialLayerData(afterSequentialData),
-    })
-  );
-  txn.commit(description);
-  markUnsavedChanges();
+    txn.push(createDelta({ layerId, before, after }));
+    txn.commit(description);
+    markUnsavedChanges();
+  });
 };

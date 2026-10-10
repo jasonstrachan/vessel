@@ -47,7 +47,6 @@ import {
 import type {
   ColorCycleClearBrushContext,
   ColorCycleInitBrushContext,
-  ColorCycleLayerActivationBrushContext,
   ColorCyclePlaybackBrushContext,
   ColorCycleSpeedSettingsBrushContext,
 } from './brushEngine/colorCycleBrushContracts';
@@ -75,6 +74,7 @@ import {
 } from './brushEngine/strokePressure';
 import { updateLiveStrokeTracking } from './brushEngine/liveStrokeTracking';
 import { runPressureLinkedLiveDitherPass } from './brushEngine/strokeLivePressurePass';
+import { createAlphaPressureDitherRuntime, type AlphaPressureDitherArgs } from './brushEngine/alphaPressureDither';
 import { resetStrokePressureDitherRuntime } from './brushEngine/strokeStateReset';
 import { beginStrokeIfNeeded } from './brushEngine/strokeEntry';
 import { resetStrokeCurrent } from './brushEngine/strokeResetEntryController';
@@ -206,7 +206,7 @@ import {
   requestGradientApply,
 } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { applyGradientEdit } from '@/hooks/brushEngine/ccGradientController';
-import { sanitizeEraserTipSettings } from '@/stores/helpers/eraserSettings';
+import { resolveEraserBrushSettings } from '@/stores/helpers/eraserSettings';
 
 declare global {
   interface Window {
@@ -242,13 +242,16 @@ export type { StrokeBounds } from './brushEngine/engineShared';
 export { refreshLayerCCSurface } from './brushEngine/colorCycleSurface';
 
 export const useBrushEngineSimplified = () => {
-  const { tools, project, activeLayerId } = useAppStore(
+  const { tools: storeTools, project, activeLayerId } = useAppStore(
     useShallow((state) => ({
       tools: state.tools,
       project: state.project,
       activeLayerId: state.activeLayerId,
     })),
   );
+  const tools = useMemo(() => storeTools.currentTool === 'eraser'
+    ? { ...storeTools, brushSettings: resolveEraserBrushSettings(storeTools.brushSettings, storeTools.eraserSettings) }
+    : storeTools, [storeTools]);
   const layers = useAppStore((state) => state.layers);
   const playbackSpeedScale = useAppStore(selectPlaybackSpeedScale);
   const activeLayerBaseSpeed = useAppStore((state) => {
@@ -317,16 +320,7 @@ export const useBrushEngineSimplified = () => {
     });
   }, [activeLayerTransparencyLock, tools.brushSettings.blendMode]);
 
-  const resolvedEngineBrushSettings = useMemo(() => {
-    if (tools.currentTool !== 'eraser') {
-      return tools.brushSettings;
-    }
-    return {
-      ...tools.brushSettings,
-      ...tools.eraserSettings,
-      ...sanitizeEraserTipSettings(tools.eraserSettings),
-    };
-  }, [tools.brushSettings, tools.currentTool, tools.eraserSettings]);
+  const resolvedEngineBrushSettings = tools.brushSettings;
 
   const setMultiplyIfUnlocked = useCallback((ctx: CanvasRenderingContext2D) => {
     setMultiplyIfUnlockedController({
@@ -348,6 +342,9 @@ export const useBrushEngineSimplified = () => {
   const strokeBoundsRef = useRef<Rect | null>(null);
   const liveStrokeRawRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const liveStrokeDitherRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
+  const restoreStrokeBaseRef = useRef(false);
+  const alphaPressureRuntimeRef = useRef<ReturnType<typeof createAlphaPressureDitherRuntime> | null>(null);
+  const alphaPressureSupportCtxRef = useRef<CanvasRenderingContext2D | null>(null);
   const liveStrokeBaseRef = useRef<HTMLCanvasElement | OffscreenCanvas | null>(null);
   const bgOffTempCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgOffTempCtxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -392,8 +389,9 @@ export const useBrushEngineSimplified = () => {
       liveStrokeRawRef,
       liveStrokeDitherRef,
       liveStrokeBaseRef,
-      tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
-        tools.brushSettings.ditherBackgroundFill === false &&
+      (restoreStrokeBaseRef.current || ctx.globalCompositeOperation === 'destination-out' ||
+        (tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
+          tools.brushSettings.ditherBackgroundFill === false)) &&
         strokeBoundsRef.current === null &&
         liveStrokeBoundsRef.current === null,
     );
@@ -403,6 +401,9 @@ export const useBrushEngineSimplified = () => {
   ]);
 
   const clearLiveStrokeBuffers = useCallback(() => {
+    restoreStrokeBaseRef.current = false;
+    alphaPressureRuntimeRef.current?.reset();
+    alphaPressureSupportCtxRef.current = null;
     clearLiveStrokeBufferCanvases(liveStrokeRawRef, liveStrokeDitherRef, liveStrokeBaseRef);
     liveStrokeBoundsRef.current = null;
     lastSegmentBoundsRef.current = null;
@@ -570,11 +571,6 @@ export const useBrushEngineSimplified = () => {
     };
   }, [activeLayerId]);
 
-  const getActiveLayerActivationBrush = useCallback((): ColorCycleLayerActivationBrushContext | null => {
-    if (!activeLayerId) return null;
-    return getColorCycleBrushManager().getLayerActivationBrush(activeLayerId);
-  }, [activeLayerId]);
-
   const getActiveLayerClearBrush = useCallback((): ColorCycleClearBrushContext | null => {
     if (!activeLayerId) return null;
     return getColorCycleBrushManager().getClearBrush(activeLayerId);
@@ -695,6 +691,10 @@ export const useBrushEngineSimplified = () => {
   }, [resolvedEngineBrushSettings]);
 
   // Create brush engine facade - only recreate when structural dependencies change
+  const getNativeAuthoredSupportContext = useCallback((rawCtx: CanvasRenderingContext2D) => {
+    return rawCtx.canvas === liveStrokeRawRef.current ? alphaPressureSupportCtxRef.current : null;
+  }, []);
+
   const brushEngine = useMemo(() => {
     const config: BrushEngineConfig = {
       brushSettings: resolvedEngineBrushSettings,
@@ -704,11 +704,12 @@ export const useBrushEngineSimplified = () => {
       createPixelCircleStamp,
       createPixelSquareStamp,
       getRotationTempContext,
+      getNativeAuthoredSupportContext,
       customBrushes: project?.customBrushes || []
     };
 
     return createBrushEngineFacade(config);
-  }, [resolvedEngineBrushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, activeLayerTransparencyLock]);
+  }, [resolvedEngineBrushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, getNativeAuthoredSupportContext, activeLayerTransparencyLock]);
 
   // Update engine config when settings change
   useEffect(() => {
@@ -872,6 +873,7 @@ export const useBrushEngineSimplified = () => {
       sampleCtx,
       options,
       ditherRegionWithCurrentPressureUtil,
+      signal: tools.currentTool === 'eraser' ? 'alpha' : 'color',
       toolsBrushSettings: tools.brushSettings,
       strokeDitherPalette,
       transparentInk,
@@ -892,6 +894,7 @@ export const useBrushEngineSimplified = () => {
     computePressureScaledResolution,
     getStrokeDitherPixelSize,
     tools.brushSettings,
+    tools.currentTool,
     transparentInk,
     strokeDitherPalette,
     strokeImageTileThresholdResolver,
@@ -926,6 +929,9 @@ export const useBrushEngineSimplified = () => {
   }, [ditherRegionWithCurrentPressure, shouldApplyStrokeDitherForSettings, tools.brushSettings]);
 
   const applyStrokeRisographOverlay = useCallback((ctx: CanvasRenderingContext2D, bounds: Rect | null, source?: HTMLCanvasElement | null) => {
+    if (restoreStrokeBaseRef.current || ctx.globalCompositeOperation === 'destination-out') {
+      return;
+    }
     applyStrokeRisographOverlayController({
       ctx,
       bounds,
@@ -935,6 +941,20 @@ export const useBrushEngineSimplified = () => {
   }, [tools.brushSettings.risographIntensity]);
 
   const renderLiveStrokePreview = useCallback((visibleCtx: CanvasRenderingContext2D) => {
+    alphaPressureRuntimeRef.current?.flushPending(performance.now());
+    const rawCanvas = liveStrokeRawRef.current;
+    const bounds = strokeBoundsRef.current ?? liveStrokeBoundsRef.current;
+    const isEraserStroke = restoreStrokeBaseRef.current || visibleCtx.globalCompositeOperation === 'destination-out';
+    let previewBounds = bounds;
+    if (isEraserStroke && rawCanvas && bounds && !shouldApplyStrokeDither && (tools.brushSettings.lostEdge ?? 0) > 0) {
+      // Lost Edge clamps an inflated negative origin without shrinking its sample size.
+      const sampleBounds = inflateRect(normalizeRectForCanvas(bounds, rawCanvas.width, rawCanvas.height), 2);
+      previewBounds = { ...sampleBounds, x: Math.max(0, sampleBounds.x), y: Math.max(0, sampleBounds.y) };
+    }
+    const previewSource = isEraserStroke &&
+      !(shouldApplyStrokeDither && tools.brushSettings.pressureLinkedFillResolution) && rawCanvas && previewBounds
+      ? brushEngine.getPixelStrokePreview({ rawCanvas, bounds: previewBounds })
+      : null;
     renderLiveStrokePreviewController({
       visibleCtx,
       liveRenderScheduledRef,
@@ -951,11 +971,18 @@ export const useBrushEngineSimplified = () => {
       withAlphaLock,
       applyStrokeDither,
       applyStrokeRisographOverlay,
-      renderLiveStrokePreviewUtil,
+      renderLiveStrokePreviewUtil: (args) => renderLiveStrokePreviewUtil({
+        ...args,
+        restoreBase: restoreStrokeBaseRef.current,
+        previewSource,
+        applyLostEdgeMaskInRegion,
+      }),
     });
   }, [
+    applyLostEdgeMaskInRegion,
     applyStrokeDither,
     applyStrokeRisographOverlay,
+    brushEngine,
     isPixelDitherNoBg,
     shouldApplyStrokeDither,
     tools.brushSettings,
@@ -996,6 +1023,9 @@ export const useBrushEngineSimplified = () => {
     segmentBounds: Rect;
     enableLargeRegionFallback: boolean;
   }) => {
+    if (alphaPressureSupportCtxRef.current) {
+      return;
+    }
     runLivePressureDitherForCurrentStrokeController({
       rawCtx,
       segmentBounds,
@@ -1066,8 +1096,32 @@ export const useBrushEngineSimplified = () => {
   }, [liveStrokeTrackingSettings]);
 
   const renderBrushStrokeToRaw = useCallback((rawCtx: CanvasRenderingContext2D, params: BrushStrokeParams) => {
+    if (tools.currentTool !== 'eraser' || !shouldApplyStrokeDither || !tools.brushSettings.pressureLinkedFillResolution) {
+      brushEngine.renderBrushStroke(rawCtx, params);
+      return;
+    }
+    const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
+    const fullBounds = strokeBoundsRef.current;
+    if (!ditherCtx || !fullBounds) {
+      throw new Error('Pressure erasing requires initialized stroke buffers and bounds.');
+    }
+    const runtime = alphaPressureRuntimeRef.current ??= createAlphaPressureDitherRuntime();
+    const args: AlphaPressureDitherArgs = {
+      rawCtx, ditherCtx, fullBounds,
+      bgOff: tools.brushSettings.ditherBackgroundFill === false,
+      desiredPixelSize: getStrokeDitherPixelSize(),
+      now: performance.now(),
+      pressureDitherSmoosh: tools.brushSettings.pressureDitherSmoosh === true,
+      committedPixelSizeRef, pendingPixelSizeRef, pendingSinceRef,
+      lastPressureDitherTimeRef, lastPressureDitherPixelSizeRef,
+      pressureDitherMinIntervalMs: PRESSURE_DITHER_MIN_INTERVAL_MS,
+      pressureDitherMinDeltaRes: PRESSURE_DITHER_MIN_DELTA_RES,
+      ditherRegionWithCurrentPressure, liveStrokeBoundsRef, liveDirtyRectRef,
+    };
+    alphaPressureSupportCtxRef.current = runtime.beforeRender(args);
     brushEngine.renderBrushStroke(rawCtx, params);
-  }, [brushEngine]);
+    runtime.afterRender(args);
+  }, [brushEngine, tools.currentTool, tools.brushSettings, shouldApplyStrokeDither, getStrokeDitherPixelSize, ditherRegionWithCurrentPressure]);
 
   const strokeDrawRuntimeSettings = useMemo(() => ({
     lostEdge: tools.brushSettings.lostEdge ?? 0,
@@ -1137,8 +1191,13 @@ export const useBrushEngineSimplified = () => {
       customBrushData?: CustomBrushStrokeData;
       velocityPxPerMs?: number;
       timestampMs?: number;
+      target?: 'erase-mask';
     } = {}
   ) => {
+    if (strokeBoundsRef.current === null && liveStrokeBoundsRef.current === null) {
+      restoreStrokeBaseRef.current = cursor.target === 'erase-mask';
+      brushEngine.beginStroke(restoreStrokeBaseRef.current || ctx.globalCompositeOperation === 'destination-out' ? 'erase-mask' : 'paint');
+    }
     runDrawBrushEntry({
       ctx,
       from,
@@ -1150,6 +1209,7 @@ export const useBrushEngineSimplified = () => {
     // Dithering is applied in live preview (from raw buffer) and once more in finalizeStroke
   }, [
     beginStrokeAtPoint,
+    brushEngine,
     runStrokeDrawCore,
   ]);
 
@@ -1181,6 +1241,7 @@ export const useBrushEngineSimplified = () => {
    */
   const finalizeStroke = useCallback((ctx: CanvasRenderingContext2D): Rect | null => {
     return finalizeStrokeCurrent({
+      preparedPressureMask: alphaPressureSupportCtxRef.current !== null,
       ctx,
       strokeBoundsRef,
       liveStrokeBoundsRef,
@@ -1189,10 +1250,19 @@ export const useBrushEngineSimplified = () => {
       liveStrokeBaseRef,
       clearLiveStrokeBuffers,
       clearCoverageMaps,
-      finalizeStroke: (targetCtx) => brushEngine.finalizeStroke(targetCtx),
+      finalizeStroke: (targetCtx) => {
+        brushEngine.finalizeStroke(targetCtx);
+        const ditherCtx = pick2D(liveStrokeDitherRef.current) as CanvasRenderingContext2D | null;
+        if (alphaPressureSupportCtxRef.current && ditherCtx && strokeBoundsRef.current) {
+          alphaPressureRuntimeRef.current?.flush({
+            rawCtx: targetCtx, ditherCtx, fullBounds: strokeBoundsRef.current,
+          });
+        }
+      },
       withAlphaLock,
       shouldApplyStrokeDither,
       finalizeStrokeSettings,
+      restoreBase: restoreStrokeBaseRef.current,
       applyLostEdgeMaskInRegion,
       committedPixelSizeRef,
       lastPressureDitherPixelSizeRef,
@@ -1752,9 +1822,9 @@ export const useBrushEngineSimplified = () => {
     colorCycleRoundedCornerBaselineSnapshotRef.current = null;
     endColorCycleStrokeForLayer({
       activeLayerId,
-      getActiveLayerColorCycleBrush: getActiveLayerActivationBrush,
+      getActiveLayerColorCycleBrush: getActiveLayerStrokeLifecycleBrush,
     });
-  }, [activeLayerId, getActiveLayerActivationBrush]);
+  }, [activeLayerId, getActiveLayerStrokeLifecycleBrush]);
 
   /**
    * Fill a shape with linear color cycle gradient in specified direction
@@ -2300,9 +2370,9 @@ export const useBrushEngineSimplified = () => {
       }
       // Make sure it's not in drawing mode for animation
       const layerId = activeLayerId;
-      const activationBrush = getActiveLayerActivationBrush();
-      if (activationBrush && layerId) {
-        activationBrush.endStroke?.(layerId);
+      const strokeLifecycleBrush = getActiveLayerStrokeLifecycleBrush();
+      if (strokeLifecycleBrush && layerId) {
+        strokeLifecycleBrush.endStroke?.(layerId);
       }
     },
 

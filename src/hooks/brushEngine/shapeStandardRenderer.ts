@@ -2,6 +2,7 @@ import { BrushShape, type BrushSettings } from '@/types';
 
 import { drawPixelBrush, type PixelBrushDependencies } from './shapePixelBrush';
 import { getRotatedPixelStamp } from './shapeRotatedStamp';
+import { emitNativeSupportCircle, emitNativeSupportImage, emitNativeSupportRect } from './nativeShapeSupport';
 
 export interface StandardShapeDependencies extends PixelBrushDependencies {
   brushStampCache?: Map<string, HTMLCanvasElement>;
@@ -10,6 +11,7 @@ export interface StandardShapeDependencies extends PixelBrushDependencies {
 
 interface DrawStandardShapeParams {
   targetCtx: CanvasRenderingContext2D;
+  supportCtx?: CanvasRenderingContext2D | null;
   drawX: number;
   drawY: number;
   size: number;
@@ -31,6 +33,7 @@ const drawSquare = (
   antiAliasing: boolean,
   quantizedRotation: number,
   deps: StandardShapeDependencies | undefined,
+  supportCtx?: CanvasRenderingContext2D | null,
 ) => {
   if (antiAliasing) {
     drawingCtx.fillRect(drawX - halfSize, drawY - halfSize, size, size);
@@ -63,11 +66,17 @@ const drawSquare = (
       Math.round(drawX - rotatedSquare.width / 2),
       Math.round(drawY - rotatedSquare.height / 2),
     );
+    emitNativeSupportImage(
+      drawingCtx, supportCtx, rotatedSquare,
+      Math.round(drawX - rotatedSquare.width / 2),
+      Math.round(drawY - rotatedSquare.height / 2),
+    );
     return;
   }
 
   const offset = Math.floor(pixelSize / 2);
   drawingCtx.fillRect(drawX - offset, drawY - offset, pixelSize, pixelSize);
+  emitNativeSupportRect(drawingCtx, supportCtx, drawX - offset, drawY - offset, pixelSize, pixelSize);
 };
 
 const drawRound = (
@@ -79,6 +88,7 @@ const drawRound = (
   antiAliasing: boolean,
   pattern: ImageData | undefined,
   deps: StandardShapeDependencies | undefined,
+  supportCtx?: CanvasRenderingContext2D | null,
 ) => {
   const roundedSize = Math.round(size);
   const useFastRender = roundedSize > 2 && !pattern;
@@ -147,6 +157,7 @@ const drawRound = (
     const stampCanvas = deps.createPixelCircleStamp(roundedSize);
     if (stampCanvas) {
       targetCtx.drawImage(stampCanvas, Math.round(drawX - roundedSize / 2), Math.round(drawY - roundedSize / 2));
+      emitNativeSupportImage(targetCtx, supportCtx, stampCanvas, Math.round(drawX - roundedSize / 2), Math.round(drawY - roundedSize / 2));
     }
     return;
   }
@@ -154,6 +165,7 @@ const drawRound = (
   targetCtx.beginPath();
   targetCtx.arc(drawX, drawY, halfSize, 0, Math.PI * 2);
   targetCtx.fill();
+  emitNativeSupportCircle(targetCtx, supportCtx, drawX, drawY, halfSize);
 };
 
 const drawTriangle = (
@@ -264,6 +276,7 @@ const drawSpamText = (
 
 export const drawStandardShape = ({
   targetCtx,
+  supportCtx,
   drawX,
   drawY,
   size,
@@ -277,11 +290,11 @@ export const drawStandardShape = ({
 }: DrawStandardShapeParams): void => {
   switch (shape) {
     case BrushShape.SQUARE:
-      drawSquare(targetCtx, drawX, drawY, size, halfSize, antiAliasing, quantizedRotation, deps);
+      drawSquare(targetCtx, drawX, drawY, size, halfSize, antiAliasing, quantizedRotation, deps, supportCtx);
       break;
 
     case BrushShape.ROUND:
-      drawRound(targetCtx, drawX, drawY, size, halfSize, antiAliasing, pattern, deps);
+      drawRound(targetCtx, drawX, drawY, size, halfSize, antiAliasing, pattern, deps, supportCtx);
       break;
 
     case BrushShape.TRIANGLE:
@@ -292,6 +305,7 @@ export const drawStandardShape = ({
     case BrushShape.PIXEL_ROUND:
       drawPixelBrush({
         drawingCtx: targetCtx,
+        supportCtx,
         drawX,
         drawY,
         size,

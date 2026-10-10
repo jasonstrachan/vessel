@@ -1,6 +1,7 @@
 import { debugWarn } from '@/utils/debug';
 import type { Layer, SequentialStrokeEvent } from '@/types';
 import { isFeatureFlagEnabled } from '@/config/featureFlags';
+import { unpremultiplyAlphaBytes } from '@/lib/brush/color';
 import { SequentialEventLog } from '@/lib/sequential/SequentialEventLog';
 import { SequentialFrameCache } from '@/lib/sequential/SequentialFrameCache';
 import {
@@ -51,6 +52,7 @@ interface LayerRuntime {
   eventLog: SequentialEventLog;
   frameCache: SequentialFrameCache;
   presentationCache: Map<number, PresentationCacheEntry>;
+  presentationScratch: Map<string, ImageData>;
   stalePresentationFrames: Set<number>;
   materializer: SequentialMaterializerBackend;
   backendKind: SequentialMaterializerBackendKind;
@@ -169,6 +171,7 @@ const ensurePresentationCanvas = (
 
 const clearPresentationCache = (runtime: LayerRuntime): void => {
   runtime.presentationCache.clear();
+  runtime.presentationScratch.clear();
   runtime.stalePresentationFrames.clear();
   runtime.presentationAccessTick = 0;
 };
@@ -249,7 +252,7 @@ const setPresentationCacheCanvas = ({
   if (!canvas) {
     return null;
   }
-  if (!copyTileSetToCanvas({ canvas, tileSet, previousTileSet })) {
+  if (!copyTileSetToCanvas({ canvas, tileSet, previousTileSet, scratch: runtime.presentationScratch })) {
     return null;
   }
   runtime.presentationAccessTick += 1;
@@ -310,6 +313,7 @@ const getOrCreateRuntime = (layerId: string): LayerRuntime => {
       maxBytes: 64 * 1024 * 1024,
     }),
     presentationCache: new Map(),
+    presentationScratch: new Map(),
     stalePresentationFrames: new Set(),
     materializer: initialBackend.materializer,
     backendKind: initialBackend.kind,
@@ -432,10 +436,12 @@ const copyTileSetToCanvas = ({
   canvas,
   tileSet,
   previousTileSet,
+  scratch,
 }: {
   canvas: HTMLCanvasElement | OffscreenCanvas;
   tileSet: ReturnType<SequentialMaterializerBackend['materializeFrame']>;
   previousTileSet?: FrameTileSet | null;
+  scratch: Map<string, ImageData>;
 }): boolean => {
   const copyStartMs =
     typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -478,11 +484,13 @@ const copyTileSetToCanvas = ({
       previousTilesByKey.delete(tileKey);
       continue;
     }
-    const imageData = new ImageData(
-      tile.data,
-      tile.width,
-      tile.height
-    );
+    const dimensions = `${tile.width}:${tile.height}`;
+    let imageData = scratch.get(dimensions);
+    if (!imageData) {
+      imageData = new ImageData(tile.width, tile.height);
+      scratch.set(dimensions, imageData);
+    }
+    unpremultiplyAlphaBytes(tile.data, imageData.data);
     ctx.putImageData(imageData, tile.x, tile.y);
     previousTilesByKey.delete(tileKey);
     copiedTiles += 1;
@@ -1007,7 +1015,7 @@ export const getSequentialLayerRenderCanvas = ({
     return null;
   }
 
-  if (!copyTileSetToCanvas({ canvas, tileSet: renderTileSet })) {
+  if (!copyTileSetToCanvas({ canvas, tileSet: renderTileSet, scratch: runtime.presentationScratch })) {
     return null;
   }
 

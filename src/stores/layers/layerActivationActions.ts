@@ -139,12 +139,13 @@ export const createLayerActivationActions = ({
                 throw e;
               }
             }
-            // End any active strokes
+            // Finalize only an admitted stroke; ending an idle populated brush
+            // would publish a new document generation outside its history entry.
             try {
               const oldBrush = colorCycleBrushManager.getLayerActivationBrush(currentActiveLayer.id);
-              oldBrush?.endStroke?.(currentActiveLayer.id);
+              oldBrush?.finalizeCurrentStroke?.(currentActiveLayer.id);
             } catch (e) {
-              logError('CC cleanup error (non-fatal): endStroke', e);
+              logError('CC cleanup error (non-fatal): finalizeCurrentStroke', e);
               if (opts?.forceLifecycle) {
                 throw e;
               }

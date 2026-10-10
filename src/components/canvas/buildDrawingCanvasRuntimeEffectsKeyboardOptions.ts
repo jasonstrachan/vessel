@@ -8,6 +8,9 @@ export interface BuildDrawingCanvasRuntimeEffectsKeyboardOptionsArgs {
     KeyboardOptions,
     | 'canvasRef'
     | 'viewTransformRef'
+    | 'interactionStateRef'
+    | 'isMouseDownRef'
+    | 'suppressBootstrapUntilPointerUpRef'
   >;
   state: Pick<
     KeyboardOptions,

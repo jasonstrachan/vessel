@@ -6,6 +6,7 @@ import { useAppStore, type AppState } from '@/stores/useAppStore';
 import { BrushShape, type BrushSettings, Tool } from '@/types';
 import { isMac } from '@/lib/shortcuts';
 import { flushPendingToolWork } from '@/utils/toolFlushRegistry';
+import { flushAndSetCurrentTool, subscribeToolSelection } from '@/utils/toolSwitch';
 import { useStoreSelectorRef } from './useStoreSelectorRef';
 import {
   selectPolygonGradientState,
@@ -288,6 +289,7 @@ export function useComprehensiveKeyboard({
   const previousToolRef = useRef<string | null>(null);
   const isTemporaryEraserRef = useRef(false);
   const eraserPressTimeRef = useRef<number>(0);
+  const eraserRequestEpochRef = useRef(0);
   const colorPickerPreviousToolRef = useRef<Tool | null>(null);
   const isColorPickerHeldRef = useRef(false);
   const lastKeydownTimeRef = useRef<number>(0);
@@ -327,10 +329,48 @@ export function useComprehensiveKeyboard({
   const onSaveRef = useRef(onSave);
   const onOpenRef = useRef(onOpen);
 
-  const switchTool = useCallback(async (tool: Tool) => {
+  useEffect(() => {
+    const invalidateTemporaryEraser = () => {
+      eraserRequestEpochRef.current += 1;
+      previousToolRef.current = null;
+      isTemporaryEraserRef.current = false;
+    };
+    const unsubscribe = subscribeToolSelection(invalidateTemporaryEraser);
+    return () => {
+      unsubscribe();
+      invalidateTemporaryEraser();
+    };
+  }, []);
+
+  const switchTool = useCallback(async (tool: Tool, eraserRequestEpoch?: number) => {
+    if (eraserRequestEpoch !== undefined && eraserRequestEpoch !== eraserRequestEpochRef.current) {
+      return;
+    }
     await flushPendingToolWork();
+    if (eraserRequestEpoch !== undefined && eraserRequestEpoch !== eraserRequestEpochRef.current) {
+      return;
+    }
     setCurrentTool(tool);
   }, [setCurrentTool]);
+
+  const releaseEraser = useCallback(async (interrupted = false) => {
+    const eraserRequestEpoch = eraserRequestEpochRef.current;
+    const previousTool = previousToolRef.current;
+    const shouldRestore = isTemporaryEraserRef.current && previousTool &&
+      (interrupted || Date.now() - eraserPressTimeRef.current >= 200);
+    // Clear ownership before awaiting finalization so overlapping release events are harmless.
+    previousToolRef.current = null;
+    isTemporaryEraserRef.current = false;
+    try {
+      await onEraserReleasedRef.current?.();
+    } catch {
+      // Restore the original tool even when the interrupted stroke cannot finalize.
+    }
+    if (shouldRestore) {
+      await switchTool(previousTool as Tool, eraserRequestEpoch);
+    }
+  }, [switchTool]);
+
   const applyBrushSizeDeltaImmediate = useCallback(
     (delta: number) => {
       if (delta === 0) {
@@ -621,45 +661,46 @@ export function useComprehensiveKeyboard({
     if (scopedShortcut === 'select-all') {
       event.preventDefault();
       selectAllActiveLayerPixels('keyboard-select-all');
-      await switchTool('selection');
+      await flushAndSetCurrentTool('selection');
       return;
     }
 
     if (scopedShortcut === 'tool-custom') {
       event.preventDefault();
-      await switchTool('custom');
+      await flushAndSetCurrentTool('custom');
       void onCustomToolRef.current?.();
       return;
     }
     if (scopedShortcut === 'tool-fill') {
       event.preventDefault();
-      await switchTool('fill');
+      await flushAndSetCurrentTool('fill');
       return;
     }
     if (scopedShortcut === 'tool-magic-wand') {
       event.preventDefault();
       getAppStoreState().setSelectionMode('magic-wand');
-      await switchTool('selection');
+      await flushAndSetCurrentTool('selection');
       return;
     }
     if (scopedShortcut === 'tool-brush') {
       event.preventDefault();
-      await switchTool('brush');
+      await flushAndSetCurrentTool('brush');
       return;
     }
     if (scopedShortcut === 'tool-eraser-hold') {
       event.preventDefault();
+      const eraserRequestEpoch = ++eraserRequestEpochRef.current;
       eraserPressTimeRef.current = Date.now();
       if (tools.currentTool !== 'eraser') {
+        // Keyup/blur may arrive while the current stroke is still finalizing.
+        previousToolRef.current = tools.currentTool;
+        isTemporaryEraserRef.current = true;
         try {
           await onEraserPressedRef.current?.();
         } catch {
           // ignore finalize errors; fall back to default behavior
         }
-        const originTool = tools.currentTool;
-        previousToolRef.current = originTool;
-        isTemporaryEraserRef.current = true;
-        await switchTool('eraser');
+        await switchTool('eraser', eraserRequestEpoch);
       } else {
         isTemporaryEraserRef.current = false;
       }
@@ -667,12 +708,12 @@ export function useComprehensiveKeyboard({
     }
     if (scopedShortcut === 'tool-selection') {
       event.preventDefault();
-      await switchTool('selection');
+      await flushAndSetCurrentTool('selection');
       return;
     }
     if (scopedShortcut === 'tool-color-adjust') {
       event.preventDefault();
-      await switchTool('color-adjust');
+      await flushAndSetCurrentTool('color-adjust');
       return;
     }
     if (scopedShortcut === 'tool-color-picker-hold') {
@@ -886,31 +927,11 @@ export function useComprehensiveKeyboard({
       if (!event.ctrlKey && !event.metaKey) {
         event.preventDefault();
 
-        try {
-          await onEraserReleasedRef.current?.();
-        } catch {
-          // ignore finalize errors on release
-        }
-
-        // Calculate hold duration
-        const holdDuration = Date.now() - eraserPressTimeRef.current;
-        const isQuickTap = holdDuration < 200; // Tap if held less than 200ms
-        
-        // If it was temporary mode and a hold (not a tap), restore previous tool
-        if (isTemporaryEraserRef.current && previousToolRef.current && !isQuickTap) {
-          // Restore previous tool
-          await switchTool(previousToolRef.current as Tool);
-          previousToolRef.current = null;
-          isTemporaryEraserRef.current = false;
-        } else if (isTemporaryEraserRef.current && isQuickTap) {
-          // It was a tap - make eraser permanent
-          previousToolRef.current = null;
-          isTemporaryEraserRef.current = false;
-        }
+        await releaseEraser();
         return;
       }
     }
-  }, [enabled, allowedScopes, stopBracketHold, switchTool, keyboardScopeRef]);
+  }, [enabled, allowedScopes, stopBracketHold, switchTool, keyboardScopeRef, releaseEraser]);
 
   // Handle window blur to reset state when window loses focus
   const handleBlur = useCallback(() => {
@@ -932,6 +953,10 @@ export function useComprehensiveKeyboard({
       pressedKeysRef.current.clear();
       stopBracketHold();
 
+      if (isTemporaryEraserRef.current) {
+        void releaseEraser(true);
+      }
+
       if (isColorPickerHeldRef.current) {
         const previousTool = colorPickerPreviousToolRef.current;
         if (previousTool && previousTool !== 'color-picker') {
@@ -941,7 +966,7 @@ export function useComprehensiveKeyboard({
         colorPickerPreviousToolRef.current = null;
       }
     }
-  }, [stopBracketHold, switchTool]);
+  }, [stopBracketHold, switchTool, releaseEraser]);
 
   // Safety net: clear stuck keys if the page becomes hidden or pointer leaves the window
   useEffect(() => {
@@ -953,6 +978,9 @@ export function useComprehensiveKeyboard({
       pressedKeysRef.current.clear();
       keyboardStateRef.current.isSpacePressed = false;
       stopBracketHold();
+      if (isTemporaryEraserRef.current) {
+        void releaseEraser(true);
+      }
     };
 
     const handleVisibility = () => {
@@ -969,7 +997,7 @@ export function useComprehensiveKeyboard({
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('pointerleave', handlePointerLeave);
     };
-  }, [stopBracketHold]);
+  }, [stopBracketHold, releaseEraser]);
 
   useEffect(() => {
     return () => {

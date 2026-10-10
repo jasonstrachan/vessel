@@ -161,7 +161,7 @@ const PressureRangeInputs: React.FC<PressureRangeInputsProps> = ({
         onCommit={(value) => onCommit({
           maxPressure: Math.max(minPressure, clampPressurePercent(value)),
         })}
-        min={PRESSURE_MIN_PERCENT}
+        min={minPressure}
         max={PRESSURE_MAX_PERCENT}
         className={className}
         ariaLabel="Pressure maximum percent"
@@ -224,9 +224,16 @@ type RisoControlsProps = {
   onChange: (updates: Partial<BrushSettings>) => void;
   idSuffix: string;
   Slider: SliderComponent;
+  showHueAndEdges?: boolean;
 };
 
-const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffix, Slider }) => {
+const RisoControls: React.FC<RisoControlsProps> = ({
+  settings,
+  onChange,
+  idSuffix,
+  Slider,
+  showHueAndEdges = true,
+}) => {
   return (
     <div className="mb-2">
       <div className="flex items-center gap-2">
@@ -244,7 +251,7 @@ const RisoControls: React.FC<RisoControlsProps> = ({ settings, onChange, idSuffi
         />
       </div>
 
-      {(settings.risographIntensity || 0) > 0 && (
+      {showHueAndEdges && (settings.risographIntensity || 0) > 0 && (
         <>
           <div className="flex items-center gap-2 mt-1">
             <label className={`${CONTROL_LABEL_CLASS} text-xs`}>
@@ -517,12 +524,14 @@ const BrushControls = () => {
     Boolean(currentBrushPresetId && isRegularPixelPresetId(currentBrushPresetId)) ||
     currentTool === 'eraser';
   const eraserTip = resolveEraserTipOption(eraserSettings);
-  const capability: BrushCapabilities = currentBrushPresetId
-    ? getPresetCapabilities(
-        currentBrushPresetId,
-        (getAppStoreState().currentBrushPreset as { capabilities?: BrushCapabilities } | null) || undefined
-      )
-    : {};
+  const capability: BrushCapabilities = currentTool === 'eraser'
+    ? { canDither: true, forceDither: false }
+    : currentBrushPresetId
+      ? getPresetCapabilities(
+          currentBrushPresetId,
+          (getAppStoreState().currentBrushPreset as { capabilities?: BrushCapabilities } | null) || undefined
+        )
+      : {};
   const canDitherForShape = (shape?: BrushShape) =>
     isActiveCustomBrush
       ? false
@@ -667,11 +676,16 @@ const BrushControls = () => {
   const fgDerivedHueShift = activeSettings.colorCycleFgHueShift ?? 0;
   const fgDerivedSaturationShift = activeSettings.colorCycleFgSaturationShift ?? 0;
   const fgDerivedOpacity = activeSettings.colorCycleFgOpacity ?? 100;
-  const effectiveGlobalBrushSize = globalBrushSize ?? activeSettings.size ?? 1;
+  const isEraserSizeIndependent = currentTool === 'eraser' && eraserSettings.linkSizeToBrush === false;
+  const effectiveGlobalBrushSize = isEraserSizeIndependent
+    ? eraserSettings.size ?? brushSettings.size ?? 1
+    : globalBrushSize ?? activeSettings.size ?? 1;
 
   const sizeSlider = useCommittedSliderValue(effectiveGlobalBrushSize, (nextRaw) => {
     const next = Math.min(500, Math.max(1, Math.round(nextRaw)));
-    setGlobalBrushSize(next);
+    if (!isEraserSizeIndependent) {
+      setGlobalBrushSize(next);
+    }
     if (currentTool === 'eraser') {
       setEraserSettings({ size: next });
     }
@@ -774,8 +788,8 @@ const BrushControls = () => {
     currentTool === 'brush' &&
     !isColorCycleBrush(activeSettings.brushShape as BrushShape | undefined) &&
     activeSettings.brushShape !== BrushShape.RESAMPLER;
-  const isShapeFillBrush = brushSettings.brushShape === BrushShape.SHAPE_FILL;
-  const isDitherGradient = brushSettings.brushShape === BrushShape.DITHER_GRADIENT;
+  const isShapeFillBrush = currentTool === 'brush' && activeSettings.brushShape === BrushShape.SHAPE_FILL;
+  const isDitherGradient = currentTool === 'brush' && activeSettings.brushShape === BrushShape.DITHER_GRADIENT;
   const isDitherGradSampling = Boolean(activeSettings.ditherGradSampleEnabled);
 
   const currentStops = React.useMemo(() => {
@@ -3130,6 +3144,7 @@ const BrushControls = () => {
           onChange={setActiveSettings}
           idSuffix="resampler"
           Slider={NonCcSlider}
+          showHueAndEdges={currentTool !== 'eraser'}
         />
 
         {/* Shape Mode - Draw closed polygon shapes */}
@@ -3589,6 +3604,7 @@ const BrushControls = () => {
           onChange={setActiveSettings}
           idSuffix="gradient"
           Slider={NonCcSlider}
+          showHueAndEdges={currentTool !== 'eraser'}
         />
 
         {/* Test Swatches Button */}
@@ -4149,7 +4165,9 @@ const BrushControls = () => {
                 const min = 1;
                 const max = 500;
                 const next = Math.min(max, Math.max(min, Math.round(value)));
-                setGlobalBrushSize(next);
+                if (!isEraserSizeIndependent) {
+                  setGlobalBrushSize(next);
+                }
                 if (currentTool === 'eraser') {
                   setEraserSettings({ size: next });
                 }
@@ -4231,7 +4249,7 @@ const BrushControls = () => {
         </div>
       )}
 
-      {canDitherForShape(activeSettings.brushShape) && !isCcGradientShapePreset && (
+      {currentTool === 'brush' && canDitherForShape(activeSettings.brushShape) && !isCcGradientShapePreset && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
             <label
@@ -4308,7 +4326,7 @@ const BrushControls = () => {
           showStrokeOnlyControls={!isDitherShapePreset}
           hideLostEdge={!isDitherPreset}
           afterPresRes={
-            <PigmentLiftControls
+            currentTool === 'brush' && <PigmentLiftControls
               settings={activeSettings}
               onChange={setActiveSettings}
               idSuffix="default"
@@ -4323,6 +4341,7 @@ const BrushControls = () => {
         onChange={setActiveSettings}
         idSuffix="default"
         Slider={NonCcSlider}
+        showHueAndEdges={currentTool !== 'eraser'}
       />
 
       {/* Shape Mode - Draw closed polygon shapes */}

@@ -13,6 +13,7 @@ export type StrokeDitherRegionOptions = {
   bgOffComposite?: 'copy' | 'source-over';
   settingsOverride?: BrushSettings;
   quantizeSourceAlpha?: boolean;
+  writeSupportMask?: ImageData;
 };
 
 type ReusableCanvas2D = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D };
@@ -78,6 +79,7 @@ export const ditherRegionWithCurrentPressure = ({
   region,
   sampleCtx,
   options,
+  signal = 'color',
   toolsBrushSettings,
   strokeDitherPalette,
   transparentInk,
@@ -97,6 +99,7 @@ export const ditherRegionWithCurrentPressure = ({
   region: { x: number; y: number; width: number; height: number };
   sampleCtx?: CanvasRenderingContext2D;
   options?: StrokeDitherRegionOptions;
+  signal?: 'color' | 'alpha';
   toolsBrushSettings: BrushSettings;
   strokeDitherPalette: string[];
   transparentInk: [number, number, number];
@@ -121,7 +124,8 @@ export const ditherRegionWithCurrentPressure = ({
   const overridePressure = options?.overridePressure;
   const overridePixelSize = options?.overridePixelSize;
   const settings = options?.settingsOverride ?? toolsBrushSettings;
-  const palette = options?.settingsOverride
+  const alphaSignal = signal === 'alpha';
+  const palette = alphaSignal ? ['#000000', '#ffffff'] : options?.settingsOverride
     ? computeStrokeDitherPaletteForSettings(settings)
     : strokeDitherPalette;
   const transparent = options?.settingsOverride
@@ -211,8 +215,20 @@ export const ditherRegionWithCurrentPressure = ({
     quantizeImageDataAlpha(src);
   }
 
-  if (settings.pxlEdge && pixelSize > 1) {
+  if (!alphaSignal && settings.pxlEdge && pixelSize > 1) {
     promoteWholePixelCellsForDitherEdges(src, pixelSize);
+  }
+
+  // Erasing quantizes coverage, independent of the painting palette. Keep raw
+  // alpha as the cumulative authority so repeated previews cannot compound it.
+  const ditherSource = alphaSignal ? new ImageData(new Uint8ClampedArray(src.data), width, height) : src;
+  if (alphaSignal) {
+    for (let i = 0; i < ditherSource.data.length; i += 4) {
+      const coverage = src.data[i + 3];
+      ditherSource.data[i] = coverage;
+      ditherSource.data[i + 1] = coverage;
+      ditherSource.data[i + 2] = coverage;
+    }
   }
 
   const phaseOffset = !fillBackground
@@ -220,14 +236,14 @@ export const ditherRegionWithCurrentPressure = ({
     : undefined;
   const sierraLiteVariety = algorithm === 'sierra-lite'
     ? resolveRegularDitherVariety({
-        settings,
+        settings: alphaSignal ? { ...settings, color: '#ffffff', ditherPaletteSpread: 0 } : settings,
         palette,
       })
     : undefined;
 
   const dithered = pixelSize > 1
     ? applyDitheringWithFillResolution(
-        src,
+        ditherSource,
         palette.length,
         pixelSize,
         algorithm,
@@ -236,9 +252,10 @@ export const ditherRegionWithCurrentPressure = ({
         phaseOffset,
         imageTileThresholdResolver,
         sierraLiteVariety,
+        signal,
       )
     : applyDitheringImport(
-        src,
+        ditherSource,
         palette.length,
         algorithm,
         patternStyle,
@@ -246,10 +263,36 @@ export const ditherRegionWithCurrentPressure = ({
         phaseOffset,
         imageTileThresholdResolver,
         sierraLiteVariety,
+        signal,
       );
 
   const data = dithered.data;
   const srcData = src.data;
+  if (alphaSignal) {
+    const support = options?.writeSupportMask;
+    if (support && (support.width !== width || support.height !== height)) {
+      throw new Error('Alpha dither support must match the sampled region.');
+    }
+    const previous = support ? ctx.getImageData(x, y, width, height).data : null;
+    for (let i = 0; i < data.length; i += 4) {
+      if (support && support.data[i + 3] === 0 && previous) {
+        data[i] = previous[i];
+        data[i + 1] = previous[i + 1];
+        data[i + 2] = previous[i + 2];
+        data[i + 3] = previous[i + 3];
+        continue;
+      }
+      const sourceAlpha = srcData[i + 3];
+      const coverage = fillBackground ? sourceAlpha : sourceAlpha > 0 && data[i] === 255 ? 255 : 0;
+      data[i] = data[i + 1] = data[i + 2] = sourceAlpha > 0 ? 255 : 0;
+      data[i + 3] = coverage;
+    }
+    // This mask is rebuilt from the complete raw region, rather than accumulated
+    // as colored background/off inks. Zero-alpha texels must replace old dots.
+    ctx.putImageData(dithered, x, y);
+    return;
+  }
+
   const canvasW = ctx.canvas?.width ?? 0;
   const canvasH = ctx.canvas?.height ?? 0;
 

@@ -1,4 +1,51 @@
 import { runPressureLinkedLiveDitherPass } from '../strokeLivePressurePass';
+import { resolveCommittedPressurePixelSize } from '../strokePressureDither';
+
+describe('resolveCommittedPressurePixelSize', () => {
+  it('commits the first stroke resolution and keeps the shrink/grow stability policy', () => {
+    const committedPixelSizeRef = { current: null as number | null };
+    const pendingPixelSizeRef = { current: null as number | null };
+    const pendingSinceRef = { current: 0 };
+    const resolve = (desiredPixelSize: number, now: number) => resolveCommittedPressurePixelSize({
+      desiredPixelSize,
+      now,
+      committedPixelSizeRef,
+      pendingPixelSizeRef,
+      pendingSinceRef,
+    });
+
+    expect(resolve(8, 100)).toBe(8);
+    expect(committedPixelSizeRef.current).toBe(8);
+    expect(pendingPixelSizeRef.current).toBeNull();
+
+    expect(resolve(4, 110)).toBe(4);
+    expect(committedPixelSizeRef.current).toBe(4);
+    expect(resolve(8, 120)).toBe(4);
+    expect(resolve(8, 189)).toBe(4);
+    expect(resolve(8, 190)).toBe(8);
+    expect(committedPixelSizeRef.current).toBe(8);
+    expect(pendingPixelSizeRef.current).toBeNull();
+  });
+
+  it('requires a new growth target to remain stable after initialization', () => {
+    const committedPixelSizeRef = { current: null as number | null };
+    const pendingPixelSizeRef = { current: null as number | null };
+    const pendingSinceRef = { current: 0 };
+    const resolve = (desiredPixelSize: number, now: number) => resolveCommittedPressurePixelSize({
+      desiredPixelSize,
+      now,
+      committedPixelSizeRef,
+      pendingPixelSizeRef,
+      pendingSinceRef,
+    });
+
+    expect(resolve(2, 100)).toBe(2);
+    expect(resolve(4, 110)).toBe(2);
+    expect(resolve(6, 170)).toBe(2);
+    expect(resolve(6, 239)).toBe(2);
+    expect(resolve(6, 240)).toBe(6);
+  });
+});
 
 describe('runPressureLinkedLiveDitherPass', () => {
   it.each([

@@ -1,5 +1,5 @@
 import type { Layer } from '@/types';
-import type { BrushStampSource } from '../stamps/BrushStampSource';
+import type { BrushStampMotion, BrushStampSource } from '../stamps/BrushStampSource';
 
 type CanvasPoint = { x: number; y: number };
 
@@ -12,7 +12,8 @@ export interface EraseStrategy {
     from: CanvasPoint,
     to: CanvasPoint,
     pressure: number,
-    stampSource: BrushStampSource | null
+    stampSource: BrushStampSource | null,
+    motion?: BrushStampMotion,
   ): void;
   end(cancelled?: boolean): void;
 }

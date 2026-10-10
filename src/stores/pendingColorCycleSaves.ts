@@ -1,6 +1,8 @@
 import { logError } from '@/utils/debug';
 import type { FinalizeQueue } from '@/lib/canvas/FinalizeQueue';
 
+export const HISTORY_FINALIZE_LANE = '__history__';
+
 const pendingPromises = new Map<string, Set<Promise<void>>>();
 let finalizeQueueInstance: FinalizeQueue | null = null;
 
@@ -85,6 +87,13 @@ export const waitForAllPendingColorCycleSaves = async (): Promise<void> => {
 
 export const registerFinalizeQueue = (queue: FinalizeQueue | null): void => {
   finalizeQueueInstance = queue;
+};
+
+export const enqueueHistoryFinalizeTask = (task: () => Promise<void>): Promise<void> => {
+  if (!finalizeQueueInstance) {
+    return task();
+  }
+  return finalizeQueueInstance.enqueue(task, HISTORY_FINALIZE_LANE);
 };
 
 export const waitForFinalizeQueueIdle = async (layerId?: string): Promise<void> => {

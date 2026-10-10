@@ -6,6 +6,7 @@ import { type AppState } from '@/stores/useAppStore';
 import type { Layer, BrushSettings } from '@/types';
 import { BrushShape } from '@/types';
 import type { ColorCycleSurfaceBrush } from '@/hooks/canvas/handlers/colorCycle/colorCycleSurface';
+import type { BrushStampMotion } from '@/tools/stamps/BrushStampSource';
 import { updateContinuousResamplerSample } from '@/hooks/canvas/handlers/customBrushCapture';
 import { getCcEffectiveSpacing } from '@/hooks/canvas/utils/ccSpacing';
 import {
@@ -76,7 +77,12 @@ export type ProcessBatchedStrokesArgs = {
   colorCycleGridSnapSpacingRef?: React.MutableRefObject<number | null>;
   ccFlowVelocityRef: React.MutableRefObject<CcFlowVelocityState>;
   eraserToolRef: React.MutableRefObject<{
-    move: (to: { x: number; y: number }, pressure: number, from: { x: number; y: number }) => void;
+    move: (
+      to: { x: number; y: number },
+      pressure: number,
+      from: { x: number; y: number },
+      motion?: BrushStampMotion,
+    ) => void;
     getROI: () => { x: number; y: number; width: number; height: number } | null;
   } | null>;
   eraserRoiRef: React.MutableRefObject<{ x: number; y: number; width: number; height: number } | null>;
@@ -298,7 +304,10 @@ export const processBatchedStrokes = (
         if (deps.isEraserV2) {
           const eraserTool = args.eraserToolRef.current;
           if (eraserTool) {
-            eraserTool.move(drawTo, pressure, drawFrom);
+            eraserTool.move(drawTo, pressure, drawFrom, {
+              velocityPxPerMs,
+              timestampMs: pointTimestampMs,
+            });
             const roi = eraserTool.getROI();
             args.eraserRoiRef.current = roi;
             if (roi) {

@@ -30,6 +30,7 @@ type OverlayFn = (
 ) => void;
 
 export const commitFinalizePressureLinkedDither = ({
+  preparedPressureMask = false,
   ctx,
   strokeBounds,
   region,
@@ -61,6 +62,7 @@ export const commitFinalizePressureLinkedDither = ({
   applyStrokeRisographOverlay: OverlayFn;
   isDitherStrokeBrush: boolean;
   warnIfDitherStrokePath: (context: string) => void;
+  preparedPressureMask?: boolean;
 }): void => {
   const rawCtxForFinal = rawCanvas ? pick2DRead(rawCanvas) : null;
   const ditherCtxForFinal = pick2DRead(ditherCanvas);
@@ -69,7 +71,7 @@ export const commitFinalizePressureLinkedDither = ({
     lastPressureDitherPixelSizeRef.current ??
     getStrokeDitherPixelSize();
   const bgOff = ditherBackgroundFill === false;
-  if (rawCtxForFinal && ditherCtxForFinal) {
+  if (!preparedPressureMask && rawCtxForFinal && ditherCtxForFinal) {
     const { x, y, width, height } = region;
     if (!bgOff) {
       ditherCtxForFinal.clearRect(x, y, width, height);

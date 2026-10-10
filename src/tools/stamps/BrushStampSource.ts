@@ -1,7 +1,6 @@
 import type { AppState } from '@/stores/useAppStore';
 import type { CustomBrushStrokeData } from '@/hooks/brushEngine/BrushEngineFacade';
-import { BrushShape } from '@/types';
-import { sanitizeEraserTipSettings } from '@/stores/helpers/eraserSettings';
+import { resolveEraserBrushSettings } from '@/stores/helpers/eraserSettings';
 
 type CanvasPoint = { x: number; y: number };
 
@@ -10,9 +9,10 @@ type BrushStampRuntime = {
     ctx: CanvasRenderingContext2D,
     from: CanvasPoint,
     to: CanvasPoint,
-    options?: { pressure?: number; customBrushData?: CustomBrushStrokeData }
+    options?: BrushStampDrawOptions & { customBrushData?: CustomBrushStrokeData; target?: 'erase-mask' }
   ) => void;
   updateConfig?: (config: { brushSettings: AppState['tools']['brushSettings'] }) => void;
+  finalizeStroke?: (ctx: CanvasRenderingContext2D) => unknown;
 };
 
 type UserBrushEngineAdapter = {
@@ -36,11 +36,17 @@ export interface BrushStampSourceOptions {
   forceOpaque?: boolean;
 }
 
-export interface BrushStampDrawOptions {
+export interface BrushStampMotion {
+  velocityPxPerMs?: number;
+  timestampMs?: number;
+}
+
+export interface BrushStampDrawOptions extends BrushStampMotion {
   pressure?: number;
 }
 
 export interface BrushStampBeginOptions {
+  target?: 'erase-mask';
   skipInitialStamp?: boolean;
 }
 
@@ -50,6 +56,7 @@ export class BrushStampSource {
   private readonly userBrushEngine: UserBrushEngineAdapter;
   private readonly resolveCustomBrush: ResolveCustomBrush;
 
+  private target: 'erase-mask' | undefined;
   private activeCtx: CanvasRenderingContext2D | null = null;
   private lastPoint: CanvasPoint | null = null;
   private customBrushData: CustomBrushStrokeData | undefined;
@@ -58,12 +65,7 @@ export class BrushStampSource {
   private readonly forceOpaque: boolean;
   private originalOpacity: number | null = null;
   private opacityOverrideApplied = false;
-  private originalBrushSize: number | null = null;
-  private sizeOverrideApplied = false;
-  private originalBrushShape: BrushShape | null = null;
-  private shapeOverrideApplied = false;
-  private originalDitherTipShape: AppState['tools']['brushSettings']['ditherStrokeTipShape'] = undefined;
-  private ditherTipOverrideApplied = false;
+  private eraserOverrideApplied = false;
 
   constructor(deps: BrushStampSourceDeps, options: BrushStampSourceOptions = {}) {
     this.getState = deps.getState;
@@ -80,6 +82,7 @@ export class BrushStampSource {
     options: BrushStampBeginOptions = {}
   ): void {
     this.activeCtx = ctx;
+    this.target = options.target;
     this.lastPoint = point;
 
     const state = this.getState();
@@ -100,7 +103,8 @@ export class BrushStampSource {
     if (!options.skipInitialStamp) {
       this.brushRuntime.drawBrush(ctx, point, point, {
         pressure,
-        customBrushData: this.customBrushData
+        customBrushData: this.customBrushData,
+        ...(this.target ? { target: this.target } : {}),
       });
     }
   }
@@ -121,53 +125,43 @@ export class BrushStampSource {
     }
 
     this.brushRuntime.drawBrush(ctx, from, to, {
+      ...options,
       pressure,
-      customBrushData: this.customBrushData
+      customBrushData: this.customBrushData,
+      ...(this.target ? { target: this.target } : {}),
     });
   }
 
-  end(): void {
+  end(cancelled = false): void {
+    if (this.eraserOverrideApplied && this.activeCtx && !cancelled) {
+      // Flush deferred stamps before the tool restores its composition and selection clip.
+      this.brushRuntime.finalizeStroke?.(this.activeCtx);
+    }
     if (this.usingUserBrush) {
       this.userBrushEngine.endStroke();
     }
-    if (this.opacityOverrideApplied || this.sizeOverrideApplied || this.shapeOverrideApplied || this.ditherTipOverrideApplied) {
+    if (this.eraserOverrideApplied || this.opacityOverrideApplied) {
       const state = this.getState();
       const brushSettings = state.tools.brushSettings;
       const restoreOpacity = this.opacityOverrideApplied
         ? this.originalOpacity ?? brushSettings.opacity
         : brushSettings.opacity;
-      const restoreSize = this.sizeOverrideApplied
-        ? this.originalBrushSize ?? brushSettings.size
-        : brushSettings.size;
-      const restoreShape = this.shapeOverrideApplied
-        ? this.originalBrushShape ?? brushSettings.brushShape
-        : brushSettings.brushShape;
-      const restoreDitherTipShape = this.ditherTipOverrideApplied
-        ? this.originalDitherTipShape ?? brushSettings.ditherStrokeTipShape
-        : brushSettings.ditherStrokeTipShape;
       this.brushRuntime.updateConfig?.({
         brushSettings: {
           ...brushSettings,
           opacity: restoreOpacity,
-          size: restoreSize,
-          brushShape: restoreShape,
-          ditherStrokeTipShape: restoreDitherTipShape,
         }
       });
     }
     this.activeCtx = null;
+    this.target = undefined;
     this.lastPoint = null;
     this.customBrushData = undefined;
     this.activeBrushId = null;
     this.usingUserBrush = false;
     this.originalOpacity = null;
     this.opacityOverrideApplied = false;
-    this.originalBrushSize = null;
-    this.sizeOverrideApplied = false;
-    this.originalBrushShape = null;
-    this.shapeOverrideApplied = false;
-    this.originalDitherTipShape = undefined;
-    this.ditherTipOverrideApplied = false;
+    this.eraserOverrideApplied = false;
   }
 
   last(): CanvasPoint | null {
@@ -178,101 +172,30 @@ export class BrushStampSource {
     const eraserSettings = state.tools.eraserSettings;
     const brushSettings = state.tools.brushSettings;
     const updateConfig = this.brushRuntime.updateConfig;
+    this.eraserOverrideApplied = state.tools.currentTool === 'eraser';
+    if (this.eraserOverrideApplied) {
+      const settings = resolveEraserBrushSettings(brushSettings, eraserSettings);
+      updateConfig?.({ brushSettings: this.forceOpaque ? { ...settings, opacity: 1 } : settings });
+      return;
+    }
     if (!updateConfig) {
       this.opacityOverrideApplied = false;
       this.originalOpacity = null;
-      this.sizeOverrideApplied = false;
-      this.originalBrushSize = null;
-      this.shapeOverrideApplied = false;
-      this.originalBrushShape = null;
-      this.ditherTipOverrideApplied = false;
-      this.originalDitherTipShape = undefined;
       return;
     }
 
-    const nextSettings = { ...brushSettings };
-    let changed = false;
     if (this.forceOpaque && brushSettings.opacity !== 1) {
       this.originalOpacity = brushSettings.opacity ?? null;
-      nextSettings.opacity = 1;
       this.opacityOverrideApplied = true;
-      changed = true;
+      updateConfig({
+        brushSettings: {
+          ...brushSettings,
+          opacity: 1,
+        },
+      });
     } else {
       this.opacityOverrideApplied = false;
       this.originalOpacity = null;
     }
-
-    if (state.tools.currentTool !== 'eraser') {
-      this.sizeOverrideApplied = false;
-      this.originalBrushSize = null;
-      this.shapeOverrideApplied = false;
-      this.originalBrushShape = null;
-      this.ditherTipOverrideApplied = false;
-      this.originalDitherTipShape = undefined;
-      if (!changed) {
-        return;
-      }
-      updateConfig({
-        brushSettings: {
-          ...brushSettings,
-          ...nextSettings,
-        }
-      });
-      return;
-    }
-
-    // Size override (when eraser is unlinked from brush size)
-    const shouldLink = eraserSettings.linkSizeToBrush !== false;
-    if (!shouldLink) {
-      const overrideSize = eraserSettings.size ?? brushSettings.size;
-      if (typeof overrideSize === 'number' && !Number.isNaN(overrideSize) && overrideSize > 0) {
-        this.originalBrushSize = brushSettings.size ?? null;
-        nextSettings.size = overrideSize;
-        this.sizeOverrideApplied = true;
-        changed = true;
-      } else {
-        this.sizeOverrideApplied = false;
-        this.originalBrushSize = null;
-      }
-    } else {
-      this.sizeOverrideApplied = false;
-      this.originalBrushSize = null;
-    }
-
-    // Shape override (when eraser shape differs from active brush)
-    const sanitized = sanitizeEraserTipSettings(eraserSettings);
-    const eraserShape = sanitized.brushShape;
-    const brushShape = brushSettings.brushShape;
-    if (eraserShape && eraserShape !== brushShape) {
-      this.originalBrushShape = brushShape ?? null;
-      nextSettings.brushShape = eraserShape;
-      this.shapeOverrideApplied = true;
-      changed = true;
-    } else {
-      this.shapeOverrideApplied = false;
-      this.originalBrushShape = null;
-    }
-
-    const eraserDitherTipShape =
-      eraserShape === BrushShape.PIXEL_DITHER ? sanitized.ditherStrokeTipShape : undefined;
-    if (eraserDitherTipShape && eraserDitherTipShape !== brushSettings.ditherStrokeTipShape) {
-      this.originalDitherTipShape = brushSettings.ditherStrokeTipShape;
-      nextSettings.ditherStrokeTipShape = eraserDitherTipShape;
-      this.ditherTipOverrideApplied = true;
-      changed = true;
-    } else {
-      this.ditherTipOverrideApplied = false;
-      this.originalDitherTipShape = undefined;
-    }
-
-    if (!changed) {
-      return;
-    }
-    updateConfig({
-      brushSettings: {
-        ...brushSettings,
-        ...nextSettings,
-      }
-    });
   }
 }

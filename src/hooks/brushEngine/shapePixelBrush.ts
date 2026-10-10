@@ -1,6 +1,7 @@
 import { BrushShape, type BrushSettings } from '@/types';
 import { canvasPool } from '@/utils/canvasPool';
 
+import { emitNativeSupportCircle, emitNativeSupportImage, emitNativeSupportRect } from './nativeShapeSupport';
 import {
   buildRotatedStampCacheKey,
   getRotatedPixelStamp,
@@ -14,6 +15,7 @@ export interface PixelBrushDependencies {
 
 interface DrawPixelBrushParams {
   drawingCtx: CanvasRenderingContext2D;
+  supportCtx?: CanvasRenderingContext2D | null;
   drawX: number;
   drawY: number;
   size: number;
@@ -61,6 +63,7 @@ const drawGridMask = (
   stampSize: number,
   gridSize: number,
   mask: readonly number[],
+  supportCtx?: CanvasRenderingContext2D | null,
 ) => {
   const pixelScale = Math.max(1, Math.round(stampSize / gridSize));
   const rasterSize = pixelScale * gridSize;
@@ -75,6 +78,11 @@ const drawGridMask = (
         originY + row * pixelScale,
         pixelScale,
         pixelScale,
+      );
+      emitNativeSupportRect(
+        drawingCtx, supportCtx,
+        originX + col * pixelScale, originY + row * pixelScale,
+        pixelScale, pixelScale,
       );
     }
   }
@@ -183,6 +191,7 @@ const drawSpecialDitherTip = (
   ditherTipShape: NonNullable<BrushSettings['ditherStrokeTipShape']>,
   quantizedRotation: number,
   deps: PixelBrushDependencies | undefined,
+  supportCtx?: CanvasRenderingContext2D | null,
 ) => {
   drawingCtx.imageSmoothingEnabled = false;
   if (ditherTipShape === 'checkered') {
@@ -190,7 +199,7 @@ const drawSpecialDitherTip = (
   } else if (ditherTipShape === 'diamond5' || ditherTipShape === 'diamond7' || ditherTipShape === 'diamond9') {
     const gridSize = ditherTipShape === 'diamond9' ? 9 : ditherTipShape === 'diamond7' ? 7 : 5;
     const mask = gridSize === 9 ? DIAMOND_9_MASK : gridSize === 7 ? DIAMOND_7_MASK : DIAMOND_5_MASK;
-    drawGridMask(drawingCtx, drawX, drawY, stampSize, gridSize, mask);
+    drawGridMask(drawingCtx, drawX, drawY, stampSize, gridSize, mask, supportCtx);
   } else if (ditherTipShape === 'square' || ditherTipShape === 'diamond') {
     drawSquareOrDiamondTip(
       drawingCtx,
@@ -208,6 +217,7 @@ const drawSpecialDitherTip = (
 
 export const drawPixelBrush = ({
   drawingCtx,
+  supportCtx,
   drawX,
   drawY,
   size,
@@ -231,6 +241,7 @@ export const drawPixelBrush = ({
     ditherTipShape,
     quantizedRotation,
     deps,
+    supportCtx,
   );
     return;
   }
@@ -269,6 +280,11 @@ export const drawPixelBrush = ({
         Math.round(drawX - finalStamp.width / 2),
         Math.round(drawY - finalStamp.height / 2),
       );
+      emitNativeSupportImage(
+        drawingCtx, supportCtx, finalStamp,
+        Math.round(drawX - finalStamp.width / 2),
+        Math.round(drawY - finalStamp.height / 2),
+      );
     }
 
     canvasPool.release(tempCanvas);
@@ -278,4 +294,5 @@ export const drawPixelBrush = ({
   drawingCtx.beginPath();
   drawingCtx.arc(drawX, drawY, halfSize, 0, Math.PI * 2);
   drawingCtx.fill();
+  emitNativeSupportCircle(drawingCtx, supportCtx, drawX, drawY, halfSize);
 };

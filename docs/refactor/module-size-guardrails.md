@@ -74,7 +74,51 @@ Paint-bucket execution remains outside pointer orchestration:
   tracked by `docs/refactor/plan-useDrawingHandlers-decomposition.md`; this
   extraction reduced it from 5,074 to 4,911 lines.
 
+Eraser stroke-start acceptance remains in the existing handler boundary:
+
+- `startDrawing.ts` returns whether the stroke was accepted; `startDrawingCallback.ts`
+  preserves that result. Visibility, lock and brush compatibility decisions remain
+  in `strokeStartLayerGuards.ts`.
+- `pointerHandlersRuntime.ts` starts interaction state only after acceptance and
+  uses one local cleanup function for rejected direct/bootstrap starts. It is
+  4,939 lines after this audit change; the existing exception and split follow-up
+  remain `docs/refactor/plan-useDrawingHandlers-decomposition.md`.
+- `strokeCapture.ts` normalizes explicit capture bounds before taking the history
+  snapshot. This keeps snapshot dimensions and history coordinates identical at
+  project edges. Targeted tests exercise real bitmap undo/redo at all four corners.
+- The active scope and remaining verification are tracked in
+  `docs/refactor/app-functionality-audit-2026-10-10.md`.
+
+Eraser pointer cancellation uses the existing stroke finalization boundary:
+
+- `pointerHandlersRuntime.ts` routes interrupted erasers through `finalizeDrawing`
+  regardless of inherited shape mode and preserves the overlay/session until
+  finalization can capture pixels and commit history. Repeated cancellation during
+  pending finalization preserves that ownership. Existing CC brush cancellation
+  remains unchanged.
+- Targeted pointer-owner tests cover raster, CC and sequence layers, inherited
+  shape mode, deferred finalization and subsequent pointer release/cancellation.
+  The pointer owner is 4,943 lines; its existing exception and split follow-up
+  remain `docs/refactor/plan-useDrawingHandlers-decomposition.md`.
+
 ## Refactor Trigger Rules
 - Third-concern rule: if a file now owns 3+ independent concerns, extract before merge.
 - Repeated helper rule: if a helper pattern appears 3 times, extract.
 - Testability rule: if logic cannot be unit-tested without mounting large UI state, extract into handler/util module.
+
+Pressure-linked eraser dithering keeps authored support and run state outside the
+engine hook:
+
+- `brushEngine/nativeShapeSupport.ts` emits the already-produced native rectangle,
+  image or circle into a separate support surface without altering raw drawing.
+- `brushEngine/alphaPressureDither.ts` owns current-run support, pending work,
+  pressure transitions and the final buffered-tail flush. Full cumulative raw
+  remains the sampling authority; only positive current-run support permits writes
+  with Smoosh off. Preview publication consumes pending accepted input before
+  reading the derived mask, so a later pressure transition cannot publish it late.
+- `useBrushEngineSimplified.ts` composes that owner with the existing native facade,
+  preview scheduling and finalization callback. Finalization explicitly accepts a
+  prepared pressure mask instead of regenerating earlier runs at the last size.
+- Direct regression tests cover saturated overlap, untouched islands, transparent
+  holes, throttled pending work and tail finalization. Production evidence and
+  remaining area scope stay in the functionality-audit ledger.

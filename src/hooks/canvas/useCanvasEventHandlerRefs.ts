@@ -11,7 +11,6 @@ export const useCanvasEventHandlerRefs = () => {
   const snapStrokeStartRef = useRef<{ x: number; y: number } | null>(null);
   const snapShiftAnchorRef = useRef<{ x: number; y: number } | null>(null);
   const snapLastBrushSampleRef = useRef<{ x: number; y: number } | null>(null);
-  const suppressBootstrapUntilPointerUpRef = useRef<boolean>(false);
 
   const contourLinesStateRef = useRef<ContourLinesState>(createDefaultContourLinesState());
   const contourLinesDefaultsCacheRef = useRef<Lines2DefaultsCache | null>(null);
@@ -45,7 +44,6 @@ export const useCanvasEventHandlerRefs = () => {
     snapStrokeStartRef,
     snapShiftAnchorRef,
     snapLastBrushSampleRef,
-    suppressBootstrapUntilPointerUpRef,
     contourLinesStateRef,
     contourLinesDefaultsCacheRef,
     contourLinesFinalizingRef,

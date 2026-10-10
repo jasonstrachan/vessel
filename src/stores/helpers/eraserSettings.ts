@@ -5,6 +5,20 @@ export type EraserTipOption = (typeof ERASER_TIP_OPTIONS)[number];
 
 type EraserShapeSettings = Pick<BrushSettings, 'brushShape' | 'ditherStrokeTipShape'>;
 
+export const resolveEraserBrushSettings = (
+  brushSettings: BrushSettings,
+  eraserSettings: Partial<BrushSettings> & { linkSizeToBrush?: boolean },
+): BrushSettings => ({
+  ...brushSettings,
+  ...eraserSettings,
+  ...sanitizeEraserTipSettings(eraserSettings),
+  // Eraser color is a preview tint; only opacity controls mask strength.
+  color: '#ffffff',
+  size: eraserSettings.linkSizeToBrush === false
+    ? eraserSettings.size ?? brushSettings.size
+    : brushSettings.size,
+});
+
 export const resolveEraserTipOption = (
   settings?: Partial<EraserShapeSettings> | null
 ): EraserTipOption => {

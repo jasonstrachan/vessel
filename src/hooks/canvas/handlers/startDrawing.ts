@@ -34,13 +34,13 @@ export const startDrawingHandler = ({
     ToolStrokeArgs,
     'currentState' | 'currentTool' | 'currentBrushId' | 'ccFlags' | 'worldPos' | 'pressure' | 'drawCtx'
   >;
-}): void => {
+}): boolean => {
   const preludeResult = prepareStrokeStartPrelude({
     ...prelude,
     rawWorldPos,
   });
   if (!preludeResult) {
-    return;
+    return false;
   }
 
   const {
@@ -61,7 +61,7 @@ export const startDrawingHandler = ({
       currentBrushId: currentBrushId ?? null,
     })
   ) {
-    return;
+    return false;
   }
 
   const drawCtx = prepareStrokeStartSamplingCanvas({
@@ -75,7 +75,7 @@ export const startDrawingHandler = ({
     },
   });
   if (!drawCtx) {
-    return;
+    return false;
   }
 
   if (ccFlags.isAny && currentTool === 'brush') {
@@ -92,7 +92,5 @@ export const startDrawingHandler = ({
     pressure,
     drawCtx,
   });
-  if (!toolStrokeStarted) {
-    return;
-  }
+  return toolStrokeStarted;
 };

@@ -77,6 +77,8 @@ export const finalizeStrokeEngineBuffers = ({
 };
 
 export const finalizeStrokeAfterEngine = ({
+  restoreBase = false,
+  preparedPressureMask = false,
   ctx,
   strokeBounds,
   region,
@@ -99,6 +101,8 @@ export const finalizeStrokeAfterEngine = ({
   warnIfDitherStrokePath,
   finalizeAndReset,
 }: {
+  restoreBase?: boolean;
+  preparedPressureMask?: boolean;
   ctx: CanvasRenderingContext2D;
   strokeBounds: Rect | null;
   region: Rect | null;
@@ -157,6 +161,20 @@ export const finalizeStrokeAfterEngine = ({
   warnIfDitherStrokePath: (context: string) => void;
   finalizeAndReset: (clearCoverage: boolean) => Rect | null;
 }): Rect | null => {
+  if ((restoreBase || ctx.globalCompositeOperation === 'destination-out') && baseCanvas && region) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(region.x, region.y, region.width, region.height);
+    ctx.clip();
+    ctx.globalCompositeOperation = 'copy';
+    ctx.globalAlpha = 1;
+    ctx.drawImage(
+      baseCanvas as CanvasImageSource,
+      region.x, region.y, region.width, region.height,
+      region.x, region.y, region.width, region.height,
+    );
+    ctx.restore();
+  }
   if (
     !shouldApplyStrokeDither &&
     rawCtx &&
@@ -187,6 +205,7 @@ export const finalizeStrokeAfterEngine = ({
     region
   ) {
     commitFinalizePressureLinkedDither({
+      preparedPressureMask,
       ctx,
       strokeBounds,
       region,

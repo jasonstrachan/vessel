@@ -1,8 +1,10 @@
-import { normalizeRectForCanvas, pick2D, pick2DRead, type Rect } from './engineShared';
+import { inflateRect, normalizeRectForCanvas, pick2D, pick2DRead, type Rect } from './engineShared';
 
 import type { BrushSettings } from '@/types';
 
 export const renderLiveStrokePreview = ({
+  restoreBase = false,
+  previewSource,
   visibleCtx,
   liveRenderScheduledRef,
   liveStrokeRawRef,
@@ -18,7 +20,10 @@ export const renderLiveStrokePreview = ({
   withAlphaLock,
   applyStrokeDither,
   applyStrokeRisographOverlay,
+  applyLostEdgeMaskInRegion,
 }: {
+  restoreBase?: boolean;
+  previewSource?: { canvas: HTMLCanvasElement; bounds: Rect } | null;
   visibleCtx: CanvasRenderingContext2D;
   liveRenderScheduledRef: { current: boolean };
   liveStrokeRawRef: { current: HTMLCanvasElement | OffscreenCanvas | null };
@@ -49,6 +54,11 @@ export const renderLiveStrokePreview = ({
       settingsOverride?: BrushSettings;
     }
   ) => void;
+  applyLostEdgeMaskInRegion?: (
+    ctx: CanvasRenderingContext2D,
+    region: Rect | null,
+    lostEdgePercent?: number,
+  ) => void;
   applyStrokeRisographOverlay: (
     ctx: CanvasRenderingContext2D,
     bounds: Rect | null,
@@ -57,16 +67,26 @@ export const renderLiveStrokePreview = ({
 }): void => {
   liveRenderScheduledRef.current = false;
 
-  const rawCanvas = liveStrokeRawRef.current;
+  const isEraserStroke = restoreBase || visibleCtx.globalCompositeOperation === 'destination-out';
+  const hasReleasePresentation = isEraserStroke &&
+    !(shouldApplyStrokeDither && brushSettings.pressureLinkedFillResolution);
+  const presentation = hasReleasePresentation ? previewSource : null;
+  const rawCanvas = presentation?.canvas ?? liveStrokeRawRef.current;
   const ditherCanvas = liveStrokeDitherRef.current;
-  const strokeBounds = liveStrokeBoundsRef.current ?? strokeBoundsRef.current;
+  const strokeBounds = hasReleasePresentation
+    ? strokeBoundsRef.current ?? liveStrokeBoundsRef.current
+    : liveStrokeBoundsRef.current ?? strokeBoundsRef.current;
   if (!rawCanvas || !strokeBounds) {
     return;
   }
 
   const canvasWidth = visibleCtx.canvas?.width ?? 0;
   const canvasHeight = visibleCtx.canvas?.height ?? 0;
-  const region = normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight);
+  const presentationBounds = presentation?.bounds ?? strokeBounds;
+  const region = normalizeRectForCanvas(presentationBounds, canvasWidth, canvasHeight);
+  // Finalization samples the admitted stroke bounds before authoring its cap.
+  // Old tentative footprints belong only to redraw, never the effect domain.
+  const effectRegion = normalizeRectForCanvas(strokeBounds, canvasWidth, canvasHeight);
   const { x, y, width, height } = region;
   if (width <= 0 || height <= 0) {
     return;
@@ -84,7 +104,11 @@ export const renderLiveStrokePreview = ({
     }
     const restored = normalizeRectForCanvas(bounds, canvasWidth, canvasHeight);
     visibleCtx.save();
+    visibleCtx.beginPath();
+    visibleCtx.rect(restored.x, restored.y, restored.width, restored.height);
+    visibleCtx.clip();
     visibleCtx.globalCompositeOperation = 'copy';
+    visibleCtx.globalAlpha = 1;
     visibleCtx.drawImage(
       baseCanvas as CanvasImageSource,
       restored.x, restored.y, restored.width, restored.height,
@@ -92,6 +116,9 @@ export const renderLiveStrokePreview = ({
     );
     visibleCtx.restore();
   };
+
+  // Repeated previews apply a cumulative mask to the same original pixels.
+  const shouldRestoreBase = isEraserStroke || isPixelDitherNoBg;
 
   if (
     shouldApplyStrokeDither &&
@@ -108,7 +135,7 @@ export const renderLiveStrokePreview = ({
           dCtx.canvas?.width ?? 0,
           dCtx.canvas?.height ?? 0
         );
-        if (isPixelDitherNoBg) {
+        if (shouldRestoreBase) {
           restoreBaseRegion({ x: bx, y: by, width: bw, height: bh });
         }
         const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
@@ -124,10 +151,12 @@ export const renderLiveStrokePreview = ({
   if (shouldApplyStrokeDither && ditherCanvas) {
     const dCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
     if (dCtx) {
-      const fullDirty = liveDirtyRectRef.current ?? strokeBounds;
+      // Coverage diffusion depends on the preceding stroke cells. Rebuild an
+      // eraser mask from the same complete raw region used by finalization.
+      const fullDirty = isEraserStroke ? region : liveDirtyRectRef.current ?? strokeBounds;
       liveDirtyRectRef.current = null;
 
-      const ditherRegion = fullDirty;
+      const ditherRegion = isEraserStroke ? effectRegion : fullDirty;
 
       const { x: dx, y: dy, width: dw, height: dh } = normalizeRectForCanvas(
         ditherRegion,
@@ -135,6 +164,10 @@ export const renderLiveStrokePreview = ({
         dCtx.canvas?.height ?? 0
       );
 
+      if (isEraserStroke) {
+        const clearRegion = normalizeRectForCanvas(fullDirty, canvasWidth, canvasHeight);
+        dCtx.clearRect(clearRegion.x, clearRegion.y, clearRegion.width, clearRegion.height);
+      }
       if (brushSettings.ditherBackgroundFill !== false) {
         dCtx.drawImage(rawCanvas as CanvasImageSource, dx, dy, dw, dh, dx, dy, dw, dh);
         applyStrokeDither(dCtx, ditherRegion, rawCtx);
@@ -143,14 +176,14 @@ export const renderLiveStrokePreview = ({
       }
 
       const blitRect = normalizeRectForCanvas(
-        fullDirty,
+        isEraserStroke ? effectRegion : fullDirty,
         dCtx.canvas?.width ?? 0,
         dCtx.canvas?.height ?? 0
       );
 
       const ditherSource = ditherCanvas instanceof HTMLCanvasElement ? ditherCanvas : null;
-      if (isPixelDitherNoBg) {
-        restoreBaseRegion(blitRect);
+      if (shouldRestoreBase) {
+        restoreBaseRegion(isEraserStroke ? fullDirty : blitRect);
       }
       withAlphaLock(visibleCtx, (targetCtx) => {
         targetCtx.drawImage(
@@ -158,18 +191,49 @@ export const renderLiveStrokePreview = ({
           blitRect.x, blitRect.y, blitRect.width, blitRect.height,
           blitRect.x, blitRect.y, blitRect.width, blitRect.height
         );
-      }, fullDirty);
+      }, isEraserStroke ? strokeBounds : fullDirty);
       applyStrokeRisographOverlay(visibleCtx, fullDirty, ditherSource ?? (rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null));
       return;
     }
   }
 
+  if (isEraserStroke && (brushSettings.lostEdge ?? 0) > 0 &&
+    ditherCanvas && applyLostEdgeMaskInRegion) {
+    const effectCtx = pick2D(ditherCanvas) as CanvasRenderingContext2D | null;
+    if (effectCtx) {
+      // Start from completed raw on every publication; neither accepted raw nor
+      // the facade's cached release-cap source may accumulate erosion.
+      const inflated = inflateRect(effectRegion, 2);
+      const sampleRegion = normalizeRectForCanvas({
+        ...inflated, x: Math.max(0, inflated.x), y: Math.max(0, inflated.y),
+      }, canvasWidth, canvasHeight);
+      effectCtx.clearRect(region.x, region.y, region.width, region.height);
+      const previousAlpha = effectCtx.globalAlpha;
+      const previousComposite = effectCtx.globalCompositeOperation;
+      effectCtx.globalAlpha = 1;
+      effectCtx.globalCompositeOperation = 'copy';
+      effectCtx.drawImage(rawCanvas as CanvasImageSource,
+        sampleRegion.x, sampleRegion.y, sampleRegion.width, sampleRegion.height,
+        sampleRegion.x, sampleRegion.y, sampleRegion.width, sampleRegion.height);
+      effectCtx.globalAlpha = previousAlpha;
+      effectCtx.globalCompositeOperation = previousComposite;
+      applyLostEdgeMaskInRegion(effectCtx, inflateRect(effectRegion, 2), brushSettings.lostEdge);
+      restoreBaseRegion(region);
+      withAlphaLock(visibleCtx, (targetCtx) => {
+        targetCtx.drawImage(ditherCanvas as CanvasImageSource,
+          effectRegion.x, effectRegion.y, effectRegion.width, effectRegion.height,
+          effectRegion.x, effectRegion.y, effectRegion.width, effectRegion.height);
+      }, strokeBounds);
+      return;
+    }
+  }
+
   const rawSource = rawCanvas instanceof HTMLCanvasElement ? rawCanvas : null;
-  if (isPixelDitherNoBg) {
+  if (shouldRestoreBase) {
     restoreBaseRegion(region);
   }
   withAlphaLock(visibleCtx, (targetCtx) => {
     targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
-  }, strokeBounds);
-  applyStrokeRisographOverlay(visibleCtx, strokeBounds, rawSource);
+  }, presentationBounds);
+  applyStrokeRisographOverlay(visibleCtx, presentationBounds, rawSource);
 };
