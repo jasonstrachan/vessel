@@ -7,7 +7,14 @@ import { createColorCycleStrokePatchDelta } from '@/history/deltas/colorCycleStr
 import { mapCanvasActionToHistoryId } from './actions';
 import { captureColorCycleBrushState, type ColorCycleSerializedState } from './colorCycle';
 import type { HistoryDelta } from '@/history/actionTypes';
-import type { CanvasSnapshot } from '@/types';
+import type { CanvasSnapshot, SequentialLayerData } from '@/types';
+import {
+  canUseSequentialAppendDelta,
+  createSequentialAppendFrameDelta,
+  createSequentialFrameDelta,
+  cloneSequentialLayerData,
+} from '@/history/deltas/sequentialFrameDelta';
+import { enqueueHistoryFinalizeTask } from '@/stores/pendingColorCycleSaves';
 import { useAppStore } from '@/stores/useAppStore';
 import { createSelectionDelta } from '@/history/deltas/selectionDelta';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
@@ -190,6 +197,118 @@ export interface LayerHistoryPayload {
   skipBitmapDelta?: boolean;
 }
 
+type PreparedLayerChange = {
+  layerId: string;
+  beforeImage: ImageData | null;
+  afterImage: ImageData | null;
+  beforeColorState: ColorCycleSerializedState;
+  afterColorState: ColorCycleSerializedState;
+  bitmapRoi: LayerHistoryPayload['bitmapRoi'];
+  bitmapSize: LayerHistoryPayload['bitmapSize'];
+  skipBitmapDelta?: boolean;
+  isColorCycleLayer: boolean;
+  projectWidth: number;
+  projectHeight: number;
+};
+
+const appendLayerHistoryDeltas = async (
+  { layerId, beforeImage, afterImage, beforeColorState, afterColorState, bitmapRoi,
+    bitmapSize, skipBitmapDelta, isColorCycleLayer, projectWidth, projectHeight }: PreparedLayerChange,
+  pushDelta: (delta: HistoryDelta | null | undefined) => void,
+  probeMeta: Record<string, unknown>,
+): Promise<void> => {
+  const normalizedColorCycleRoi = normalizeInflatedRoi(bitmapRoi, projectWidth, projectHeight, 2);
+  const skipBitmap = skipBitmapDelta === true;
+
+  if (afterImage && !skipBitmap && !isColorCycleLayer) {
+    const bitmapDelta = await strokeFinalizeProbeTime(
+      'commitLayerHistory:createBitmapTileDelta',
+      () => createBitmapTileDelta({
+        layerId,
+        before: beforeImage,
+        after: afterImage,
+        roi: bitmapRoi ?? undefined,
+        bitmapSize,
+      }),
+      {
+        ...probeMeta,
+        afterWidth: afterImage.width,
+        afterHeight: afterImage.height,
+        roiWidth: bitmapRoi?.width ?? null,
+        roiHeight: bitmapRoi?.height ?? null,
+      }
+    );
+    pushDelta(bitmapDelta);
+  }
+
+  if (afterColorState || beforeColorState) {
+    const inferredRoi = strokeFinalizeProbeTimeSync(
+      'commitLayerHistory:inferColorCycleRoi',
+      () => inferFallbackRoiFromStateDiff(
+        beforeColorState,
+        afterColorState,
+        projectWidth,
+        projectHeight
+      ),
+      probeMeta
+    );
+    const colorCycleRoi =
+      normalizedColorCycleRoi ??
+      inferredRoi ??
+      (projectWidth > 0 && projectHeight > 0
+        ? { x: 0, y: 0, width: projectWidth, height: projectHeight }
+        : null);
+    const patchDelta = colorCycleRoi
+      ? await strokeFinalizeProbeTime(
+          'commitLayerHistory:createColorCycleStrokePatchDelta',
+          () => createColorCycleStrokePatchDelta({
+            layerId,
+            forwardState: afterColorState,
+            backwardState: beforeColorState,
+            roi: colorCycleRoi,
+            width: projectWidth,
+            height: projectHeight,
+            beforeDocumentVersion: beforeColorState?.documentVersion,
+            afterDocumentVersion: afterColorState?.documentVersion,
+            beforeVersion: beforeColorState?.pixelVersion,
+            afterVersion: afterColorState?.pixelVersion,
+          }),
+          probeMeta
+        )
+      : null;
+    pushDelta(patchDelta);
+    const eraseMaskDelta = colorCycleRoi
+      ? await strokeFinalizeProbeTime(
+          'commitLayerHistory:createColorCycleEraseMaskPatchDelta',
+          () => createColorCycleEraseMaskPatchDelta({
+            layerId,
+            forwardState: afterColorState,
+            backwardState: beforeColorState,
+            roi: colorCycleRoi,
+            width: projectWidth,
+            height: projectHeight,
+            beforeVersion: beforeColorState?.documentVersion,
+            afterVersion: afterColorState?.documentVersion,
+            restoreDocumentAnchors: patchDelta === null,
+          }),
+          probeMeta
+        )
+      : null;
+    pushDelta(eraseMaskDelta);
+    pushDelta(strokeFinalizeProbeTimeSync(
+      'commitLayerHistory:createColorCycleSoftEdgeMaskDelta',
+      () => createColorCycleSoftEdgeMaskDelta({
+        layerId,
+        forwardState: afterColorState,
+        backwardState: beforeColorState,
+        beforeVersion: beforeColorState?.documentVersion,
+        afterVersion: afterColorState?.documentVersion,
+      }),
+      probeMeta
+    ));
+  }
+};
+
 export const commitLayerHistory = async ({
   actor,
   rasterContribution,
@@ -250,12 +369,6 @@ export const commitLayerHistory = async ({
       refreshedLayer.imageData?.height ??
       refreshedLayer.colorCycleData?.canvas?.height ??
       0;
-    const normalizedColorCycleRoi = normalizeInflatedRoi(
-      bitmapRoi ?? null,
-      projectWidth,
-      projectHeight,
-      2,
-    );
 
     const historyId = mapCanvasActionToHistoryId(actionType);
     const meta: Record<string, unknown> = {
@@ -314,95 +427,10 @@ export const commitLayerHistory = async ({
     };
 
     try {
-      const skipBitmap = skipBitmapDelta === true;
-
-      if (afterImage && !skipBitmap && !isColorCycleLayer) {
-        const bitmapDelta = await strokeFinalizeProbeTime(
-          'commitLayerHistory:createBitmapTileDelta',
-          () => createBitmapTileDelta({
-            layerId,
-            before: beforeImage,
-            after: afterImage,
-            roi: bitmapRoi ?? undefined,
-            bitmapSize,
-          }),
-          {
-            ...probeMeta,
-            afterWidth: afterImage.width,
-            afterHeight: afterImage.height,
-            roiWidth: bitmapRoi?.width ?? null,
-            roiHeight: bitmapRoi?.height ?? null,
-          }
-        );
-        pushDelta(bitmapDelta);
-      }
-
-      if (afterColorState || beforeColorState) {
-        const inferredRoi = strokeFinalizeProbeTimeSync(
-          'commitLayerHistory:inferColorCycleRoi',
-          () => inferFallbackRoiFromStateDiff(
-            beforeColorState,
-            afterColorState,
-            projectWidth,
-            projectHeight
-          ),
-          probeMeta
-        );
-        const colorCycleRoi =
-          normalizedColorCycleRoi ??
-          inferredRoi ??
-          (projectWidth > 0 && projectHeight > 0
-            ? { x: 0, y: 0, width: projectWidth, height: projectHeight }
-            : null);
-        const patchDelta = colorCycleRoi
-          ? await strokeFinalizeProbeTime(
-              'commitLayerHistory:createColorCycleStrokePatchDelta',
-              () => createColorCycleStrokePatchDelta({
-                layerId,
-                forwardState: afterColorState,
-                backwardState: beforeColorState,
-                roi: colorCycleRoi,
-                width: projectWidth,
-                height: projectHeight,
-                beforeDocumentVersion: beforeColorState?.documentVersion,
-                afterDocumentVersion: afterColorState?.documentVersion,
-                beforeVersion: beforeColorState?.pixelVersion,
-                afterVersion: afterColorState?.pixelVersion,
-              }),
-              probeMeta
-            )
-          : null;
-        pushDelta(patchDelta);
-        const eraseMaskDelta = colorCycleRoi
-          ? await strokeFinalizeProbeTime(
-              'commitLayerHistory:createColorCycleEraseMaskPatchDelta',
-              () => createColorCycleEraseMaskPatchDelta({
-                layerId,
-                forwardState: afterColorState,
-                backwardState: beforeColorState,
-                roi: colorCycleRoi,
-                width: projectWidth,
-                height: projectHeight,
-                beforeVersion: beforeColorState?.documentVersion,
-                afterVersion: afterColorState?.documentVersion,
-                restoreDocumentAnchors: patchDelta === null,
-              }),
-              probeMeta
-            )
-          : null;
-        pushDelta(eraseMaskDelta);
-        pushDelta(strokeFinalizeProbeTimeSync(
-          'commitLayerHistory:createColorCycleSoftEdgeMaskDelta',
-          () => createColorCycleSoftEdgeMaskDelta({
-            layerId,
-            forwardState: afterColorState,
-            backwardState: beforeColorState,
-            beforeVersion: beforeColorState?.documentVersion,
-            afterVersion: afterColorState?.documentVersion,
-          }),
-          probeMeta
-        ));
-      }
+      await appendLayerHistoryDeltas({
+        layerId, beforeImage, afterImage, beforeColorState, afterColorState, bitmapRoi,
+        bitmapSize, skipBitmapDelta, isColorCycleLayer, projectWidth, projectHeight,
+      }, pushDelta, probeMeta);
 
       if (selectionBeforeSnapshot && selectionAfterSnapshot) {
         const selectionDelta = strokeFinalizeProbeTimeSync(
@@ -442,3 +470,133 @@ export const commitLayerHistory = async ({
   };
 
 export const cloneLayerImageData = cloneImageData;
+
+export type LayerHistoryBatchChange =
+  | { kind: 'layer'; payload: LayerHistoryPayload }
+  | {
+      kind: 'sequential';
+      layerId: string;
+      beforeSequentialData: SequentialLayerData;
+      afterSequentialData: SequentialLayerData;
+    };
+
+export interface LayerHistoryBatchPayload {
+  changes: readonly LayerHistoryBatchChange[];
+  actionType: CanvasSnapshot['actionType'];
+  description: string;
+  tool: string;
+  selectionBefore?: SelectionSnapshot | null;
+  selectionAfter?: SelectionSnapshot | null;
+}
+
+/** Capture every owner before yielding; publish all deltas in one undo entry. */
+export const commitLayerHistoryBatch = async ({
+  changes, actionType, description, tool, selectionBefore, selectionAfter,
+}: LayerHistoryBatchPayload): Promise<void> => {
+  const state = useAppStore.getState();
+  const projectId = state.project?.id;
+  const layerIds = new Set<string>();
+  const captured = changes.map((change) => {
+    const layerId = change.kind === 'layer' ? change.payload.layerId : change.layerId;
+    if (layerIds.has(layerId)) {
+      throw new Error(`Duplicate layer ${layerId} in history batch`);
+    }
+    layerIds.add(layerId);
+    const layer = state.layers.find((candidate) => candidate.id === layerId);
+    if (!layer) {
+      throw new Error(`Missing layer ${layerId} in history batch`);
+    }
+    if (change.kind === 'sequential') {
+      if (layer.layerType !== 'sequential') {
+        throw new Error(`Layer ${layerId} is not sequential`);
+      }
+      return {
+        kind: 'sequential' as const,
+        layerId,
+        before: cloneSequentialLayerData(change.beforeSequentialData),
+        after: cloneSequentialLayerData(change.afterSequentialData),
+      };
+    }
+    if (layer.layerType === 'sequential') {
+      throw new Error(`Sequential layer ${layerId} requires canonical history data`);
+    }
+    const payload = change.payload;
+    const isColorCycleLayer = layer.layerType === 'color-cycle';
+    if (isColorCycleLayer) getColorCycleBrushManager().getHistoryBrush(layerId)?.flush?.(layerId);
+    const prepared: PreparedLayerChange = {
+      layerId,
+      beforeImage: cloneImageData(payload.beforeImage),
+      afterImage: !payload.skipBitmapDelta && !isColorCycleLayer
+        ? cloneImageData(payload.afterImage ?? layer.imageData) : null,
+      beforeColorState: payload.beforeColorState ? structuredClone(payload.beforeColorState) : null,
+      afterColorState: isColorCycleLayer
+        ? structuredClone(payload.afterColorState ?? captureColorCycleBrushState(layerId)) : null,
+      bitmapRoi: payload.bitmapRoi ? { ...payload.bitmapRoi } : payload.bitmapRoi,
+      bitmapSize: payload.bitmapSize ? { ...payload.bitmapSize } : undefined,
+      skipBitmapDelta: payload.skipBitmapDelta,
+      isColorCycleLayer,
+      projectWidth: state.project?.width ?? layer.imageData?.width ?? layer.colorCycleData?.canvas?.width ?? 0,
+      projectHeight: state.project?.height ?? layer.imageData?.height ?? layer.colorCycleData?.canvas?.height ?? 0,
+    };
+    return { kind: 'layer' as const, prepared };
+  });
+  const beforeSelection = selectionBefore ? cloneSelectionSnapshot(selectionBefore) : null;
+  const afterSelection = beforeSelection
+    ? cloneSelectionSnapshot(selectionAfter ?? selectionSnapshotFromState(state)) : null;
+
+  await enqueueHistoryFinalizeTask(async () => {
+    if (useAppStore.getState().project?.id !== projectId) {
+      throw new Error('Cannot commit selection history after the project changed');
+    }
+    const deltas: HistoryDelta[] = [];
+    const append = (delta: HistoryDelta | null | undefined): void => {
+      if (delta) deltas.push(delta);
+    };
+    // Blob creation can yield. Keep the global transaction free until all owners are ready.
+    try {
+      for (const change of captured) {
+        if (change.kind === 'sequential') {
+          const createDelta = canUseSequentialAppendDelta(change.before, change.after)
+            ? createSequentialAppendFrameDelta : createSequentialFrameDelta;
+          append(createDelta({ layerId: change.layerId, before: change.before, after: change.after }));
+        } else {
+          await appendLayerHistoryDeltas(change.prepared, append, {
+            layerId: change.prepared.layerId, actionType, tool,
+          });
+        }
+      }
+      if (beforeSelection && afterSelection) {
+        append(createSelectionDelta({ before: beforeSelection, after: afterSelection }));
+      }
+    } catch (error) {
+      deltas.forEach((delta) => delta.dispose?.());
+      throw error;
+    }
+    if (!deltas.length) return;
+    let txn: ReturnType<typeof historyManager.begin>;
+    try {
+      const current = useAppStore.getState();
+      if (current.project?.id !== projectId || captured.some((change) => {
+        const layerId = change.kind === 'layer' ? change.prepared.layerId : change.layerId;
+        return !current.layers.some((layer) => layer.id === layerId);
+      })) {
+        throw new Error('Cannot commit selection history after its document owners changed');
+      }
+      txn = historyManager.begin(mapCanvasActionToHistoryId(actionType), {
+        ...(layerIds.size === 1 ? { layerId: [...layerIds][0] } : {}),
+        layerIds: [...layerIds], tool,
+      });
+    } catch (error) {
+      deltas.forEach((delta) => delta.dispose?.());
+      throw error;
+    }
+    try {
+      deltas.forEach((delta) => txn.push(delta));
+      txn.commit(description);
+    } catch (error) {
+      txn.cancel();
+      throw error;
+    }
+    markUnsavedChanges();
+  });
+};

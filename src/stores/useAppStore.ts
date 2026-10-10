@@ -256,7 +256,7 @@ import {
   captureLayerStructureSnapshot,
   commitLayerStructureHistory,
 } from '@/stores/helpers/layerStructureHistory';
-import { createSelectionSlice } from '@/stores/slices/selectionSlice';
+import { createSelectionSlice, type SelectionSlice } from '@/stores/slices/selectionSlice';
 import type { FloatingPasteHistoryContext } from '@/stores/slices/selectionSlice';
 import type { SelectionActionProvenance } from '@/stores/slices/selectionSlice';
 import type { SelectionClipboardPayload } from '@/stores/slices/selectionSlice';
@@ -496,54 +496,9 @@ export interface AppState {
   cancelCrop: () => void;
 
   // Floating Paste State
-  floatingPaste: {
-    active: boolean;
-    imageData: ImageData | null;
-    position: { x: number; y: number };
-    originalPosition: { x: number; y: number };
-    width: number;
-    height: number;
-    displayWidth: number;
-    displayHeight: number;
-    rotation: number;
-    sourceLayerId?: string | null;
-    colorCycleIndices?: Uint8Array | null;
-    colorCycleGradientIds?: Uint8Array | null;
-    colorCycleSlotPalettes?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleSlotPalette[] | null;
-    colorCycleGradientDefIds?: Uint16Array | null;
-    colorCycleGradientDefs?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleGradientDef[] | null;
-    colorCycleSpeed?: Uint8Array | null;
-    colorCycleFlow?: Uint8Array | null;
-    colorCyclePhase?: Uint8Array | null;
-    vectorPath?: {
-      mode: 'freehand' | 'click-line';
-      points: Array<{ x: number; y: number }>;
-    } | null;
-  } | null;
+  floatingPaste: SelectionSlice['floatingPaste'];
   floatingPasteHistoryContext: FloatingPasteHistoryContext | null;
-  setFloatingPaste: (paste: {
-    imageData: ImageData;
-    position: { x: number; y: number };
-    width: number;
-    height: number;
-    displayWidth?: number;
-    displayHeight?: number;
-    rotation?: number;
-    originalPosition?: { x: number; y: number };
-    sourceLayerId?: string | null;
-    colorCycleIndices?: Uint8Array | null;
-    colorCycleGradientIds?: Uint8Array | null;
-    colorCycleSlotPalettes?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleSlotPalette[] | null;
-    colorCycleGradientDefIds?: Uint16Array | null;
-    colorCycleGradientDefs?: import('@/stores/helpers/colorCycleGradientDefTransfer').TransferredColorCycleGradientDef[] | null;
-    colorCycleSpeed?: Uint8Array | null;
-    colorCycleFlow?: Uint8Array | null;
-    colorCyclePhase?: Uint8Array | null;
-    vectorPath?: {
-      mode: 'freehand' | 'click-line';
-      points: Array<{ x: number; y: number }>;
-    } | null;
-  } | null) => void;
+  setFloatingPaste: SelectionSlice['setFloatingPaste'];
   updateFloatingPastePosition: (position: { x: number; y: number }) => void;
   updateFloatingPasteRect: (rect: { x: number; y: number; width: number; height: number }) => void;
   updateFloatingPasteRotation: (rotation: number) => void;

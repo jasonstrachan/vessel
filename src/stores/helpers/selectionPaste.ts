@@ -1,15 +1,20 @@
 import type { StoreApi } from 'zustand';
 import type { AppState } from '@/stores/useAppStore';
-import type { Layer, Rectangle } from '@/types';
+import type { Layer, Rectangle, SequentialLayerData } from '@/types';
 import { captureColorCycleBrushState } from '@/history/helpers/colorCycle';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
-import { commitLayerHistory } from '@/history/helpers/layerHistory';
+import { appendSequentialEvent, buildSequentialBitmapPasteEvent } from '@/lib/sequential/sequentialEdit';
+import { commitSequentialLayerHistory } from '@/history/helpers/sequentialLayerHistory';
+import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
+import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
+import { commitLayerHistory, commitLayerHistoryBatch, type LayerHistoryBatchChange } from '@/history/helpers/layerHistory';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { showAppFeedback } from '@/utils/appFeedback';
 import { debugLog, debugWarn, logError } from '@/utils/debug';
 import {
   getFloatingPasteDestinationRect,
   getFloatingPasteRotatedBounds,
+  intersectFloatingPasteBoundsWithProject,
   rasterizeFloatingPasteBitmap,
   rasterizeFloatingPasteScalar,
   type FloatingPasteFloatRect,
@@ -39,6 +44,9 @@ import {
   type ColorCyclePaintSnapshot,
 } from '@/lib/colorCycle/document/paintDeltaMask';
 import type { ColorCycleLayerDocumentSnapshot } from '@/lib/colorCycle/document/colorCycleDocumentContract';
+import { captureColorCycleSelectionMasks, writeColorCycleSelectionMasks } from '@/stores/helpers/colorCycleSelectionMasks';
+
+let nextSequentialPasteId = 0;
 
 type StoreGet = StoreApi<AppState>['getState'];
 type StoreSet = StoreApi<AppState>['setState'];
@@ -563,6 +571,64 @@ export const createSelectionPasteHelpers = ({
   const readColorCycleDocumentSnapshot = getColorCycleDocumentSnapshot ?? (() => null);
   let floatingPasteCommitPromise: Promise<void> | null = null;
 
+  const updateSequentialData = (layerId: string, sequentialData: SequentialLayerData): void => {
+    const state = get();
+    state.updateLayer(layerId, { sequentialData }, { skipColorCycleSync: true });
+    state.setCurrentCompositeBitmap(null);
+    set({ layersNeedRecomposition: true });
+  };
+
+  const commitSequentialExtraction = async (actionType: 'paste' | 'delete'): Promise<void> => {
+    const state = get();
+    const context = state.floatingPasteHistoryContext;
+    const data = state.layers.find((layer) => layer.id === context?.sourceLayerId)?.sequentialData;
+    if (!context?.sequential || !data) throw new Error('Missing extracted Sequence data');
+    await commitSequentialLayerHistory({
+      layerId: context.sourceLayerId,
+      beforeSequentialData: { ...data, events: data.events.filter((event) => event.id !== context.sequential!.eraseEventId) },
+      afterSequentialData: data, actionType,
+      description: actionType === 'delete' ? 'Delete selected pixels' : 'Committed paste',
+      tool: 'selection', selectionBefore: context.selectionBefore,
+    });
+  };
+
+  const commitPasteHistory = async (destination: LayerHistoryBatchChange): Promise<void> => {
+    const state = get();
+    const context = state.floatingPasteHistoryContext;
+    const destinationId = destination.kind === 'layer' ? destination.payload.layerId : destination.layerId;
+    if (context && state.floatingPaste?.sourceLayerId === context.sourceLayerId && context.sourceLayerId !== destinationId) {
+      const source = state.layers.find((layer) => layer.id === context.sourceLayerId);
+      if (!source) throw new Error('Missing extracted selection source layer');
+      let sourceChange: LayerHistoryBatchChange;
+      if (context.sequential) {
+        const data = source.sequentialData;
+        if (!data) throw new Error('Missing extracted Sequence source data');
+        sourceChange = {
+          kind: 'sequential', layerId: source.id,
+          beforeSequentialData: { ...data, events: data.events.filter((event) => event.id !== context.sequential!.eraseEventId) },
+          afterSequentialData: data,
+        };
+      } else {
+        sourceChange = { kind: 'layer', payload: {
+          layerId: source.id, beforeImage: context.beforeImage,
+          beforeColorState: context.beforeColorState, bitmapRoi: context.sourceBounds,
+          actionType: 'paste', description: 'Committed paste', tool: 'paste',
+        } };
+      }
+      await commitLayerHistoryBatch({
+        changes: [sourceChange, destination], actionType: 'paste',
+        description: 'Committed paste', tool: 'paste', selectionBefore: context.selectionBefore,
+      });
+    } else if (destination.kind === 'sequential') {
+      await commitSequentialLayerHistory({
+        ...destination, actionType: 'paste', description: 'Committed paste', tool: 'paste',
+        selectionBefore: context?.sequential ? context.selectionBefore : undefined,
+      });
+    } else {
+      await commitLayerHistory(destination.payload);
+    }
+  };
+
   const performFloatingPasteCommit = async (): Promise<void> => {
     let state = get();
     const { floatingPaste, layers, activeLayerId, project } = state;
@@ -579,6 +645,10 @@ export const createSelectionPasteHelpers = ({
 
     const activeLayer = layers.find((layer) => layer.id === targetLayerId);
     if (!activeLayer) {
+      return;
+    }
+    if (activeLayer.locked) {
+      showAppFeedback('Unlock the layer before committing the selection.');
       return;
     }
     if (activeLayer.layerType === 'adjustment') {
@@ -625,6 +695,10 @@ export const createSelectionPasteHelpers = ({
           message: 'This color-cycle layer is still preparing. Try again when it is ready.',
           timestamp: new Date(),
         });
+        return;
+      }
+      if (warmedLayer.locked) {
+        showAppFeedback('Unlock the layer before committing the selection.');
         return;
       }
       showAppFeedback('Color-cycle layer ready');
@@ -681,6 +755,33 @@ export const createSelectionPasteHelpers = ({
       const destinationRect = getDestinationRect(floatingPaste);
       const rotation = floatingPaste.rotation ?? 0;
       const rotatedBounds = getRotatedBoundingRect(destinationRect, rotation);
+      if (!intersectFloatingPasteBoundsWithProject(rotatedBounds, project)) {
+        // Extraction already cleared the source, even when no destination pixels remain.
+        if (
+          floatingPasteHistoryContext &&
+          floatingPaste.sourceLayerId === floatingPasteHistoryContext.sourceLayerId
+        ) {
+          if (floatingPasteHistoryContext.sequential) {
+            await commitSequentialExtraction('paste');
+          } else {
+            await commitLayerHistory({
+              layerId: floatingPasteHistoryContext.sourceLayerId,
+              beforeImage: floatingPasteHistoryContext.beforeImage ??
+                floatingPasteHistoryContext.sourceBeforeImage ?? floatingPaste.imageData,
+              beforeColorState: useMoveHistoryContext
+                ? historyBeforeColorState
+                : floatingPasteHistoryContext.beforeColorState,
+              bitmapRoi: floatingPasteHistoryContext.sourceBounds,
+              actionType: 'paste',
+              description: 'Committed paste',
+              tool: 'paste',
+              selectionBefore: floatingPasteHistoryContext.selectionBefore,
+            });
+          }
+        }
+        set({ floatingPaste: null, floatingPasteHistoryContext: null });
+        return;
+      }
       if (useMoveHistoryContext && floatingPasteHistoryContext) {
         const sourceRect = floatingPasteHistoryContext.sourceBounds;
         const destRect = roundRect(rotatedBounds);
@@ -823,6 +924,107 @@ export const createSelectionPasteHelpers = ({
         pasteTransactionId = pastePreflight.transactionId;
         pasteTransactionKind = pastePreflight.kind;
 
+        const attemptBounds = colorCycleDestRect;
+        const planeKeys = ['paint', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const;
+        const captureAttempt = () => {
+          const layer = get().layers.find((entry) => entry.id === targetLayer.id)!;
+          const canonical = buildCcCanonicalPayload(get(), layer.id, project.width, project.height, readColorCycleDocumentSnapshot);
+          const indexes = Array.from({ length: attemptBounds.width * attemptBounds.height }, (_, index) =>
+            (attemptBounds.y + Math.floor(index / attemptBounds.width)) * canonical.width + attemptBounds.x + index % attemptBounds.width);
+          const canvas = layer.colorCycleData?.canvas;
+          return {
+            layer,
+            planes: planeKeys.map((key) => Uint16Array.from(indexes, (index) => canonical[key]?.[index] ?? 0)),
+            masks: captureColorCycleSelectionMasks(layer, attemptBounds, null, null),
+            image: canvas?.getContext('2d')?.getImageData(attemptBounds.x, attemptBounds.y, attemptBounds.width, attemptBounds.height) ?? null,
+          };
+        };
+        const attemptBefore = captureAttempt();
+        const beforeReferences = {
+          paint: targetCanonical.paint?.slice(),
+          slots: targetCanonical.gradientIdBuffer?.slice(),
+          defs: targetCanonical.gradientDefIdBuffer?.slice(),
+        };
+        const rollbackAttempt = (attemptAfter: ReturnType<typeof captureAttempt>): void => {
+          const live = captureAttempt();
+          const membership = new Uint8Array(attemptBounds.width * attemptBounds.height);
+          for (let index = 0; index < membership.length; index += 1) {
+            const masksEqual = (left: typeof live, right: typeof live) =>
+              (left.masks.eraseAlpha?.[index] ?? 0) === (right.masks.eraseAlpha?.[index] ?? 0) &&
+              (left.masks.softEdgeAlpha?.[index] ?? 255) === (right.masks.softEdgeAlpha?.[index] ?? 255);
+            const sameAttempt = live.planes.every((plane, channel) => plane[index] === attemptAfter.planes[channel][index]) && masksEqual(live, attemptAfter);
+            const changed = attemptBefore.planes.some((plane, channel) => plane[index] !== attemptAfter.planes[channel][index]) ||
+              !masksEqual(attemptBefore, attemptAfter) ||
+              (attemptBefore.image && attemptAfter.image && [0, 1, 2, 3].some((channel) => attemptBefore.image!.data[index * 4 + channel] !== attemptAfter.image!.data[index * 4 + channel]));
+            if (sameAttempt && changed) membership[index] = 255;
+          }
+          writeColorCycleRegion(get(), live.layer, project, attemptBounds,
+            Uint8Array.from(attemptBefore.planes[0]), attemptBounds.width, attemptBounds.height, {
+              alphaData: membership, alphaStride: 1, alphaChannelOffset: 0,
+              sourceGradientIds: Uint8Array.from(attemptBefore.planes[1]),
+              sourceGradientDefIds: attemptBefore.planes[2],
+              sourceSpeed: Uint8Array.from(attemptBefore.planes[3]),
+              sourceFlow: Uint8Array.from(attemptBefore.planes[4]),
+              sourcePhase: Uint8Array.from(attemptBefore.planes[5]),
+              skipMaterialize: true,
+            });
+          let current = get().layers.find((entry) => entry.id === targetLayer.id)!;
+          const maskPatch = writeColorCycleSelectionMasks(current, project, attemptBounds, { ...attemptBefore.masks, membership });
+          const metadataBefore = attemptBefore.layer.colorCycleData;
+          const metadataAfter = attemptAfter.layer.colorCycleData;
+          const canonical = buildCcCanonicalPayload(get(), current.id, project.width, project.height, readColorCycleDocumentSnapshot);
+          // Imported definitions/palettes are append-only. Remove our unused additions,
+          // but retain any subsequently modified entry or reference authored while awaiting history.
+          const beforeDefIds = new Set(metadataBefore?.gradientDefStore?.map((entry) => entry.id));
+          const addedDefs = metadataAfter?.gradientDefStore?.filter((entry) => !beforeDefIds.has(entry.id)) ?? [];
+          if (addedDefs.length) {
+            const retained = current.colorCycleData?.gradientDefStore?.filter((entry) => !addedDefs.some((added) =>
+              added.id === entry.id && JSON.stringify(added) === JSON.stringify(entry) &&
+              !canonical.gradientDefIdBuffer?.some((id, index) => id === entry.id && beforeReferences.defs?.[index] !== id)));
+            maskPatch.gradientDefStore = JSON.stringify(retained ?? []) === JSON.stringify(metadataBefore?.gradientDefStore ?? [])
+              ? metadataBefore?.gradientDefStore : retained;
+            if (maskPatch.gradientDefStore === metadataBefore?.gradientDefStore &&
+              current.colorCycleData?.nextGradientDefId === metadataAfter?.nextGradientDefId) {
+              maskPatch.nextGradientDefId = metadataBefore?.nextGradientDefId;
+            }
+          }
+          const beforePaletteSlots = new Set(metadataBefore?.slotPalettes?.map((entry) => entry.slot));
+          const addedPalettes = metadataAfter?.slotPalettes?.filter((entry) => !beforePaletteSlots.has(entry.slot)) ?? [];
+          if (addedPalettes.length) {
+            const retainedDefs = 'gradientDefStore' in maskPatch ? maskPatch.gradientDefStore : current.colorCycleData?.gradientDefStore;
+            const retained = current.colorCycleData?.slotPalettes?.filter((entry) => !addedPalettes.some((added) =>
+              added.slot === entry.slot && JSON.stringify(added) === JSON.stringify(entry) &&
+              !canonical.gradientIdBuffer?.some((slot, index) => slot === entry.slot && (canonical.paint?.[index] ?? 0) !== 0 &&
+                (beforeReferences.slots?.[index] !== slot || !beforeReferences.paint?.[index])) &&
+              !retainedDefs?.some((def) => def.slot === entry.slot && !metadataBefore?.gradientDefStore?.some((before) => JSON.stringify(before) === JSON.stringify(def)))));
+            maskPatch.slotPalettes = JSON.stringify(retained ?? []) === JSON.stringify(metadataBefore?.slotPalettes ?? [])
+              ? metadataBefore?.slotPalettes : retained;
+          }
+          for (const field of ['eraseMask', 'softEdgeMask'] as const) {
+            if (metadataBefore?.[field] || !current.colorCycleData?.[field]) continue;
+            const mask = current.colorCycleData[field]!;
+            const rgba = mask.getContext('2d')?.getImageData(0, 0, mask.width, mask.height).data;
+            const defaultAlpha = field === 'eraseMask' ? 0 : 255;
+            if (rgba && !rgba.some((value, index) => index % 4 === 3 && value !== defaultAlpha)) maskPatch[field] = undefined;
+          }
+          get().updateLayer(current.id, { colorCycleData: maskPatch }, { skipColorCycleSync: true, dirtyRects: [attemptBounds] });
+          current = get().layers.find((entry) => entry.id === targetLayer.id)!;
+          const canvas = current.colorCycleData?.canvas;
+          const canvasContext = canvas?.getContext('2d');
+          if (canvasContext && attemptBefore.image && live.image) {
+            for (let index = 0; index < membership.length; index += 1) {
+              if (membership[index]) live.image.data.set(attemptBefore.image.data.subarray(index * 4, index * 4 + 4), index * 4);
+            }
+            canvasContext.putImageData(live.image, attemptBounds.x, attemptBounds.y);
+            const imageData = canvasContext.getImageData(0, 0, canvas!.width, canvas!.height);
+            get().updateLayer(current.id, { imageData, colorCycleData: { canvasImageData: imageData } }, { skipColorCycleSync: true, dirtyRects: [attemptBounds] });
+          }
+          state.scheduleColorCycleSlotRebuild?.('selection-paste-rollback');
+          requestGradientApply(targetLayer.id, 'selection-paste-rollback');
+          state.setCurrentCompositeBitmap(null);
+          set({ layersNeedRecomposition: true });
+        };
+
         const convertedBitmapPaste = Boolean(pastedBitmapColorCycle);
         const colorCycleSourceIndices = convertedBitmapPaste
           ? pastedBitmapColorCycle!.indices
@@ -908,6 +1110,18 @@ export const createSelectionPasteHelpers = ({
           : null;
         const colorCycleSourceWidth = colorCycleDestRect.width;
         const colorCycleSourceHeight = colorCycleDestRect.height;
+        const projectedMasks = floatingPaste.colorCycleSelectionMasks
+          ? {
+              membership: rasterizeFloatingPasteScalar(floatingPaste, floatingPaste.colorCycleSelectionMasks.membership, project)!.data,
+              eraseAlpha: floatingPaste.colorCycleSelectionMasks.eraseAlpha
+                ? rasterizeFloatingPasteScalar(floatingPaste, floatingPaste.colorCycleSelectionMasks.eraseAlpha, project)!.data : null,
+              softEdgeAlpha: floatingPaste.colorCycleSelectionMasks.softEdgeAlpha
+                ? rasterizeFloatingPasteScalar(floatingPaste, floatingPaste.colorCycleSelectionMasks.softEdgeAlpha, project)!.data : null,
+            }
+          : null;
+        const canonicalMembership = projectedMasks
+          ? Uint8Array.from(colorCycleSourceIndices, (value, index) => value !== 0 ? projectedMasks.membership[index] : 0)
+          : null;
         const bitmapAlphaData = convertedBitmapPaste
           ? pastedBitmapColorCycle!.alpha
           : (rasterizedPasteImageData?.data ?? null);
@@ -917,13 +1131,13 @@ export const createSelectionPasteHelpers = ({
         const synthesizedAlpha = hasBitmapAlpha
           ? null
           : buildOpaqueAlphaFromIndices(colorCycleSourceIndices);
-        const alphaData = hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha;
-        const alphaStride = convertedBitmapPaste
+        const alphaData = canonicalMembership ?? (hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha);
+        const alphaStride = projectedMasks ? 1 : convertedBitmapPaste
           ? 1
           : hasBitmapAlpha
           ? 4
           : 1;
-        const alphaChannelOffset = convertedBitmapPaste
+        const alphaChannelOffset = projectedMasks ? 0 : convertedBitmapPaste
           ? 0
           : hasBitmapAlpha
           ? 3
@@ -966,7 +1180,18 @@ export const createSelectionPasteHelpers = ({
           firstAfter: afterRegion ? afterRegion.slice(0, 16) : null,
         });
 
-        if (applied) {
+        const canonicalAlreadyMatches = projectedMasks && colorCyclePayloadAlreadyMatchesRegion(
+          targetCanonical, colorCycleDestRect, colorCycleSourceIndices, colorCycleSourceWidth, colorCycleSourceHeight,
+          {
+            alphaData, alphaStride, alphaChannelOffset,
+            sourceGradientIds: colorCycleRemappedGradientIds,
+            sourceGradientDefIds: colorCycleSourceGradientDefIds,
+            sourceSpeed: colorCycleSourceSpeed,
+            sourceFlow: colorCycleSourceFlow,
+            sourcePhase: colorCycleSourcePhase,
+          },
+        );
+        if (applied || canonicalAlreadyMatches) {
           logCcPasteTransactionEvent({
             layerId: targetLayer.id,
             layer: targetLayer,
@@ -979,23 +1204,17 @@ export const createSelectionPasteHelpers = ({
               sourceLayerId: floatingPaste.sourceLayerId ?? null,
             },
           });
-          const eraseMask = targetLayer.colorCycleData?.eraseMask;
-          const eraseMaskCtx = eraseMask?.getContext('2d', { willReadFrequently: true });
-          if (eraseMaskCtx) {
-            eraseMaskCtx.clearRect(
-              colorCycleDestRect.x,
-              colorCycleDestRect.y,
-              colorCycleDestRect.width,
-              colorCycleDestRect.height
-            );
+          const currentLayer = get().layers.find((layer) => layer.id === targetLayer.id) ?? targetLayer;
+          const maskPatch = writeColorCycleSelectionMasks(currentLayer, project, colorCycleDestRect, projectedMasks && canonicalMembership
+            ? { ...projectedMasks, membership: canonicalMembership } : {
+            membership: Uint8Array.from(colorCycleSourceIndices, (_, index) => (alphaData?.[index * alphaStride + alphaChannelOffset] ?? 0) > 0 ? 255 : 0),
+            eraseAlpha: null,
+            softEdgeAlpha: null,
+          });
+          if (Object.keys(maskPatch).length) {
             state.updateLayer(
               targetLayer.id,
-              {
-                colorCycleData: {
-                  ...(targetLayer.colorCycleData ?? {}),
-                  eraseMask,
-                },
-              },
+              { colorCycleData: maskPatch },
               { skipColorCycleSync: true, dirtyRects: [colorCycleDestRect] }
             );
           }
@@ -1004,18 +1223,24 @@ export const createSelectionPasteHelpers = ({
           set({ layersNeedRecomposition: true });
           state.setCurrentCompositeBitmap(null);
 
-          await commitLayerHistory(buildCcSelectionHistoryPayload({
-            transactionId: pasteTransactionId ?? 'unknown',
-            operation: 'commit-floating-paste',
-            layerId: targetLayer.id,
-            beforeImage,
-            beforeColorState: historyBeforeColorState,
-            bitmapRoi: moveHistoryRoi ?? colorCycleDestRect,
-            actionType: 'paste',
-            description: 'Committed paste',
-            tool: 'paste',
-            selectionBefore: useMoveHistoryContext ? floatingPasteHistoryContext?.selectionBefore : undefined,
-          }));
+          const attemptAfter = captureAttempt();
+          try {
+            await commitPasteHistory({ kind: 'layer', payload: buildCcSelectionHistoryPayload({
+              transactionId: pasteTransactionId ?? 'unknown',
+              operation: 'commit-floating-paste',
+              layerId: targetLayer.id,
+              beforeImage,
+              beforeColorState: historyBeforeColorState,
+              bitmapRoi: moveHistoryRoi ?? colorCycleDestRect,
+              actionType: 'paste',
+              description: 'Committed paste',
+              tool: 'paste',
+              selectionBefore: useMoveHistoryContext ? floatingPasteHistoryContext?.selectionBefore : undefined,
+            }) });
+          } catch (error) {
+            rollbackAttempt(attemptAfter);
+            throw error;
+          }
 
           set({ floatingPaste: null, floatingPasteHistoryContext: null });
           return;
@@ -1052,6 +1277,39 @@ export const createSelectionPasteHelpers = ({
         project
       );
       if (!raster) {
+        set({ floatingPaste: null, floatingPasteHistoryContext: null });
+        return;
+      }
+      if (targetLayer.layerType === 'sequential') {
+        const data = get().layers.find((layer) => layer.id === targetLayer.id)?.sequentialData;
+        const rasterCtx = raster.canvas.getContext('2d', { willReadFrequently: true });
+        if (!data || !rasterCtx) return;
+        const sequenceContext = useMoveHistoryContext ? floatingPasteHistoryContext?.sequential : undefined;
+        const timestampMs = Date.now();
+        const strokeId = `seq-selection-paste-${timestampMs}-${nextSequentialPasteId++}`;
+        const event = buildSequentialBitmapPasteEvent({
+          layerId: targetLayer.id,
+          frameIndex: sequenceContext?.sourceFrameIndex ?? getSequentialLayerRenderFrame(state, targetLayer),
+          imageData: rasterCtx.getImageData(0, 0, raster.roi.width, raster.roi.height),
+          bounds: raster.roi, timestampMs, id: `${strokeId}-0`, strokeId,
+        });
+        const afterSequentialData = appendSequentialEvent(data, event);
+        const beforeSequentialData = sequenceContext
+          ? { ...data, events: data.events.filter((candidate) => candidate.id !== sequenceContext.eraseEventId) }
+          : data;
+        updateSequentialData(targetLayer.id, afterSequentialData);
+        try {
+          await commitPasteHistory({
+            kind: 'sequential', layerId: targetLayer.id, beforeSequentialData, afterSequentialData,
+          });
+        } catch (error) {
+          // Preserve edits appended while finalize awaited; only this attempt owns this paste.
+          const latest = get().layers.find((layer) => layer.id === targetLayer.id)?.sequentialData;
+          if (latest) updateSequentialData(targetLayer.id, {
+            ...latest, events: latest.events.filter((candidate) => candidate.id !== event.id),
+          });
+          throw error;
+        }
         set({ floatingPaste: null, floatingPasteHistoryContext: null });
         return;
       }
@@ -1096,6 +1354,7 @@ export const createSelectionPasteHelpers = ({
           : null;
       }
 
+      const attemptBeforeImage = tempCtx.getImageData(0, 0, project.width, project.height);
       tempCtx.imageSmoothingEnabled = false;
       const rasterCtx = raster.canvas.getContext('2d', { willReadFrequently: true });
       if (rasterCtx) {
@@ -1115,16 +1374,43 @@ export const createSelectionPasteHelpers = ({
 
       await captureCanvasToActiveLayer(tempCanvas, captureArea, { mode: 'replace' });
 
-      await commitLayerHistory({
-        layerId: activeLayer.id,
-        beforeImage,
-        beforeColorState: historyBeforeColorState,
-        bitmapRoi: moveHistoryRoi ?? bitmapRoi ?? undefined,
-        actionType: 'paste',
-        description: 'Committed paste',
-        tool: 'paste',
-        selectionBefore: useMoveHistoryContext ? floatingPasteHistoryContext?.selectionBefore : undefined,
-      });
+      const attemptAfterImage = get().layers.find((layer) => layer.id === activeLayer.id)?.imageData;
+      try {
+        await commitPasteHistory({ kind: 'layer', payload: {
+          layerId: activeLayer.id,
+          beforeImage,
+          beforeColorState: historyBeforeColorState,
+          bitmapRoi: moveHistoryRoi ?? bitmapRoi ?? undefined,
+          actionType: 'paste',
+          description: 'Committed paste',
+          tool: 'paste',
+          selectionBefore: useMoveHistoryContext ? floatingPasteHistoryContext?.selectionBefore : undefined,
+        } });
+      } catch (error) {
+        const current = get().layers.find((layer) => layer.id === activeLayer.id);
+        const liveImage = current?.imageData;
+        if (current && liveImage && attemptAfterImage && liveImage.width === attemptBeforeImage.width && liveImage.height === attemptBeforeImage.height) {
+          const restored = new ImageData(liveImage.data.slice(), liveImage.width, liveImage.height);
+          // Revert only this attempt's unchanged pixels, preserving later writes elsewhere.
+          for (let y = bitmapRoi.y; y < bitmapRoi.y + bitmapRoi.height; y += 1) {
+            for (let x = bitmapRoi.x; x < bitmapRoi.x + bitmapRoi.width; x += 1) {
+              const index = (y * liveImage.width + x) * 4;
+              if (liveImage.data[index] === attemptAfterImage.data[index] &&
+                liveImage.data[index + 1] === attemptAfterImage.data[index + 1] &&
+                liveImage.data[index + 2] === attemptAfterImage.data[index + 2] &&
+                liveImage.data[index + 3] === attemptAfterImage.data[index + 3]) {
+                restored.data.set(attemptBeforeImage.data.subarray(index, index + 4), index);
+              }
+            }
+          }
+          const framebufferContext = current.framebuffer?.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+          framebufferContext?.putImageData(restored, 0, 0);
+          get().updateLayer(current.id, { imageData: restored }, { dirtyRects: [bitmapRoi] });
+          get().setCurrentCompositeBitmap(null);
+          set({ layersNeedRecomposition: true });
+        }
+        throw error;
+      }
 
       set({ floatingPaste: null, floatingPasteHistoryContext: null });
     } catch (error) {
@@ -1144,6 +1430,7 @@ export const createSelectionPasteHelpers = ({
       }
     });
     floatingPasteCommitPromise = trackedCommit;
+    trackPendingHistoryCommit(trackedCommit);
     return trackedCommit;
   };
 
@@ -1160,38 +1447,50 @@ export const createSelectionPasteHelpers = ({
       return;
     }
 
-    set({ floatingPaste: null, floatingPasteHistoryContext: null });
-
-    if (
-      !floatingPaste.sourceLayerId ||
-      !historyContext ||
-      historyContext.sourceLayerId !== floatingPaste.sourceLayerId
-    ) {
+    if (!floatingPaste.sourceLayerId || !historyContext || historyContext.sourceLayerId !== floatingPaste.sourceLayerId) {
+      set({ floatingPaste: null, floatingPasteHistoryContext: null });
       return;
     }
-
     const sourceLayer = state.layers.find((layer) => layer.id === historyContext.sourceLayerId);
-    if (!sourceLayer) {
-      return;
-    }
+    if (!sourceLayer) return;
 
-    try {
-      await commitLayerHistory({
-        layerId: sourceLayer.id,
-        beforeImage: historyContext.beforeImage,
-        beforeColorState: historyContext.beforeColorState,
-        bitmapRoi: historyContext.sourceBounds,
-        actionType: 'delete',
-        description: 'Delete selected pixels',
-        tool: 'selection',
-        selectionBefore: historyContext.selectionBefore,
-      });
-    } catch (error) {
-      logError('[floatingPaste] Failed to record extracted selection delete', error);
-    }
+    const pendingDelete = (async () => {
+      try {
+        if (historyContext.sequential) {
+          await commitSequentialExtraction('delete');
+        } else {
+          await commitLayerHistory({
+            layerId: sourceLayer.id,
+            beforeImage: historyContext.beforeImage,
+            beforeColorState: historyContext.beforeColorState,
+            bitmapRoi: historyContext.sourceBounds,
+            actionType: 'delete',
+            description: 'Delete selected pixels',
+            tool: 'selection',
+            selectionBefore: historyContext.selectionBefore,
+          });
+        }
+        set({ floatingPaste: null, floatingPasteHistoryContext: null });
+      } catch (error) {
+        logError('[floatingPaste] Failed to record extracted selection delete', error);
+      }
+    })();
+    const trackedDelete = pendingDelete.finally(() => {
+      if (floatingPasteCommitPromise === trackedDelete) floatingPasteCommitPromise = null;
+    });
+    floatingPasteCommitPromise = trackedDelete;
+    trackPendingHistoryCommit(trackedDelete);
+    await trackedDelete;
   };
 
   const cancelFloatingPaste = (): void => {
+    if (floatingPasteCommitPromise) {
+      const pendingPaste = get().floatingPaste;
+      void floatingPasteCommitPromise.then(() => {
+        if (get().floatingPaste === pendingPaste) cancelFloatingPaste();
+      });
+      return;
+    }
     const state = get();
     const floatingPaste = state.floatingPaste;
     const restoreContext = state.floatingPasteHistoryContext;
@@ -1201,6 +1500,16 @@ export const createSelectionPasteHelpers = ({
       restoreContext &&
       restoreContext.sourceLayerId === floatingPaste.sourceLayerId
     );
+
+    if (shouldRestoreExtractedSelection && restoreContext?.sequential) {
+      const data = state.layers.find((layer) => layer.id === restoreContext.sourceLayerId)?.sequentialData;
+      if (!data) return;
+      updateSequentialData(restoreContext.sourceLayerId, {
+        ...data, events: data.events.filter((event) => event.id !== restoreContext.sequential!.eraseEventId),
+      });
+      set({ floatingPaste: null, floatingPasteHistoryContext: null });
+      return;
+    }
 
     if (
       floatingPaste &&
@@ -1265,7 +1574,8 @@ export const createSelectionPasteHelpers = ({
         const synthesizedAlpha = hasBitmapAlpha
           ? null
           : buildOpaqueAlphaFromIndices(sourceIndices);
-        const alphaData = hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha;
+        const sourceMasks = restoreContext.sourceColorCycleSelectionMasks;
+        const alphaData = sourceMasks?.membership ?? (hasBitmapAlpha ? bitmapAlphaData : synthesizedAlpha);
         const restoreAlreadyMatches = colorCyclePayloadAlreadyMatchesRegion(
           targetCanonical,
           restoreRect,
@@ -1279,8 +1589,8 @@ export const createSelectionPasteHelpers = ({
             sourceFlow: restoreContext.sourceFlow,
             sourcePhase: restoreContext.sourcePhase,
             alphaData,
-            alphaStride: hasBitmapAlpha ? 4 : 1,
-            alphaChannelOffset: hasBitmapAlpha ? 3 : 0,
+            alphaStride: sourceMasks ? 1 : hasBitmapAlpha ? 4 : 1,
+            alphaChannelOffset: sourceMasks ? 0 : hasBitmapAlpha ? 3 : 0,
             alphaThreshold: 0,
           }
         );
@@ -1299,8 +1609,8 @@ export const createSelectionPasteHelpers = ({
             sourceFlow: restoreContext.sourceFlow,
             sourcePhase: restoreContext.sourcePhase,
             alphaData,
-            alphaStride: hasBitmapAlpha ? 4 : 1,
-            alphaChannelOffset: hasBitmapAlpha ? 3 : 0,
+            alphaStride: sourceMasks ? 1 : hasBitmapAlpha ? 4 : 1,
+            alphaChannelOffset: sourceMasks ? 0 : hasBitmapAlpha ? 3 : 0,
             alphaThreshold: 0,
           }
         );
@@ -1320,6 +1630,13 @@ export const createSelectionPasteHelpers = ({
             },
           });
           return;
+        }
+        if (sourceMasks) {
+          const currentLayer = get().layers.find((layer) => layer.id === targetLayer.id) ?? targetLayer;
+          const maskPatch = writeColorCycleSelectionMasks(currentLayer, project, restoreRect, sourceMasks);
+          if (Object.keys(maskPatch).length) {
+            state.updateLayer(targetLayer.id, { colorCycleData: maskPatch }, { skipColorCycleSync: true, dirtyRects: [restoreRect] });
+          }
         }
         logCcPasteTransactionEvent({
           layerId: targetLayer.id,

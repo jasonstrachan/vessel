@@ -1,7 +1,7 @@
 import { debugWarn } from '@/utils/debug';
 import type { StateCreator } from 'zustand';
 import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
-import type { Layer, Rectangle } from '@/types';
+import type { Layer, Rectangle, SequentialLayerData } from '@/types';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { selectionSnapshotFromState } from '@/history/selectionState';
 import { commitSelectionHistory } from '@/history/helpers/selectionHistory';
@@ -21,6 +21,12 @@ import {
 import { clearColorCycleRegion } from '@/stores/helpers/colorCycleSelection';
 import { logCCMutation, summarizeColorCycleLayer } from '@/utils/colorCycle/ccMutationAudit';
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
+import {
+  captureColorCycleSelectionBitmap,
+  captureColorCycleSelectionMasks,
+  writeColorCycleSelectionMasks,
+  type ColorCycleSelectionMasks,
+} from '@/stores/helpers/colorCycleSelectionMasks';
 import {
   captureSelectionBitmap,
   captureSelectionBitmapFromMask,
@@ -56,6 +62,8 @@ import {
   type CcCanonicalSelectionPayload,
 } from '@/stores/helpers/colorCycleSelectionTransaction';
 
+let nextSequentialSelectionId = 0;
+
 type AppState = import('../useAppStore').AppState;
 
 type ColorCycleSerializedLayerWithIndexDimensions = {
@@ -89,6 +97,12 @@ export interface SelectionActionProvenance {
 
 export interface FloatingPasteHistoryContext {
   sourceLayerId: string;
+  sequential?: {
+    beforeSequentialData: SequentialLayerData;
+    afterExtractionSequentialData: SequentialLayerData;
+    sourceFrameIndex: number;
+    eraseEventId: string;
+  };
   sourceBounds: Rectangle;
   sourceBeforeImage?: ImageData | null;
   sourceIndices?: Uint8Array | null;
@@ -97,6 +111,7 @@ export interface FloatingPasteHistoryContext {
   sourceSpeed?: Uint8Array | null;
   sourceFlow?: Uint8Array | null;
   sourcePhase?: Uint8Array | null;
+  sourceColorCycleSelectionMasks?: ColorCycleSelectionMasks | null;
   beforeImage: ImageData | null;
   beforeColorState: ColorCycleSerializedState | null;
   selectionBefore: SelectionSnapshot;
@@ -155,6 +170,7 @@ export interface SelectionSlice {
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
     colorCyclePhase?: Uint8Array | null;
+    colorCycleSelectionMasks?: ColorCycleSelectionMasks | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -179,6 +195,7 @@ export interface SelectionSlice {
     colorCycleSpeed?: Uint8Array | null;
     colorCycleFlow?: Uint8Array | null;
     colorCyclePhase?: Uint8Array | null;
+    colorCycleSelectionMasks?: ColorCycleSelectionMasks | null;
     vectorPath?: {
       mode: 'freehand' | 'click-line';
       points: Array<{ x: number; y: number }>;
@@ -2079,10 +2096,18 @@ export const createSelectionSlice = ({
       }
 
       const activeLayer = layers.find((layer) => layer.id === activeLayerId) ?? null;
-      if (!activeLayer || activeLayer.layerType === 'adjustment') {
+      if (!activeLayer || activeLayer.locked || activeLayer.layerType === 'adjustment') {
         return false;
       }
 
+      const sourceFrameIndex = activeLayer.layerType === 'sequential'
+        ? getSequentialLayerRenderFrame(state, activeLayer) : null;
+      if (activeLayer.layerType === 'sequential' && (!activeLayer.sequentialData ||
+        !activeLayer.sequentialData.events.some((event) => event.frameIndex === sourceFrameIndex))) {
+        // A held preview is not authored paint in this frame. Copy may still sample it.
+        return false;
+      }
+      let sequential: FloatingPasteHistoryContext['sequential'];
       const selectionBefore = selectionSnapshotFromState(state);
       const sourceImageData = resolveLayerImageData(activeLayer, state);
       const beforeImage = activeLayer.layerType === 'color-cycle'
@@ -2210,6 +2235,15 @@ export const createSelectionSlice = ({
         return false;
       }
 
+      const colorCycleSelectionMasks = activeLayer.layerType === 'color-cycle'
+        ? captureColorCycleSelectionMasks(activeLayer, capture.bounds, selectionMask, selectionMaskBounds)
+        : null;
+      const selectionImageData = activeLayer.layerType === 'color-cycle'
+        ? captureColorCycleSelectionBitmap({
+            layer: activeLayer, sourceImageData, bounds: capture.bounds, selectionMask, selectionMaskBounds,
+          })
+        : capture.selectionImageData;
+      if (!selectionImageData) return false;
       if (activeLayer.layerType === 'color-cycle') {
         const cleared = clearColorCycleRegion(state, activeLayer, project, {
           x: capture.bounds.x,
@@ -2231,8 +2265,13 @@ export const createSelectionSlice = ({
           },
         });
         if (cleared) {
-          const eraseMask = activeLayer.colorCycleData?.eraseMask;
-          clearColorCycleEraseMask(eraseMask, capture.bounds, selectionMask, selectionMaskBounds);
+          if (colorCycleSelectionMasks) {
+            const currentLayer = get().layers.find((layer) => layer.id === activeLayerId) ?? activeLayer;
+            const maskPatch = writeColorCycleSelectionMasks(currentLayer, project, capture.bounds, colorCycleSelectionMasks, true);
+            if (Object.keys(maskPatch).length) {
+              state.updateLayer(activeLayerId, { colorCycleData: maskPatch }, { skipColorCycleSync: true, dirtyRects: [capture.bounds] });
+            }
+          }
           state.scheduleColorCycleSlotRebuild?.('extract-selection-transform');
           logCcSelectionTransactionEvent({
             activeLayer,
@@ -2265,6 +2304,29 @@ export const createSelectionSlice = ({
           });
           return false;
         }
+      } else if (activeLayer.layerType === 'sequential' && activeLayer.sequentialData && sourceFrameIndex !== null) {
+        const mask = createSequentialSelectionMask({ bounds: capture.bounds, selectionMask, selectionMaskBounds });
+        if (!mask) return false;
+        // Extraction owns every nonzero mask member; feathering belongs to the pasted bitmap.
+        for (let index = 3; index < mask.data.length; index += 4) {
+          if (mask.data[index] > 0) mask.data[index] = 255;
+        }
+        const beforeSequentialData = cloneSequentialLayerData(activeLayer.sequentialData);
+        const timestampMs = Date.now();
+        const strokeId = `seq-selection-erase-${timestampMs}-${nextSequentialSelectionId++}`;
+        const event = buildSequentialDestinationOutEvent({
+          layer: activeLayer, frameIndex: sourceFrameIndex, maskImageData: mask, maskBounds: capture.bounds,
+          eraserSettings: { ...state.tools.brushSettings, ...state.tools.eraserSettings, opacity: 1, blendMode: 'destination-out' },
+          timestampMs, id: `${strokeId}-0`, strokeId,
+        });
+        const afterExtractionSequentialData = appendSequentialEvent(beforeSequentialData, event);
+        sequential = {
+          beforeSequentialData, afterExtractionSequentialData: cloneSequentialLayerData(afterExtractionSequentialData),
+          sourceFrameIndex, eraseEventId: event.id,
+        };
+        state.updateLayer(activeLayerId, { sequentialData: afterExtractionSequentialData }, {
+          skipColorCycleSync: true, dirtyRects: [capture.bounds],
+        });
       } else {
         const updatedImageData = capture.updatedLayerImageData;
         const framebuffer = activeLayer.framebuffer;
@@ -2320,7 +2382,7 @@ export const createSelectionSlice = ({
         selectionMaskLayerId: null,
         floatingPaste: {
           active: true,
-          imageData: capture.selectionImageData,
+          imageData: selectionImageData,
           position: { x: capture.bounds.x, y: capture.bounds.y },
           originalPosition: { x: capture.bounds.x, y: capture.bounds.y },
           width: capture.bounds.width,
@@ -2329,11 +2391,13 @@ export const createSelectionSlice = ({
           displayHeight: capture.bounds.height,
           rotation: 0,
           sourceLayerId: activeLayerId,
+          colorCycleSelectionMasks,
           ...colorCyclePayload,
           vectorPath: floatingVectorPath,
         },
         floatingPasteHistoryContext: {
           sourceLayerId: activeLayerId,
+          sequential,
           sourceBounds: {
             x: capture.bounds.x,
             y: capture.bounds.y,
@@ -2349,6 +2413,7 @@ export const createSelectionSlice = ({
           sourceSpeed: extractColorCycleRegion(beforeColorState, capture.bounds, 'speedBuffer', activeLayerId),
           sourceFlow: extractColorCycleRegion(beforeColorState, capture.bounds, 'flowBuffer', activeLayerId),
           sourcePhase: extractColorCycleRegion(beforeColorState, capture.bounds, 'phaseBuffer', activeLayerId),
+          sourceColorCycleSelectionMasks: colorCycleSelectionMasks,
           beforeImage,
           beforeColorState,
           selectionBefore,
@@ -2396,6 +2461,7 @@ export const createSelectionSlice = ({
                   colorCycleSpeed: paste.colorCycleSpeed ?? null,
                   colorCycleFlow: paste.colorCycleFlow ?? null,
                   colorCyclePhase: paste.colorCyclePhase ?? null,
+                  colorCycleSelectionMasks: paste.colorCycleSelectionMasks ?? null,
                   vectorPath: paste.vectorPath ?? null,
                 }
               : null,
@@ -2491,6 +2557,19 @@ export const createSelectionSlice = ({
                   'horizontal'
                 )
               : floatingPaste.colorCyclePhase,
+            colorCycleSelectionMasks: floatingPaste.colorCycleSelectionMasks
+              ? {
+                  membership: floatingPaste.colorCycleSelectionMasks.membership
+                    ? flipColorCycleIndices(floatingPaste.colorCycleSelectionMasks.membership, floatingPaste.width, floatingPaste.height, 'horizontal')
+                    : new Uint8Array(0),
+                  eraseAlpha: floatingPaste.colorCycleSelectionMasks.eraseAlpha
+                    ? flipColorCycleIndices(floatingPaste.colorCycleSelectionMasks.eraseAlpha, floatingPaste.width, floatingPaste.height, 'horizontal')
+                    : null,
+                  softEdgeAlpha: floatingPaste.colorCycleSelectionMasks.softEdgeAlpha
+                    ? flipColorCycleIndices(floatingPaste.colorCycleSelectionMasks.softEdgeAlpha, floatingPaste.width, floatingPaste.height, 'horizontal')
+                    : null,
+                }
+              : floatingPaste.colorCycleSelectionMasks,
             vectorPath: flipVectorPath(
               floatingPaste.vectorPath ?? null,
               floatingPaste.width,
@@ -2560,6 +2639,19 @@ export const createSelectionSlice = ({
                   'vertical'
                 )
               : floatingPaste.colorCyclePhase,
+            colorCycleSelectionMasks: floatingPaste.colorCycleSelectionMasks
+              ? {
+                  membership: floatingPaste.colorCycleSelectionMasks.membership
+                    ? flipColorCycleIndices(floatingPaste.colorCycleSelectionMasks.membership, floatingPaste.width, floatingPaste.height, 'vertical')
+                    : new Uint8Array(0),
+                  eraseAlpha: floatingPaste.colorCycleSelectionMasks.eraseAlpha
+                    ? flipColorCycleIndices(floatingPaste.colorCycleSelectionMasks.eraseAlpha, floatingPaste.width, floatingPaste.height, 'vertical')
+                    : null,
+                  softEdgeAlpha: floatingPaste.colorCycleSelectionMasks.softEdgeAlpha
+                    ? flipColorCycleIndices(floatingPaste.colorCycleSelectionMasks.softEdgeAlpha, floatingPaste.width, floatingPaste.height, 'vertical')
+                    : null,
+                }
+              : floatingPaste.colorCycleSelectionMasks,
             vectorPath: flipVectorPath(
               floatingPaste.vectorPath ?? null,
               floatingPaste.width,

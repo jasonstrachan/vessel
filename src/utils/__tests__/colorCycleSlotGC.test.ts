@@ -1,7 +1,14 @@
+jest.mock('@/stores/colorCycleBrushManager', () => ({
+  ...jest.requireActual('@/stores/colorCycleBrushManager'),
+  getColorCycleBrushManager: () => ({ getDocument: (id: string) => mockDocuments.get(id) }),
+}));
+
 import { rebuildGradientSlotUsageAndGC } from '@/utils/colorCycleSlotGC';
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import { attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
+import { ColorCycleLayerDocument, attachLegacyColorCycleTopLevelBuffers } from '@/lib/colorCycle/document';
+
+const mockDocuments = new Map<string, ColorCycleLayerDocument>();
 
 const createLayer = (overrides?: Partial<Layer>): Layer => ({
   id: 'layer-1',
@@ -27,6 +34,7 @@ const createLayer = (overrides?: Partial<Layer>): Layer => ({
 });
 
 describe('colorCycleSlotGC', () => {
+  beforeEach(() => mockDocuments.clear());
   it('frees dead def slots and assigns slots to used defs without one', () => {
     const stopsA = [
       { position: 0, color: '#000000' },
@@ -422,5 +430,83 @@ describe('colorCycleSlotGC', () => {
     expect(deadDef?.slot).toBeUndefined();
     expect(paletteSlots).toContain(89);
     expect(paletteSlots).not.toContain(7);
+  });
+});
+
+
+describe('canonical slot usage authority', () => {
+  const stops = [{ position: 0, color: '#ff0000' }, { position: 1, color: '#0000ff' }];
+  const fixture = () => createLayer({ colorCycleData: {
+    gradientDefs: [],
+    gradientDefStore: [1, 2].map(id => ({ id, slot: id, kind: 'linear', stops, hash: `def-${id}`, source: 'manual', createdAtMs: 0 })),
+    slotPalettes: [1, 2].map(slot => ({ slot, stops })),
+  } });
+  const canonical = (layer: Layer, ids: number[], slots: number[]) => {
+    mockDocuments.set(layer.id, new ColorCycleLayerDocument({
+      layerId: layer.id, width: 2, height: 1,
+      paintBuffer: new Uint8Array([1, 1]).buffer,
+      gradientDefIdBuffer: new Uint16Array(ids).buffer,
+      gradientIdBuffer: new Uint8Array(slots).buffer,
+      hasContent: true,
+      sources: { brushStateSnapshot: false, topLevelBuffers: false, legacyStateRefs: false },
+    }));
+  };
+  const rebuild = (layer: Layer) => rebuildGradientSlotUsageAndGC({
+    layers: [layer], scope: 'layer', layerId: layer.id,
+  })?.updates[0]?.colorCycleData ?? layer.colorCycleData;
+
+  beforeEach(() => mockDocuments.clear());
+
+  it('keeps canonical live bindings with absent mirrors and releases only unused definitions', () => {
+    const layer = fixture();
+    canonical(layer, [2, 2], [2, 2]);
+    const result = rebuild(layer);
+    expect(result?.gradientDefStore?.find(d => d.id === 2)?.slot).toBe(2);
+    expect(result?.slotPalettes).toContainEqual({ slot: 2, stops });
+    expect(result?.gradientDefStore?.find(d => d.id === 1)?.slot).toBeUndefined();
+    expect(layer.colorCycleData?.gradientDefStore?.[0].slot).toBe(1);
+  });
+
+  it('uses canonical empty usage instead of stale occupied legacy mirrors', () => {
+    const layer = fixture();
+    layer.colorCycleData = attachLegacyColorCycleTopLevelBuffers(layer.colorCycleData!, {
+      gradientDefIdBuffer: new Uint16Array([2, 2]).buffer,
+      gradientIdBuffer: new Uint8Array([2, 2]).buffer,
+    });
+    canonical(layer, [0, 0], [0, 0]);
+    expect(rebuild(layer)?.gradientDefStore?.every(d => d.slot === undefined)).toBe(true);
+  });
+
+  it('protects non-definition canonical slots from palette deletion', () => {
+    const layer = fixture();
+    canonical(layer, [0, 0], [2, 2]);
+    const result = rebuild(layer);
+    expect(result?.gradientDefStore?.find(d => d.id === 2)?.slot).toBeUndefined();
+    expect(result?.slotPalettes).toContainEqual({ slot: 2, stops });
+  });
+
+  it('does not treat unknown usage as empty', () => {
+    const layer = fixture();
+    expect(rebuild(layer)).toBe(layer.colorCycleData);
+  });
+
+  it('retains project bindings that may still be used by an unknown owner', () => {
+    const resident = fixture();
+    const unknown = { ...fixture(), id: 'unknown-owner' };
+    canonical(resident, [0, 0], [0, 0]);
+    const result = rebuildGradientSlotUsageAndGC({ layers: [resident, unknown], scope: 'project' });
+    expect(result?.updates).toEqual([]);
+  });
+
+  it('does not fall back to stale mirrors for a cold canonical document', () => {
+    const layer = fixture();
+    layer.colorCycleData = attachLegacyColorCycleTopLevelBuffers(layer.colorCycleData!, {
+      gradientDefIdBuffer: new Uint16Array([0, 0]).buffer,
+    });
+    mockDocuments.set(layer.id, new ColorCycleLayerDocument({
+      layerId: layer.id, width: 2, height: 1, hasContent: true,
+      sources: { brushStateSnapshot: false, topLevelBuffers: false, legacyStateRefs: false },
+    }, { residency: 'cold-archive-ref', archiveRefs: { paintRef: 'paint' } }));
+    expect(rebuild(layer)).toBe(layer.colorCycleData);
   });
 });

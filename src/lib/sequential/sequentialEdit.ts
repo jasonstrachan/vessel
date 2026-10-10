@@ -1,3 +1,4 @@
+import { encodeRgbaToBase64 } from '@/utils/colorCycle/ccCustomTilePattern';
 import { BrushShape, type BrushSettings, type Layer, type SequentialLayerData, type SequentialStrokeEvent } from '@/types';
 
 const clamp01 = (value: number): number => {
@@ -222,3 +223,31 @@ export const appendSequentialEvent = (
   ...data,
   events: [...data.events, event],
 });
+
+/** The bitmap is already projected and clipped; replay must not transform it again. */
+export const buildSequentialBitmapPasteEvent = ({
+  layerId, frameIndex, imageData, bounds, timestampMs, id, strokeId,
+}: {
+  layerId: string;
+  frameIndex: number;
+  imageData: ImageData;
+  bounds: { x: number; y: number; width: number; height: number };
+  timestampMs: number;
+  id: string;
+  strokeId: string;
+}): SequentialStrokeEvent => {
+  const size = Math.max(imageData.width, imageData.height);
+  return {
+    id, layerId, strokeId, timestampMs, frameIndex,
+    brush: {
+      tool: 'brush', brushShape: BrushShape.SQUARE, size, opacity: 1,
+      blendMode: 'source-over', rotation: 0, spacing: 1, color: '#ffffff',
+      customStamp: {
+        width: imageData.width, height: imageData.height,
+        rgbaBase64: encodeRgbaToBase64(imageData.data), isColorizable: false,
+      },
+    },
+    stamps: [{ x: bounds.x + imageData.width / 2, y: bounds.y + imageData.height / 2,
+      pressure: 1, rotation: 0, size, alpha: 1 }],
+  };
+};

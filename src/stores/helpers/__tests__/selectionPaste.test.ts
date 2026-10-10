@@ -2,7 +2,7 @@ import type { StoreApi } from 'zustand';
 
 import { createSelectionPasteHelpers } from '@/stores/helpers/selectionPaste';
 import type { AppState } from '@/stores/useAppStore';
-import type { Layer } from '@/types';
+import { BrushShape, type SequentialStrokeEvent, type Layer } from '@/types';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import {
@@ -52,8 +52,16 @@ jest.mock('@/history/helpers/colorCycle', () => ({
 }));
 
 jest.mock('@/history/helpers/layerHistory', () => ({
+  commitLayerHistoryBatch: jest.fn().mockResolvedValue(undefined),
   commitLayerHistory: jest.fn().mockResolvedValue(undefined),
 }));
+
+jest.mock('@/history/helpers/sequentialLayerHistory', () => ({
+  commitSequentialLayerHistory: jest.fn().mockResolvedValue(undefined),
+}));
+const { commitSequentialLayerHistory } = jest.requireMock('@/history/helpers/sequentialLayerHistory') as {
+  commitSequentialLayerHistory: jest.MockedFunction<typeof import('@/history/helpers/sequentialLayerHistory')['commitSequentialLayerHistory']>;
+};
 
 jest.mock('@/hooks/brushEngine/ccGradientApplyScheduler', () => ({
   requestGradientApply: jest.fn(),
@@ -177,7 +185,9 @@ const setupHelpers = (
     scheduleColorCycleSlotRebuild: jest.fn(),
     setLayersNeedRecomposition: jest.fn(),
     setCurrentCompositeBitmap: jest.fn(),
-    updateLayer: jest.fn(),
+    updateLayer: jest.fn((id: string, patch: Partial<Layer>) => {
+      state.layers = state.layers!.map((candidate) => candidate.id === id ? { ...candidate, ...patch } : candidate);
+    }),
     addNotification: jest.fn(),
   };
 
@@ -736,6 +746,128 @@ describe('selection paste commit', () => {
     await helpers.commitFloatingPaste();
 
     expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it.each(['normal', 'color-cycle'] as const)(
+    'records the cleared source before dismissing an extracted %s move outside the canvas',
+    async (layerType) => {
+      const { helpers, state, layer, captureCanvasToActiveLayer } = setupHelpers(
+        { position: { x: 80, y: 80 }, originalPosition: { x: 2, y: 3 } },
+        { layerType },
+      );
+      markFloatingPasteAsExtractedSelection(state);
+      const context = state.floatingPasteHistoryContext!;
+      context.beforeImage = new ImageData(64, 64);
+
+      await helpers.commitFloatingPaste();
+
+      expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+      expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+      expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+      expect(commitLayerHistory).toHaveBeenCalledWith(expect.objectContaining({
+        layerId: layer.id,
+        beforeImage: context.beforeImage,
+        beforeColorState: context.beforeColorState,
+        bitmapRoi: context.sourceBounds,
+        selectionBefore: context.selectionBefore,
+      }));
+      expect(state.floatingPaste).toBeNull();
+      expect(state.floatingPasteHistoryContext).toBeNull();
+    },
+  );
+
+  it('keeps an outside extracted move recoverable when its history commit fails', async () => {
+    const { helpers, state } = setupHelpers({
+      position: { x: 80, y: 80 }, originalPosition: { x: 2, y: 3 },
+    });
+    markFloatingPasteAsExtractedSelection(state);
+    const floating = state.floatingPaste;
+    const context = state.floatingPasteHistoryContext;
+    commitLayerHistory.mockRejectedValueOnce(new Error('history unavailable'));
+
+    await helpers.commitFloatingPaste();
+
+    expect(state.floatingPaste).toBe(floating);
+    expect(state.floatingPasteHistoryContext).toBe(context);
+  });
+
+  it('uses the original source region when an outside move lacks a full-layer snapshot', async () => {
+    const { helpers, state } = setupHelpers({
+      position: { x: 80, y: 80 }, originalPosition: { x: 2, y: 3 },
+    });
+    markFloatingPasteAsExtractedSelection(state);
+    const context = state.floatingPasteHistoryContext!;
+    const sourceBeforeImage = context.sourceBeforeImage!;
+    sourceBeforeImage.data.set([200, 100, 50, 128]);
+
+    await helpers.commitFloatingPaste();
+
+    expect(commitLayerHistory).toHaveBeenCalledWith(expect.objectContaining({
+      beforeImage: sourceBeforeImage,
+      bitmapRoi: context.sourceBounds,
+    }));
+    expect(commitLayerHistory.mock.calls[0][0].beforeImage!.data.slice(0, 4)).toEqual(
+      new Uint8ClampedArray([200, 100, 50, 128]),
+    );
+  });
+
+  it('rechecks destination locking after color-cycle runtime preparation', async () => {
+    const { helpers, state, layer, captureCanvasToActiveLayer } = setupHelpers({}, {
+      layerType: 'color-cycle', colorCycleData: { runtimeHydrationState: 'cold' },
+    });
+    let finishHydration!: (ready: boolean) => void;
+    const hydration = new Promise<boolean>((resolve) => { finishHydration = resolve; });
+    state.ensureColorCycleLayerRuntime = jest.fn(() => hydration);
+    const floating = state.floatingPaste;
+    const commit = helpers.commitFloatingPaste();
+    expect(state.ensureColorCycleLayerRuntime).toHaveBeenCalledWith(layer.id, { target: 'active' });
+    state.layers = [{ ...layer, locked: true }];
+    finishHydration(true);
+    await commit;
+
+    expect(state.floatingPaste).toBe(floating);
+    expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+    expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+    expect(commitLayerHistory).not.toHaveBeenCalled();
+    expect(showAppFeedback).toHaveBeenCalledWith('Unlock the layer before committing the selection.');
+  });
+
+  it.each(['normal', 'color-cycle', 'sequential'] as const)(
+    'retains a floating selection when the %s destination becomes locked',
+    async (layerType) => {
+      const { helpers, state, captureCanvasToActiveLayer } = setupHelpers({}, { layerType, locked: true });
+      markFloatingPasteAsExtractedSelection(state);
+      const floating = state.floatingPaste;
+      const context = state.floatingPasteHistoryContext;
+
+      await helpers.commitFloatingPaste();
+
+      expect(state.floatingPaste).toBe(floating);
+      expect(state.floatingPasteHistoryContext).toBe(context);
+      expect(captureCanvasToActiveLayer).not.toHaveBeenCalled();
+      expect(mockWriteColorCycleRegion).not.toHaveBeenCalled();
+      expect(commitLayerHistory).not.toHaveBeenCalled();
+      expect(showAppFeedback).toHaveBeenCalledWith('Unlock the layer before committing the selection.');
+    },
+  );
+
+  it.each(['normal', 'color-cycle'] as const)('retains failed extracted %s Delete for retry and serializes pending Enter', async (layerType) => {
+    const { helpers, state } = setupHelpers({}, { layerType });
+    markFloatingPasteAsExtractedSelection(state);
+    let reject!: (reason: Error) => void;
+    commitLayerHistory.mockImplementationOnce(() => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    const deletion = helpers.deleteFloatingPaste();
+    const duplicate = helpers.deleteFloatingPaste();
+    const enter = helpers.commitFloatingPaste();
+    expect(commitLayerHistory).toHaveBeenCalledTimes(1);
+    expect(state.floatingPaste).not.toBeNull();
+    reject(new Error('history unavailable'));
+    await Promise.all([deletion, duplicate, enter]);
+    expect(state.floatingPaste).not.toBeNull();
+    expect(state.floatingPasteHistoryContext).not.toBeNull();
+    await helpers.deleteFloatingPaste();
+    expect(commitLayerHistory).toHaveBeenCalledTimes(2);
     expect(state.floatingPaste).toBeNull();
   });
 
@@ -2024,5 +2156,109 @@ describe('selection paste commit', () => {
         sourceGradientDefIds: new Uint16Array([2, 2, 0, 0]),
       })
     );
+  });
+});
+
+
+describe('Sequence floating paste finalize recovery', () => {
+  const event = (id: string): SequentialStrokeEvent => ({
+    id, layerId: 'layer-1', strokeId: id, timestampMs: 0, frameIndex: 0,
+    brush: { tool: 'brush', brushShape: BrushShape.SQUARE, size: 1, opacity: 1, blendMode: 'source-over', rotation: 0, spacing: 1, color: '#ff0000' },
+    stamps: [{ x: 1, y: 1, pressure: 1, rotation: 0, size: 1, alpha: 1 }],
+  });
+  const setupSequence = () => {
+    const data = { frameCount: 3, fps: 1, durationMs: 3000, events: [event('original')], eventChunks: [{ id: 'chunk', startEventIndex: 0, eventCount: 1, frameIndexes: [0] }] };
+    const extracted = { ...data, events: [...data.events, event('owned-erase')] };
+    const fixture = setupHelpers({}, { layerType: 'sequential', sequentialData: extracted });
+    markFloatingPasteAsExtractedSelection(fixture.state);
+    fixture.state.floatingPasteHistoryContext!.sequential = {
+      beforeSequentialData: data, afterExtractionSequentialData: extracted,
+      sourceFrameIndex: 0, eraseEventId: 'owned-erase',
+    };
+    return fixture;
+  };
+  afterEach(() => { jest.clearAllMocks(); });
+
+  it('removes only a rejected paste, preserves newer events and source erasure, then retries once', async () => {
+    const { helpers, state } = setupSequence();
+    let reject!: (reason: Error) => void;
+    commitSequentialLayerHistory.mockImplementationOnce(() => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    const pending = helpers.commitFloatingPaste();
+    expect(state.layers![0].sequentialData!.events).toHaveLength(3);
+    state.layers![0] = { ...state.layers![0], sequentialData: {
+      ...state.layers![0].sequentialData!, events: [...state.layers![0].sequentialData!.events, event('independent')],
+    } };
+    reject(new Error('history unavailable'));
+    await pending;
+    expect(state.layers![0].sequentialData!.events.map((candidate) => candidate.id)).toEqual(['original', 'owned-erase', 'independent']);
+    expect(state.floatingPaste).not.toBeNull();
+    await helpers.commitFloatingPaste();
+    expect(state.layers![0].sequentialData!.events).toHaveLength(4);
+    expect(commitSequentialLayerHistory).toHaveBeenCalledTimes(2);
+    expect(commitSequentialLayerHistory.mock.calls[1][0].beforeSequentialData.events.map((candidate) => candidate.id)).toEqual(['original', 'independent']);
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it.each(['cancel', 'delete', 'outside'] as const)('retains recovery for rejected %s and removes only the provisional erase on Cancel', async (operation) => {
+    const { helpers, state } = setupSequence();
+    if (operation === 'outside') state.floatingPaste!.position = { x: 100, y: 100 };
+    commitSequentialLayerHistory.mockRejectedValueOnce(new Error('unavailable'));
+    if (operation === 'delete') await helpers.deleteFloatingPaste();
+    else await helpers.commitFloatingPaste();
+    expect(state.floatingPaste).not.toBeNull();
+    expect(state.layers![0].sequentialData!.events.map((candidate) => candidate.id)).toEqual(['original', 'owned-erase']);
+    const data = state.layers![0].sequentialData!;
+    state.layers![0] = { ...state.layers![0], sequentialData: { ...data, events: [...data.events, event('independent')] } };
+    helpers.cancelFloatingPaste();
+    expect(state.layers![0].sequentialData!.events.map((candidate) => candidate.id)).toEqual(['original', 'independent']);
+    expect(state.layers![0].sequentialData!.eventChunks).toEqual(data.eventChunks);
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it.each([true, false])('serializes duplicate Enter/Delete and pending Cancel (history succeeds %s)', async (success) => {
+    const { helpers, state } = setupSequence();
+    let resolve!: () => void;
+    let reject!: (reason: Error) => void;
+    commitSequentialLayerHistory.mockImplementationOnce(() => new Promise((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; }));
+    const first = helpers.commitFloatingPaste();
+    const duplicate = helpers.commitFloatingPaste();
+    const deletion = helpers.deleteFloatingPaste();
+    helpers.cancelFloatingPaste();
+    expect(duplicate).toBe(first);
+    expect(commitSequentialLayerHistory).toHaveBeenCalledTimes(1);
+    expect(state.floatingPaste).not.toBeNull();
+    if (success) resolve(); else reject(new Error('unavailable'));
+    await Promise.all([first, duplicate, deletion]);
+    expect(state.floatingPaste).toBeNull();
+    expect(state.layers![0].sequentialData!.events).toHaveLength(success ? 3 : 1);
+    expect(commitSequentialLayerHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes duplicate Delete and retries a failed Delete', async () => {
+    const { helpers, state } = setupSequence();
+    let reject!: (reason: Error) => void;
+    commitSequentialLayerHistory.mockImplementationOnce(() => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    const deletion = helpers.deleteFloatingPaste();
+    const duplicate = helpers.deleteFloatingPaste();
+    expect(commitSequentialLayerHistory).toHaveBeenCalledTimes(1);
+    reject(new Error('unavailable'));
+    await Promise.all([deletion, duplicate]);
+    expect(state.floatingPaste).not.toBeNull();
+    await helpers.deleteFloatingPaste();
+    expect(commitSequentialLayerHistory).toHaveBeenCalledTimes(2);
+    expect(state.layers![0].sequentialData!.events).toHaveLength(2);
+    expect(state.floatingPaste).toBeNull();
+  });
+
+  it('refuses locked Sequence commit and succeeds after unlock', async () => {
+    const { helpers, state } = setupSequence();
+    state.layers![0] = { ...state.layers![0], locked: true };
+    await helpers.commitFloatingPaste();
+    expect(state.layers![0].sequentialData!.events).toHaveLength(2);
+    expect(commitSequentialLayerHistory).not.toHaveBeenCalled();
+    state.layers![0] = { ...state.layers![0], locked: false };
+    await helpers.commitFloatingPaste();
+    expect(state.layers![0].sequentialData!.events).toHaveLength(3);
+    expect(state.floatingPaste).toBeNull();
   });
 });

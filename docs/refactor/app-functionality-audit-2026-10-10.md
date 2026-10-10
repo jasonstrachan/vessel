@@ -25,7 +25,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 05 | Click-line/polygon selection: close/Enter/Escape, point editing, constraints | selection handlers | verified (software; Session15 exact66configs693checks, commit receipt below; point editing/constraints unavailable) |
 | 06 | Magic wand: tolerance, contiguous/sample source, add/subtract, transparent/CC pixels | MagicWandControls, selection helpers | software-verified (Session16: 616 configurations/3,675 checks; local commit gate passed) |
 | 07 | Selection: select all, deselect, invert, tool persistence, paint/fill/erase clipping | selection slice/ROI helpers | software-verified (Session18: 138configs/1905checks; focused local commit receipt below) |
-| 08 | Move selected pixels: extract/drag, source clearing, commit/cancel, edges, CC metadata, history | selection handlers, selectionPaste | pending |
+| 08 | Move selected pixels: extract/drag, source clearing, commit/cancel, edges, CC metadata, history | selection handlers, selectionPaste | software-verified (Session23: final gate passed; local commit receipt below) |
 | 09 | Copy/cut/paste/duplicate/paste in place: internal/external clipboard, scaling, alpha, cross-layer/CC, failures | selection slice, clipboard handlers, selectionPaste | pending |
 | 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | pending |
 | 11 | Crop: selection crop, handles/dimensions, outside bounds, commit/cancel/history, CC/sequence | crop slice/handlers, CropOptionsPanel | pending |
@@ -922,3 +922,308 @@ The original staged3-file7-addition patch remains exact before commit, SHA256
 Exact browser cleanup is complete; the focused local commit follows. No push, deployment or branch change.
 Areas01–07 software-complete; Area08 next;08–65pending beyond their accepted prior
 representatives. This does not claim whole-app completion.
+
+
+## Session18 local commit receipt and Area08 continuation
+
+Area07 committed locally on main: **fcd4d7dfb14615dcfbb63e1cac600c91c50fddbf** —
+`fix: preserve selection scope in animated painting` (parente441b3e8382088bdfed1f378c563c8a749d5f16e).
+All39explicit paths are audit-only. `area07-commit-verification-session18.json`
+proves worktree bytes preserved, all47original dirty paths remain, and original
+staged user additions/removals and other staged blobs are semantically exact.
+The fill import additions shift a staged hunk location; rebased patch SHA256 is
+5d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09. This is a contextual-header change, not a changed user hunk.
+No push/deployment/branch change. Accepted native138configs1905checks;
+final isolated type/lint/Jest583suites5364tests (one suite/test skipped).
+
+Managed vessel-whole-app-audit browser is closed; exact cleanup confirms no matching
+daemon. PreviewPID14471 remains at `/vessel/`. All agents/builds/tests/browser commands
+and writers stopped. Areas01–07 software-verified/committed; Area08 next,08–65pending.
+First read `output/playwright/area07-root-facts-session18.md`, then this handover and
+inventory. Fresh `area08-initial-baseline-session18.json` + matching .txt backups own
+preservation from this HEAD; current49dirtypaths are47original+2postcommit auditdocs.
+Never rerun Area07 or older candidate/commit scripts or restore old whole files.
+User authorization persists for all65areas, bounded subagents, focused completed-area
+local commits and further local continuations before70%context; no renewal needed.
+
+
+## Session19 — Area08 move baseline and first repair boundary
+
+Goal: selected-pixel extraction, native dragging, source clearing, commit/cancel,
+project edges, CC payload and reversible history agree on the authored document.
+Non-goals: clipboard import/duplicate (Area09), resizing/rotation/flips (Area10),
+and unrelated pre-existing work. Current owner trace: page → HomeClient →
+DrawingCanvas/pointerHandlersRuntime and SelectionMarqueeHandles →
+selectionSlice.extractSelectionToFloatingPaste → selectionPaste commit/cancel →
+layer capture / canonical CC document / history. Sequence capture reads its frame
+renderer; its mutation path remains under investigation.
+
+Initial justified edit boundary: selectionSlice.ts, selectionPaste.ts, existing
+selectionFramebufferDelete.test.ts and selectionPaste.test.ts, plus the two audit
+docs. Any additional source/test owner must be explained before editing. Exit:
+listed native cases pass production before/after, deterministic owner tests pass,
+review complete, isolated type/lint/full Jest pass, preservation verified, local
+completed-area commit. No partial-area commit, push, deployment or branch change.
+
+Native first raster baseline: area08-raster-before-session19.results.json,58checks,
+55pass.11cases executed; initial runner mistakenly omitted2cancel/protection cases
+from its summary array despite retaining their assertions (9reported configs).
+Before-failure receipts are immutable; the corrected next runner must count all11.
+Opaque full-plane independent pixel oracle covers overlap, four partial-clipped
+edges, fully outside, masked hole, cancel and zero displacement. Extract/drag and
+Enter/Escape/Undo/Redo are native input; source pixels/selection/history/view are
+disclosed fixture injection. Full-plane raster RGBA and framebuffer comparisons
+are exact; hardware/native focus are not established.
+
+M01 reproduced: fully off-canvas extracted move dismisses payload and context after
+source clear, with0history entries (expected1reversible edit). Copied-paste
+offcanvas dismissal remains an established separate behavior. M02 reproduced:
+locked raster source still extracts and moves; canonical pixels change. Initial
+repair will block extraction at its owning store and preserve outside move history
+at commit. CC erase coverage, Sequence document/frame edits, cross-layer history
+and destination locking are source-review leads awaiting native reproduction.
+
+
+### Session19 settled first repair and remaining Area08 defects
+
+M01outside-source history, M02locked-source extraction and M03locked-destination
+commit are repaired at the store/paste owners. Locked destination remains floating
+for cancel/retry; cold-runtime preparation rechecks the refreshed lock. Outside
+commit records the source clear before dropping context, using existing full or
+original-region recovery snapshots; a rejected history commit retains recovery data.
+Copied offcanvas pastes still dismiss without a source edit. Independent patch review
+found the hydration-lock and missing-full-snapshot gaps; both have failing-before
+regressions and corrections. No remaining introduced finding in this first patch.
+
+Final reviewed artifact BUILD_TIMESTAMP2026-10-10T05:05:28.571Z; receipt
+area08-preview-artifact-session19.json binds source/test hashes. Owner Jest85/85,
+full type-check (--incremental false), lint and sequential atomic production build
+pass. No full Jest gate yet because Area08 remains incomplete; no commit/staging/push.
+Native raster12configs64/64 (area08-raster-after-session19.results.json) includes
+exact independent full-plane canonical/framebuffer comparisons, four clipped edges,
+outside history/Undo/Redo, overlap, holes, zero displacement, Escape and protection.
+Locked-source gestures can create selection-only history; artwork protection does
+not imply a fixed selection. Revised oracle explicitly admits only selection-change
+entries and still strictly checks exact artwork. Direct API locked extraction retains
+the selection itself, as the source tests assert.
+
+Final animation diagnostic10configs80checks74pass, no aborted cases/runtime errors:
+area08-animation-reviewed-session19.results.json. CC normal/hole moves, cancel,
+outside history and both protection routes pass. Sequence cancel/frame return pass.
+Six failures correspond to two reproduced open defects:
+
+- M04CC partially erased move/cancel: six scalar channels and actual underlying
+  CCcanvas are exact, but288erase-mask cells disappear from the moved/restored source
+  coverage; displayed comparison changes684channels. Undo also fails the same
+ 288maskcells. Extraction clears eraseMask without an evident version bump, and
+  commit clears the destination bounding rectangle; cancel restores scalar data only.
+  Investigate mask transfer, mask history/cache versions, binary selection membership
+  and soft-edge coverage at their owners. Soft-edge coverage remains an unproved lead.
+- M05Sequence move: original25authored events remain25; source display does not move
+  (6726display channel mismatches). Generic imageData/framebuffer mutation bypasses
+  sequentialData, unlike Sequence delete. Use original→provisional erase→raw-paste
+  event authority and one reversible history transaction; see ignored
+  area08-sequence-design-session19.md. Prove held-empty-frame semantics separately.
+
+The initial animation run71/80 included three additional fixture/oracle failures:
+missing2pxhole-contour collars (two display assertions), and rejection of legitimate
+selection-only history/new marquee after locked extraction refusal. Current v2 fixes
+those oracles without relaxing any full-plane canonical/mask/actualcanvas assertion.
+Original receipts remain immutable. Display alone omits disclosed2pxoutline collars;
+full canonical/erase/actualcanvas comparisons omit no cells. Sequence's vacuous empty
+CC-field checks are not Sequence mutation evidence; authored event/display checks
+explicitly prove M05. Root inspected CC-erased-move and Sequence-move screenshots.
+
+Cross-layer source+destination atomic move history remains a source-reviewed lead,
+not a reproduced bug. Raster fractional alpha, full-erasure CC coverage, soft edges,
+Sequence bounds/other frames/chunks, failures/retry and additional dimensions remain
+required before Area08 signoff. No wholesale rewrites or stale ownership restrictions.
+All47original dirty files are byte-exact against Session18; original staged patch
+SHA2565d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09
+is exact. Current53dirtypaths =47original+2auditdocs+4Area08source/tests.
+
+
+## Session20 — Area08 CC coverage and remaining move defects
+
+Area08 remains partial. Source boundary expands from four to six owners for the
+coverage helper and removal of duplicated floating-paste types in useAppStore.
+The original47dirtypaths/index remain preserved; no Area08commit or fullJest yet.
+
+M04 repair transfers immutable selection membership, erase alpha and optional soft
+edge alpha independently of displayed alpha. Source clear/Cancel use the original
+membership; destination writes require nonzero canonical paint, retaining occupied
+content beneath empty source cells. Mask version changes invalidate caches/history.
+Fully erased canonical paint still moves. Flips transform the payload while Cancel
+retains its original snapshot. Duplicate store types now reuse SelectionSlice types.
+An independent review caught and fixed empty-source destination data loss before the
+production build; the failing-before regression is retained.
+
+Owner suites90/90, fulltype-check --incremental false, full lint and atomic production
+build pass. Production timestamp2026-10-10T05:18:05.322Z and sixowner hashes are bound
+by area08-preview-artifact-session20.json. Selected CC configurations16/134checks pass:
+9/73 in animationV4 plus Cancel-display supplement; fullyerased/fractionalerasedholes
+4/35 and nativeSaveMask softedges3/26 in V5. Complete sixscalarplanes, maskalpha,
+actualCCcanvas and independently composited display are checked. No area signoff is
+implied; original diagnostics and oracle corrections remain recorded in ignored
+output/playwright. Historical Session19 PNG filenames were overwritten by an initial
+Session20 rerun; JSON receipts remain immutable and new captures use unique names.
+
+M05 remains reproduced: native Sequence move leaves25originalevents unchanged and
+6726displaychannels unmoved. Owner design/report area08-sequence-owner-session20.md
+routes extraction/commit/cancel through canonical Sequence events and shared history,
+retaining frame/chunk authority. No Sequence patch applied.
+
+M06 now reproduced by native cross-layer raster move:1configuration/7checks,6pass;
+Undo restores destination but leaves4096sourceRGBAchannels cleared. Both fullplanes
+match expected commit/Redo; layer switching retains the floating selection. No M06
+patch applied. A separate fractional-alpha raster probe and its precision diagnosis
+are recorded in the Session20 root-facts; do not silently classify an oracle mismatch
+as a production defect. Continue Area08 before09–65.
+
+Fractional-alpha diagnosis settled: the localized probe differs from native
+Canvas2D drawImage by571RGBchannels of magnitude1–2, no alpha difference. Independent
+integer Porter-Duff arithmetic plus canonical Canvas2D normalization yields exact
+12configurations/64checks. No runtime changes or relaxed tolerances; BEFORE-only
+expectation and complete imageData/framebuffer comparison. See
+area08-raster-oracle-contract-session20.md and both immutable matrix receipts.
+
+
+## Session21 — canonical moves, atomic history, and failure recovery
+
+Area08 remains partial/uncommitted;7/65areas complete. FIRST READ
+`output/playwright/area08-root-facts-session21.md`. Main HEAD remains fcd4d7df.
+All47original dirty files and staged patch remain byte-exact;60current dirty paths
+include two audit docs and eleven Area08 owners/tests. No push/fullJest/partial commit.
+
+M05 now authors canonical Sequence erase/paste events, preserves source frame/chunks,
+and supports cancel/delete/outside/retry. Held empty-frame extraction is explicitly
+refused after native reproduction; copy retains held preview policy. M06 batches both
+source and destination in one history transaction with one selection delta. Raster
+and CC failed-history rollback plus extracted Delete recovery are also repaired.
+Seven owner suites161tests, fulltype/lint/build/diff pass. Production artifact
+2026-10-10T05:37:28.410Z is bound to all11owner hashes in the artifact receipt.
+
+Production replay30configs273checks272pass, zero aborted/runtime errors. Selected
+repaired/regression29configs268/268pass: Sequence10/109, cross-layer1/7, cross-kind4/25,
+raster retry1/8, Delete retry1/5, held-frame1/5, CC retry1/5, CC regression5/49, and
+fractional/zero-delta Sequence5/55. Full raw Sequence RGBA and BEFORE-only expected
+pixels supplement canonical event/history checks. Known display outline collars
+only are omitted; no tolerance/AFTER-fed oracle. Failure tests use disclosed one-shot
+history refusal, not real storage outages. Physical/performance signoff is unclaimed.
+
+M07 newly native-reproduced: CC erased/holed selection moved into regular layer
+reintroduces erased coverage (960RGBA/240alpha differences). After M06 source Undo
+passes, leaving one failure in its1config5checks. No M07 patch yet. Read
+`output/playwright/area08-cross-kind-coverage-owner-session21.md`; capture a covered
+bitmap before clearing while retaining separate canonical/mask history payloads.
+Finish this and remaining Area08 cases before09–65. Browser closed and cleanup
+verified; previewPID14471 retained. All agents/source writers/checks finished.
+
+
+## Session22 — visible CC extraction and canonical metadata diagnosis
+
+Area08 remains partial/uncommitted;7/65complete. FIRST READ
+`output/playwright/area08-root-facts-session22.md`. Main HEAD fcd4d7df unchanged.
+All47original dirty paths and original staged patch remain byte-exact;62dirtypaths
+include two audit docs and13Area08source/tests. No push/fullJest/partial commit.
+
+M07 now freezes raw canonical CC pixels through the shared display mask compositor
+(erase, then enabled soft edge), then selection feather once, before source clear.
+Floating preview/raster/Sequence consume covered bitmap; indexed transfer retains
+six canonical planes, independent membership/masks and immutable raw recovery data.
+The existing compositor moved into `src/utils/colorCycleCoverage.ts`; presentation
+cache/default fallback remains. A reproduced injected mask-draw failure additionally
+proved destructive extraction must refuse incomplete composition; explicit abort mode
+now refuses before mutation. No global sampling, destination, clipboard, Sequence
+renderer or Goblet runtime compensation. Boundary expanded only to presentation/shared
+utility plus existing extraction/helper/test owners. Final read-only review resolved.
+
+8owner suites183tests, fulltype/lint/atomicbuild/diff pass. Final artifact
+2026-10-10T05:50:55.562Z binds13owner hashes in
+`area08-preview-artifact-final-session22.json`. No later source edits. Native final
+16configs161/161checks: exact CC→raster1/5, composition-failure1/9, expanded coverage9/98,
+retained M04 CC regression5/49. All done; no aborted cases/runtime errors. Includes
+fractional native palette/selection alpha, enabled/disabled soft, holes, transforms,
+occupied raster/Sequence destinations, canonical source restoration, atomic Undo/Redo,
+history retry, and native Play/Pause visits to other authored and empty Sequence frames.
+Goblet frame-byte integration uses serializer with toBlob I/O boundary mocked.
+
+Earlier expanded after94/96 contained two fixture races: immediate async BEFORE
+frame requests returned previous presentation canvas. Exact independent frame-ready
+prerequisites corrected the snapshots; selective2/30 and final9/98 pass. Destination
+oracles use established integer raster/premultiplied Sequence contracts; no tolerance,
+AFTER-derived expected values or runtime rounding patch. Scoped Jest Canvas/structuredClone
+realm adapters are disclosed in review. Odd17×9 project/one-pixel inward+outside moves
+pass2configs11/11 on preceding artifact; later guard only changes CC extraction.
+
+NEXT M08: distinct-CC diagnostics show source active def2.slot1/palette1 disappears
+after extraction/drag while canonical usage remains live; slot GC scans missing legacy
+mirrors as empty usage. No patch yet. Read `area08-cc-metadata-owner-session22.md`.
+Original distinct-layer destination painting was clipped by inherited selection;
+corrected occupied fixture clears it and requires positive overlap before evidence.
+Do not mistake legitimate unused-definition cleanup for live-binding loss. Allocator
+counter omission on Undo is a separate source lead (undefined, not literal1); existing
+allocation normalizes against used IDs, so no overwrite is established. Final native
+occupied receipt and process cleanup are in root-facts. Finish remaining Area08 before
+fullJest/review/focused area commit, then09–65.
+
+Final corrected distinct-CC case:1config9checks6pass; both owners have positive native
+paint (source3580,destination2860,overlap1280). Both lose active def2.slot1/palette1
+after source extraction, before destination activation, while canonical usage remains.
+Full six-plane/raw/mask expectations pass. Final artifact totals17configs170checks
+167pass including open M08; selected repaired16/161 all pass. Named browser closed
+with cleanup verified; previewPID14471 retained; all agents/writers/checks finished.
+
+
+## Session23 — canonical move metadata and Area08 final gate
+
+M08 repaired at shared `colorCycleSlotGC.ts`, covering scheduled cleanup and all
+three allocation-retry callers. Canonical per-layer usage now feeds both definition
+and non-definition slot scans. Empty canonical data beats stale mirrors; unknown or
+cold ownership retains bindings conservatively, including existing project-wide
+shared-ID retention. No source-selection workaround, legacy mirroring, or protected
+original-file edits. Added six failing-before regressions plus scheduled-action
+integration with real canonical documents and colliding local IDs. Three direct
+suites29tests and complete selected owner set11suites212tests pass.
+
+The same occupied CC→CC interaction and active-binding oracle fails6/9 on the old
+artifact and passes9/9 on the final artifact; all six canonical planes, erase/soft
+masks and raw RGBA remain exact. Whole metadata diagnostics are retained, but
+legitimate unused-definition release does not count as lost live content. An injected
+history-begin refusal/retry case passes10/10, including both owners, retained recovery,
+atomic commit and Undo/Redo. Metadata expectations are independently derived from
+BEFORE; hard seam defaults are normalized semantically. No runtime errors or aborted
+cases in these two final cases. Detailed review: ignored
+`output/playwright/area08-m08-review-session23.md`.
+
+Final artifact BUILD_TIMESTAMP2026-10-10T05:59:20.148Z binds16source/test owners in
+`area08-preview-artifact-final-session23.json`; full type-check/lint/atomicbuild pass.
+Original47 dirty paths and staged3-file patch SHA256
+5d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09 are exact.
+Final retention matrix/fullJest and focused area commit are in progress; do not infer
+Area08 completion until the closing receipt below.
+
+Separate nextGradientDefId omission is snapshot-fidelity metadata loss, not a
+literal reset to1 or proven allocation collision. Allocators exclude occupied IDs
+and explicitly allow hole reuse; the exercised contiguous definitions choose the
+same next IDs. No speculative replay patch. This remains a nonblocking persistence
+fidelity lead for its owner. Clipboard replacement after refused commit remains
+Area09; comprehensive floating transforms remain Area10. Hardware/visual/performance
+acceptance is not established by these software assertions.
+
+
+Final native retention receipt:19configurations186/186checks, zeroaborted/runtime
+errors on the bound final artifact. Runs: distinct occupied CC1/9; distinct CC
+history-refusal/retry1/10; same-layer CC5/49; cross-layer coverage9/98; extraction
+composition-failure1/9; odd17×9 one-pixel edge2/11. Full-Jest gate remains pending.
+
+
+### Session23 Area08 completion gate
+
+Area08 software checks are complete: M01–M08 closed at their owning sources with
+exact production evidence. Final artifact19configs186/186checks, owner11suites212tests,
+fulltype/lint/build/diffcheck pass. Full Jest:588suites5494tests pass, one existing
+suite/test skipped, one snapshot pass. Final read-only review has no remaining
+in-scope actionable finding. Original47 paths/index preserved. Focused local commit
+contains16source/test files and the two audit documents; none overlap original dirty
+paths. No push/deploy/branch change. Area09 is next;09–65 remain incomplete.

@@ -1,9 +1,12 @@
+import * as layerHistory from '@/history/helpers/layerHistory';
 import { useAppStore } from '@/stores/useAppStore';
 import historyManager from '@/history/historyService';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
-import { BrushShape, type Layer } from '@/types';
+import { BrushShape, type Layer, type SequentialStrokeEvent } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
-import { clearSequentialLayerRendererAll } from '@/lib/sequential/SequentialLayerRenderer';
+import { isFeatureFlagEnabled, setFeatureFlag } from '@/config/featureFlags';
+import { encodeSequentialEventsToChunks, decodeSequentialChunksToEvents } from '@/lib/sequential/SequentialStrokeChunk';
+import { clearSequentialLayerRendererAll, getSequentialLayerRenderCanvas } from '@/lib/sequential/SequentialLayerRenderer';
 import {
   applyColorCycleBrushLayerSnapshotToRuntime,
   getColorCycleLegacyLayerBuffer,
@@ -11,6 +14,10 @@ import {
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { getPersistedCCMutationLog } from '@/utils/colorCycle/ccMutationAudit';
 import { readTestColorCycleBrushLayerSnapshot } from '@/testing/colorCycleSnapshotTestUtils';
+import { captureSequentialLayerFrameTextures } from '@/utils/export/goblet/gobletSequentialSerializer';
+import { getMaskedColorCycleCanvas } from '@/utils/colorCycleCoverage';
+
+const CC_SCALAR_KEYS = ['paintBuffer', 'gradientIdBuffer', 'gradientDefIdBuffer', 'speedBuffer', 'flowBuffer', 'phaseBuffer'] as const;
 
 const resetStore = () => {
   useAppStore.setState((state) => ({
@@ -50,7 +57,7 @@ describe('selection delete updates framebuffer', () => {
 
   it.each(
     (['normal', 'color-cycle', 'sequential'] as const).flatMap((layerType) =>
-      (['api-delete', 'keyboard-delete'] as const).map((source) => ({ layerType, source }))),
+      (['api-delete', 'keyboard-delete', 'extract-selection'] as const).map((source) => ({ layerType, source }))),
   )('preserves content, masked selection, and history for locked $layerType $source', async ({ layerType, source }) => {
     await waitForPendingHistoryCommits();
     historyManager.clear();
@@ -146,7 +153,11 @@ describe('selection delete updates framebuffer', () => {
     const beforeUndo = historyManager.entries().slice();
     const beforeRedo = historyManager.redoEntries().slice();
 
-    useAppStore.getState().deleteSelectedPixels(source);
+    if (source === 'extract-selection') {
+      expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(false);
+    } else {
+      useAppStore.getState().deleteSelectedPixels(source);
+    }
     await waitForPendingHistoryCommits();
 
     const after = useAppStore.getState();
@@ -164,6 +175,8 @@ describe('selection delete updates framebuffer', () => {
       'selectionMaskLayerId', 'selectionVectorPath', 'selectionLastAction',
     ] as const) expect(after[key]).toBe(before[key]);
     expect(after.selectionMask!.data).toEqual(beforeMaskBytes);
+    expect(after.floatingPaste).toBe(before.floatingPaste);
+    expect(after.floatingPasteHistoryContext).toBe(before.floatingPasteHistoryContext);
     expect(after.layersNeedRecomposition).toBe(false);
     expect(after.pendingCompositeDirtyBatches).toEqual([]);
     expect(historyManager.entries()).toEqual(beforeUndo);
@@ -492,6 +505,47 @@ describe('selection delete updates framebuffer', () => {
     expect(activeCtx?.getImageData(1, 1, 1, 1).data[3]).toBe(0);
     expect(state.selectionStart).toBeNull();
     expect(state.selectionEnd).toBeNull();
+  });
+
+  it.each([
+    { x: -4, y: 1 }, { x: 4, y: 1 }, { x: 1, y: -4 }, { x: 1, y: 4 },
+  ])('undoes and redoes a selected pixel moved completely outside to $x,$y', async (position) => {
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 4;
+    framebuffer.height = 4;
+    const ctx = framebuffer.getContext('2d', { willReadFrequently: true })!;
+    ctx.fillStyle = '#804020';
+    ctx.fillRect(0, 0, 4, 4);
+    const imageData = ctx.getImageData(0, 0, 4, 4);
+    const layer: Layer = {
+      id: 'outside-move', name: 'Outside move', visible: true, opacity: 1,
+      blendMode: 'source-over', locked: false, order: 0, imageData, framebuffer,
+      alignment: createDefaultLayerAlignment(), layerType: 'normal',
+    };
+    useAppStore.setState({
+      layers: [layer], activeLayerId: layer.id,
+      selectionMask: null, selectionMaskBounds: null, selectionVectorPath: null,
+    });
+    useAppStore.getState().setSelectionBounds({ x: 1, y: 1 }, { x: 2, y: 2 }, 'selection-marquee-final');
+    const before = new Uint8ClampedArray(imageData.data);
+    const store = useAppStore.getState();
+    expect(store.extractSelectionToFloatingPaste()).toBe(true);
+    store.updateFloatingPastePosition(position);
+    await store.commitFloatingPaste();
+    await waitForPendingHistoryCommits();
+    const after = new Uint8ClampedArray(useAppStore.getState().layers[0].imageData!.data);
+    expect(after[(1 * 4 + 1) * 4 + 3]).toBe(0);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(useAppStore.getState().floatingPaste).toBeNull();
+
+    await store.undo();
+    expect(useAppStore.getState().layers[0].imageData!.data).toEqual(before);
+    expect(ctx.getImageData(0, 0, 4, 4).data).toEqual(before);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 1, y: 1 });
+    expect(useAppStore.getState().selectionEnd).toEqual({ x: 2, y: 2 });
+    await store.redo();
+    expect(useAppStore.getState().layers[0].imageData!.data).toEqual(after);
+    expect(ctx.getImageData(0, 0, 4, 4).data).toEqual(after);
   });
 
   it('extractSelectionToFloatingPaste clears source framebuffer before floating transform', () => {
@@ -1634,6 +1688,510 @@ describe('selection delete updates framebuffer', () => {
   });
 });
 
+describe('CC floating selection coverage integration', () => {
+  beforeEach(async () => {
+    await waitForPendingHistoryCommits();
+    resetStore();
+    historyManager.clear();
+  });
+
+  afterEach(async () => {
+    await waitForPendingHistoryCommits();
+    historyManager.clear();
+  });
+
+  const setupCoverage = (suffix: string, withSoftEdge: boolean, withEmptySource = false) => {
+    const size = 8;
+    const layerId = `cc-floating-coverage-${suffix}`;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const layer: Layer = {
+      id: layerId, name: layerId, visible: true, locked: false, opacity: 1, order: 0,
+      blendMode: 'source-over', alignment: createDefaultLayerAlignment(),
+      imageData: null, framebuffer: canvas, layerType: 'color-cycle',
+      colorCycleData: {
+        canvas, hasContent: true,
+        gradientDefStore: [{
+          id: 2, kind: 'linear', hash: 'coverage-def-2', source: 'manual', createdAtMs: 1,
+          stops: [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }],
+        }],
+      },
+    };
+    useAppStore.setState((state) => ({
+      project: { ...state.project!, width: size, height: size },
+      layers: [layer], activeLayerId: layerId,
+      selectionStart: { x: 1, y: 1 }, selectionEnd: { x: 4, y: 3 },
+      selectionMask: null, selectionMaskBounds: null, selectionMaskLayerId: null, selectionVectorPath: null,
+      selectionLastAction: {
+        action: 'set-bounds', source: 'selection-marquee-final', ownerKind: 'direct-marquee',
+        t: Date.now(), activeLayerId: layerId, bounds: { x: 1, y: 1, width: 3, height: 2 },
+      },
+    }));
+    useAppStore.getState().initColorCycleForLayer(layerId, size, size);
+    const brush = getColorCycleBrushManager().getBrush(layerId)!;
+    const scalarBuffer = (value: number) => {
+      const values = new Uint8Array(size * size).fill(value);
+      if (withEmptySource) values[2 * size + 1] = 0;
+      return values.buffer;
+    };
+    const gradientDefs = new Uint16Array(size * size).fill(2);
+    if (withEmptySource) gradientDefs[2 * size + 1] = 0;
+    applyColorCycleBrushLayerSnapshotToRuntime(brush, layerId, {
+      paintBuffer: scalarBuffer(9),
+      gradientIdBuffer: scalarBuffer(1),
+      gradientDefIdBuffer: gradientDefs.buffer,
+      speedBuffer: scalarBuffer(3),
+      flowBuffer: scalarBuffer(4),
+      phaseBuffer: scalarBuffer(5),
+      hasContent: true, strokeCounter: 1,
+    });
+
+    const createMask = (alpha: Uint8Array) => {
+      const mask = document.createElement('canvas');
+      mask.width = mask.height = size;
+      const image = new ImageData(size, size);
+      for (let index = 0; index < alpha.length; index += 1) {
+        image.data.set([255, 255, 255, alpha[index]], index * 4);
+      }
+      mask.getContext('2d')!.putImageData(image, 0, 0);
+      return mask;
+    };
+    const eraseAlpha = new Uint8Array(size * size);
+    eraseAlpha[1 * size + 1] = 128;
+    eraseAlpha[1 * size + 3] = 255; // Canonical paint remains present despite zero visible alpha.
+    eraseAlpha[2 * size + 2] = 64;
+    eraseAlpha[4 * size + 4] = 77;
+    eraseAlpha[4 * size + 5] = 99; // Destination hole must retain existing coverage.
+    eraseAlpha[7 * size + 7] = 66;
+    const softAlpha = new Uint8Array(size * size).fill(255);
+    softAlpha[1 * size + 1] = 96;
+    softAlpha[1 * size + 3] = 0;
+    softAlpha[2 * size + 2] = 180;
+    softAlpha[4 * size + 5] = 120;
+    if (withEmptySource) {
+      softAlpha[2 * size + 1] = 0;
+      eraseAlpha[5 * size + 4] = 99;
+      softAlpha[5 * size + 4] = 120;
+    }
+    const current = useAppStore.getState().layers[0];
+    useAppStore.getState().updateLayer(layerId, {
+      colorCycleData: {
+        ...current.colorCycleData!, eraseMask: createMask(eraseAlpha), eraseMaskVersion: 1,
+        ...(withSoftEdge ? { softEdgeMask: createMask(softAlpha), softEdgeMaskEnabled: true, softEdgeMaskVersion: 1 } : {}),
+      },
+    }, { skipColorCycleSync: true });
+    const liveCanvas = useAppStore.getState().layers[0].colorCycleData!.canvas!;
+    const visible = new ImageData(size, size);
+    for (let index = 0; index < eraseAlpha.length; index += 1) {
+      visible.data.set([120, 80, 40, 255 - eraseAlpha[index]], index * 4);
+    }
+    if (withEmptySource) visible.data.fill(0, (2 * size + 1) * 4, (2 * size + 2) * 4);
+    liveCanvas.getContext('2d')!.putImageData(visible, 0, 0);
+    const mask = new ImageData(3, 2);
+    for (let index = 3; index < mask.data.length; index += 4) mask.data[index] = 80;
+    mask.data[1 * 4 + 3] = 0;
+    useAppStore.setState({
+      selectionMask: mask, selectionMaskBounds: { x: 1, y: 1, width: 3, height: 2 },
+      selectionMaskLayerId: layerId,
+    });
+    const capture = () => {
+      const snapshot = readTestColorCycleBrushLayerSnapshot(getColorCycleBrushManager().getBrush(layerId), layerId)!;
+      const currentLayer = useAppStore.getState().layers.find((entry) => entry.id === layerId)!;
+      const readAlpha = (field: 'eraseMask' | 'softEdgeMask') => {
+        const maskCanvas = currentLayer.colorCycleData?.[field];
+        const rgba = maskCanvas?.getContext('2d')?.getImageData(0, 0, size, size).data;
+        return rgba ? Array.from({ length: size * size }, (_, index) => rgba[index * 4 + 3]) : null;
+      };
+      return {
+        scalars: CC_SCALAR_KEYS.map((key) => key === 'gradientDefIdBuffer'
+          ? Array.from(new Uint16Array(snapshot[key]!))
+          : Array.from(new Uint8Array(snapshot[key]!))),
+        eraseAlpha: readAlpha('eraseMask'),
+        softAlpha: readAlpha('softEdgeMask'),
+      };
+    };
+    const before = capture();
+    const expectedExtracted = {
+      scalars: before.scalars.map((values) => values.slice()),
+      eraseAlpha: before.eraseAlpha!.slice(), softAlpha: before.softAlpha?.slice() ?? null,
+    };
+    const expectedMoved = {
+      scalars: before.scalars.map((values) => values.slice()),
+      eraseAlpha: before.eraseAlpha!.slice(), softAlpha: before.softAlpha?.slice() ?? null,
+    };
+    for (let y = 0; y < 2; y += 1) {
+      for (let x = 0; x < 3; x += 1) {
+        if ((x === 1 && y === 0) || (withEmptySource && x === 0 && y === 1)) continue;
+        const source = (y + 1) * size + x + 1;
+        const destination = (y + 4) * size + x + 4;
+        for (let channel = 0; channel < CC_SCALAR_KEYS.length; channel += 1) {
+          expectedExtracted.scalars[channel][source] = 0;
+          expectedMoved.scalars[channel][source] = 0;
+          expectedMoved.scalars[channel][destination] = before.scalars[channel][source];
+        }
+        expectedExtracted.eraseAlpha[source] = 0;
+        expectedMoved.eraseAlpha[source] = 0;
+        expectedMoved.eraseAlpha[destination] = before.eraseAlpha![source];
+        if (expectedExtracted.softAlpha && expectedMoved.softAlpha && before.softAlpha) {
+          expectedExtracted.softAlpha[source] = 0;
+          expectedMoved.softAlpha[source] = 0;
+          expectedMoved.softAlpha[destination] = before.softAlpha[source];
+        }
+      }
+    }
+    return { capture, before, expectedExtracted, expectedMoved };
+  };
+
+  // Canvas I/O double only: the shared mock does not implement mask compositing.
+  // Native production tests separately verify browser premultiplied rounding.
+  const enableCoverageCanvas = () => {
+    const canvasState = globalThis as typeof globalThis & { __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean };
+    const previousRasterize = canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
+    // Jest's MessageChannel clone returns Node-realm ArrayBuffers. Browser structuredClone
+    // returns same-realm buffers, which the real history codecs validate with instanceof.
+    const originalClone = globalThis.structuredClone;
+    const clone = jest.spyOn(globalThis, 'structuredClone').mockImplementation(<T,>(value: T, options?: StructuredSerializeOptions): T => {
+      const seen = new WeakMap<object, unknown>();
+      const normalize = (entry: unknown): unknown => {
+        if (!entry || typeof entry !== 'object') return entry;
+        if (seen.has(entry)) return seen.get(entry);
+        if (Object.prototype.toString.call(entry) === '[object ArrayBuffer]') {
+          const buffer = new Uint8Array(entry as ArrayBuffer).slice().buffer;
+          seen.set(entry, buffer);
+          return buffer;
+        }
+        if (ArrayBuffer.isView(entry)) return entry;
+        seen.set(entry, entry);
+        const record = entry as Record<string, unknown>;
+        Object.keys(record).forEach((key) => { record[key] = normalize(record[key]); });
+        return entry;
+      };
+      return normalize(originalClone(value, options)) as T;
+    });
+    const originalDraw = CanvasRenderingContext2D.prototype.drawImage;
+    const draw = jest.spyOn(CanvasRenderingContext2D.prototype, 'drawImage').mockImplementation(function (
+      this: CanvasRenderingContext2D, source: CanvasImageSource, ...args: number[]
+    ) {
+      const operation = this.globalCompositeOperation;
+      if (operation !== 'destination-out' && operation !== 'destination-in') {
+        Reflect.apply(originalDraw, this, [source, ...args]);
+        return;
+      }
+      const mask = (source as HTMLCanvasElement).getContext('2d')!.getImageData(0, 0, this.canvas.width, this.canvas.height);
+      const pixels = this.getImageData(0, 0, this.canvas.width, this.canvas.height);
+      for (let i = 0; i < pixels.data.length; i += 4) {
+        const coverage = operation === 'destination-out' ? 255 - mask.data[i + 3] : mask.data[i + 3];
+        pixels.data[i + 3] = Math.round(pixels.data[i + 3] * coverage / 255);
+        if (pixels.data[i + 3] === 0) pixels.data.fill(0, i, i + 4);
+      }
+      this.putImageData(pixels, 0, 0);
+      this.globalCompositeOperation = 'source-over';
+    });
+    return () => {
+      draw.mockRestore();
+      clone.mockRestore();
+      canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = previousRasterize;
+    };
+  };
+
+  const setupVisibleCoverage = (softEnabled: boolean) => {
+    const fixture = setupCoverage(`visible-${softEnabled}`, true);
+    const source = useAppStore.getState().layers[0];
+    const raw = new ImageData(8, 8);
+    const rawAlpha = [201, 177, 220, 128, 193, 64];
+    const selectionAlpha = [128, 0, 255, 64, 192, 255];
+    const selection = new ImageData(3, 2);
+    rawAlpha.forEach((alpha, i) => {
+      raw.data.set([255, 0, 0, alpha], ((1 + Math.floor(i / 3)) * 8 + 1 + i % 3) * 4);
+      selection.data[i * 4 + 3] = selectionAlpha[i];
+    });
+    source.colorCycleData!.canvas!.getContext('2d')!.putImageData(raw, 0, 0);
+    useAppStore.setState({
+      layers: [{ ...source, colorCycleData: { ...source.colorCycleData!, softEdgeMaskEnabled: softEnabled } }],
+      selectionMask: selection,
+    });
+    // BEFORE-only oracle: raw -> erase -> optional soft -> selection, rounding at each stage.
+    const expectedAlpha = softEnabled ? [19, 0, 0, 32, 77, 64] : [50, 0, 0, 32, 109, 64];
+    return { ...fixture, source, raw, expectedAlpha };
+  };
+
+  it.each(['mask-draw', 'scratch-context'] as const)('refuses extraction before mutation when coverage %s fails, retaining display fallback', (failure) => {
+    const restoreCanvas = enableCoverageCanvas();
+    let restoreFailure = () => {};
+    try {
+      const { capture, before, source } = setupVisibleCoverage(true);
+      const rawBefore = source.colorCycleData!.canvas!.getContext('2d')!.getImageData(0, 0, 8, 8).data.slice();
+      const selectionBefore = useAppStore.getState();
+      const maskBefore = selectionBefore.selectionMask!.data.slice();
+      let failures = 0;
+      if (failure === 'mask-draw') {
+        const draw = jest.mocked(CanvasRenderingContext2D.prototype.drawImage);
+        const compose = draw.getMockImplementation()!;
+        draw.mockImplementation(function (this: CanvasRenderingContext2D, image: CanvasImageSource, ...args: number[]) {
+          if (image === source.colorCycleData!.softEdgeMask) {
+            failures += 1;
+            throw new Error('Injected coverage mask draw failure');
+          }
+          Reflect.apply(compose, this, [image, ...args]);
+        });
+      } else {
+        const scratch = getMaskedColorCycleCanvas(source.colorCycleData!.canvas!, source)!;
+        expect(scratch).not.toBe(source.colorCycleData!.canvas);
+        const getContext = jest.spyOn(scratch, 'getContext').mockImplementation(() => {
+          failures += 1;
+          return null;
+        });
+        restoreFailure = () => getContext.mockRestore();
+      }
+      expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(false);
+      expect(failures).toBeGreaterThan(0);
+      expect(capture()).toEqual(before);
+      expect(source.colorCycleData!.canvas!.getContext('2d')!.getImageData(0, 0, 8, 8).data).toEqual(rawBefore);
+      const after = useAppStore.getState();
+      expect(after.floatingPaste).toBeNull();
+      expect(after.floatingPasteHistoryContext).toBeNull();
+      expect(after.selectionStart).toEqual(selectionBefore.selectionStart);
+      expect(after.selectionEnd).toEqual(selectionBefore.selectionEnd);
+      expect(after.selectionMask!.data).toEqual(maskBefore);
+      expect(after.selectionMaskBounds).toEqual(selectionBefore.selectionMaskBounds);
+      expect(after.selectionMaskLayerId).toBe(selectionBefore.selectionMaskLayerId);
+      expect(after.selectionLastAction).toEqual(selectionBefore.selectionLastAction);
+      expect(historyManager.entries()).toHaveLength(0);
+      // Presentation still provides its established best-effort surface on failure.
+      const display = getMaskedColorCycleCanvas(source.colorCycleData!.canvas!, source);
+      expect(display).not.toBeNull();
+      if (failure === 'scratch-context') expect(display).toBe(source.colorCycleData!.canvas);
+    } finally {
+      restoreFailure();
+      restoreCanvas();
+    }
+  });
+
+  it.each([false, true])('freezes visible CC bitmap once and restores canonical source after transformed Cancel (soft enabled %s)', (softEnabled) => {
+    const restoreCanvas = enableCoverageCanvas();
+    try {
+      const { capture, before, source, expectedAlpha } = setupVisibleCoverage(softEnabled);
+      const originalRaw = source.colorCycleData!.canvas!.getContext('2d')!.getImageData(1, 1, 3, 2).data.slice();
+      expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+      const floating = useAppStore.getState().floatingPaste!;
+      const bitmap = floating.imageData;
+      expect(bitmap).not.toBeNull();
+      if (!bitmap) throw new Error('Missing floating bitmap');
+      expect(Array.from({ length: 6 }, (_, i) => bitmap.data[i * 4 + 3])).toEqual(expectedAlpha);
+      expect(floating.colorCycleIndices![2]).toBe(9); // Fully erased cells remain canonical.
+      const frozen = bitmap.data.slice();
+      source.colorCycleData!.canvas!.getContext('2d')!.clearRect(0, 0, 8, 8);
+      expect(bitmap.data).toEqual(frozen);
+      expect(useAppStore.getState().floatingPasteHistoryContext!.sourceBeforeImage!.data).toEqual(originalRaw);
+      useAppStore.getState().flipFloatingPasteHorizontal();
+      useAppStore.getState().flipFloatingPasteVertical();
+      useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 5 });
+      useAppStore.getState().cancelFloatingPaste();
+      expect(capture()).toEqual(before);
+      // Restoration re-renders canonical CC data; the explicitly seeded raw I/O fixture
+      // intentionally differs from that renderer. Native tests verify rendered restoration.
+      expect(historyManager.entries()).toHaveLength(0);
+    } finally { restoreCanvas(); }
+  });
+
+  it.each((['normal', 'sequential'] as const).flatMap((kind) => [false, true].map((softEnabled) => ({ kind, softEnabled }))))(
+    'moves covered CC pixels into $kind with atomic history and retry (soft enabled $softEnabled)',
+    async ({ kind, softEnabled }) => {
+      const restoreCanvas = enableCoverageCanvas();
+      const gpu = isFeatureFlagEnabled('enableSequentialGpuAcceleration');
+      const worker = isFeatureFlagEnabled('enableSequentialWorkerMaterialization');
+      setFeatureFlag('enableSequentialGpuAcceleration', false);
+      setFeatureFlag('enableSequentialWorkerMaterialization', false);
+      clearSequentialLayerRendererAll();
+      try {
+        const { capture, before, expectedExtracted, expectedAlpha } = setupVisibleCoverage(softEnabled);
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 8;
+        const destination: Layer = {
+          id: `coverage-destination-${kind}`, name: 'Destination', layerType: kind,
+          visible: true, locked: false, opacity: 1, blendMode: 'source-over', order: 1,
+          alignment: createDefaultLayerAlignment(), framebuffer: canvas,
+          imageData: kind === 'normal' ? new ImageData(8, 8) : null,
+          ...(kind === 'sequential' ? { sequentialData: { events: [], frameCount: 2, fps: 1, durationMs: 2000 } } : {}),
+        };
+        useAppStore.setState((state) => ({ layers: [...state.layers, destination],
+          sequentialRecord: { ...state.sequentialRecord, currentFrame: 0, isPointerDown: false } }));
+        expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+        useAppStore.getState().setActiveLayer(destination.id);
+        useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 4 });
+        const reject = jest.spyOn(layerHistory, 'commitLayerHistoryBatch').mockRejectedValueOnce(new Error('coverage retry'));
+        try { await useAppStore.getState().commitFloatingPaste(); } finally { reject.mockRestore(); }
+        expect(useAppStore.getState().floatingPaste).not.toBeNull();
+        expect(capture()).toEqual(expectedExtracted);
+        expect(historyManager.entries()).toHaveLength(0);
+        const readDestination = () => {
+          const current = useAppStore.getState().layers.find((layer) => layer.id === destination.id)!;
+          return kind === 'normal' ? current.imageData!.data : getSequentialLayerRenderCanvas({
+            layer: current, width: 8, height: 8, frameIndex: 0, holdPreviousOnEmptyFrames: false,
+          })!.getContext('2d')!.getImageData(0, 0, 8, 8).data;
+        };
+        expect(readDestination()).toEqual(new Uint8ClampedArray(8 * 8 * 4));
+        await useAppStore.getState().commitFloatingPaste();
+        const expected = new Uint8ClampedArray(8 * 8 * 4);
+        expectedAlpha.forEach((alpha, i) => {
+          if (alpha) expected.set([255, 0, 0, alpha], ((4 + Math.floor(i / 3)) * 8 + 4 + i % 3) * 4);
+        });
+        expect(readDestination()).toEqual(expected);
+        if (kind === 'sequential') {
+          const exportedFrames: Uint8ClampedArray[] = [];
+          const toBlob = jest.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
+            this: HTMLCanvasElement, callback: BlobCallback, type?: string,
+          ) {
+            const pixels = this.getContext('2d')!.getImageData(0, 0, this.width, this.height).data.slice();
+            exportedFrames.push(pixels);
+            callback(new Blob([new Uint8Array(pixels)], { type: type ?? 'image/png' }));
+          });
+          try {
+            const current = useAppStore.getState().layers.find((layer) => layer.id === destination.id)!;
+            const exported = await captureSequentialLayerFrameTextures({ layer: current, width: 8, height: 8, frameCount: 2 });
+            expect(exported?.frameMap).toEqual([0, 1]);
+            expect(exportedFrames).toEqual([expected, new Uint8ClampedArray(8 * 8 * 4)]);
+          } finally { toBlob.mockRestore(); }
+        }
+        expect(historyManager.entries()).toHaveLength(1);
+        await useAppStore.getState().undo();
+        expect(capture()).toEqual(before);
+        expect(readDestination()).toEqual(new Uint8ClampedArray(8 * 8 * 4));
+        await useAppStore.getState().redo();
+        expect(capture()).toEqual(expectedExtracted);
+        expect(readDestination()).toEqual(expected);
+      } finally {
+        clearSequentialLayerRendererAll();
+        setFeatureFlag('enableSequentialGpuAcceleration', gpu);
+        setFeatureFlag('enableSequentialWorkerMaterialization', worker);
+        restoreCanvas();
+      }
+    },
+  );
+
+  it.each([63, 36])('removes only unused imported CC metadata after rejection and preserves independent cell %i', async (independentIndex) => {
+    const { capture, expectedExtracted } = setupCoverage('failure-metadata', true);
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    const beforeMetadata = useAppStore.getState().layers[0].colorCycleData!;
+    const beforeRaw = beforeMetadata.canvas!.getContext('2d')!.getImageData(4, 4, 3, 2).data.slice();
+    const pastedDef = { ...beforeMetadata.gradientDefStore![0], hash: 'imported-conflict', slot: 1 };
+    useAppStore.setState((state) => ({ floatingPaste: { ...state.floatingPaste!,
+      colorCycleSlotPalettes: [{ slot: 1, stops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#00ff00' }] }],
+      colorCycleGradientDefs: [pastedDef],
+    } }));
+    useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 4 });
+    let reject!: (reason: Error) => void;
+    const failure = jest.spyOn(layerHistory, 'commitLayerHistory').mockImplementationOnce(() => new Promise((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    try {
+      const pending = useAppStore.getState().commitFloatingPaste();
+      const layer = useAppStore.getState().layers[0];
+      expect(layer.colorCycleData!.gradientDefStore).toHaveLength(2);
+      const attempted = capture();
+      const brush = getColorCycleBrushManager().getBrush(layer.id)!;
+      const later = readTestColorCycleBrushLayerSnapshot(brush, layer.id)!;
+      const paint = new Uint8Array(later.paintBuffer!.slice(0));
+      paint[independentIndex] = 31;
+      applyColorCycleBrushLayerSnapshotToRuntime(brush, layer.id, { ...later, paintBuffer: paint.buffer });
+      reject(new Error('CC history rejected'));
+      await pending;
+      const expected = { ...expectedExtracted, scalars: expectedExtracted.scalars.map((plane) => plane.slice()),
+        eraseAlpha: expectedExtracted.eraseAlpha.slice(), softAlpha: expectedExtracted.softAlpha!.slice() };
+      if (independentIndex === 36) {
+        expected.scalars.forEach((plane, channel) => { plane[independentIndex] = attempted.scalars[channel][independentIndex]; });
+        expected.eraseAlpha[independentIndex] = attempted.eraseAlpha![independentIndex];
+        expected.softAlpha[independentIndex] = attempted.softAlpha![independentIndex];
+      }
+      expected.scalars[0][independentIndex] = 31;
+      expect(capture()).toEqual(expected);
+      const afterMetadata = useAppStore.getState().layers[0].colorCycleData!;
+      if (independentIndex === 63) {
+        expect(afterMetadata.gradientDefStore).toEqual(beforeMetadata.gradientDefStore);
+        expect(afterMetadata.nextGradientDefId).toEqual(beforeMetadata.nextGradientDefId);
+        expect(afterMetadata.slotPalettes).toEqual(beforeMetadata.slotPalettes);
+        expect(afterMetadata.canvas!.getContext('2d')!.getImageData(4, 4, 3, 2).data).toEqual(beforeRaw);
+      } else {
+        expect(afterMetadata.gradientDefStore).toEqual(layer.colorCycleData!.gradientDefStore);
+        expect(afterMetadata.slotPalettes).toEqual(layer.colorCycleData!.slotPalettes);
+      }
+    } finally { failure.mockRestore(); }
+  });
+
+  it.each(['cancel', 'retry'] as const)('rolls back rejected CC destination coverage before %s', async (recovery) => {
+    const { capture, before, expectedExtracted, expectedMoved } = setupCoverage(`failure-${recovery}`, true);
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 4 });
+    const failure = jest.spyOn(layerHistory, 'commitLayerHistory').mockRejectedValueOnce(new Error('injected CC history failure'));
+    try {
+      await useAppStore.getState().commitFloatingPaste();
+      expect(capture()).toEqual(expectedExtracted);
+      expect(useAppStore.getState().floatingPaste).not.toBeNull();
+      expect(historyManager.entries()).toHaveLength(0);
+      if (recovery === 'cancel') {
+        useAppStore.getState().cancelFloatingPaste();
+        expect(capture()).toEqual(before);
+        expect(historyManager.entries()).toHaveLength(0);
+      } else {
+        await useAppStore.getState().commitFloatingPaste();
+        expect(capture()).toEqual(expectedMoved);
+        expect(historyManager.entries()).toHaveLength(1);
+        await useAppStore.getState().undo();
+        expect(capture()).toEqual(before);
+        await useAppStore.getState().redo();
+        expect(capture()).toEqual(expectedMoved);
+      }
+      expect(useAppStore.getState().floatingPaste).toBeNull();
+    } finally {
+      failure.mockRestore();
+    }
+  });
+
+  it.each([false, true])('moves fractional and fully erased CC coverage with holes through Undo/Redo (soft edge %s)', async (withSoftEdge) => {
+    const { capture, before, expectedExtracted, expectedMoved } = setupCoverage(`move-${withSoftEdge}`, withSoftEdge);
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    expect(capture()).toEqual(expectedExtracted);
+    useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 4 });
+    await useAppStore.getState().commitFloatingPaste();
+    await waitForPendingHistoryCommits();
+    expect(capture()).toEqual(expectedMoved);
+    expect(useAppStore.getState().floatingPaste).toBeNull();
+    expect(historyManager.entries()).toHaveLength(1);
+    await useAppStore.getState().undo();
+    expect(capture()).toEqual(before);
+    await useAppStore.getState().redo();
+    expect(capture()).toEqual(expectedMoved);
+  });
+
+  it.each([false, true])('cancels moved CC coverage without history or losing fully erased canonical cells (soft edge %s)', async (withSoftEdge) => {
+    const { capture, before } = setupCoverage(`cancel-${withSoftEdge}`, withSoftEdge);
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 4 });
+    useAppStore.getState().cancelFloatingPaste();
+    await waitForPendingHistoryCommits();
+    expect(capture()).toEqual(before);
+    expect(useAppStore.getState().floatingPaste).toBeNull();
+    expect(historyManager.entries()).toHaveLength(0);
+  });
+
+  it('preserves occupied destination paint and mask coverage beneath an originally empty selected source cell', async () => {
+    const { capture, before, expectedExtracted, expectedMoved } = setupCoverage('empty-source', true, true);
+    expect(before.scalars.every((channel) => channel[2 * 8 + 1] === 0)).toBe(true);
+    expect(before.eraseAlpha![2 * 8 + 1]).toBe(0);
+    expect(before.eraseAlpha![5 * 8 + 4]).toBe(99);
+    expect(before.softAlpha![5 * 8 + 4]).toBe(120);
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    expect(capture()).toEqual(expectedExtracted);
+    useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 4 });
+    await useAppStore.getState().commitFloatingPaste();
+    await waitForPendingHistoryCommits();
+    expect(capture()).toEqual(expectedMoved);
+    await useAppStore.getState().undo();
+    expect(capture()).toEqual(before);
+    await useAppStore.getState().redo();
+    expect(capture()).toEqual(expectedMoved);
+  });
+});
+
 
 describe('inverted raster selection delete alignment history', () => {
   beforeEach(async () => {
@@ -1706,4 +2264,181 @@ describe('inverted raster selection delete alignment history', () => {
       expect(redone).toEqual(immediate);
     },
   );
+});
+
+describe('Sequence floating selection canonical integration', () => {
+  const canvasState = globalThis as typeof globalThis & { __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean };
+  let previousRasterize: boolean | undefined;
+  let gpu: boolean;
+  let worker: boolean;
+  beforeEach(async () => {
+    await waitForPendingHistoryCommits();
+    resetStore();
+    historyManager.clear();
+    clearSequentialLayerRendererAll();
+    gpu = isFeatureFlagEnabled('enableSequentialGpuAcceleration');
+    worker = isFeatureFlagEnabled('enableSequentialWorkerMaterialization');
+    setFeatureFlag('enableSequentialGpuAcceleration', false);
+    setFeatureFlag('enableSequentialWorkerMaterialization', false);
+    previousRasterize = canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
+  });
+  afterEach(() => {
+    clearSequentialLayerRendererAll();
+    setFeatureFlag('enableSequentialGpuAcceleration', gpu);
+    setFeatureFlag('enableSequentialWorkerMaterialization', worker);
+    canvasState.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = previousRasterize;
+  });
+
+  const seed = (maskAlpha?: number, sourceAlpha = 255) => {
+    const paint = (id: string, frameIndex: number, color: string, x: number, y: number): SequentialStrokeEvent => ({
+      id, layerId: 'seq-move', strokeId: id, timestampMs: 0, frameIndex,
+      brush: { tool: 'brush', brushShape: BrushShape.SQUARE, size: 2, opacity: 1, blendMode: 'source-over', rotation: 0, spacing: 1, color },
+      stamps: [{ x, y, pressure: 1, rotation: 0, size: 2, alpha: sourceAlpha / 255 }],
+    });
+    const events = [paint('red', 0, '#ff0000', 2, 2), paint('blue', 0, '#0000ff', 6, 6), paint('green', 1, '#00ff00', 2, 2)];
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 8;
+    framebuffer.height = 8;
+    const layer: Layer = {
+      id: 'seq-move', name: 'Sequence', layerType: 'sequential', visible: true, locked: false,
+      opacity: 1, blendMode: 'source-over', order: 0, alignment: createDefaultLayerAlignment(),
+      framebuffer, imageData: new ImageData(8, 8),
+      sequentialData: { frameCount: 3, fps: 1, durationMs: 3000, events,
+        eventChunks: [{ id: 'original-chunk', startEventIndex: 0, eventCount: 3, frameIndexes: [0, 1] }] },
+    };
+    useAppStore.setState((state) => ({
+      project: { ...state.project!, width: 8, height: 8 }, layers: [layer], activeLayerId: layer.id,
+      selectionStart: { x: 1, y: 1 }, selectionEnd: { x: 3, y: 3 },
+      selectionMask: null, selectionMaskBounds: null, selectionMaskLayerId: null,
+      sequentialRecord: { ...state.sequentialRecord, currentFrame: 0, isPointerDown: false },
+    }));
+    if (maskAlpha !== undefined) {
+      const mask = new ImageData(2, 2);
+      [maskAlpha, 0, 255, maskAlpha].forEach((alpha, index) => { mask.data[index * 4 + 3] = alpha; });
+      useAppStore.setState({ selectionMask: mask, selectionMaskBounds: { x: 1, y: 1, width: 2, height: 2 }, selectionMaskLayerId: layer.id });
+    }
+    return layer;
+  };
+  const pixels = (frameIndex = 0, layer = useAppStore.getState().layers[0]) => {
+    const canvas = getSequentialLayerRenderCanvas({ layer, width: 8, height: 8, frameIndex, holdPreviousOnEmptyFrames: false });
+    return canvas!.getContext('2d')!.getImageData(0, 0, 8, 8).data.slice();
+  };
+
+  it.each([
+    { name: 'move', x: 4, y: 1 }, { name: 'overlap', x: 2, y: 2 },
+    { name: 'left', x: -1, y: 1 }, { name: 'top', x: 1, y: -1 },
+    { name: 'right', x: 7, y: 1 }, { name: 'bottom', x: 1, y: 7 },
+    { name: 'outside', x: 10, y: 10 }, { name: 'zero delta', x: 1, y: 1 },
+    { name: 'hole', x: 4, y: 1, mask: 255 }, { name: 'feather', x: 4, y: 1, mask: 80 },
+    { name: 'fractional source', x: 4, y: 1, alpha: 128 },
+  ])('moves $name with exact canonical pixels, frame/chunk preservation, Undo and Redo', async ({ x, y, mask, alpha }) => {
+    const layer = seed(mask, alpha);
+    const original = pixels();
+    const otherFrame = pixels(1);
+    const beforeData = JSON.stringify(layer.sequentialData);
+    const backing = Array.from(layer.imageData!.data);
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    const float = useAppStore.getState().floatingPaste!;
+    const expected = original.slice();
+    for (let sy = 0; sy < 2; sy += 1) {
+      for (let sx = 0; sx < 2; sx += 1) {
+        if (mask !== undefined && sx === 1 && sy === 0) continue;
+        expected.fill(0, ((1 + sy) * 8 + 1 + sx) * 4, ((1 + sy) * 8 + 1 + sx) * 4 + 4);
+      }
+    }
+    for (let sy = 0; sy < 2; sy += 1) {
+      for (let sx = 0; sx < 2; sx += 1) {
+        if (mask !== undefined && sx === 1 && sy === 0) continue;
+        if (x + sx < 0 || y + sy < 0 || x + sx >= 8 || y + sy >= 8) continue;
+        const maskValue = mask !== undefined && !(sx === 0 && sy === 1) ? mask : 255;
+        expected.set([255, 0, 0, Math.round((alpha ?? 255) * maskValue / 255)], ((y + sy) * 8 + x + sx) * 4);
+      }
+    }
+    // The target remains the captured frame even when the transport changes while floating.
+    useAppStore.setState((state) => ({ sequentialRecord: { ...state.sequentialRecord, currentFrame: 1 } }));
+    useAppStore.getState().updateFloatingPastePosition({ x, y });
+    await useAppStore.getState().commitFloatingPaste();
+    expect(useAppStore.getState().floatingPaste).toBeNull();
+    expect(pixels()).toEqual(expected);
+    expect(pixels(1)).toEqual(otherFrame);
+    expect(pixels(2)).toEqual(new Uint8ClampedArray(256));
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(1);
+    const after = useAppStore.getState().layers[0];
+    expect(after.sequentialData!.events.slice(0, 3)).toEqual(layer.sequentialData!.events);
+    expect(after.sequentialData!.events.slice(3).every((event) => event.frameIndex === 0)).toBe(true);
+    expect(after.sequentialData!.events).toHaveLength(x === 10 ? 4 : 5);
+    expect(after.sequentialData!.eventChunks).toEqual(layer.sequentialData!.eventChunks);
+    expect(Array.from(after.imageData!.data)).toEqual(backing);
+    expect(Array.from(after.framebuffer.getContext('2d')!.getImageData(0, 0, 8, 8).data)).toEqual(backing);
+    expect(historyManager.entries()).toHaveLength(1);
+    const encoded = encodeSequentialEventsToChunks({ layerId: layer.id, fps: 1, frameCount: 3, events: after.sequentialData!.events });
+    const restored = { ...after, sequentialData: { ...after.sequentialData!, events: decodeSequentialChunksToEvents(JSON.parse(JSON.stringify(encoded))) } };
+    expect(pixels(0, restored)).toEqual(expected);
+    if (x !== 10) {
+      expect(restored.sequentialData.events.at(-1)!.brush.customStamp).toEqual(after.sequentialData!.events.at(-1)!.brush.customStamp);
+      expect(after.sequentialData!.events.at(-1)!.brush.customStampHash).toBeUndefined();
+    }
+    await useAppStore.getState().undo();
+    expect(JSON.stringify(useAppStore.getState().layers[0].sequentialData)).toBe(beforeData);
+    expect(pixels()).toEqual(original);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 1, y: 1 });
+    await useAppStore.getState().redo();
+    expect(pixels()).toEqual(expected);
+    expect(useAppStore.getState().layers[0].sequentialData!.eventChunks).toEqual(layer.sequentialData!.eventChunks);
+    expect(float.imageData).not.toBeNull();
+  });
+
+  it.each(['cancel', 'delete'] as const)('supports extracted %s without raster backing writes', async (operation) => {
+    const layer = seed(80);
+    const original = pixels();
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    const erased = pixels();
+    if (operation === 'cancel') useAppStore.getState().cancelFloatingPaste();
+    else await useAppStore.getState().deleteFloatingPaste();
+    expect(useAppStore.getState().floatingPaste).toBeNull();
+    expect(pixels()).toEqual(operation === 'cancel' ? original : erased);
+    expect(historyManager.entries()).toHaveLength(operation === 'cancel' ? 0 : 1);
+    if (operation === 'delete') {
+      await useAppStore.getState().undo();
+      expect(pixels()).toEqual(original);
+      await useAppStore.getState().redo();
+      expect(pixels()).toEqual(erased);
+    }
+    expect(useAppStore.getState().layers[0].sequentialData!.eventChunks).toEqual(layer.sequentialData!.eventChunks);
+  });
+
+  it.each(['scale', 'rotation', 'flip'] as const)('materializes the projected %s bitmap exactly once', async (operation) => {
+    seed(255);
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
+    const expected = pixels();
+    useAppStore.getState().updateFloatingPastePosition({ x: 4, y: 0 });
+    if (operation === 'scale') useAppStore.getState().updateFloatingPasteRect({ x: 4, y: 0, width: 4, height: 4 });
+    if (operation === 'rotation') useAppStore.getState().updateFloatingPasteRotation(90);
+    if (operation === 'flip') useAppStore.getState().flipFloatingPasteHorizontal();
+    const size = operation === 'scale' ? 4 : 2;
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        const isHole = operation === 'scale' ? x >= 2 && y < 2
+          : operation === 'rotation' ? x === 1 && y === 1 : x === 0 && y === 0;
+        if (!isHole) expected.set([255, 0, 0, 255], (y * 8 + 4 + x) * 4);
+      }
+    }
+    await useAppStore.getState().commitFloatingPaste();
+    expect(pixels()).toEqual(expected);
+    await useAppStore.getState().undo();
+    await useAppStore.getState().redo();
+    expect(pixels()).toEqual(expected);
+  });
+
+  it('refuses held empty-frame extraction without authoring held pixels or clearing selection', () => {
+    const layer = seed();
+    useAppStore.setState((state) => ({ sequentialRecord: { ...state.sequentialRecord, currentFrame: 2 } }));
+    expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(false);
+    expect(useAppStore.getState().layers[0]).toBe(layer);
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 1, y: 1 });
+    expect(useAppStore.getState().floatingPaste).toBeNull();
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(2);
+    expect(historyManager.entries()).toHaveLength(0);
+  });
 });

@@ -1,23 +1,116 @@
-# Vessel whole-app audit handover — 10 October 2026, session 18
+# Vessel whole-app audit handover — 10 October 2026, session 23
 
-## Authority and next objective
+## Latest continuation — Session23
+
+Area08 software-complete: M01–M08 fixed and final artifact19configs186/186native
+checks, owner11suites212tests, fullJest588suites5494tests, fulltype/lint/build/diff pass.
+One existing suite/test skipped. Final artifact2026-10-10T05:59:20.148Z binds16owners;
+`output/playwright/area08-preview-artifact-final-session23.json`. Original47 dirty
+paths/staged patch unchanged. Focused Area08 local commit is being recorded; exact
+hash and next Area09 state follow in Session23 closing receipt/root-facts.
+
+M08 canonical usage resolved centrally at shared slot GC so all four callers use
+resident documents; unknown/cold owners conservatively retain definitions and
+canonical empty beats stale legacy. Six failing-before tests plus real document
+scheduled-action integration pass. Same occupied collision script fails6/9 before,
+passes9/9 after; distinct history refusal/retry10/10. No selection compensation or
+protected original-file change. Allocator counter absence is a separate snapshot
+fidelity lead; occupied IDs remain protected and no collision is proven.
+
+Next: Area09 clipboard replacement refusal/native trusted copy/paste, locked Cut,
+Sequence Cut/history, CC mask coverage; read ignored script
+`area09-pending-replacement-native-session23.js`. Area10 owns broad transforms.
+Continue all65areas, bounded agents, completed-area local commits and local chats
+before70%context; no renewed permission, push/deploy/branch/worktree changes.
+Earlier entries below are historical. Final Session23 receipt supersedes them.
+
+## Latest continuation — Session22
+
+FIRST READ `output/playwright/area08-root-facts-session22.md`, then inventory Session22
+and `area08-cc-metadata-owner-session22.md`. Continue execution Area08 then09–65;
+7/65complete,08partial/uncommitted. M07 covered CC bitmap extraction and refusal of
+incomplete coverage now pass exact final production16configs161/161checks. 183owner
+tests,fulltype/lint/build/diff pass. Artifact2026-10-10T05:50:55.562Z binds13owners.
+No fullJest/commit. Main fcd4d7df,62dirtypaths; all47original + staged patch preserved.
+New open M08: active canonical definition binding lost after extraction because GC
+scans absent legacy mirrors. Counter omission is separate source lead, not proven
+ID overwrite. Do not claim unused-def cleanup or initial empty-destination fixture
+as corruption. Latest occupied/stage diagnostics and exact process cleanup in root-facts.
+Fresh final baseline/backups: area08-final-baseline-session22.json and matching
+area08-final-files-session22/*.txt. Never restore older wholefiles/rerun old commits.
+Authorization for65areas,bounded subagents,completed-area local commits/continuations
+persists. No push/deploy/branch/worktree changes. PreviewPID14471 retained.
+
+## Latest continuation — Session21
+
+FIRST READ `output/playwright/area08-root-facts-session21.md`, then inventory Session21
+and `output/playwright/area08-cross-kind-coverage-owner-session21.md`. Earlier entries
+are historical. Continue execution: Area08 then09–65;7/65complete,08partial/uncommitted.
+M05 canonical Sequence moves, M06 atomic cross-layer history, and raster/CC history-
+failure recovery now pass exact production checks.30configs273checks272pass; sole
+remaining failure is new M07 CC→raster erased coverage (960RGBA/240alpha differences).
+29selected configs268/268pass.161owner tests,fulltype/lint/build/diff pass; no fullJest
+or partial-area commit. Artifact2026-10-10T05:37:28.410Z binds11owners.
+
+Main HEAD fcd4d7df unchanged.60dirtypaths; all47original and original staged patch exact.
+Latest final snapshots: area08-final-baseline-session21.json and area08-final-files-
+session21/*.txt. Never restore older wholefiles or rerun historical commit scripts.
+Same previewPID14471 retained; namedbrowser CLOSED and cleanup verified. All agents,
+writers, tests, builds and browser commands finished. Authorization for65areas,
+bounded agents, completed-area local commits and local continuations persists.
+
+## Latest continuation — Session20
+
+FIRST READ `output/playwright/area08-root-facts-session20.md`, then this handover
+and the inventory Session20 receipt. Area08 remains partial/uncommitted;09–65pending.
+Main HEAD remains fcd4d7df. M01–M03 repairs retained; M04 CC mask coverage now has
+selected exact production evidence:16configurations/134passing checks,90owner tests,
+fulltype/lint/build pass. No fullJest/commit until entire Area08 is complete.
+M05 Sequence move still fails canonical event/display assertions. M06 cross-layer
+Undo is now native-reproduced: source remains cleared,4096RGBAchannels differ;
+destination/Redo pass. Fractional-alpha raster12/64checks now pass an independent integer Porter-Duff
+oracle; initial Canvas2D drawImage reference differed only by RGBrounding1–2.
+Six Area08 source/test owners plus two audit docs; all47original dirty paths and the
+original staged patch must remain exact. Fresh Session20 baseline/backups supersede
+older whole-file recovery copies. No source writers or builds remain at handover.
+Authorization for all65areas, bounded subagents, local completed-area commits and
+local continuation chats persists. Continue execution without renewed permission.
+
+## Latest continuation — Session19
+
+FIRST READ `output/playwright/area08-root-facts-session19.md`, then this handover
+and the inventory Session19 entries. Area08 remains partial/uncommitted;09–65pending.
+Current HEAD is unchanged fcd4d7df on main. First Area08 repairs M01–M03 are
+production-verified; M04CCerase coverage and M05Sequence moves remain reproduced/open.
+Native raster12configs64/64; animation diagnostic10configs74/80, six open-defect
+assertions, no aborted cases/runtime errors. Owner85tests, fulltype/lint/build pass.
+No fullJest/commit yet. Latest artifact2026-10-10T05:05:28.571Z.
+Fresh Session19 preservation/evidence authority and exact cleanup are in root-facts.
+Keep original Session18 baseline for provenance; never restore old whole files or
+rerun historical candidate/commit scripts. User authorization for all65areas, bounded
+subagents, completed-area commits and local continuations persists.
+
+## Authority and next objective (historical Session18 details retained)
 
 The user requested a whole-app audit: inventory every reachable function and settings combination in Markdown, source review each area, actually exercise it in the isolated production browser, fix reproduced actionable defects at their owner, exactly retest, final-review and commit each completed area, then continue through the whole inventory. Do not stop at a plan or smoke test. The user explicitly authorized **subagents** and **new local continuation chats before context exceeds 70%**. Continue without asking for that authorization again. No push requested; remain on current **main** branch.
 
 Repository: `/Users/jasonstrachan/+Projects/2025/vessel`, current branch **main**.
-Current HEAD **e441b3e8382088bdfed1f378c563c8a749d5f16e**, main unchanged pending the focused Area07 local commit.
-Areas01–07 are software-verified; Area08 is next and08–65 remain pending.
-FIRST read `output/playwright/area07-root-facts-session18.md` after its final
-commit receipt is written, then the latest Session18 entries and inventory.
-Area07 acceptance: 138 native configurations / 1,905 passing checks;
-isolated type-check, lint and 583 suites / 5364 tests pass.
-Latest runtime artifact: 2026-10-10T04:47:22.179Z. The history fixture
-amendment was test-only; the final gate covers it. PreviewPID14471 is retained.
-The exact managed browser is closed; cleanup confirms no matching daemon.
-All47 original dirty paths and staged user hunks are preserved. No push,
-deployment or branch change. Historical Area07 commit scripts must not be rerun
-once the commit receipt exists. Authorization for all65areas, bounded subagents
-and local continuations before70%context persists.
+Current HEAD **fcd4d7dfb14615dcfbb63e1cac600c91c50fddbf**, branch **main**. Area07 is committed locally:
+`fix: preserve selection scope in animated painting`.
+Areas01–07 are software-verified and committed; Area08 is next,08–65 pending.
+FIRST read `output/playwright/area07-root-facts-session18.md`, then the final
+Session18 receipt below and current inventory. Accepted Area07 evidence:
+138 native configurations /1,905 checks; type-check, lint and583 suites /5,364 tests.
+Latest runtime artifact: 2026-10-10T04:47:22.179Z; the final gate covers
+one later test-only fixture correction. PreviewPID14471 remains at `/vessel/`.
+The managed browser is closed; exact cleanup confirms no matching daemon.
+No agents, source writers, tests, builds or browser commands remain active.
+The47 original dirty paths and staged user additions/removals are preserved;
+two postcommit audit docs make49 current dirty paths. Fresh preservation authority:
+`output/playwright/area08-initial-baseline-session18.json` and matching backups.
+Do not rerun historical Area07 candidate/commit scripts or restore old whole files.
+No push, deployment or branch change. Authorization for all65areas, bounded
+subagents, completed-area local commits and continuations before70%context persists.
 
 Follow root AGENTS.md and supplied global rules. Read relevant skills in the new chat: `/Users/jasonstrachan/.agents/skills/playwright/SKILL.md`, `git-build-push/SKILL.md`, Vessel UI/state as needed. Session2 read those four. Use bounded subagents on separate owners/reviews; centrally own the single browser and builds. Do not spawn separate user chats for subtasks. Initial runtime trace: page.tsx → HomeClientMount/HomeClient → toolbar/settings/canvas → pointer handlers/store/engine.
 
@@ -1299,3 +1392,56 @@ The original staged3-file7-addition patch remains exact before commit, SHA256
 Exact browser cleanup is complete; the focused local commit follows. No push, deployment or branch change.
 Areas01–07 software-complete; Area08 next;08–65pending beyond their accepted prior
 representatives. This does not claim whole-app completion.
+
+
+## Session18 local commit receipt and Area08 continuation
+
+Area07 committed locally on main: **fcd4d7dfb14615dcfbb63e1cac600c91c50fddbf** —
+`fix: preserve selection scope in animated painting` (parente441b3e8382088bdfed1f378c563c8a749d5f16e).
+All39explicit paths are audit-only. `area07-commit-verification-session18.json`
+proves worktree bytes preserved, all47original dirty paths remain, and original
+staged user additions/removals and other staged blobs are semantically exact.
+The fill import additions shift a staged hunk location; rebased patch SHA256 is
+5d9562a4725a7c54ef4e97e2927ad3df5a2cd656663c2749fc9ca72dfd924c09. This is a contextual-header change, not a changed user hunk.
+No push/deployment/branch change. Accepted native138configs1905checks;
+final isolated type/lint/Jest583suites5364tests (one suite/test skipped).
+
+Managed vessel-whole-app-audit browser is closed; exact cleanup confirms no matching
+daemon. PreviewPID14471 remains at `/vessel/`. All agents/builds/tests/browser commands
+and writers stopped. Areas01–07 software-verified/committed; Area08 next,08–65pending.
+First read `output/playwright/area07-root-facts-session18.md`, then this handover and
+inventory. Fresh `area08-initial-baseline-session18.json` + matching .txt backups own
+preservation from this HEAD; current49dirtypaths are47original+2postcommit auditdocs.
+Never rerun Area07 or older candidate/commit scripts or restore old whole files.
+User authorization persists for all65areas, bounded subagents, focused completed-area
+local commits and further local continuations before70%context; no renewal needed.
+
+
+## Session19 — Area08 active
+
+Read the current inventory Session19 entry. Source remains at fcd4d7df on main;
+Area08 is partial/uncommitted. Session18 preservation baseline remains authority.
+Native raster58checks55pass reproduces M01offcanvas-history loss and M02locked
+source mutation. Browser vessel-whole-app-audit reused in managed headless Chromium
+with one tab; retained previewPID14471. No duplicate preview/build. Initial boundary
+selectionSlice.ts, selectionPaste.ts and their extraction/paste tests plus2auditdocs.
+Further evidence and final continuation state will be appended below.
+
+
+## Session19 final continuation receipt
+
+First Area08 boundary remains six files: selectionSlice.ts, selectionPaste.ts,
+existing selectionFramebufferDelete.test.ts and selectionPaste.test.ts, and two audit
+docs. Source/API source guard covers normal/CC/sequence; native raster/CC protection
+passes. Independent review findings corrected;85owner tests pass and fulltype/lint
+plus final atomic build pass. Do not run the fullJest/commit gate until Area08 complete.
+Final native evidence and exact remaining defects are in inventory Session19 and
+root-facts. No speculative CCmask/Sequence/cross-layer patches applied.
+
+Next repair M04CCmask transaction (source clear, transfer/cancel, versions/history,
+soft-edge consideration), then M05Sequence event authority. Explain any additional
+owner boundary before editing. Sequence minimal design is in ignored
+area08-sequence-design-session19.md. Preserve the current four Area08 source/test
+edits; they are not committed. New dirty count53 includes original47,2auditdocs and
+4Area08owners/tests. Source/test hashes match the final production artifact receipt.
+No branch change, push or deployment. Continued execution remains authorized.
