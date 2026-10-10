@@ -389,15 +389,15 @@ export const useBrushEngineSimplified = () => {
       liveStrokeRawRef,
       liveStrokeDitherRef,
       liveStrokeBaseRef,
-      (restoreStrokeBaseRef.current || ctx.globalCompositeOperation === 'destination-out' ||
+      (!shouldApplyStrokeDitherForSettingsUtil(tools.brushSettings) ||
+        restoreStrokeBaseRef.current || ctx.globalCompositeOperation === 'destination-out' ||
         (tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER &&
           tools.brushSettings.ditherBackgroundFill === false)) &&
         strokeBoundsRef.current === null &&
         liveStrokeBoundsRef.current === null,
     );
   }, [
-    tools.brushSettings.brushShape,
-    tools.brushSettings.ditherBackgroundFill,
+    tools.brushSettings,
   ]);
 
   const clearLiveStrokeBuffers = useCallback(() => {

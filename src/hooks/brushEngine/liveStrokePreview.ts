@@ -117,8 +117,8 @@ export const renderLiveStrokePreview = ({
     visibleCtx.restore();
   };
 
-  // Repeated previews apply a cumulative mask to the same original pixels.
-  const shouldRestoreBase = isEraserStroke || isPixelDitherNoBg;
+  // Raw paint and eraser masks are cumulative; publication must not repaint them.
+  const shouldRestoreBase = !shouldApplyStrokeDither || isEraserStroke || isPixelDitherNoBg;
 
   if (
     shouldApplyStrokeDither &&

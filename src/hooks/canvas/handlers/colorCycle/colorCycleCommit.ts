@@ -351,7 +351,8 @@ export const commitRasterOverlay = async (
       deps.captureCanvasToActiveLayer(
         tempCanvas,
         options.bitmapRoi,
-        overlaySeededFromLayer ? { mode: 'replace' } : undefined
+        // tempCanvas already contains the base plus this stroke.
+        { mode: 'replace' }
       )
     ),
     probeMeta

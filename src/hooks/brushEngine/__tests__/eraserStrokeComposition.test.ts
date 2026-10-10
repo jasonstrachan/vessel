@@ -6,7 +6,11 @@ import { applyLostEdgeMaskInRegion, applyLostEdgeToStrokeAlphaData } from '../st
 import type { BrushSettings } from '@/types';
 
 describe('cumulative eraser mask composition', () => {
-  it.each(['destination-out', 'source-over'] as const)('restores cumulative %s strokes before preview and finalization', (composite) => {
+  it.each([
+    ['destination-out', false],
+    ['source-over', true],
+    ['source-over', false],
+  ] as const)('restores cumulative %s strokes (explicit restore: %s) before preview and finalization', (composite, restoreBase) => {
     const previews = 3;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 10;
@@ -32,7 +36,7 @@ describe('cumulative eraser mask composition', () => {
     const withAlphaLock = (_ctx: CanvasRenderingContext2D, draw: (target: CanvasRenderingContext2D) => void) => draw(_ctx);
     for (let i = 0; i < previews; i++) {
       renderLiveStrokePreview({
-        restoreBase: composite === 'source-over',
+        restoreBase,
         visibleCtx: ctx, liveRenderScheduledRef: { current: true },
         liveStrokeRawRef: { current: raw }, liveStrokeDitherRef: { current: null },
         liveStrokeBaseRef: { current: base }, liveStrokeBoundsRef: { current: bounds },
@@ -43,7 +47,7 @@ describe('cumulative eraser mask composition', () => {
       });
     }
     finalizeStrokeAfterEngine({
-      restoreBase: composite === 'source-over',
+      restoreBase,
       ctx, strokeBounds: bounds, region: bounds, rawCanvas: raw, baseCanvas: base,
       ditherCanvas: null, rawCtx: raw.getContext('2d'), ditherCtx: null,
       shouldApplyStrokeDither: false, settings: {}, applyLostEdgeMaskInRegion: jest.fn(),

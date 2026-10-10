@@ -161,7 +161,8 @@ export const finalizeStrokeAfterEngine = ({
   warnIfDitherStrokePath: (context: string) => void;
   finalizeAndReset: (clearCoverage: boolean) => Rect | null;
 }): Rect | null => {
-  if ((restoreBase || ctx.globalCompositeOperation === 'destination-out') && baseCanvas && region) {
+  if ((restoreBase || ctx.globalCompositeOperation === 'destination-out' ||
+    (!shouldApplyStrokeDither && rawCtx)) && baseCanvas && region) {
     ctx.save();
     ctx.beginPath();
     ctx.rect(region.x, region.y, region.width, region.height);

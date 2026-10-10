@@ -29,7 +29,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 09 | Copy/cut/paste/duplicate/paste in place: internal/external clipboard, scaling, alpha, cross-layer/CC, failures | selection slice, clipboard handlers, selectionPaste | software-verified (Session25: C01–C07 repaired; 47configs254checks; local commit receipt below) |
 | 10 | Floating transform: resize, rotation, flip H/V, Enter/Escape/delete, layer switch | paste handlers/helpers, SelectionOptionsPanel | verified (software; Session27 signoff/local commit receipt) |
 | 11 | Crop: selection crop, handles/dimensions, outside bounds, commit/cancel/history, CC/sequence | crop slice/handlers, CropOptionsPanel | software-verified (Session31; 300 native checks; completed-area local commit receipt) |
-| 12 | Pixel brush: tap/drag, square/round tips, size, opacity, spacing, pressure, snap, shape mode | brush presets, brush engine/settings | pending |
+| 12 | Pixel brush: tap/drag, square/round tips, size, opacity, spacing, pressure, snap, shape mode | brush presets, brush engine/settings | software-verified (Session32; 351 native checks; shape mode intentionally unavailable) |
 | 13 | Soft brush: edge/size/opacity, pressure, spacing, blend | brush engine/settings | pending |
 | 14 | Dither Stroke: algorithm, pattern, size, spacing, pressure, palette/alpha | strokeStampDither, brush controls | pending |
 | 15 | Dither Shape: geometry, preview/final parity, dither settings, fill/cancel/history | shape handlers, brush engine | pending |
@@ -1967,3 +1967,95 @@ Local commit hash/preservation receipt: `output/playwright/area11-commit-receipt
 Next: Area12 Pixel, then13–65. Initial owner trace is
 `output/playwright/area12-owner-trace-session31.md`. No push/deployment/branch/worktree
 change; original47 file hashes and staged3-file patch remain protected.
+
+## Session32 — Area12 Pixel in progress
+
+Areas01–11 remain complete; Crop is not reopened. Original47 dirty paths and the
+three-file staged patch matched Session31 preservation hashes before edits.
+Native Pixel matrices are in `output/playwright/area12-pixel-*-session32.{js,json,log}`.
+Square/Round geometry, zero opacity, spacing response, and Undo/Redo pass initial
+checks. Shape mode is deliberately unavailable for Pixel (`hideShapeToggle` plus
+`setShapeMode`/preset policy); shared advanced controls remain Area29.
+
+Reproduced: held25%/50% taps publish alpha112/192 instead of64/128. Fast taps can
+avoid the second application. Cumulative ordinary paint previews/finalization blit
+onto earlier previews without base restoration. Repair under test in
+`useBrushEngineSimplified.ts`, `brushEngine/liveStrokePreview.ts`, and
+`brushEngine/strokeFinalizeController.ts`, with the existing composition test plus
+these two ledgers (six files). Capture the original base for nondithered strokes,
+then restore before preview/finalization. No completion/commit claim yet.
+
+Fixture corrections: selecting the already selected Pixel preset preserves controls,
+so pressure/snap must explicitly reset between cases. `setSelection` owns the canvas
+selection display; clipping fixtures must use `setSelectionBounds`. Earlier selection
+failures are fixture-invalid. Native pen input uses CDP pen/force events, not physical
+stylus acceptance. Tiny canonical/framebuffer RGB differences disappear after the
+same browser's ImageData→Canvas roundtrip, proving premultiplied-alpha quantization;
+alpha and geometry are exact. Drag overlap alpha is not expected to stay uniform.
+
+Second reproduced Pixel defect: capture stores premultiplied RGB in straight-alpha
+ImageData (50% red becomes96/16/24 instead of192/32/48). Scope expanded to8 files
+with `stores/layers/layerCanvasCapture.ts` and its new regression suite. Source-over
+now weights destination colour by destination alpha and divides RGB by output alpha.
+Unit cases cover transparent/translucent/opaque destinations, zero/opaque source,
+selection scope, exact replacement and input immutability. Native retest pending.
+
+Pixel core native after first artifact passed160/160, eraser direct integration30/30.
+Overpaint native32/40 exposed the deeper capture contract: `commitRasterOverlay`
+already combines base+stroke but requested alpha capture for an unseeded overlay,
+compositing the base twice. This also explains the Pixel straight-RGB failure.
+The temporary `layerCanvasCapture.ts` change and its new test were COMPLETELY REMOVED.
+Replacement is the owning one-line capture-mode correction in
+`canvas/handlers/colorCycle/colorCycleCommit.ts` plus its existing test. This file's
+original sampled-stroke hunks remain protected; exclude them from the audit commit.
+Eight-file boundary remains (three preview owners, commit owner, two owner tests,
+two ledgers). Native overpaint must pass on the next artifact before signoff. The
+unmodified alpha-only capture helper's straight-RGB issue is an adjacent finding to
+reproduce on its remaining callers in later audit areas, not a Pixel workaround.
+
+Final Pixel native artifact passed61configs/351checks: core28/160, geometry/spacing13/79,
+translucent/opaque overpainting8/40, direct eraser integration6/30, displayed canvas
+composition6/42. No aborted cases or pageerrors. Final artifact
+`area12-preview-final-session32.json` binds source and browser-loaded bytes
+`page-433d52a69b98380a.js`, SHA256a6a78a0aa66e8da3880ce0f7f27725908e8b67eda2c5840f25f459de5418da0e.
+Native pen force is software input; physical devices/browser/performance acceptance
+is not claimed. Pixel shape mode unavailable; shared advanced controls remain Area29.
+
+The isolated full gate found one incomplete Canvas mock in
+`hooks/__tests__/useBrushEngineSimplified.harness.test.tsx`; its non-dither context
+omitted beginPath/rect/clip. Scope expands to9 files for this required test fixture.
+Corrected harness21/21 passes. The initial final-candidate full run had594 passing
+suites/5635 passing tests plus this one failure (one existing skipped suite/test);
+a complete rerun with the repaired fixture is pending. No runtime change followed
+native acceptance. Earlier candidate containing the discarded alpha-compositor
+attempt was terminated and is not final evidence.
+
+Area13 read-only/native baseline preparation: `area13-owner-trace-session32.md` and
+`area13-soft-baseline-session32.json`. Soft native taps are empty for both tips ×
+size1/3/16 × opacity.5/1; nonzero-opacity drags draw. No Area13 source edit yet.
+
+### Session32 Area12 final software signoff
+
+Area12 Pixel is software-verified:12/65 complete,13–65 pending. Final native evidence
+is61 case executions/351 passing checks, zero failures/aborts/pageerrors, in
+`output/playwright/area12-native-acceptance-session32.json`. Exact loaded artifact and
+runtime source hashes match `area12-preview-final-session32.json`; only a Canvas mock
+was corrected afterward. The isolated9-file candidate excludes original47 user paths
+and the sampled-stroke hunks in `colorCycleCommit.ts`. Final candidate full type-check,
+lint and full Jest PASS:595suites/5636tests, one existing suite/test skipped, one
+snapshot (`area12-candidate-*-gate-session32.log`). Production build and diff check
+pass; browser exact-session cleanup is complete.
+
+Final repair: capture the base of ordinary nondithered strokes, restore it before
+cumulative preview/final publication, then replace the already composed raster
+commit instead of compositing its base again. Native tests prove correct25%/50%
+fast/held tap opacity and RGB, translucent/opaque overpainting without outside damage,
+geometry/spacing, size extrema, software pen pressure bounds, snap/selection clipping,
+Undo/Redo, displayed canvas composition, and shared eraser compatibility.
+
+Physical input/other browsers/performance remain unverified. Pixel shape mode is
+intentionally unavailable; shared advanced controls remain Area29. Alpha-only capture
+helper math is a recorded adjacent finding for remaining callers, not modified here.
+Focused local commit receipt: `output/playwright/area12-commit-receipt-session32.json`.
+Continue Area13 from `output/playwright/area13-owner-trace-session32.md`; native missing
+Soft taps are reproduced. No Area13 source edit is included in this commit.

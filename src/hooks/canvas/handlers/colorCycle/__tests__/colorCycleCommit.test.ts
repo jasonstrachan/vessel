@@ -150,7 +150,7 @@ describe('commitRasterOverlay', () => {
     drawImageSpy.mockRestore();
   });
 
-  it('uses replace capture mode when overlay is seeded from active layer', async () => {
+  it.each([false, true])('replaces the already composed layer when the overlay is seeded: %s', async (seeded) => {
     const layer = createLayer();
     layer.framebuffer.width = 2;
     layer.framebuffer.height = 2;
@@ -160,7 +160,7 @@ describe('commitRasterOverlay', () => {
     overlay.height = 2;
     const overlayCtx = overlay.getContext('2d');
     overlayCtx?.fillRect(0, 0, 2, 2);
-    setOverlaySeededFromLayer(overlay, true);
+    setOverlaySeededFromLayer(overlay, seeded);
 
     const captureCanvasToActiveLayer = jest.fn().mockResolvedValue(undefined);
     await commitRasterOverlay(
