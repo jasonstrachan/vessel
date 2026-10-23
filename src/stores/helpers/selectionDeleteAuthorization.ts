@@ -159,12 +159,23 @@ export const authorizeSelectionDelete = (
 
   const selectionOwnerKind = request.selectionLastAction?.ownerKind ?? 'unknown';
   const isHistoryRestored = selectionOwnerKind === 'history-restored' || request.selectionLastAction?.restoredFromHistory === true;
+  const provenance = request.selectionLastAction;
+  const restoredOwnerKind = provenance?.restoredOwnerKind;
+  const restoredBounds = provenance?.bounds;
+  const hasTrustedRestoredOwner =
+    provenance?.restoredFromHistory === true &&
+    (provenance.source === 'history-selection-forward' || provenance.source === 'history-selection-backward') &&
+    (restoredOwnerKind === 'direct-marquee' || restoredOwnerKind === 'selection-handle' ||
+      restoredOwnerKind === 'mask-selection' || restoredOwnerKind === 'select-all') &&
+    restoredBounds?.x === bounds.x && restoredBounds.y === bounds.y &&
+    restoredBounds.width === bounds.width && restoredBounds.height === bounds.height;
+  const effectiveOwnerKind = hasTrustedRestoredOwner ? restoredOwnerKind : selectionOwnerKind;
   const isExplicitSelectAll =
-    request.selectionLastAction?.action === 'select-all' && selectionOwnerKind === 'select-all';
+    request.selectionLastAction?.action === 'select-all' && effectiveOwnerKind === 'select-all';
   const isCurrentMarqueeSelection =
-    selectionOwnerKind === 'direct-marquee' ||
-    selectionOwnerKind === 'selection-handle';
-  if (activeLayer.layerType === 'color-cycle' && source === 'keyboard-delete' && isHistoryRestored) {
+    effectiveOwnerKind === 'direct-marquee' ||
+    effectiveOwnerKind === 'selection-handle';
+  if (activeLayer.layerType === 'color-cycle' && source === 'keyboard-delete' && isHistoryRestored && !hasTrustedRestoredOwner) {
     return reject('history-restored-keyboard-delete', false, {
       source,
       activeLayerId,

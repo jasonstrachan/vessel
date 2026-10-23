@@ -4131,6 +4131,9 @@ describe('magic wand pointer transaction regressions', () => {
         source: `history-selection-${direction}`,
         ownerKind: 'history-restored',
         restoredFromHistory: true,
+        restoredOwnerKind: snapshot.provenance?.ownerKind === 'history-restored'
+          ? snapshot.provenance.restoredOwnerKind
+          : snapshot.provenance?.ownerKind,
         maskLayerId: snapshot.provenance?.maskLayerId ?? snapshot.maskLayerId ?? null,
       } : null,
     });
@@ -4417,6 +4420,7 @@ describe('lasso pointer sample and composition lifetime regressions', () => {
       await act(async () => { await historyManager.undo(); });
       expect(captureSelectionSnapshot()).toEqual({ ...before, provenance: { ...before.provenance,
         source: 'history-selection-backward', ownerKind: 'history-restored', restoredFromHistory: true,
+        restoredOwnerKind: before.provenance?.ownerKind,
       } });
       await act(async () => { await historyManager.redo(); });
       expect(pointerSelectionAlpha()).toEqual(expected);

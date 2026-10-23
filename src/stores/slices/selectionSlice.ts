@@ -89,6 +89,7 @@ export interface SelectionActionProvenance {
   source: string;
   ownerKind?: SelectionOwnerKind;
   restoredFromHistory?: boolean;
+  restoredOwnerKind?: SelectionOwnerKind;
   t: number;
   activeLayerId?: string | null;
   maskLayerId?: string | null;

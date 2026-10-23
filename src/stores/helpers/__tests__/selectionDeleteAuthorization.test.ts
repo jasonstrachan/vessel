@@ -247,6 +247,83 @@ describe('selectionDeleteAuthorization', () => {
     },
   );
 
+  it.each([
+    { restoredOwnerKind: 'direct-marquee', size: 4, allowed: true },
+    { restoredOwnerKind: 'selection-handle', size: 4, allowed: true },
+    { restoredOwnerKind: 'select-all', size: 4, allowed: true },
+    { restoredOwnerKind: 'mask-selection', size: 2, allowed: true },
+    { restoredOwnerKind: 'mask-selection', size: 4, allowed: false },
+  ] as const)(
+    'preserves restored $restoredOwnerKind delete intent at size $size (allowed=$allowed)',
+    ({ restoredOwnerKind, size, allowed }) => {
+      const provenance = {
+        action: restoredOwnerKind === 'select-all' ? 'select-all' as const : 'set-bounds' as const,
+        source: 'history-selection-backward',
+        ownerKind: 'history-restored' as const,
+        restoredFromHistory: true,
+        restoredOwnerKind,
+        t: 1,
+        activeLayerId: 'active',
+        bounds: { x: 0, y: 0, width: size, height: size },
+      };
+      const authorization = authorizeSelectionDelete({
+        source: 'keyboard-delete',
+        activeLayer: createLayer({ id: 'active', layerType: 'color-cycle' }),
+        activeLayerId: 'active',
+        project: createProject(),
+        selectionStart: { x: 0, y: 0 },
+        selectionEnd: { x: size, y: size },
+        selectionMask: null,
+        selectionMaskBounds: null,
+        selectionMaskLayerId: null,
+        selectionLastAction: provenance,
+        colorCyclePaint: {
+          buffer: new Uint8Array(16).fill(1),
+          width: 4,
+          height: 4,
+          hasFullCanonicalPayload: true,
+        },
+      });
+
+      expect(authorization).toMatchObject(allowed ? {
+        ok: true,
+        allowFullContentClear: size === 4,
+        destructiveIntent: size === 4 ? 'explicit-full-clear' : 'normal',
+      } : { ok: false, reason: 'keyboard-full-content-clear-blocked' });
+    },
+  );
+
+  it.each([
+    { source: 'history-selection-backward', restoredOwnerKind: 'programmatic', bounds: { x: 0, y: 0, width: 4, height: 4 } },
+    { source: 'history-selection-backward', restoredOwnerKind: 'unknown', bounds: { x: 0, y: 0, width: 4, height: 4 } },
+    { source: 'setSelectionBounds', restoredOwnerKind: 'direct-marquee', bounds: { x: 0, y: 0, width: 4, height: 4 } },
+    { source: 'history-selection-backward', restoredOwnerKind: 'direct-marquee', bounds: { x: 0, y: 0, width: 2, height: 2 } },
+  ] as const)('keeps unsafe restored CC delete intent blocked: %j', (restored) => {
+    const provenance = {
+      action: 'set-bounds' as const,
+      ownerKind: 'history-restored' as const,
+      restoredFromHistory: true,
+      t: 1,
+      activeLayerId: 'active',
+      ...restored,
+    };
+    expect(authorizeSelectionDelete({
+      source: 'keyboard-delete',
+      activeLayer: createLayer({ id: 'active', layerType: 'color-cycle' }),
+      activeLayerId: 'active',
+      project: createProject(),
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 4, y: 4 },
+      selectionMask: null,
+      selectionMaskBounds: null,
+      selectionMaskLayerId: null,
+      selectionLastAction: provenance,
+      colorCyclePaint: {
+        buffer: new Uint8Array(16).fill(1), width: 4, height: 4, hasFullCanonicalPayload: true,
+      },
+    })).toMatchObject({ ok: false, reason: 'history-restored-keyboard-delete' });
+  });
+
   it('keeps blocking unowned programmatic CC keyboard deletes that would clear all paint', () => {
     const authorization = authorizeSelectionDelete({
       source: 'keyboard-delete',

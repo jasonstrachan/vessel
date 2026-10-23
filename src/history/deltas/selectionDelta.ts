@@ -49,6 +49,9 @@ class SelectionBoundsDelta implements HistoryDelta {
 
     if (normalized.start && normalized.end) {
       const historySource = `history-selection-${direction}`;
+      const restoredOwnerKind = normalized.provenance?.ownerKind === 'history-restored'
+        ? normalized.provenance.restoredOwnerKind
+        : normalized.provenance?.ownerKind;
       const mask = normalized.mask;
       const selectionMask = mask ? new ImageData(mask.width, mask.height) : null;
       if (mask && selectionMask) selectionMask.data.set(mask.data);
@@ -65,6 +68,7 @@ class SelectionBoundsDelta implements HistoryDelta {
           source: historySource,
           ownerKind: 'history-restored',
           restoredFromHistory: true,
+          ...(restoredOwnerKind ? { restoredOwnerKind } : {}),
           t: normalized.provenance?.t ?? Date.now(),
           activeLayerId: normalized.provenance?.activeLayerId ?? null,
           maskLayerId: normalized.provenance?.maskLayerId ?? normalized.maskLayerId ?? null,

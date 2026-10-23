@@ -130,10 +130,6 @@ type KeyboardScope = 'global' | 'canvas' | 'recolor' | 'gradient' | 'modal';
 type BracketShortcutTarget = 'brush-size' | 'shape-resolution' | 'studio-extension';
 
 const selectKeyboardScope = (state: AppState) => state.ui.keyboardScope.active as KeyboardScope;
-const selectSelectionRange = (state: AppState) => ({
-  start: state.selectionStart,
-  end: state.selectionEnd,
-});
 const selectFloatingPaste = (state: AppState) => state.floatingPaste;
 const selectPalette = (state: AppState) => state.palette;
 const selectShapeDrawingActive = (state: AppState) => state.shapeState.isDrawing;
@@ -302,8 +298,6 @@ export function useComprehensiveKeyboard({
   const setCurrentTool = useAppStore((state) => state.setCurrentTool);
   const bumpGlobalBrushSize = useAppStore((state) => state.bumpGlobalBrushSize);
   const setEraserSettings = useAppStore((state) => state.setEraserSettings);
-  const deleteSelectedPixels = useAppStore((state) => state.deleteSelectedPixels);
-  const deleteFloatingPaste = useAppStore((state) => state.deleteFloatingPaste);
   const selectAllActiveLayerPixels = useAppStore((state) => state.selectAllActiveLayerPixels);
   const copySelectionToClipboard = useAppStore((state) => state.copySelectionToClipboard);
   const swapPaletteColors = useAppStore((state) => state.swapPaletteColors);
@@ -313,7 +307,6 @@ export function useComprehensiveKeyboard({
   const keyboardScopeRef = useStoreSelectorRef(selectKeyboardScope);
   const toolsRef = useStoreSelectorRef(selectToolsState);
   const polygonGradientStateRef = useStoreSelectorRef(selectPolygonGradientState);
-  const selectionRangeRef = useStoreSelectorRef(selectSelectionRange);
   const floatingPasteRef = useStoreSelectorRef(selectFloatingPaste);
   const paletteRef = useStoreSelectorRef(selectPalette);
   const shapeDrawingActiveRef = useStoreSelectorRef(selectShapeDrawingActive);
@@ -512,7 +505,6 @@ export function useComprehensiveKeyboard({
     const currentScope: KeyboardScope = keyboardScopeRef.current ?? 'canvas';
     const tools = toolsRef.current;
     const polygonGradientState = polygonGradientStateRef.current;
-    const { start: selectionStart, end: selectionEnd } = selectionRangeRef.current;
     const floatingPaste = floatingPasteRef.current;
     const palette = paletteRef.current;
 
@@ -827,12 +819,14 @@ export function useComprehensiveKeyboard({
         floatingPasteActive: Boolean(floatingPaste),
       });
       event.preventDefault();
-      if (floatingPaste) {
-        void deleteFloatingPaste();
+      await flushPendingToolWork();
+      const deleteState = getAppStoreState();
+      if (deleteState.floatingPaste) {
+        void deleteState.deleteFloatingPaste();
         return;
       }
-      if (selectionStart && selectionEnd) {
-        deleteSelectedPixels('keyboard-delete');
+      if (deleteState.selectionStart && deleteState.selectionEnd) {
+        deleteState.deleteSelectedPixels('keyboard-delete');
       }
       return;
     }
@@ -854,10 +848,10 @@ export function useComprehensiveKeyboard({
   }, [enabled, allowedScopes, onBrushSizeDecrease, onBrushSizeIncrease, onPolygonComplete, 
       onPolygonCancel, onEnterPressed, onEscapePressed,
       switchTool,
-      deleteSelectedPixels, deleteFloatingPaste, selectAllActiveLayerPixels,
+      selectAllActiveLayerPixels,
       copySelectionToClipboard,
       setPaletteColor, swapPaletteColors,
-      keyboardScopeRef, toolsRef, polygonGradientStateRef, selectionRangeRef,
+      keyboardScopeRef, toolsRef, polygonGradientStateRef,
       floatingPasteRef, paletteRef, shapeDrawingActiveRef, startBracketHold, applyBracketShortcutStep,
       applyBrushSizeDeltaForCurrentTool, setBrushSettings]);
 

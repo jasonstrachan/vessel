@@ -1,5 +1,45 @@
 # Vessel functionality audit — 10 October 2026
 
+## Session39 — 24 October 2026: reported selection and stroke regressions
+
+The user resumed the whole-app audit with GPT-6.1 Sol subagents and prioritized
+marquee/layer deletion/deselection plus strokes that disappear until Undo.
+This supersedes the historical no-subagent/model notes below. The current branch
+and all unrelated work remain preserved. Areas01–19 retain their prior area
+signoffs; these follow-up defects reopen their affected paths. Areas20–65 remain
+incomplete; no whole-app completion is claimed.
+
+- S39-01: completed marquee Escape left its bounds/mask active. Raster previews
+  appeared but canonical commits outside that selection were clipped; native
+  Ctrl+Z removed the selection and the next stroke stuck. Explicit Escape now
+  clears the completed selection through reversible history after passive
+  finalization and pending history. In-flight cancellation keeps precedence;
+  changing to Brush still intentionally retains the selection until deselected.
+- S39-02: CC Delete → Undo → Delete was a silent no-op because replay discarded
+  original selection intent. History keeps the original owner separately while
+  retaining history-restored diagnostics. Exact replay source/bounds and existing
+  canonical-payload, lock and full-content safeguards remain required.
+- S39-03: a row click waiting for source finalization could be followed by Delete
+  on the previous layer. Keyboard Delete/Backspace now awaits the existing flush
+  and reads the current layer, selection and floating paste afterward. The native
+  timing test uses an explicit slow-finalization callback in the real registry;
+  it does not claim naturally pending history from the failed idle120 fixture.
+
+Final production artifact `2619317771a0065b1c04d8fc9d610f22bb4e14691deb85dc450aa949ecd1472a`
+passes51 native checks across rectangle/freehand selection, cross-layer deletion,
+painting outside the old selection, partial/full/select-all CC re-deletion,
+held layer activation, pending Escape and exact Undo/Redo. Fail-before receipts
+and final proof are in `output/playwright/bugfix39-*-before*` and
+`bugfix39-native-final.json`; source binding is `bugfix39-preview-final.json`.
+Type-check/lint pass on the isolated task-only candidate. Final full gate:601 suites/5742 tests pass (one existing skipped suite/test, one passing snapshot); production build and diff review pass. Local commit receipt: `output/playwright/bugfix39-commit-receipt.json`.
+Five source owners and six tests plus these two audit ledgers form the reviewed
+scope; the mixed comprehensive-keyboard owner excludes the original six unrelated
+lines from the candidate. Original three-file staged patch remains exact.
+
+Area20 has source hypotheses in `output/playwright/area20-review39.md`. Polygon probes v1–v3 failed preview prerequisites and establish no defect;
+control-first v4 is prepared for native review. Do not count fixture errors
+as application findings. Geometry, release pressure and oval bounds remain open.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -2644,3 +2684,23 @@ the production receipt and clean candidate. Two source/test owners plus two ledg
 are the completed-area scope. Original47paths and original staged3-file additions
 remain exact. No physical tablet/performance/custom library/global playback signoff
 is implied. Local commit receipt follows; continue20–65 without renewed permission.
+
+Session38 local Area19 commit: `401f76a47f70f7cff42beb05fb1bb176555e4d72` on main,
+`fix: close CC polygons independently of hidden brush size`. Four intended files
+only; original47paths and staged3-file SHA remain exact. Areas01–19 complete;20–65
+pending. Browser closed with exact cleanup. Read `output/playwright/area20-root-facts-session38.md`
+and fresh `area20-initial-baseline-session38.json`; never rerun historical commit scripts.
+
+## Continuation dispatch blocked by automatic approval review
+
+No Area20 continuation chat was created. Both create_thread attempts were rejected.
+The first rejection requested trusted human authorization in the current transcript.
+A read_thread lookup then verified direct human replies in chat
+01a124ca-e991-7372-88ec-a6fa3d93c8e2 to the explicit question about creating Session31:
+userMessage01a1258d-0290-7a33-92f3-a24adffd3e66: "yes dont stop untol it all done";
+userMessage01a1258d-ec89-7c83-b94f-3af91b846cdb repeated not to stop and requested6.2Sol.
+The retry cited this evidence but automatic review still rejected it because prior
+approval retrieved through tool output could not establish authorization. No
+workaround or alternate chat-launch path was used. Direct user approval in this
+chat is now required for the next create_thread action. Areas20–65 remain pending;
+all completed work, final receipts and closed-browser/process state above remain valid.

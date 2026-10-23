@@ -80,6 +80,9 @@ const expectReplay = (snapshot: SelectionSnapshot, direction: 'backward' | 'forw
       source: `history-selection-${direction}`,
       ownerKind: 'history-restored',
       restoredFromHistory: true,
+      restoredOwnerKind: snapshot.provenance?.ownerKind === 'history-restored'
+        ? snapshot.provenance.restoredOwnerKind
+        : snapshot.provenance?.ownerKind,
       maskLayerId: snapshot.provenance?.maskLayerId ?? snapshot.maskLayerId ?? null,
     },
   } : snapshot;

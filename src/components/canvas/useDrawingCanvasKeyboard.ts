@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react';
 import type React from 'react';
 
+import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { useComprehensiveKeyboard } from '@/hooks/useComprehensiveKeyboard';
 import { BrushShape, type Layer, type Tool } from '@/types';
 import { isStrokeBrush } from '@/utils/brushCategories';
-import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
+import { flushPendingToolWork, registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
 
 interface UseDrawingCanvasKeyboardOptions {
   switchTool: (tool: Tool) => Promise<void> | void;
@@ -348,7 +349,7 @@ export const useDrawingCanvasKeyboard = ({
         }
       }
     },
-    onEscapePressed: () => {
+    onEscapePressed: async () => {
       if (canvasShapeEditor.active) {
         cancelCanvasShapeEdit();
         setNeedsRedraw((prev) => prev + 1);
@@ -373,10 +374,30 @@ export const useDrawingCanvasKeyboard = ({
         return;
       }
 
-      cancelActiveOperations({
+      const cancelled = cancelActiveOperations({
         includeFloatingPaste: true,
         dispatchInteractionEnd: true,
       });
+      if (cancelled) {
+        return;
+      }
+
+      const selection = getAppStoreState();
+      if (!selection.selectionStart || !selection.selectionEnd) {
+        return;
+      }
+      await flushPendingToolWork({ passiveOnly: true });
+      await waitForPendingHistoryCommits();
+      const beforeSelection = captureSelectionSnapshot();
+      if (beforeSelection.start && beforeSelection.end) {
+        getAppStoreState().clearSelection();
+        commitSelectionHistory({
+          before: beforeSelection,
+          description: 'Clear selection',
+          meta: { source: 'keyboard-escape' },
+        });
+        setNeedsRedraw((prev) => prev + 1);
+      }
     },
     enabled: true,
   });

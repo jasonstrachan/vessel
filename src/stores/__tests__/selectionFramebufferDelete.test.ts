@@ -237,7 +237,7 @@ describe('selection delete updates framebuffer', () => {
       if (extracted) {
         expect(useAppStore.getState().extractSelectionToFloatingPaste()).toBe(true);
         await useAppStore.getState().deleteFloatingPaste();
-      } else useAppStore.getState().deleteSelectedPixels('api-delete');
+      } else useAppStore.getState().deleteSelectedPixels('keyboard-delete');
       await waitForPendingHistoryCommits();
     };
     await remove();
@@ -261,6 +261,15 @@ describe('selection delete updates framebuffer', () => {
     await remove();
     if (layerType !== 'sequential') expect(readContent()).toBe(deletedContent);
     expect(historyManager.redoEntries()).toHaveLength(0);
+    if (layerType === 'color-cycle' && !extracted) {
+      await useAppStore.getState().undo();
+      expect(useAppStore.getState().selectionLastAction).toMatchObject({
+        ownerKind: 'history-restored', restoredOwnerKind: 'direct-marquee', restoredFromHistory: true,
+      });
+      await remove();
+      expect(readContent()).toBe(deletedContent);
+      expect(historyManager.redoEntries()).toHaveLength(0);
+    }
   });
 
   it.each([
