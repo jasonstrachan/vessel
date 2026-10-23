@@ -6,8 +6,8 @@ The user resumed the whole-app audit with GPT-6.1 Sol subagents and prioritized
 marquee/layer deletion/deselection plus strokes that disappear until Undo.
 This supersedes the historical no-subagent/model notes below. The current branch
 and all unrelated work remain preserved. Areas01–19 retain their prior area
-signoffs; these follow-up defects reopen their affected paths. Areas20–65 remain
-incomplete; no whole-app completion is claimed.
+signoffs; the follow-up defects below are repaired and locally committed in375d6480e.
+Area20 signoff follows; Areas21–65 remain incomplete, with no whole-app completion claimed.
 
 - S39-01: completed marquee Escape left its bounds/mask active. Raster previews
   appeared but canonical commits outside that selection were clipped; native
@@ -36,9 +36,85 @@ Five source owners and six tests plus these two audit ledgers form the reviewed
 scope; the mixed comprehensive-keyboard owner excludes the original six unrelated
 lines from the candidate. Original three-file staged patch remains exact.
 
-Area20 has source hypotheses in `output/playwright/area20-review39.md`. Polygon probes v1–v3 failed preview prerequisites and establish no defect;
-control-first v4 is prepared for native review. Do not count fixture errors
-as application findings. Geometry, release pressure and oval bounds remain open.
+## Session39 — Area20 final software signoff
+
+Area20 CC shared geometry is software-verified. Areas01–20 are complete;
+Areas21–65 remain pending. Four native-proven application defects are repaired:
+
+- A20-01: a distant native Poly double-click now completes through the real
+  dblclick entrypoint; native pointer-up detail remains zero. Near-start closure
+  keeps6screen pixels through zoom, deduplicates terminal repeats and preserves
+  the Grad direction stage versus direct Stroke/Concentric finalization.
+- A20-02: Line pointer-up updates the terminal endpoint without replacing its
+  held width with zero release pressure. The existing latest pressure ref keeps
+  the actual raw contact used by Line geometry, including varying pen pressure
+  and differing normalized/raw mouse pressure. Freehand zero-pressure taper is
+  preserved. Native pen .2→.8→.1→0 retains interior width and the8px terminal extension.
+- A20-03: ellipse tessellation uses equal quadrant samples inside the existing
+  12–48point budget, preserving all four requested cardinal bounds. The native
+  40pxcontrol and32pxShift case pass in both presets. Raster isotropy is not asserted.
+- A20-04: changing drawing geometry cancels an unfinished draft in the same CC
+  context before fresh authoring. Old Poly vertices no longer expand the next
+  Rect; a pending Grad rectangle no longer replaces the requested Line. Cleanup
+  owns points/samples/geometry/direction/mark/history snapshot/preview/capture and
+  its playback suspension. Same-shape fill-mode edits, explicit tool flushing,
+  finalizing drafts, non-CC drafts and other playback holds retain their contracts.
+
+A20-05 was a regression in the proposed helper extraction, not the original app:
+the initial Shift guide resolved its centroid before removing the closing point.
+Native four-case I/O observation proved3.656/3.958degree errors in both presets.
+Direction now resolves after deduplication/trim, preserving original HEAD375
+ordering. Four unit regressions fail against the proposed extraction and pass
+after; the pointer suite passes165tests. Exact native after-proof measures the
+actual rendered guide through call-through Canvas2D observers with identity
+transform and a validated owning context. The stored direction ref is null at
+this stage, so no Enter-axis regression is claimed.
+
+Final production artifact `5c89255dc88a925a0c1ca252796b884a7862a5caaf21e54eba648b4199a0fe4a`
+passes **112native configurations/752checks**: all7geometries ×3fill modes ×2presets,
+shape-specific interior/exterior footprints, exact65536pixel coarse Oval masks,
+mouse/varying-pen Line release, reverse/Shift/short/zero drags, direction Enter/
+Escape, draft cancellation/fresh gestures, native double-click/near-start closure,
+zoom.25/2, rapid completion and geometry/fill/tool transitions. Canonical six-plane
+and RGBA Undo/Redo remain exact; rendered-ink checks pass. Rapid input is native;
+no forced stalled-finalizer timing claim is made. Existing accepted Area18/19
+sampling/selection/grid/lock evidence is reused only at unchanged shared owners;
+`area20-draft-switch-coverage-session39.md` identifies the exact Rect grid/clip
+receipts and limits. This does not claim physical-tablet, performance, custom
+pattern library or global playback signoff.
+
+Final isolated task-only gate passes type-check, lint and **601suites/5775tests**,
+with one existing skipped suite/test and one passing snapshot. Production build,
+diff review and independent source review pass. Source/test hashes bind the
+preview and isolated candidate: `area20-preview-final-v3-session39.json`,
+`area20-isolated-gate-v3-session39.json`, and `area20-native-final-session39.json`
+under `output/playwright/`. The browser is closed with exact named-session cleanup;
+the preview server and Studio watcher remain available.
+
+Six existing source owners and four existing test files plus these two ledgers
+are the completed-area scope. The mixed shapeDrawing candidate/commit excludes
+five original staged background-colour additions. Original47dirty paths and
+three-file staged edits remain preserved. A changed mixed-owner HEAD blob means
+the raw staged-patch SHA changes after this commit; the original edits and working
+bytes are verified unchanged, as recorded by `area20-commit-receipt-session39.json`.
+No push, deployment, branch or worktree change.
+
+Rejected fixtures remain explicit: Poly preview probes1–3 and the first Shift
+probe failed prerequisites before the tested action; no app defect is inferred.
+The original Oval raster-symmetry fixture failed its40pxpositive control. Six
+smooth-circle corner assertions in the first42matrix were invalid for Res6/PxlEdge
+whole-cell rendering. Source arithmetic predicts340cells ×36pixels =12240pixels,
+and all six final Oval configurations match the full65536pixel mask exactly.
+No dither/noise/algorithm workaround was added; all original receipts remain.
+
+Area21 Checkered has a read-only owner inventory and a prepared23case native
+starter; neither source changes nor Area21 acceptance have occurred. Continue
+from `area21-owner-trace-session39.md`, refresh the baseline after the Area20
+commit, then bind `area21-checkered-starter-prepared-session39.js` to the final
+production SHA. All subagents use GPT-6.1Sol. Historical model/no-subagent notes
+below are superseded by the current human instruction; continuation-chat creation
+remains blocked and must not be retried without new direct authorization.
+
 
 ## Goal and method
 
@@ -77,7 +153,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 17 | Color Cycle Stroke: tap/drag, palette, speed/flow, spacing, phase, line mode, pressure | CC stroke runtime, CC document | software-verified (Session36: A17-01–05 repaired; native/full gate pass; focused local commit receipt) |
 | 18 | CC Tonal Dither: signal/ink mapping, sampling, dither settings, palette, playback | CC mark session, sampled path runtime | software-verified (Session38: A18-01–03 repaired; final native/full gate pass) |
 | 19 | CC Fixed Dither: density/pattern, sampling, palette, size, playback | CC mark session, shape fill/dither runtime | software-verified (Session38: A19-01 repaired;116native cases/708checks; full gate pass) |
-| 20 | CC shape/basic geometry: freehand/rectangle/ellipse/line/click-line, constraints, direction, preview/commit/cancel | CC gradient drawing runtime | pending |
+| 20 | CC shape/basic geometry: freehand/rectangle/ellipse/line/click-line, constraints, direction, preview/commit/cancel | CC gradient drawing runtime | software-verified (Session39;112native cases/752checks; final gate and local commit receipt) |
 | 21 | Checkered brush: cell size, colours, spacing, opacity, shape/selection | brush engine/settings | pending |
 | 22 | Rectangle Gradient: stops/direction, drag/constraint, commit/cancel | shape handlers, gradient brush | pending |
 | 23 | Spam Text: content, font/size, spacing, colour, pressure, rotation | text brush/settings | pending |

@@ -22,6 +22,8 @@ import {
   rememberSampledCcShapePreviewStops,
 } from '@/hooks/canvas/utils/sampledCcShapePreviewStops';
 import { shouldEnterCcGradientDirectionStage } from '@/hooks/canvas/handlers/colorCycle/ccGradientDirectionContract';
+import { createResetShapePressureStateDispatcher, createUpdateShapePressureDispatcher } from '@/hooks/canvas/handlers/shapePressure';
+import { createPressureResolutionState } from '@/utils/pressureResolution';
 
 const storeState = {
   activeLayerId: 'layer-1',
@@ -292,6 +294,118 @@ describe('finalizeShapeDrawing CC dither resolution', () => {
     expect(refs.shapePointsRef.current).toEqual([]);
     expect(deps.capturePendingShapeSnapshot).not.toHaveBeenCalled();
     expect(deps.updateShapePressure).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { input: 'mouse', contactPressure: 0.5, pressureEnabled: true },
+    { input: 'pen', contactPressure: 0.8, pressureEnabled: true },
+    { input: 'mouse', contactPressure: 0.5, pressureEnabled: false },
+    { input: 'pen', contactPressure: 0.8, pressureEnabled: false },
+    { input: 'pen varying', contactPressure: 0.2, pressureEnabled: true, heldPressures: [0.8, 0.1] },
+    { input: 'mouse modifier', contactPressure: 0.5, pressureEnabled: true, effectivePressure: 0.9 },
+  ])('retains $input Line width on zero-pressure release (pressure=$pressureEnabled)', (config) => {
+    const { input, contactPressure, pressureEnabled } = config;
+    const heldPressures = 'heldPressures' in config ? config.heldPressures! : [contactPressure, contactPressure];
+    const effectivePressure = (raw: number) => 'effectivePressure' in config ? config.effectivePressure! : raw;
+    const previousSettings = storeState.tools.brushSettings;
+    storeState.currentBrushPreset = { id: 'color-cycle-gradient' } as AppState['currentBrushPreset'];
+    storeState.tools.brushSettings = {
+      ...previousSettings,
+      size: 40, pressureEnabled, minPressure: 10, maxPressure: 100,
+      colorCycleFillMode: 'stroke', ccGradientDrawingShape: 'line',
+      gridSnapEnabled: false,
+    };
+    const refs = makeShapeRefs();
+    const shapeRefs = refs as unknown as Parameters<typeof startShapeDrawing>[0]['refs'];
+    const deps = makeShapeDeps();
+    const pressureRefs = {
+      latestShapePressureRef: refs.latestShapePressureRef,
+      lastNonZeroShapePressureRef: ref(0.5),
+      latestShapePixelSizeRef: refs.latestShapePixelSizeRef,
+      shapeSampleCountRef: ref(0),
+      penLiftHoldUntilRef: ref(0),
+      shapeMaxPressureRef: refs.shapeMaxPressureRef,
+      hadValidShapePressureRef: refs.hadValidShapePressureRef,
+      lastStablePressureRef: refs.lastStablePressureRef,
+      lastShapePressureTimeRef: ref(0),
+      shapePressureGainRef: ref(1),
+      shapePixelResStateRef: ref(createPressureResolutionState(1)),
+    };
+    deps.resetShapePressureState = createResetShapePressureStateDispatcher({ refs: pressureRefs });
+    deps.updateShapePressure = createUpdateShapePressureDispatcher({
+      refs: pressureRefs,
+      constants: { maxPressureDecayPerMs: 0.003, minDropPerEvent: 0.01, smoothing: 0.6, sampleWindow: 5 },
+      deps: { computeShapePixelSize: () => 1, debugEnabled: () => false },
+    });
+    try {
+      expect(startShapeDrawing({
+        worldPos: { x: 8, y: 24 }, pressure: effectivePressure(contactPressure), rawPressure: contactPressure,
+        timestamp: 1, shapeMode: true, refs: shapeRefs, renderPreview: false,
+      }, deps)).toBe(true);
+      for (const [index, x] of [24, 40].entries()) {
+        continueShapeDrawing({
+          worldPos: { x, y: 24 }, pressure: effectivePressure(heldPressures[index]), rawPressure: heldPressures[index],
+          timestamp: index + 2, shapeMode: true, refs: shapeRefs, renderPreview: false,
+        }, deps);
+      }
+      const held = shapeRefs.ccGradientDrawingGeometryRef.current!;
+      expect(held).not.toBeNull();
+      const heldWidth = held.bounds.maxY - held.bounds.minY;
+      const stableBeforeRelease = refs.lastStablePressureRef.current;
+      expect(heldWidth).toBeGreaterThan(4);
+
+      continueShapeDrawing({
+        worldPos: { x: 48, y: 24 }, pressure: input.startsWith('mouse') ? effectivePressure(0.5) : 0, rawPressure: 0,
+        timestamp: 4, shapeMode: true, refs: shapeRefs, renderPreview: false,
+      }, deps);
+
+      const released = shapeRefs.ccGradientDrawingGeometryRef.current!;
+      expect(released.sampleSourcePoints).toEqual([{ x: 8, y: 24 }, { x: 48, y: 24 }]);
+      expect(released.bounds.maxY - released.bounds.minY).toBe(heldWidth);
+      expect(released.bounds.maxX - held.bounds.maxX).toBe(8);
+      expect(refs.lastStablePressureRef.current).toBe(stableBeforeRelease);
+      if (!pressureEnabled) expect(heldWidth).toBe(40);
+    } finally {
+      storeState.tools.brushSettings = previousSettings;
+    }
+  });
+
+  it('preserves the zero-pressure terminal sample for freehand CC Stroke taper', () => {
+    const previousSettings = storeState.tools.brushSettings;
+    storeState.currentBrushPreset = { id: 'color-cycle-gradient' } as AppState['currentBrushPreset'];
+    storeState.tools.brushSettings = {
+      ...previousSettings,
+      size: 40, pressureEnabled: true, minPressure: 10, maxPressure: 100,
+      colorCycleFillMode: 'stroke', ccGradientDrawingShape: 'freehand', gridSnapEnabled: false,
+    };
+    const refs = makeShapeRefs();
+    const shapeRefs = refs as unknown as Parameters<typeof startShapeDrawing>[0]['refs'];
+    const deps = makeShapeDeps();
+    try {
+      expect(startShapeDrawing({
+        worldPos: { x: 8, y: 24 }, pressure: 0.5, rawPressure: 0.5,
+        timestamp: 1, shapeMode: true, refs: shapeRefs, renderPreview: false,
+      }, deps)).toBe(true);
+      continueShapeDrawing({
+        worldPos: { x: 32, y: 24 }, pressure: 0.5, rawPressure: 0.5,
+        timestamp: 2, shapeMode: true, refs: shapeRefs, renderPreview: false,
+      }, deps);
+      continueShapeDrawing({
+        worldPos: { x: 48, y: 24 }, pressure: 0, rawPressure: 0,
+        timestamp: 3, shapeMode: true, refs: shapeRefs, renderPreview: false,
+      }, deps);
+
+      expect(shapeRefs.ccStrokeSamplesRef.current).toEqual([
+        { x: 8, y: 24, pressure: 0.5 },
+        { x: 32, y: 24, pressure: 0.5 },
+        { x: 48, y: 24, pressure: 0 },
+      ]);
+      const points = shapeRefs.ccGradientDrawingGeometryRef.current!.shapePoints;
+      expect(Math.abs(points[2].y - points[3].y)).toBe(4);
+      expect(Math.abs(points[0].y - points[5].y)).toBeGreaterThan(4);
+    } finally {
+      storeState.tools.brushSettings = previousSettings;
+    }
   });
 
   it.each([false, true])('discards a shape locked before finalization (direction: %s)', async direction => {

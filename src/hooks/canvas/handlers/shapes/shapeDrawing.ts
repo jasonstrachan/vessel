@@ -1413,6 +1413,7 @@ export const continueShapeDrawing = (
   const renderPreview = args.renderPreview !== false;
   const constrainAspect = args.constrainAspect === true;
   const rawVal = typeof rawPressure === 'number' ? rawPressure : pressure;
+  const previousShapePressure = refs.latestShapePressureRef.current;
   deps.updateShapePressure(pressure, timestamp, rawVal);
 
   if (shapeMode && !refs.ccShapePreviewPauseStartedRef.current) {
@@ -1506,9 +1507,12 @@ export const continueShapeDrawing = (
     const store = deps.storeRef.current;
     const isCcStrokeMode = isCcGradientStrokeMode(store);
     const isCcDragDefinedMode = isCcGradientDragDefinedShapeMode(store);
+    const isCcLine = isCcDragDefinedMode && store.tools.brushSettings.ccGradientDrawingShape === 'line';
     const zoom = store.canvas?.zoom || 1;
     const brushSize = store.tools.brushSettings.size || 20;
-    refs.latestShapePressureRef.current = pressure;
+    refs.latestShapePressureRef.current = isCcLine
+      ? (rawVal === 0 ? previousShapePressure : rawVal)
+      : pressure;
     refs.shapeDragLastRef.current = drawPos;
     if (refs.shapeDragStartRef.current) {
       const distFromStart = Math.hypot(
@@ -1556,10 +1560,14 @@ export const continueShapeDrawing = (
     }
 
     if (isCcDragDefinedMode) {
+      // Pen-up updates the Line endpoint without replacing its last contact width.
+      const geometryPressure = isCcLine && rawVal === 0
+        ? previousShapePressure
+        : rawVal;
       const hasGeometry = rebuildCcGradientDragGeometry({
         refs,
         brushSettings: store.tools.brushSettings,
-        pressure: rawVal,
+        pressure: geometryPressure,
         constrainAspect,
       });
       if (hasGeometry || refs.shapeDragMovedRef.current) {

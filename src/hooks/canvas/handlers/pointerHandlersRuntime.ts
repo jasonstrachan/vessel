@@ -18,7 +18,10 @@ import { applyPolygonMaskToCanvasContext } from '@/hooks/canvas/handlers/shapes/
 import { logLivePreview } from '@/hooks/canvas/utils/livePreviewDebug';
 import { ensurePresResDebugBridge, isPresResDebugEnabled } from '@/hooks/canvas/utils/presResDebug';
 import { isDragDefinedCcGradientShape } from '@/hooks/canvas/handlers/shapes/ccGradientDrawingGeometry';
-import { completeCcGradientClickLine } from '@/hooks/canvas/handlers/shapes/ccGradientClickLineCompletion';
+import {
+  completeCcGradientClickLine,
+  completeCcGradientPolygon,
+} from '@/hooks/canvas/handlers/shapes/ccGradientClickLineCompletion';
 import {
   enterCcGradientDirectionStage,
   shouldEnterCcGradientDirectionStage,
@@ -4608,31 +4611,24 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
           isCcGradientPreset(getDynamicDeps().currentBrushPresetId) &&
           tools.brushSettings.ccGradientDrawingShape === 'polygon';
         if (isCcGradientPolygonDrawingShape) {
-          const pts = drawingHandlers.shapePointsRef.current;
-          const firstPoint = pts[0];
-          // Polygon vertices use a screen-space hit target, independent of hidden stamp size.
-          const closeThreshold = 6 / Math.max(1e-6, canvas?.zoom ?? 1);
-          const closeToStart =
-            pts.length >= 3 &&
-            firstPoint &&
-            Math.hypot(worldPosOnPointerUp.x - firstPoint.x, worldPosOnPointerUp.y - firstPoint.y) <=
-              closeThreshold;
-          const doubleClick = (event.detail ?? 0) >= 2;
-          if (!doubleClick && !closeToStart) {
+          const completed = completeCcGradientPolygon({
+            deps,
+            completion: 'near-start',
+            worldPos: worldPosOnPointerUp,
+            resolveDirectionWorld: (retainedPoints) => resolveDirectionSelectionPoint(
+              worldPosOnPointerUp,
+              event.shiftKey,
+              retainedPoints,
+            ),
+            pressure: pressureOnPointerUp,
+            timestamp: event.timeStamp,
+            rawPressure: rawPressureOnPointerUp,
+            onFinalized: resetSequentialPointerDown,
+          });
+          if (!completed) {
             resetSequentialPointerDown();
-            return;
           }
-          if (closeToStart && firstPoint) {
-            const lastIndex = pts.length - 1;
-            const lastPoint = pts[lastIndex];
-            if (
-              lastIndex > 0 &&
-              lastPoint &&
-              Math.hypot(lastPoint.x - firstPoint.x, lastPoint.y - firstPoint.y) <= closeThreshold
-            ) {
-              drawingHandlers.shapePointsRef.current = pts.slice(0, lastIndex);
-            }
-          }
+          return;
         }
 
         // Guard: require at least 3 points to finalize a polygon
@@ -5033,7 +5029,20 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       shouldSnapPointerToPixelGrid(tools),
     );
     const session = drawingHandlers.ccGradientClickLineSessionRef?.current;
-    const handled = completeCcGradientClickLine({
+    const handled = completeCcGradientPolygon({
+      deps,
+      completion: 'double-click',
+      worldPos: directionWorld,
+      resolveDirectionWorld: (retainedPoints) => resolveDirectionSelectionPoint(
+        directionWorld,
+        event.shiftKey,
+        retainedPoints,
+      ),
+      pressure: 0.5,
+      timestamp: event.timeStamp,
+      rawPressure: 0,
+      onFinalized: resetSequentialPointerDownNow,
+    }) || completeCcGradientClickLine({
       deps,
       directionWorld,
       pressure: session?.pressure ?? 0.5,

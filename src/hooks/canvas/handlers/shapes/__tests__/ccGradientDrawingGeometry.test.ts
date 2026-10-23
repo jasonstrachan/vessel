@@ -119,6 +119,43 @@ describe('ccGradientDrawingGeometry', () => {
     expect(geometry!.bounds.maxX).toBeCloseTo(200, 5);
   });
 
+  it.each([
+    { name: '32px circle', end: { x: 96, y: 96 }, constrainAspect: true, maxX: 96, maxY: 96 },
+    { name: '34px circle', end: { x: 98, y: 98 }, constrainAspect: true, maxX: 98, maxY: 98 },
+    { name: '40x32 oval', end: { x: 104, y: 96 }, constrainAspect: false, maxX: 104, maxY: 96 },
+    { name: 'unequal Shift drag', end: { x: 96, y: 84 }, constrainAspect: true, maxX: 96, maxY: 96 },
+  ])('preserves requested bounds and cardinal extrema for a $name', ({ end, constrainAspect, maxX, maxY }) => {
+    const start = { x: 64, y: 64 };
+    const geometry = buildEllipseGeometry({ start, end, constrainAspect })!;
+
+    expect(geometry.bounds).toEqual({ minX: 64, minY: 64, maxX, maxY });
+    const centerX = (64 + maxX) / 2;
+    const centerY = (64 + maxY) / 2;
+    const cardinalPoints = [
+      { x: maxX, y: centerY },
+      { x: centerX, y: maxY },
+      { x: 64, y: centerY },
+      { x: centerX, y: 64 },
+    ];
+    cardinalPoints.forEach((point, quadrant) => {
+      const actual = geometry.shapePoints[quadrant * geometry.shapePoints.length / 4];
+      expect(actual?.x).toBeCloseTo(point.x, 9);
+      expect(actual?.y).toBeCloseTo(point.y, 9);
+    });
+    expect(geometry.sampleSourcePoints).toEqual([start, { x: maxX, y: maxY }]);
+  });
+
+  it('keeps the same ellipse outline and requested bounds when its drag is reversed', () => {
+    const start = { x: 64, y: 64 };
+    const end = { x: 104, y: 96 };
+    const forward = buildEllipseGeometry({ start, end })!;
+    const reverse = buildEllipseGeometry({ start: end, end: start })!;
+
+    expect(reverse.bounds).toEqual({ minX: 64, minY: 64, maxX: 104, maxY: 96 });
+    expect(reverse.shapePoints).toEqual(forward.shapePoints);
+    expect(reverse.sampleSourcePoints).toEqual([end, start]);
+  });
+
   it('builds line geometry through swept-stroke width rules', () => {
     const geometry = buildLineGeometry({
       start: { x: 10, y: 20 },

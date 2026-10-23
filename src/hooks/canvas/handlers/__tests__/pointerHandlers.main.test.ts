@@ -3652,9 +3652,77 @@ describe('pointerHandlers main flows', () => {
     expect(deps.drawingHandlers.ccGradientClickLineSessionRef.current.active).toBe(false);
   });
 
-  it('enters direction selection for CC gradient polygon drawing on double click when visible Colors is greater than 1', async () => {
+  it.each([
+    ['color-cycle-gradient', 'linear', 2, true],
+    ['color-cycle-gradient', 'linear', 1, false],
+    ['color-cycle-gradient', 'concentric', 2, false],
+    ['color-cycle-gradient', 'stroke', 2, false],
+    ['color-cycle-flat-dither', 'linear', 2, true],
+    ['color-cycle-flat-dither', 'linear', 1, false],
+    ['color-cycle-flat-dither', 'concentric', 2, false],
+    ['color-cycle-flat-dither', 'stroke', 2, false],
+  ] as const)(
+    'completes %s Poly %s (Colors %s) from native dblclick after pointer-up detail stays zero',
+    async (preset, fillMode, gradientBands, expectsDirection) => {
+      const { deps } = createDeps({
+        currentBrushPresetId: preset,
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'brush',
+          shapeMode: true,
+          brushSettings: {
+            ...baseDynamic.tools.brushSettings,
+            brushShape: BrushShape.COLOR_CYCLE_SHAPE,
+            colorCycleFillMode: fillMode,
+            ccGradientDrawingShape: 'polygon',
+            gradientBands,
+          } as any,
+        },
+      });
+      deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
+      deps.getMousePos = jest.fn(() => ({ x: 10, y: 30 }));
+      deps.drawingHandlers.isDrawingShapeRef.current = true;
+      deps.drawingHandlers.shapePointsRef.current = [
+        { x: 10, y: 10 }, { x: 30, y: 10 }, { x: 30, y: 30 },
+      ];
+      deps.drawingHandlers.continueShapeDrawing = jest.fn((point) => {
+        if (!deps.drawingHandlers.isSelectingDirectionRef.current) {
+          deps.drawingHandlers.shapePointsRef.current.push({ ...point });
+        }
+      });
+      deps.drawingHandlers.finalizeShapeDrawing = jest.fn(async () => {
+        deps.drawingHandlers.isDrawingShapeRef.current = false;
+      });
+      const handlers = createPointerHandlers(deps);
+      // Native pointer-up has detail zero for both presses in a double click.
+      handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 30, detail: 0 }));
+      handlers.handlePointerUp(makePointerEvent({ clientX: 10, clientY: 30, detail: 0 }));
+      expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
+      expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(false);
+      const event = makeMouseEvent({ clientX: 10, clientY: 30, detail: 2 });
+      handlers.handleDoubleClick(event);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(deps.drawingHandlers.shapePointsRef.current).toEqual([
+        { x: 10, y: 10 }, { x: 30, y: 10 }, { x: 30, y: 30 }, { x: 10, y: 30 },
+      ]);
+      expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(expectsDirection);
+      expect(deps.drawingHandlers.finalizeShapeDrawing).toHaveBeenCalledTimes(expectsDirection ? 0 : 1);
+      expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(event.stopPropagation).toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['color-cycle-gradient', { x: 60, y: 60 }],
+    ['color-cycle-gradient', { x: 65, y: 60 }],
+    ['color-cycle-flat-dither', { x: 60, y: 60 }],
+    ['color-cycle-flat-dither', { x: 65, y: 60 }],
+  ] as const)('snaps %s Shift-close initial guide around the retained polygon centroid at %j', (preset, closePoint) => {
     const { deps } = createDeps({
-      currentBrushPresetId: 'color-cycle-gradient',
+      currentBrushPresetId: preset,
+      project: { ...mockProject, width: 256, height: 256 },
       tools: {
         ...baseDynamic.tools,
         currentTool: 'brush',
@@ -3665,23 +3733,35 @@ describe('pointerHandlers main flows', () => {
           colorCycleFillMode: 'linear',
           ccGradientDrawingShape: 'polygon',
           gradientBands: 2,
-        } as any,
+        },
       },
     });
-
+    const retainedPoints = [
+      { x: 60, y: 60 }, { x: 180, y: 60 }, { x: 180, y: 100 }, { x: 60, y: 100 },
+    ];
     deps.interaction.state = { isDrawing: true, isSelecting: false, mode: 'drawing' } as any;
-    deps.getMousePos = jest.fn(() => ({ x: 30, y: 30 }));
+    deps.getMousePos = jest.fn(() => ({ ...closePoint }));
     deps.drawingHandlers.isDrawingShapeRef.current = true;
-    deps.drawingHandlers.shapePointsRef.current = [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
+    deps.drawingHandlers.shapePointsRef.current = retainedPoints.map(point => ({ ...point }));
+    const continueShapeDrawing = jest.fn((point: { x: number; y: number }) => {
+      if (!deps.drawingHandlers.isSelectingDirectionRef.current) {
+        deps.drawingHandlers.shapePointsRef.current.push({ ...point });
+      }
+    });
+    deps.drawingHandlers.continueShapeDrawing = continueShapeDrawing;
 
-    const handlers = createPointerHandlers(deps);
-    handlers.handlePointerUp(makePointerEvent({ clientX: 30, clientY: 30, detail: 2 }));
+    createPointerHandlers(deps).handlePointerUp(makePointerEvent({
+      clientX: closePoint.x, clientY: closePoint.y, shiftKey: true, detail: 0,
+    }));
 
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(deps.drawingHandlers.shapePointsRef.current).toEqual(retainedPoints);
     expect(deps.drawingHandlers.isSelectingDirectionRef.current).toBe(true);
     expect(deps.drawingHandlers.finalizeShapeDrawing).not.toHaveBeenCalled();
-    expect(deps.stateMachine.finalizationComplete).toHaveBeenCalled();
+    const guide = continueShapeDrawing.mock.calls.at(-1)![0];
+    // Both closing positions snap left around the retained four-corner centre.
+    const expectedLength = Math.hypot(closePoint.x - 120, closePoint.y - 80);
+    expect(guide.x).toBeCloseTo(120 - expectedLength, 9);
+    expect(guide.y).toBeCloseTo(80, 9);
   });
 
   it('drops the near-start close click before finalizing a CC gradient polygon', async () => {

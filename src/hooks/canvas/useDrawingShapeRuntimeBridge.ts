@@ -69,6 +69,7 @@ export const useDrawingShapeRuntimeBridge = ({
   });
 
   useShapePressureResetEffects({
+    ccDraftRefs: refs,
     resetShapePressureState,
     resetShapeDragRefs,
     strokeBoundingBoxRef,

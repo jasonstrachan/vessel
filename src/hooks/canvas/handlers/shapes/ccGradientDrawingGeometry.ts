@@ -186,9 +186,10 @@ export const buildEllipseGeometry = ({
   const centerX = minX + radiusX;
   const centerY = minY + radiusY;
   const circumferenceEstimate = Math.PI * (radiusX + radiusY);
+  // Equal quadrant samples preserve every cardinal extremum of the drag bounds.
   const pointCount = Math.max(
     MIN_ELLIPSE_POINTS,
-    Math.min(MAX_ELLIPSE_POINTS, Math.ceil(circumferenceEstimate / 8))
+    Math.min(MAX_ELLIPSE_POINTS, Math.ceil(circumferenceEstimate / 8 / 4) * 4)
   );
   const shapePoints = Array.from({ length: pointCount }, (_value, index) => {
     const angle = (Math.PI * 2 * index) / pointCount;
