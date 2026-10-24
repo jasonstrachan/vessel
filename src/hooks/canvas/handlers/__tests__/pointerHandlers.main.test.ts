@@ -1837,6 +1837,8 @@ describe('pointerHandlers main flows', () => {
       } as any,
       layers: [{
         id: 'layer-1',
+        visible: true,
+        locked: false,
         imageData: new ImageData(3, 1),
         framebuffer,
         layerType: 'normal',
@@ -1893,6 +1895,8 @@ describe('pointerHandlers main flows', () => {
       } as any,
       layers: [{
         id: 'layer-1',
+        visible: true,
+        locked: false,
         imageData: initialImage,
         framebuffer,
         layerType: 'normal',

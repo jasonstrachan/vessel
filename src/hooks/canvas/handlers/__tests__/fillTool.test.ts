@@ -1,10 +1,18 @@
+import * as colorCycleHistory from '@/history/helpers/colorCycle';
+import * as layerHistory from '@/history/helpers/layerHistory';
+import * as sequentialHistory from '@/history/helpers/sequentialLayerHistory';
+import { waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
+import { createDefaultAdjustmentEffect } from '@/lib/adjustmentLayers';
+import * as sequentialRenderer from '@/lib/sequential/SequentialLayerRenderer';
+import { useAppStore } from '@/stores/useAppStore';
 import {
   applyColorCycleFillEraseMask,
   createColorCycleFillMask,
   fillColorCycleLayer,
+  runFillToolPointerDown,
   type ColorCycleFloodFillDeps,
 } from '@/hooks/canvas/handlers/fillTool';
-import type { EventHandlerDynamicDeps } from '@/hooks/canvas/utils/types';
+import type { EventHandlerDependencies, EventHandlerDynamicDeps } from '@/hooks/canvas/utils/types';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer, Project } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -344,4 +352,196 @@ describe('Color Cycle flood fill', () => {
     expect([result?.data[3], result?.data[7], result?.data[11]]).toEqual([255, 255, 255]);
     expect(bumpVersion).toHaveBeenCalledWith('cc-layer');
   });
+});
+
+
+describe('Fill target admission before reading or authoring', () => {
+  beforeEach(() => {
+    jest.spyOn(colorCycleHistory, 'captureColorCycleBrushState').mockReturnValue(null);
+    jest.spyOn(layerHistory, 'commitLayerHistory').mockResolvedValue(undefined);
+    jest.spyOn(sequentialHistory, 'commitSequentialLayerHistory').mockResolvedValue(undefined);
+    jest.spyOn(sequentialRenderer, 'getSequentialLayerRenderCanvas').mockReturnValue(null);
+    jest.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+  });
+
+  afterEach(async () => {
+    await waitForPendingHistoryCommits();
+    jest.restoreAllMocks();
+  });
+
+  const fixture = (type: NonNullable<Layer['layerType']>, visible: boolean, locked: boolean) => {
+    const width = type === 'adjustment' ? 1 : 3;
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = width;
+    framebuffer.height = 1;
+    const context = framebuffer.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('Missing real Fill target Canvas I/O');
+    const source = makeImage(Array.from({ length: width }, () => [0, 0, 255, 255]));
+    context.putImageData(source, 0, 0);
+    const layer: Layer = {
+      ...makeLayer(),
+      id: `entry-${type}`,
+      layerType: type,
+      visible,
+      locked,
+      framebuffer,
+      imageData: source,
+      colorCycleData: type === 'color-cycle'
+        ? { ...makeLayer().colorCycleData, canvas: document.createElement('canvas') }
+        : undefined,
+      sequentialData: type === 'sequential'
+        ? { frameCount: 1, fps: 1, durationMs: 1000, events: [], eventChunks: [] }
+        : undefined,
+      adjustmentData: type === 'adjustment'
+        ? { effect: createDefaultAdjustmentEffect() }
+        : undefined,
+    };
+    // A complete real store baseline supplies every dynamic field; no partial AppState cast.
+    const state = useAppStore.getState();
+    const dynamic: EventHandlerDynamicDeps = {
+      project,
+      canvas: { width: project.width, height: project.height, scale: 1, zoom: 1 },
+      tools: {
+        ...state.tools,
+        currentTool: 'fill',
+        fillSettings: { threshold: 0, contiguous: true, eraseInstead: type === 'color-cycle' },
+      },
+      layers: [layer],
+      activeLayerId: layer.id,
+      selectionStart: null,
+      selectionEnd: null,
+      selectionMask: null,
+      selectionMaskBounds: null,
+      floatingPaste: null,
+      isDraggingFloatingPaste: false,
+      palette: { ...state.palette, foregroundColor: '#ff0000', activeSlot: 'foreground' },
+      polygonGradientState: state.polygonGradientState,
+      recolorSampling: state.recolorSampling,
+      currentBrushPresetId: state.currentBrushPreset?.id ?? null,
+    };
+    const updateLayer = jest.fn<ReturnType<EventHandlerDependencies['updateLayer']>, Parameters<EventHandlerDependencies['updateLayer']>>();
+    // Fill dispatch consumes these three static I/O fields; a null composite skips display I/O.
+    const io: Pick<EventHandlerDependencies, 'updateLayer' | 'compositeCanvasDirtyRef' | 'compositeCanvasRef'> = {
+      updateLayer,
+      compositeCanvasDirtyRef: { current: false },
+      compositeCanvasRef: { current: null },
+    };
+    const readPixels = jest.spyOn(context, 'getImageData');
+    const writePixels = jest.spyOn(context, 'putImageData');
+    return { layer, dynamic, io, updateLayer, readPixels, writePixels, framebuffer, context, source };
+  };
+
+  it.each([
+    { type: 'normal', visible: false, locked: false, label: 'hidden normal' },
+    { type: 'normal', visible: true, locked: true, label: 'locked normal' },
+    { type: 'color-cycle', visible: false, locked: false, label: 'hidden CC' },
+    { type: 'color-cycle', visible: true, locked: true, label: 'locked CC' },
+    { type: 'sequential', visible: false, locked: false, label: 'hidden sequential' },
+    { type: 'sequential', visible: true, locked: true, label: 'locked sequential' },
+    { type: 'adjustment', visible: true, locked: false, label: 'visible unlocked adjustment' },
+  ] as const)('rejects $label before raster reads, CC capture, sequence materialization or history', ({ type, visible, locked }) => {
+    const f = fixture(type, visible, locked);
+    const before = new Uint8ClampedArray(f.source.data);
+    const dimensions = [f.framebuffer.width, f.framebuffer.height];
+
+    runFillToolPointerDown({
+      deps: f.io as EventHandlerDependencies,
+      dynamic: f.dynamic,
+      worldPos: { x: 0, y: 0 },
+    });
+
+    expect(f.updateLayer).not.toHaveBeenCalled();
+    expect(f.readPixels).not.toHaveBeenCalled();
+    expect(f.writePixels).not.toHaveBeenCalled();
+    expect(colorCycleHistory.captureColorCycleBrushState).not.toHaveBeenCalled();
+    expect(sequentialRenderer.getSequentialLayerRenderCanvas).not.toHaveBeenCalled();
+    expect(layerHistory.commitLayerHistory).not.toHaveBeenCalled();
+    expect(sequentialHistory.commitSequentialLayerHistory).not.toHaveBeenCalled();
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
+    expect(f.io.compositeCanvasDirtyRef.current).toBe(false);
+    expect([f.framebuffer.width, f.framebuffer.height]).toEqual(dimensions);
+    expect(f.layer.imageData).toBe(f.source);
+    expect(f.source.data).toEqual(before);
+  });
+
+  it('still admits visible unlocked normal Fill with real raster output and one history request', async () => {
+    const f = fixture('normal', true, false);
+    runFillToolPointerDown({
+      deps: f.io as EventHandlerDependencies,
+      dynamic: f.dynamic,
+      worldPos: { x: 0, y: 0 },
+    });
+    await waitForPendingHistoryCommits();
+
+    const expected = makeImage([[255, 0, 0, 255], [255, 0, 0, 255], [255, 0, 0, 255]]);
+    expect(f.context.getImageData(0, 0, 3, 1).data).toEqual(expected.data);
+    expect(f.updateLayer).toHaveBeenCalledTimes(1);
+    expect(f.updateLayer).toHaveBeenCalledWith(f.layer.id, { imageData: expected }, {
+      dirtyRects: [{ x: 0, y: 0, width: 3, height: 1 }],
+    });
+    expect(layerHistory.commitLayerHistory).toHaveBeenCalledTimes(1);
+    expect(sequentialHistory.commitSequentialLayerHistory).not.toHaveBeenCalled();
+    expect(colorCycleHistory.captureColorCycleBrushState).not.toHaveBeenCalled();
+    expect(f.io.compositeCanvasDirtyRef.current).toBe(true);
+  });
+
+  it.each([
+    { type: 'normal', side: 'left' },
+    { type: 'normal', side: 'right' },
+    { type: 'color-cycle', side: 'left' },
+    { type: 'color-cycle', side: 'right' },
+    { type: 'sequential', side: 'left' },
+    { type: 'sequential', side: 'right' },
+  ] as const)('rejects explicit $side selection with no image intersection on $type before any source or authoring I/O', ({ type, side }) => {
+    const f = fixture(type, true, false);
+    const start = { x: side === 'left' ? -2 : 5, y: 0 };
+    const end = { x: side === 'left' ? 0 : 3, y: 1 };
+    f.dynamic.selectionStart = start;
+    f.dynamic.selectionEnd = end;
+    const before = new Uint8ClampedArray(f.source.data);
+
+    runFillToolPointerDown({
+      deps: f.io as EventHandlerDependencies,
+      dynamic: f.dynamic,
+      worldPos: { x: 0, y: 0 },
+    });
+
+    expect(f.updateLayer).not.toHaveBeenCalled();
+    expect(f.readPixels).not.toHaveBeenCalled();
+    expect(f.writePixels).not.toHaveBeenCalled();
+    expect(colorCycleHistory.captureColorCycleBrushState).not.toHaveBeenCalled();
+    expect(sequentialRenderer.getSequentialLayerRenderCanvas).not.toHaveBeenCalled();
+    expect(layerHistory.commitLayerHistory).not.toHaveBeenCalled();
+    expect(sequentialHistory.commitSequentialLayerHistory).not.toHaveBeenCalled();
+    expect(window.requestAnimationFrame).not.toHaveBeenCalled();
+    expect(f.io.compositeCanvasDirtyRef.current).toBe(false);
+    expect(f.source.data).toEqual(before);
+    expect(f.dynamic.selectionStart).toBe(start);
+    expect(f.dynamic.selectionEnd).toBe(end);
+  });
+
+  it('admits a partly overlapping explicit selection and fills only its original one-pixel intersection', async () => {
+    const f = fixture('normal', true, false);
+    f.dynamic.selectionStart = { x: -1, y: 0 };
+    f.dynamic.selectionEnd = { x: 1, y: 1 };
+    runFillToolPointerDown({
+      deps: f.io as EventHandlerDependencies,
+      dynamic: f.dynamic,
+      worldPos: { x: 0, y: 0 },
+    });
+    await waitForPendingHistoryCommits();
+
+    const expected = makeImage([[255, 0, 0, 255], [0, 0, 255, 255], [0, 0, 255, 255]]);
+    expect(f.context.getImageData(0, 0, 3, 1).data).toEqual(expected.data);
+    expect(f.updateLayer).toHaveBeenCalledTimes(1);
+    expect(f.updateLayer).toHaveBeenCalledWith(f.layer.id, { imageData: expected }, {
+      dirtyRects: [{ x: 0, y: 0, width: 1, height: 1 }],
+    });
+    expect(layerHistory.commitLayerHistory).toHaveBeenCalledTimes(1);
+    expect(colorCycleHistory.captureColorCycleBrushState).not.toHaveBeenCalled();
+    expect(sequentialHistory.commitSequentialLayerHistory).not.toHaveBeenCalled();
+    expect(f.dynamic.selectionStart).toEqual({ x: -1, y: 0 });
+    expect(f.dynamic.selectionEnd).toEqual({ x: 1, y: 1 });
+  });
+
 });

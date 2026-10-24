@@ -23,6 +23,19 @@ describe('clampSelectionBounds', () => {
     expect(result).toEqual({ x: 0, y: 10, width: 32, height: 22 });
   });
 
+  it.each([
+    [{ x: -16, y: 48, width: 96, height: 96 }, { x: 0, y: 48, width: 80, height: 96 }],
+    [{ x: 48, y: -16, width: 96, height: 96 }, { x: 48, y: 0, width: 96, height: 80 }],
+    [{ x: 240, y: 240, width: 32, height: 32 }, { x: 240, y: 240, width: 16, height: 16 }],
+    [{ x: -1.5, y: 10.25, width: 4, height: 2.5 }, { x: 0, y: 10, width: 3, height: 3 }],
+    [{ x: -32, y: 48, width: 16, height: 96 }, null],
+    [{ x: 272, y: 48, width: 16, height: 96 }, null],
+    [{ x: 48, y: -32, width: 96, height: 16 }, null],
+    [{ x: 48, y: 272, width: 96, height: 16 }, null],
+  ])('intersects original edges without shifting the selection: %p', (bounds, expected) => {
+    expect(clampSelectionBounds(bounds, 256, 256)).toEqual(expected);
+  });
+
   it('returns null for empty or negative bounds', () => {
     expect(clampSelectionBounds({ x: 0, y: 0, width: 0, height: 5 }, 10, 10)).toBeNull();
     expect(clampSelectionBounds({ x: 0, y: 0, width: 5, height: -2 }, 10, 10)).toBeNull();

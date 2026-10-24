@@ -219,10 +219,10 @@ export const clampSelectionBounds = (
     return null;
   }
 
-  const x = Math.max(0, Math.min(imageWidth - 1, Math.floor(bounds.x)));
-  const y = Math.max(0, Math.min(imageHeight - 1, Math.floor(bounds.y)));
-  const clampedWidth = Math.min(width, imageWidth - x);
-  const clampedHeight = Math.min(height, imageHeight - y);
+  const x = Math.max(0, Math.floor(bounds.x));
+  const y = Math.max(0, Math.floor(bounds.y));
+  const clampedWidth = Math.min(imageWidth, Math.ceil(bounds.x + bounds.width)) - x;
+  const clampedHeight = Math.min(imageHeight, Math.ceil(bounds.y + bounds.height)) - y;
 
   if (clampedWidth <= 0 || clampedHeight <= 0) {
     return null;

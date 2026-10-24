@@ -841,6 +841,85 @@ worktree change is included. Receipts under ignored `output/playwright/`:
 `area29-isolated-gate-v1-session39.json`, `area29-native-final-session39.json`,
 `area29-mosaic-canvas-history-qualified-reference-session39.json` and the commit receipt.
 
+## Session39 — Area30 software-verified: Fill
+
+Areas01–29 are committed complete. Area30 now passes all32 enumerated native cases
+and926 checks across10 suites on one rebuilt production artifact,
+`8cab65ac1ed545c5bd543916eeacdb468252df4faa2d6b6a6310bb7c3721bc5b`. A focused local commit follows;
+Areas31–65 remain pending. Physical devices, other browsers, performance and artist
+visual signoff are separate from this software proof.
+
+Three independently reproduced owner defects are repaired:
+
+- A30-01: Fill bypassed ordinary layer admission. Locked/hidden normal, CC and
+  sequence layers accepted pixels or semantic events and history. An actual
+  Adjustment target expanded its sparse1×1 allocation into a256×256 bitmap; Undo
+  did not recover the allocation. Fill now rejects invisible, locked and adjustment
+  targets before any capture, source read, allocation, authoring or history.
+- A30-02: clipping a marquee moved its origin while retaining its original width.
+  The genuine(-16,48)→(80,144) marquee selected7680 pixels, but normal/CC/sequence
+  Fill authored9216. The shared ROI helper now intersects original floor/ceil edges
+  with the image. Original mask origins remain intact. Explicit active selections
+  wholly outside the image now reject Fill instead of falling back to an ordinary
+  flood; native Escape clears ownership and fresh drawing works.
+- A30-03: contiguous raster Fill used replacement colour as its only visited
+  marker. A replacement inside seed tolerance revisited cells indefinitely. A
+  bounded pure subprocess and a public native four-pixel case reproduced the
+  freeze; a renderer-independent801ms watchdog interrupted it safely. A separate
+  contiguous visited plane now guarantees progress. Global matching and the RGBA
+  Euclidean metric remain unchanged. The repaired native path returns without the
+  watchdog, replays exactly and permits a fresh ordinary Pixel stroke.
+
+The necessary boundary is seven source/test files plus these two ledgers: Fill
+entry/existing tests, shared selection ROI/existing tests and floodFill/new tests.
+Two existing pointer-routing Fill fixtures also now explicitly declare their
+required visible/unlocked target flags; assertions and runtime behavior are unchanged.
+The initial full gate exposed those missing flags and its failure log is retained.
+The corrected pointer suite passed before the clean full gate was repeated.
+Each isolated repair candidate has fail-before evidence and independent source/test
+review. The clean archived commit candidate excludes all47 original unrelated
+changes. Its type-check and lint pass; full Jest reports:
+Test Suites: 1 skipped, 610 passed, 610 of 611 total; Tests:       1 skipped, 6045 passed, 6046 total; Snapshots:   2 passed, 2 total.
+
+Final native coverage uses actual F entry, Fill Threshold/Connected/Erase controls,
+trusted contacts, independent masks/RGBA or canonical/event payloads, actual
+publication, exact first Undo/Redo and source preservation. The32 cases cover
+normal connected/global matching and tolerance4/5, alpha0/128/129, active BG,
+Erase/no-op/recovery, the current opaque RGB palette contract, protected targets,
+rectangle/freehand/inverted/clipped selections, wholly outside selections,
+CC/sequence Fill and Erase, all layer admission guards, actual Adjustment,
+near-replacement/fresh Pixel recovery and clipped CC/sequence deselect/fresh Fill.
+Sequence assertions include the event prefix/chunks, all eight authored frames,
+cursor and sparse bitmap authority; CC includes all six planes, definitions,
+palettes and erase alpha. Every final suite restored its owned storage exactly.
+No Fill opacity UI or private authoring path was invented; active positive mask
+members retain the existing binary selection-fill contract.
+
+Fixture errors remain preserved separately: the initial watchdog assumed CLI VM
+global timers; V2 uses Playwright server deadlines. Animated setup initially
+expected unqualified reverse flow and empty chunk allocation, then included the
+RecordOFF toolbar pointer-up in the source receipt; final fixtures qualify forward
+flow, retain real chunks and freeze the genuine source contact before that toggle.
+The Adjustment row was scoped to the actual layers panel to avoid its same-name
+settings heading. None of those fixture corrections is claimed as an app repair.
+
+The original47 changes remain separate:46 owner-unrelated files are byte-exact,
+and removing only the reviewed Fill entry delta restores the original mixed file.
+Its previously staged BG addition stays staged and is excluded from the audit
+commit. Before commit the original staged patch SHA is4324cf52…; committing this
+same file necessarily changes Git's index hash metadata. The commit guard first
+proves the rebased original three-file/seven-addition staged patch has byte-exact
+hunks and context, allowing only index metadata to change, then verifies it again
+after commit. The commit receipt records both hashes. No push, deployment, branch
+or worktree change is included.
+
+Evidence: `area30-source-freeze-final-v2-session39.json`,
+`area30-preview-final-v2-session39.json`, `area30-isolated-gate-v2-session39.json`,
+`area30-native-final-session39.json`, the three qualified-before receipts and the
+focused commit receipt under ignored `output/playwright/`. Source and browser
+ownership remain centralized. Continue with Area31 Eyedropper after the fresh
+post-commit preservation baseline.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

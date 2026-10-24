@@ -172,6 +172,7 @@ export function floodFill(
   }
 
   const thresholdSq = threshold * threshold;
+  const visited = contiguous ? new Uint8Array(width * height) : null;
   let minX = width;
   let minY = height;
   let maxX = -1;
@@ -185,6 +186,7 @@ export function floodFill(
   };
 
   const matchStartColor = (pixelPos: number): boolean => {
+    if (visited?.[pixelPos / 4] === 1) return false;
     const r = data[pixelPos];
     const g = data[pixelPos + 1];
     const b = data[pixelPos + 2];
@@ -203,6 +205,7 @@ export function floodFill(
   };
 
   const colorPixel = (pixelPos: number, x: number, y: number): void => {
+    if (visited) visited[pixelPos / 4] = 1;
     data[pixelPos] = fillColor.r;
     data[pixelPos + 1] = fillColor.g;
     data[pixelPos + 2] = fillColor.b;

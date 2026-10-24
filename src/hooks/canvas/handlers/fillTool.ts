@@ -434,7 +434,15 @@ export const runFillToolPointerDown = ({
 }): void => {
   const activeLayer = dynamic.layers.find((layer) => layer.id === dynamic.activeLayerId);
   const project = dynamic.project;
-  if (!activeLayer || !project) return;
+  if (
+    !activeLayer || !project || !activeLayer.visible || activeLayer.locked ||
+    activeLayer.layerType === 'adjustment'
+  ) return;
+  const hasSelection = Boolean(
+    (dynamic.selectionMask && dynamic.selectionMaskBounds) ||
+    (dynamic.selectionStart && dynamic.selectionEnd)
+  );
+  if (hasSelection && !resolveSelectionRasterScope(dynamic, project.width, project.height).bounds) return;
   const beforeColorState = activeLayer.layerType === 'color-cycle'
     ? captureColorCycleBrushState(activeLayer.id)
     : null;
