@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { act, render, fireEvent, screen } from '@testing-library/react';
 import { GradientEditor, type GradientEditorHandle } from '../GradientEditor';
 
 const startRecolorSampling = jest.fn();
@@ -196,5 +196,132 @@ describe('GradientEditor', () => {
     expect(onChange).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({ color: '#00FF00' }),
     ]));
+  });
+
+  describe('minimum two stops', () => {
+    let pendingFrames: Map<number, FrameRequestCallback>;
+
+    const flushGradientFrame = () => {
+      act(() => {
+        const callbacks = [...pendingFrames.values()];
+        pendingFrames.clear();
+        callbacks.forEach((callback) => callback(0));
+      });
+    };
+
+    const twoStops = [
+      { position: 0, color: '#FF0000', opacity: 1 },
+      { position: 1, color: '#0000FF', opacity: 1 },
+    ];
+    const threeStops = [
+      twoStops[0],
+      { position: 0.5, color: '#00FF00', opacity: 1 },
+      twoStops[1],
+    ];
+    const getBar = (container: HTMLElement) => {
+      const bar = container.querySelector<HTMLElement>('.gradient-editor [tabindex="0"]');
+      if (!bar) throw new Error('Gradient bar missing');
+      return bar;
+    };
+    const stopLabels = () => screen.getAllByRole('button', { name: /^Gradient stop / })
+      .map((button) => button.getAttribute('aria-label'));
+
+    beforeEach(() => {
+      pendingFrames = new Map();
+      let frameId = 0;
+      jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+        frameId += 1;
+        pendingFrames.set(frameId, callback);
+        return frameId;
+      });
+      jest.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+        pendingFrames.delete(id);
+      });
+    });
+
+    it.each([
+      ['Delete', 'inline'],
+      ['Backspace', 'inline'],
+      ['Delete', 'external'],
+      ['Backspace', 'external'],
+    ] as const)('rejects %s at two stops in %s mode without leaking a canvas key', (key, mode) => {
+      const onChange = jest.fn();
+      const onSelectedStopChange = jest.fn();
+      const globalKey = jest.fn();
+      const { container } = render(
+        <GradientEditor
+          stops={twoStops}
+          onChange={onChange}
+          colorEditingMode={mode}
+          onSelectedStopChange={onSelectedStopChange}
+        />,
+      );
+      const selected = screen.getByRole('button', { name: 'Gradient stop 1 #FF0000' });
+      fireEvent.click(selected);
+      onSelectedStopChange.mockClear();
+      document.addEventListener('keydown', globalKey);
+      try {
+        fireEvent.keyDown(getBar(container), { key });
+        flushGradientFrame();
+        expect(stopLabels()).toEqual(['Gradient stop 1 #FF0000', 'Gradient stop 2 #0000FF']);
+        expect(selected).toHaveAttribute('aria-pressed', 'true');
+        expect(onChange).not.toHaveBeenCalled();
+        expect(onSelectedStopChange).not.toHaveBeenCalled();
+        expect(globalKey).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener('keydown', globalKey);
+      }
+    });
+
+    it.each(['Delete', 'Backspace'])('preserves valid three-to-two %s and local undo/redo', (key) => {
+      const onChange = jest.fn();
+      const { container } = render(<GradientEditor stops={threeStops} onChange={onChange} />);
+      const bar = getBar(container);
+      fireEvent.click(screen.getByRole('button', { name: 'Gradient stop 2 #00FF00' }));
+      fireEvent.keyDown(bar, { key });
+      flushGradientFrame();
+      expect(onChange).toHaveBeenLastCalledWith(twoStops);
+      expect(stopLabels()).toEqual(['Gradient stop 1 #FF0000', 'Gradient stop 2 #0000FF']);
+      fireEvent.keyDown(bar, { key: 'z', ctrlKey: true });
+      flushGradientFrame();
+      expect(onChange).toHaveBeenLastCalledWith(threeStops);
+      expect(stopLabels()).toEqual([
+        'Gradient stop 1 #FF0000', 'Gradient stop 2 #00FF00', 'Gradient stop 3 #0000FF',
+      ]);
+      fireEvent.keyDown(bar, { key: 'z', ctrlKey: true, shiftKey: true });
+      flushGradientFrame();
+      expect(onChange).toHaveBeenLastCalledWith(twoStops);
+      expect(stopLabels()).toEqual(['Gradient stop 1 #FF0000', 'Gradient stop 2 #0000FF']);
+    });
+
+    it.each(['Delete', 'Backspace'])('does not consume an existing redo when %s is rejected', (key) => {
+      const onChange = jest.fn();
+      const { container } = render(<GradientEditor stops={twoStops} onChange={onChange} />);
+      const bar = getBar(container);
+      jest.spyOn(bar, 'getBoundingClientRect').mockReturnValue({
+        x: 0, y: 0, left: 0, top: 0, right: 200, bottom: 16, width: 200, height: 16,
+        toJSON: () => ({}),
+      });
+      fireEvent.click(bar, { clientX: 50, clientY: 8 });
+      flushGradientFrame();
+      const added = [twoStops[0], { position: 0.25, color: '#bf0040', opacity: 1 }, twoStops[1]];
+      expect(onChange).toHaveBeenLastCalledWith(added);
+      fireEvent.keyDown(bar, { key: 'z', ctrlKey: true });
+      flushGradientFrame();
+      expect(onChange).toHaveBeenLastCalledWith(twoStops);
+      // Select through the click handler without starting an unrelated drag edit.
+      fireEvent.click(screen.getByRole('button', { name: 'Gradient stop 1 #FF0000' }));
+      onChange.mockClear();
+      fireEvent.keyDown(bar, { key });
+      flushGradientFrame();
+      expect(onChange).not.toHaveBeenCalled();
+      expect(stopLabels()).toEqual(['Gradient stop 1 #FF0000', 'Gradient stop 2 #0000FF']);
+      fireEvent.keyDown(bar, { key: 'z', ctrlKey: true, shiftKey: true });
+      flushGradientFrame();
+      expect(onChange).toHaveBeenLastCalledWith(added);
+      expect(stopLabels()).toEqual([
+        'Gradient stop 1 #FF0000', 'Gradient stop 2 #bf0040', 'Gradient stop 3 #0000FF',
+      ]);
+    });
   });
 });

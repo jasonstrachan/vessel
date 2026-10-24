@@ -999,6 +999,60 @@ Retain `area31-supplement-before-v1-classification-and-area37-lead-session39.jso
 and investigate the rendering owner in Area37. The completed Eyedropper repair
 includes no compositor change and does not claim that deferred finding is fixed.
 
+## Session39 — Area32 final software signoff: Colour panel
+
+Areas01–32 are software-verified; Areas33–65 remain pending. Area32 passes all
+11 native cases/392 checks on production artifact `de048c0034d88571ec8ebca9d954fbcbe4be0e5ef239905585034f3cbd6dc91f`.
+The full isolated task-only gate passes type-check, lint and610suites/6062tests,
+with two passing snapshots and one existing skipped suite/test. Production build
+and independent source/test/diff review pass. A focused local commit follows.
+
+A32-01: trusted Delete at the two-stop minimum removed one visible local stop
+while the palette, project and brush runtime retained both. The existing shared
+GradientEditor now rejects Delete/Backspace at the minimum or an invalid index
+before pushing local history. This preserves editor/material agreement, selected
+stop and an existing Redo. Valid3→2 deletion and local Undo/Redo still work. Six
+new semantic failures reproduced before the repair; all14 editor tests now pass.
+The eight added regressions cover both keys, inline/external modes, callback and
+global-key isolation, valid deletion/replay and rejected deletion retaining Redo.
+
+Native coverage includes RGB endpoints, FG/BG and full-alpha X/ShiftX swap/copy,
+selected-colour opacity, HSV hue/cells/white/black and retained hue, held RGB/HSV
+clamps/release/hover, and actual Pixel colour-alpha0/50/100 with exact complete
+bitmap/framebuffer, natural history publication, Undo/Redo and fresh strokes.
+Shared ClassicRGB/Ocean selection survives real tool/preset/layer routing; external
+stop RGB/opacity targets leave FG/BG and committed sources exact, then native
+swatch selection returns editing to the intended slot. Gradient add/drag/local
+UndoRedo/valid deletion, rejected minimum Delete and Backspace, and real rename
+x/Escape/fresh workspace X all pass. Source rasters/framebuffers, resident six
+planes/bindings and canvas history remain exact for colour-only editing.
+
+The public main panel has RGB/HSV, without numeric HSL, Hex or Transparent;
+recent swatches are shared CC gradients. Separate inline editor/storage and
+broader propagation belong Area33. No unsupported control was invented. Native
+RGB range input uses its actual18px thumb track: an independent pre-input plan
+predicts197 at the tested point, and trusted input/up/change/material all agree.
+The prior191 fullrect expectation and INPUT ownCapture flag were fixture errors,
+not RGB app defects. Trusted same-pointer got/lost capture remains required.
+Swatch checks await the unchanged exact CSS-transition endpoint. Gradient source
+positions use a preplanned integer MouseEvent point; visible percentages use
+independent CSSOM serialization. Original failed fixtures/receipts are retained.
+
+Evidence under ignored output/playwright: area32-gradient-minimum-qualified-
+before-session39.json; area32-rgb-native-range-before-v3-classification-session39.json;
+area32-native-final-session39.json; area32-preview-final-v1-session39.json;
+area32-source-freeze-final-v1-session39.json; area32-isolated-gate-v1-session39.json.
+Native suites restore original owned storage after real startup persistence and
+remove observers; the named browser session is closed. Physical-device input,
+global palette save/load, playback/export and subjective visual signoff are not
+claimed by this panel area. The separate Area37 blend lead remains deferred.
+
+Scope is exactly GradientEditor, its existing test, and these two ledgers. All47
+original working changes and the staged three-file/seven-addition patch remain
+byte-exact at `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`. No mixed owner is involved. No push,
+deployment, branch, worktree or chat creation. Area33 inventory/native preparation
+and its baseline helper remain unrun/unactivated until this area is committed.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

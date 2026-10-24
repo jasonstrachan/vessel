@@ -630,9 +630,9 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
     }
     // Delete stop
     if (key === 'Delete' || key === 'Backspace') {
-      pushUndo(stops);
       const index = selectedStop;
-      if (index < 0 || index >= stops.length) return;
+      if (stops.length <= 2 || index < 0 || index >= stops.length) return;
+      pushUndo(stops);
       const newStops = stops.filter((_, i) => i !== index);
       const newSelected = newStops.length === 0 ? null : Math.min(index, newStops.length - 1);
       setStops(newStops);
