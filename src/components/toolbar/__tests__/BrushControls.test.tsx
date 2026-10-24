@@ -41,6 +41,7 @@ const mockStore = {
       color: '#ffffff',
     },
     currentTool: 'brush',
+    shapeMode: false,
     globalBrushSize: 12,
   },
   setBrushSettings: jest.fn(),
@@ -85,6 +86,7 @@ describe('BrushControls', () => {
     mockStore.currentBrushPreset = { id: 'pixel-square', name: 'Pixel' };
     mockStore.tools.brushSettings = { ...baseBrushSettings };
     mockStore.tools.currentTool = 'brush';
+    mockStore.tools.shapeMode = false;
   });
 
   it.each(['brush', 'eraser'] as const)('keeps the %s maximum pressure display coherent when a clamp leaves the stored range unchanged', (tool) => {
@@ -338,6 +340,103 @@ describe('BrushControls', () => {
     expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ risographOutline: false });
     expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
     expect(mockStore.tools.eraserSettings).toEqual(savedEraserSettings);
+  });
+
+  it.each([false, true])('omits unsupported Resampler material controls with continuous sampling %s without changing retained preferences', (continuousSampling) => {
+    mockStore.currentBrushPreset = { id: 'resampler', name: 'Resampler' };
+    mockStore.tools.shapeMode = true;
+    Object.assign(mockStore.tools.brushSettings, {
+      brushShape: BrushShape.RESAMPLER,
+      continuousSampling,
+      resampleInterval: 3,
+      pressureEnabled: true,
+      minPressure: 50,
+      maxPressure: 150,
+      rotationEnabled: true,
+      dashedEnabled: true,
+      dashLength: 1,
+      dashGap: 2,
+      velocityDashGapStrength: 0,
+      gridSnapEnabled: true,
+      gridSnapSize: 16,
+      risographIntensity: 100,
+      risographColorShift: 10,
+      risographOutline: true,
+    });
+    const savedSettings = { ...mockStore.tools.brushSettings };
+
+    render(<BrushControls />);
+
+    expect(screen.queryByLabelText('Risograph Intensity')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Riso Hue Jitter')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Edges' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Shape' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Continuous')).toHaveProperty('checked', continuousSampling);
+    expect(screen.getByLabelText('Resample Interval')).toHaveValue('3');
+    expect(screen.getByLabelText('Brush Size (px)')).toBeEnabled();
+    expect(screen.getByLabelText('Opacity')).toBeEnabled();
+    expect(screen.getByLabelText('Spacing')).toBeEnabled();
+    expect(screen.getByLabelText('Pressure %')).toBeChecked();
+    expect(screen.getByRole('spinbutton', { name: 'Pressure minimum percent' })).toHaveValue(50);
+    expect(screen.getByRole('spinbutton', { name: 'Pressure maximum percent' })).toHaveValue(150);
+    expect(screen.getByLabelText('Rotation')).toBeChecked();
+    expect(screen.getByLabelText('Dashed')).toBeChecked();
+    expect(screen.getByLabelText('Grid Snap')).toBeChecked();
+    expect(mockStore.tools.brushSettings).toEqual(savedSettings);
+    expect(mockStore.tools.shapeMode).toBe(true);
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+    expect(mockStore.setShapeMode).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText('Continuous'));
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ continuousSampling: !continuousSampling });
+    for (const [label, value, update] of [
+      ['Resample Interval', '7', { resampleInterval: 7 }],
+      ['Opacity', '0.5', { opacity: 0.5 }],
+      ['Spacing', '4', { spacing: 4 }],
+    ] as const) {
+      const slider = screen.getByLabelText(label);
+      fireEvent.change(slider, { target: { value } });
+      fireEvent.blur(slider);
+      expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith(update);
+    }
+    const size = screen.getByLabelText('Brush Size (px)');
+    fireEvent.change(size, { target: { value: '24' } });
+    fireEvent.blur(size);
+    expect(mockStore.setGlobalBrushSize).toHaveBeenLastCalledWith(24);
+    for (const [label, update] of [
+      ['Pressure %', { pressureEnabled: false }],
+      ['Rotation', { rotationEnabled: false }],
+      ['Dashed', { dashedEnabled: false }],
+      ['Grid Snap', { gridSnapEnabled: false }],
+    ] as const) {
+      fireEvent.click(screen.getByLabelText(label));
+      expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith(update);
+    }
+    expect(mockStore.tools.brushSettings).toEqual(savedSettings);
+    expect(mockStore.setShapeMode).not.toHaveBeenCalled();
+  });
+
+  it('keeps supported Soft Riso and Shape controls usable', () => {
+    mockStore.currentBrushPreset = { id: 'soft-round', name: 'Soft' };
+    Object.assign(mockStore.tools.brushSettings, {
+      brushShape: BrushShape.ROUND,
+      risographIntensity: 100,
+      risographColorShift: 10,
+      risographOutline: true,
+    });
+    const savedSettings = { ...mockStore.tools.brushSettings };
+
+    render(<BrushControls />);
+
+    const intensity = screen.getByLabelText('Risograph Intensity');
+    fireEvent.change(intensity, { target: { value: '50' } });
+    fireEvent.blur(intensity);
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ risographIntensity: 50 });
+    expect(screen.getByLabelText('Riso Hue Jitter')).toHaveValue('10');
+    expect(screen.getByRole('checkbox', { name: 'Edges' })).toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Shape' }));
+    expect(mockStore.setShapeMode).toHaveBeenLastCalledWith(true);
+    expect(mockStore.tools.brushSettings).toEqual(savedSettings);
   });
 
   it.each([false, true])('hides unsupported Rectangle effects with dithering %s without changing retained settings', (ditherEnabled) => {

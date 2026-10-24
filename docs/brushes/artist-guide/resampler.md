@@ -17,8 +17,6 @@ rewrite itself.
 | Size | Footprint of the sampled material. |
 | Opacity | Strength of the transferred image. Low opacity blends and ghosts; high opacity relocates it decisively. |
 | Spacing / Vel | Interval between sampled stamps and optional speed response. |
-| Riso | Adds print Intensity, Hue Jitter, and optional edge emphasis to the transferred material. |
-| Shape | Closes the gesture and applies resampled material as a bounded form where supported. |
 | Pressure / Min / Max | Varies the sampled footprint with pressure. |
 | Rotation | Turns sampled stamps along the gesture, making the source visibly repeat or spiral. |
 | Dashed / L / G / V | Breaks the sampled trail into repeated units and speed-responsive gaps. |

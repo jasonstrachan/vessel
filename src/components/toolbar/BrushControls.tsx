@@ -3143,37 +3143,6 @@ const BrushControls = () => {
             }
           />
         )}
-        <RisoControls
-          settings={activeSettings}
-          onChange={setActiveSettings}
-          idSuffix="resampler"
-          Slider={NonCcSlider}
-          showHueAndEdges={currentTool !== 'eraser'}
-        />
-
-        {/* Shape Mode - Draw closed polygon shapes */}
-        {!hideShapeToggle && (
-          <div className="mb-2">
-            <div className="flex items-center gap-2">
-              <label
-                htmlFor="shape-mode-resampler"
-                className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
-              >
-                Shape
-              </label>
-              <CustomSwitch
-                id="shape-mode-resampler"
-                checked={shapeMode || false}
-                onChange={(checked) => {
-                  try { debugLog('raw-console', '[SHAPE/UI] toggle (resampler)', { checked }); } catch {}
-                  setShapeMode(checked);
-                }}
-              />
-            </div>
-          </div>
-        )}
-
         {/* Pressure */}
         <div className="mb-2">
           <div className="flex items-center gap-2">

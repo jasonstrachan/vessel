@@ -63,10 +63,7 @@ export const startNonColorCycleBrushStroke = ({
     resamplerBrushDataRef.current = customBrushData;
   }
 
-  if (
-    currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER &&
-    !currentState.tools.brushSettings.continuousSampling
-  ) {
+  if (currentState.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
     const resamplerSample = captureResamplerSingleSample({
       samplePos: worldPos,
       brushSize: currentState.tools.brushSettings.size || 20,

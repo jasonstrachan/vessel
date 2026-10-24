@@ -1101,6 +1101,10 @@ const hydrateGlobalBrushSettings = (): void => {
       }
     }
 
+    if (nextTools.brushSettings.brushShape === BrushShape.RESAMPLER && nextTools.shapeMode) {
+      nextTools = { ...nextTools, shapeMode: false };
+    }
+
     if (payload.pressureSettings) {
       const pressureUpdates = {
         enabled: payload.pressureSettings.enabled,

@@ -1,6 +1,6 @@
 import { inflateRect, normalizeRectForCanvas, pick2D, pick2DRead, type Rect } from './engineShared';
 
-import type { BrushSettings } from '@/types';
+import { BrushShape, type BrushSettings } from '@/types';
 
 export const renderLiveStrokePreview = ({
   restoreBase = false,
@@ -216,5 +216,7 @@ export const renderLiveStrokePreview = ({
   withAlphaLock(visibleCtx, (targetCtx) => {
     targetCtx.drawImage(rawCanvas as CanvasImageSource, x, y, width, height, x, y, width, height);
   }, presentationBounds);
-  applyStrokeRisographOverlay(visibleCtx, presentationBounds, rawSource);
+  if (brushSettings.brushShape !== BrushShape.RESAMPLER) {
+    applyStrokeRisographOverlay(visibleCtx, presentationBounds, rawSource);
+  }
 };

@@ -11,9 +11,11 @@ type ResamplerSampleArgs = {
   brushSize: number;
   compositeCanvas: HTMLCanvasElement | null;
   resamplerBrushDataRef: React.MutableRefObject<CustomBrushStrokeData | undefined>;
-  cacheKey: string;
+  cacheKeyPrefix: string;
   clampToCanvas: boolean;
 };
+
+let resamplerCaptureRevision = 0;
 
 const captureResamplerSample = (
   args: ResamplerSampleArgs,
@@ -52,15 +54,16 @@ const captureResamplerSample = (
   );
 
   if (captureResult) {
+    const cacheKey = `${args.cacheKeyPrefix}:${++resamplerCaptureRevision}`;
     (captureResult.imageData as ImageData & { __vesselCacheKey?: string }).__vesselCacheKey =
-      args.cacheKey;
+      cacheKey;
     args.resamplerBrushDataRef.current = {
       imageData: captureResult.imageData,
       width: captureResult.width,
       height: captureResult.height,
       isColorizable: false,
       isResampler: true,
-      cacheKey: args.cacheKey,
+      cacheKey,
     };
   }
 
@@ -79,7 +82,7 @@ export const captureResamplerSingleSample = (
   captureResamplerSample(
     {
       ...args,
-      cacheKey: 'resampler:single',
+      cacheKeyPrefix: 'resampler:single',
       clampToCanvas: false,
     },
     deps
@@ -108,7 +111,7 @@ export const updateContinuousResamplerSample = (
         brushSize: args.brushSize,
         compositeCanvas: args.compositeCanvas,
         resamplerBrushDataRef: args.resamplerBrushDataRef,
-        cacheKey: 'resampler:continuous',
+        cacheKeyPrefix: 'resampler:continuous',
         clampToCanvas: true,
       },
       deps

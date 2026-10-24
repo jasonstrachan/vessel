@@ -7,7 +7,7 @@ marquee/layer deletion/deselection plus strokes that disappear until Undo.
 This supersedes the historical no-subagent/model notes below. The current branch
 and all unrelated work remain preserved. Areas01–19 retain their prior area
 signoffs; the follow-up defects below are repaired and locally committed in375d6480e.
-Areas20–23 signoffs follow; Areas24–65 remain incomplete, with no whole-app completion claimed.
+Areas20–24 signoffs follow; Areas25–65 remain incomplete, with no whole-app completion claimed.
 
 - S39-01: completed marquee Escape left its bounds/mask active. Raster previews
   appeared but canonical commits outside that selection were clipped; native
@@ -366,6 +366,75 @@ Evidence: `area23-native-final-session39.json`,
 source freezes, before/after logs and review notes under ignored `output/playwright/`.
 Named-session cleanup confirms no matching daemon remains. Continue with Area24
 Resampler from its prepared native starter and a fresh post-commit baseline.
+
+
+## Session39 — Area24 final software signoff: Resampler
+
+Area 24 is software-verified. Areas 01–24 are complete; Areas 25–65 remain pending.
+The guarded local commit is recorded in `area24-commit-receipt-session39.json`.
+The public preset follows regular stroke sampling → custom-tip rendering/cache →
+raster preview/commit/history. Five reproduced defects are repaired at that path:
+
+- A24-01: fresh same-sized red/blue captures reused constant cache identities,
+  so Continuous and consecutive strokes retained stale red material. Each successful
+  new capture now gets one distinct stable revision on both cache aliases; skipped,
+  failed and retained samples preserve identity. Shared bounded caches are unchanged.
+- A24-02: Continuous ON skipped the initial composite sample and painted nothing
+  on first contact. Both modes now seed the initial source through the existing
+  capture seam. The subsequent processed-move interval counter remains unchanged.
+- A24-03: unsupported Shape painted foreground colour instead of sampled material,
+  and Riso controls could not affect final sampled pixels. Remove only those
+  Resampler controls and guide claims. Real support needs a new alpha-preserving
+  material pipeline and shape sample-lifetime policy; no substitute was invented.
+- A24-04: effective unsupported Shape could return through settings, preset/tool
+  changes and real startup hydration. Clamp effective Resampler mode at these
+  existing admission owners while preserving raw per-brush maps, retained Riso
+  preferences and other brushes' regular/Color Cycle shape memories.
+- A24-05: retained Riso intensity darkened 1,024 held midtone pixels, then release
+  restored the untouched sample. The ordinary Resampler preview now skips that
+  unsupported overlay, matching raw and committed material. Other brushes retain it.
+
+Production artifact `e5073a37fb8c1fe6ddb8d944866d6d4608a6e26902944abab840ddd626ad6916` passes
+**43 native cases / 411 checks** across eleven suites. Positive source
+fixtures establish native size/opacity/alpha transfer, same-sized fresh captures,
+Continuous first taps and red→blue movement, Interval1/10 actual capture cadence,
+Spacing1/40, Grid16 coalescing/adjacency, measured velocity controls, pressure
+.25/.75 at50–150%, asymmetric rotation, dash L/G/V controls and speed response,
+Size1/500, zero-opacity no-op and recovery, project-edge crop, CC rejection followed
+by normal fresh ink, locked-target rejection and existing layer-row routing.
+Selection→paint→Delete→Undo/Redo→repeated Delete→Escape→fresh capture passes.
+Canonical RGBA and actual normalized framebuffer history remain exact, and other
+layers are byte-preserved. Startup uses actual versionless localStorage plus real
+reload before any store action; owned settings/session bytes are restored exactly,
+with legitimate unrelated reload telemetry recorded. Hidden inputs use attached
+readiness plus a separate visible label/control check.
+
+Unsupported controls are absent in both continuous modes; direct Shape requests
+and tool return stay disabled while raw memories/preferences remain. Held Riso0/100
+actual raw/preview/display/final material is identical with positive coverage.
+Cadence includes the intentional initial capture: Interval1 starts32 then40..224;
+Interval10 captures32,112,192 for the declared24 native8px moves. Small dash gaps
+may be bridged by the sampled tip; Gap2 and speed matrices require positive gaps
+and independent density comparisons rather than an invented Gap1 blank-column rule.
+
+Owner regressions fail semantically before and pass after. Two independent source
+reviews found no actionable introduced issues. Task-only type-check, lint and
+**606 suites / 5,897 tests** pass with the existing snapshot and skipped
+suite/test. A successful production build binds all thirteen task inputs, including
+six runtime owners, six test files and the guide. The complete commit boundary is
+fifteen files with these two ledgers; every task owner began clean at HEAD.
+
+All 47 original working paths and the exact three-file staged patch remain
+preserved. No branch change, push or deployment. Physical tablet, subjective visual
+signoff and broad performance remain separate limits. Unsupported retained Dither
+branches and a new Riso/Shape feature implementation were not claimed. Invalid
+fixture assumptions and before receipts are retained, not counted as acceptance.
+
+Evidence: `area24-native-final-session39.json`,
+`area24-preview-final-v1-session39.json`, `area24-isolated-gate-v2-session39.json`,
+source freezes and independent reviews under ignored `output/playwright/`.
+Named-session cleanup confirms no matching daemon remains. Continue with Area25
+Mosaic from its prepared starter and a fresh post-commit preservation baseline.
 
 
 ## Current continuation — Session38, Area19 complete
