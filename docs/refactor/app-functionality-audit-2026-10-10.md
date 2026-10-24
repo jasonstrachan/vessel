@@ -1052,6 +1052,61 @@ byte-exact at `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`
 deployment, branch, worktree or chat creation. Area33 inventory/native preparation
 and its baseline helper remain unrun/unactivated until this area is committed.
 
+## Session39 — Area33 final software signoff: Gradients
+
+Areas01–33 are software-verified; Areas34–65 remain pending. All 11 native cases /
+506 checks pass on production artifact `f415a78ac0c00f7641f2b07b75f8874d65c58d9814896dd1498aeba4acc0055f`.
+Type-check, lint, 610 suites / 6069 tests and two snapshots pass in the isolated
+task-only gate, with one existing skipped suite/test. Production build and
+independent source/test review pass. A focused local commit follows.
+
+A33-01: captured custom-gradient row B-before-A left the customs unchanged and
+swapped the first two defaults. Dropdown emitted filtered draggable slots while
+its sole production reorder caller consumed full option indices. The source
+callback now emits actual option indices; internal drag/drop, selection, actions
+and persistence stay unchanged. Both index regressions failed before; all ten
+component tests pass after. Seven added pointer tests cover both directions
+past a fixed default prefix and action suffix, stationary default/custom
+selection, actions, interactive children and cancellation. Native after-proof
+requires the exact custom order, unchanged full default prefix and real reload.
+
+Native coverage includes the actual Mosaic inline editor catalogue/defaults;
+Hex/default fork/same-ID edits and reload; Transparent/opaque restoration;
+integer add/drag/Delete and local Undo/Redo; native +Add/remove/no resurrection;
+custom reorder and persistence. Positive inline uniform edits author two literal
+8x32 opaque Mosaic marks with exact full bitmap/framebuffer and native replay.
+Shared Classic RGB/Ocean future CC marks retain exact source/runtime/slot
+bindings, old six-plane bytes/rendered material, and native Undo/Redo. Conditional
+public recolor cases prove first-edit conversion, full source/index/palette,
+literal uniform rendered/view output, parent publication, exit/reopen/Escape and
+stored flow semantics. Recolor canvas history, animated timing and export remain
+Area35 obligations; these bounded cases do not claim their correctness.
+
+The CC before fixture initially used contrast0, which correctly collapses stops
+to their mean. Source-preserving contrast70 fixes that test premise; unchanged
+strict literal runtime/source/slot expectations pass. This was not an app defect.
+Original failed receipts and the explicit independent-review correction remain.
+Recolor Reverse/Pong describe flow, with no dedicated stop-order Reverse control.
+Original dirty BrushLibrary source remains preserved and is included in the
+working production preview; public entry reachability was proven natively.
+
+Evidence under ignored `output/playwright/` includes
+`area33-custom-reorder-qualified-before-session39.json`,
+`area33-cc-future1-qualified-before-session39.json`,
+`area33-recolor-parent2-qualified-before-session39.json`,
+`area33-native-final-session39.json`, `area33-preview-final-v1-session39.json`,
+`area33-source-freeze-final-v1-session39.json` and
+`area33-isolated-gate-v1-session39.json`. Every suite restores its exact owned
+storage/session packet after real startup persistence and removes observers.
+The named headless browser session is closed. Physical-device and subjective
+visual signoff are not established by these software checks.
+
+Scope is exactly Dropdown, its existing test and these two ledgers. All47
+original working changes and staged three-file/seven-addition patch remain
+byte-exact at `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`. No mixed owner is involved. No push,
+deployment, branch, worktree or chat creation. Area34 preparation is read-only;
+it is not activated or signed off by this area.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1102,7 +1157,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 30 | Fill: tolerance/contiguous, alpha/colour, selection boundary, raster/CC/sequence, undo/redo | fillTool, tools slice | software-verified (Session39;32 native cases; focused local commit follows) |
 | 31 | Eyedropper: click/held P, source/sample size, alpha, FG/BG, return to previous tool | color picker handlers/panel | software-verified (Session39;17native cases/391checks; full gate and focused local commit receipt) |
 | 32 | Colour panel: RGB/HSV, FG/BG swap/copy, opacity, shared gradient swatches | ColorPickerPanel, palette slice | software-verified (Session39;11 native cases/392checks; focused local commit follows) |
-| 33 | Gradients: edit/add/remove/move stops, presets, reverse, recent/custom palette, CC propagation | gradient editor, palette/CC state | pending |
+| 33 | Gradients: inline stops/history/Hex/Transparent, saved presets/customs/persistence, CC propagation | gradient editor, saved brush gradients, palette/CC state | software-verified (Session39;11 native cases/506 checks; focused local commit follows) |
 | 34 | Colour Adjust: hue/saturation/lightness/levels, preview/cancel/apply, selection, CC data, history | ColorAdjustToolPanel, colorAdjust slice | pending |
 | 35 | Recolor: source modes, quantisation, palette/animation, layer conversion, history | recolor controls, RecolorManager | pending |
 | 36 | Layers: add/rename/select/delete/duplicate, last layer, active fallback, history | LayersPanel, layers slice/services | pending |

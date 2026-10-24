@@ -215,7 +215,7 @@ const Dropdown: React.FC<DropdownProps> = ({
 
     const finalSlot = targetSlot ?? dragState.reorderableSlot;
     if (dragState.hasMoved && onReorder && finalSlot !== dragState.reorderableSlot) {
-      onReorder(dragState.reorderableSlot, finalSlot);
+      onReorder(dragState.optionIndex, dragState.reorderableIndices[finalSlot]);
     }
 
     if (!dragState.hasMoved) {
