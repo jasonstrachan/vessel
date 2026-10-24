@@ -75,7 +75,10 @@ export const startDrawingHandler = ({
     },
   });
   if (!drawCtx) {
-    return false;
+    // Sampling is a palette gesture that still needs pointer move/up routing.
+    const activeLayer = currentState.layers.find((layer) => layer.id === currentState.activeLayerId);
+    return currentTool === 'brush' && ccFlags.isAny &&
+      samplingCanvas.brushSamplingPreviewActiveRef.current && activeLayer?.layerType === 'color-cycle';
   }
 
   if (ccFlags.isAny && currentTool === 'brush') {

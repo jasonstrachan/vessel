@@ -522,6 +522,48 @@ Immediately repair the separately reproduced CC sampling-start contract, then
 continue Area26 Shape Pattern from a fresh preservation baseline.
 
 
+## Session39 — Reported CC sampling gesture final software signoff
+
+The separately reproduced retained Color Cycle one-use sampling gesture is repaired.
+Areas01–25 remain complete; Areas26–65 remain pending. The local commit is recorded
+in `reported-cc-oneuse-commit-receipt-session39.json`.
+
+The sampling initializer deliberately returns no painting context after starting a
+palette-only preview. The stroke-start owner previously treated that as a rejected
+start, so pointer routing cleared the gesture before movement and release could
+sample and finalize it. Accept the initialized nonpainting CC brush gesture only
+when an actual active Color Cycle layer matches the existing finalizer capability.
+Earlier prelude/session rejection and unrelated missing contexts still reject.
+Ordinary CC painting on supported sequential layers retains its existing context
+path. No painter is invoked for a palette-only start.
+
+Production artifact `97e654f1ead7d550b8fd60a45594971414e75cf8ed72b268a3c512c73725d532` passes
+**11 native cases / 115 checks** across three suites. The exact declared
+retained one-use preference on the real CC Palette source now captures the independently
+verified red/blue committed composite, disables one-use, preserves the nonauthoring
+contact's six canonical planes, actual RGBA and history, and paints the next gesture
+with the captured binding without Undo. Its exact six-plane/RGBA Undo/Redo passes.
+The dedicated CC interface has no Mosaic one-use action dropdown; that fixture is
+explicit and does not claim a nonexistent UI control. Four Mosaic sampling cases
+and six selection/Delete/layer/lock/recovery boundary cases remain passing on the
+same artifact, including source-layer and bitmap/framebuffer history preservation.
+Owned storage is restored exactly after real reload and no runtime errors occur.
+
+Qualified before regressions fail and final seven focused suites/225tests pass.
+The independent review is hash-bound to both final source/test inputs. Isolated
+HEAD-plus-task type-check, lint and **608suites / 5,940tests** pass with the
+existing snapshot and skipped suite/test. The production build and native scripts
+are bound to the final two-file freeze. The complete commit boundary is these two
+owners and the two audit ledgers. Original47working paths and the exact original
+three-file staged patch remain preserved. No push, deployment or branch change.
+Physical-tablet and subjective visual signoff remain separate audit limits.
+
+Evidence: `reported-cc-oneuse-native-final-session39.json`, final production binding,
+isolated gate, source-v2 freeze, independent review and native scripts/receipts under
+ignored `output/playwright/`. Named-session cleanup confirms no matching daemon.
+Continue Area26 Shape Pattern from a fresh preservation baseline.
+
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
