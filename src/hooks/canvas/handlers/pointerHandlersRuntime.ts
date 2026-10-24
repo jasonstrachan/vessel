@@ -3768,9 +3768,14 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       return;
     }
 
+    const isRectangleGradientWidth = toolStateMachine.isRectangleGradient &&
+      toolStateMachine.rectangleBrushState.drawingState === 'definingWidth';
+    if (isRectangleGradientWidth) {
+      toolStateMachine.handleRectangleGradientMouseMove(worldPos);
+    }
+
     // Check for rectangle gradient width preview mode (special case - works without mouse down)
-    if (toolStateMachine.isRectangleGradient &&
-        toolStateMachine.rectangleBrushState.drawingState === 'definingWidth' &&
+    if (isRectangleGradientWidth &&
         !interaction.state.isDrawing && deps.previewAnimationFrameRef) {
 
       // Throttle rectangle gradient width preview with RAF + FPS cap
@@ -3802,13 +3807,6 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
               const toMouseY = worldPos.y - startPos.y;
               const perpDist = Math.abs(-lineVecY * toMouseX + lineVecX * toMouseY);
               const previewWidth = perpDist * 2;
-
-              try {
-                deps.setRectangleBrushState({
-                  width: previewWidth,
-                  currentPos: { x: worldPos.x, y: worldPos.y },
-                });
-              } catch {}
 
               const perpX = -dy / length * (previewWidth / 2);
               const perpY = dx / length * (previewWidth / 2);
@@ -4035,7 +4033,9 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
             rgWorld = snapPointToAngle(start, worldPos, 45);
           }
         }
-        const previewType = toolStateMachine.handleRectangleGradientMouseMove(rgWorld);
+        const previewType = isRectangleGradientWidth
+          ? 'width'
+          : toolStateMachine.handleRectangleGradientMouseMove(rgWorld);
         if (previewType && deps.previewAnimationFrameRef) {
         // Throttle rectangle gradient preview with RAF + FPS cap
         if (!deps.previewAnimationFrameRef.current) {
@@ -4827,11 +4827,16 @@ function resampleStopsToColors(stops: Stop[], count: number): string[] {
       tools.selectionMode === 'freehand' &&
       deps.selectionRuntimeRef.current.freehandSession.active;
 
+    const shouldProcessRectangleWidthMoveImmediately =
+      toolStateMachine.isRectangleGradient &&
+      toolStateMachine.rectangleBrushState.drawingState === 'definingWidth';
+
     // Authored boundaries need every delivered vertex; RAF aggregation would
     // change the filled region when several moves arrive before pointerup.
     if (
       shouldProcessShapeMoveImmediately ||
       shouldProcessFreehandSelectionMoveImmediately ||
+      shouldProcessRectangleWidthMoveImmediately ||
       (isSpaceInteractionActive() && isMouseDownRef.current && !pan.panState.isPanning)
     ) {
       processPointerMove(event);

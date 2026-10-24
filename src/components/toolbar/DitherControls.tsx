@@ -24,6 +24,7 @@ type Props = {
   hideResolution?: boolean; // hide the resolution slider (for shape-specific UIs)
   showPxlEdgeToggle?: boolean;
   showStrokeOnlyControls?: boolean;
+  showPressureResolutionControls?: boolean;
 };
 
 export { PATTERN_STYLES };
@@ -83,12 +84,13 @@ export const DitherControls: React.FC<Props> = ({
   hideResolution = false,
   showPxlEdgeToggle = false,
   showStrokeOnlyControls = settings.brushShape !== BrushShape.DITHER_GRADIENT,
+  showPressureResolutionControls = true,
 }) => {
   void _isDitherPreset;
   const ditherEnabled = forceOn ? true : Boolean(settings.ditherEnabled);
   const labelWidth = compact ? 'w-12' : labelClass;
   const showLostEdge = !hideLostEdge || settings.brushShape === BrushShape.PIXEL_DITHER;
-  const isPressureLinked = Boolean(settings.pressureLinkedFillResolution);
+  const isPressureLinked = showPressureResolutionControls && Boolean(settings.pressureLinkedFillResolution);
   const pressureLinkedMaxResolution = Math.max(
     1,
     Math.round(settings.pressureLinkedFillMaxResolution ?? settings.fillResolution ?? 1)
@@ -170,7 +172,7 @@ export const DitherControls: React.FC<Props> = ({
 
           {afterResolution ? <div className="mt-2">{afterResolution}</div> : null}
 
-          <div className="flex items-center gap-2 mt-1">
+          {showPressureResolutionControls && <div className="flex items-center gap-2 mt-1">
             <label className={labelWidth} style={labelStyle}>
               PresRes
             </label>
@@ -210,7 +212,7 @@ export const DitherControls: React.FC<Props> = ({
                 />
               </>
             )}
-          </div>
+          </div>}
 
           {afterPresRes ? <div className="mt-2">{afterPresRes}</div> : null}
 

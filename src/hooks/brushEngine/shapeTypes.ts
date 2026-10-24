@@ -35,6 +35,7 @@ export type GradientDitherOptions = {
 export type RectangleGradientSettings = Pick<
   BrushSettings,
   | 'opacity'
+  | 'lostEdge'
   | 'color'
   | 'ditherEnabled'
   | 'risographIntensity'

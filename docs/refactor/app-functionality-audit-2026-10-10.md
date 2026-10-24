@@ -7,7 +7,7 @@ marquee/layer deletion/deselection plus strokes that disappear until Undo.
 This supersedes the historical no-subagent/model notes below. The current branch
 and all unrelated work remain preserved. Areas01–19 retain their prior area
 signoffs; the follow-up defects below are repaired and locally committed in375d6480e.
-Areas20–21 signoffs follow; Areas22–65 remain incomplete, with no whole-app completion claimed.
+Areas20–22 signoffs follow; Areas23–65 remain incomplete, with no whole-app completion claimed.
 
 - S39-01: completed marquee Escape left its bounds/mask active. Raster previews
   appeared but canonical commits outside that selection were clipped; native
@@ -203,6 +203,103 @@ These are pending Area 22 work, not repaired or accepted here. Continue 22–65 
 chat with GPT-6.1 Sol subagents and a fresh post-commit preservation baseline.
 
 
+## Session39 — Area22 final software signoff: Rectangle Gradient
+
+Area 22 is software-verified. Areas 01–22 are complete; Areas 23–65 remain pending.
+The guarded local commit is recorded in
+`area22-commit-receipt-session39.json`. Seven owning issues are addressed:
+
+- A22-01: fresh and post-gesture zero-move contacts no longer reuse a stale axis
+  endpoint. Gesture start/reset owns its exact endpoint, current position and width.
+- A22-02: Enter uses the gesture's world-space hover width instead of the screen
+  cursor. Width updates arrive before either preview or general move RAF, so
+  preview throttling cannot delay input state. The stale RAF state write is removed.
+  Exact click/Enter output, reversed axes, Shift, cancellation and fresh drawing pass.
+- A22-03: Lostedge now reaches the rectangle renderer through the live settings
+  memo. The existing shared erosion helper runs once on the completed stroke
+  overlay after Dither/Riso, using the actual oriented corners and resolved tile.
+  Preview and zero settings preserve their paths; tiny Riso no longer bypasses
+  the common final tail, and off-canvas readback is guarded. Old paint is retained.
+- A22-04: Draw Test Swatches records an undoable edit through existing layer
+  history, with the target's original pixels copied before capture.
+- A22-05: the same action uses a transparent overlay instead of capturing the
+  full composite. Native before evidence baked another visible layer's 400 pixels
+  into the target; after evidence preserves that layer and the target exterior.
+  The fixed 33-colour palette is documented accurately. No active-gradient palette
+  behavior was invented.
+- A22-06: Sierra Variety reaches the existing direct and coarse dither helpers.
+  Explicit zero, default 100, the deterministic seed and custom resolver positions
+  remain explicit. No algorithm, noise or palette math was changed.
+- A22-07: Rectangle no longer exposes unsupported PresRes/Max/Smoosh, PigLift,
+  Riso Hue or Edges controls. Valid native pen/older-paint/repeated-colour probes
+  established their absent effects. Fixed Res remains enabled despite a retained
+  hidden pressure preference; Riso Intensity remains functional. Visibility does
+  not write preferences. Other brush defaults and Polygon controls are preserved.
+
+Final production artifact `5404f77b804f56ac9a3a7fd8f9f285ed8acab7dfa06a2404070875cd040fe427` passes
+**65 cases + 2 effect probes / 761 checks** across eight suites.
+Coverage includes all eleven algorithms and eight built-in patterns with real
+black/white spatial output, Variety 0/100 and stable repeated 0, fixed Res 1/4,
+colours/source sampling, positive Riso Intensity, exact oriented raster support,
+Lostedge smooth/rotated/dither/backdrop cases, tiny/off-canvas completion, native
+preview compositing, both swatches contexts and exact raw/framebuffer Undo/Redo.
+Supported native controls remain usable with all unsupported preferences retained.
+
+The preview observer validates the two actual viewport canvas owners, camera,
+CSS composition and their different backing resolutions before reading a detached
+surface-plus-overlay composite. It requires positive overlay coverage. Non-Riso
+geometry retains its one-pixel AA guard; transformed Riso uses its separately
+traced effect envelope. Paired erosion assertions retain old-backdrop, retained
+RGBA and no-added-support checks. Native Riso warm-up and repeated zero references
+qualify its paired material comparison; first-use output variation is recorded
+without a deterministic appearance or additional defect claim.
+
+A smooth preview exact-hash comparison across separate new projects was invalid:
+a same-setting native control also varied by one RGB byte with alpha unchanged.
+That cross-project observation remains diagnostic. A separate predetermined
+eight-stage comparator holds the project, gesture, backdrop, canvases, camera and
+width fixed. It records early drift, then requires exact late same-setting control,
+0→100 invariance, repeated 100 stability, return-to-0 and repeated-0 stability.
+All 28 checks pass without tolerance or retries; final RGBA, backdrop preservation
+and Undo/Redo remain strict. No preview source patch was justified or added.
+
+Rapid-length controls pass four cases / 41 checks. Their immediate move→release
+pairs took 1.9/1.8ms and each observed one RAF; they do not establish same-frame
+input or physical-tablet acceptance. No speculative terminal-length patch was added.
+
+Final task-only verification passes type-check, lint and **602 suites /
+5,847 tests**, plus the existing passing snapshot and skipped suite/test.
+The successful production build binds all nine runtime owners. A later test-only
+fixture correction supplies its required populated framebuffer and typed mock;
+all seven final test inputs bind the clean v2 gate. Independent reviews cover
+endpoint/width, Lostedge, Variety, swatches, the fixture correction and UI policy.
+Sixteen source/test files, one guide and these two ledgers form the 19-file scope.
+All task owners began clean at HEAD; all 47 original working paths and the exact
+three-file staged patch are preserved. No push, deployment or branch change.
+
+Rejected evidence remains explicit. Hidden switch inputs are not visible labels;
+the corrected pressure probe retains every native force/value/pixel/history oracle.
+The first preview observer sampled only Drawing surface and omitted its overlay;
+its failures establish no rendering defect. The first preset-return probe assumed
+Riso Outline was saved, while the existing shared cache omits that field. Corrected
+expectations capture actual cache/default values before navigation and retain all
+strict in-session Rectangle preferences and supported-effect assertions.
+
+The Outline persistence gap is a separate **Area 29** finding, observed on both
+Pixel and Rectangle: toolsSlice's serializable/auto-save whitelist omits
+`risographOutline`, so preset re-entry restores its default. No store change is
+included in this area. The original native observation and deferred findings
+remain in the policy receipts for the later shared-settings owner.
+
+Evidence: `area22-native-final-session39.json`, `area22-preview-final-v2-session39.json`,
+`area22-isolated-gate-v2-session39.json` and independent review notes under ignored
+`output/playwright/`. Named-session cleanup confirms no matching daemon remains.
+Physical hardware, subjective appearance, performance, custom pattern library
+work and broader per-preset persistence retain their separate audit owners.
+Continue with Area 23 Spam Text using the prepared native starter and a fresh
+post-commit preservation baseline; Areas 24–25 also have read-only preparations.
+
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -242,7 +339,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 19 | CC Fixed Dither: density/pattern, sampling, palette, size, playback | CC mark session, shape fill/dither runtime | software-verified (Session38: A19-01 repaired;116native cases/708checks; full gate pass) |
 | 20 | CC shape/basic geometry: freehand/rectangle/ellipse/line/click-line, constraints, direction, preview/commit/cancel | CC gradient drawing runtime | software-verified (Session39;112native cases/752checks; final gate and local commit receipt) |
 | 21 | Checkered brush: cell size, colours, spacing, opacity, shape/selection | brush engine/settings | software-verified (Session39;121native cases/1179checks; final gate/local receipt) |
-| 22 | Rectangle Gradient: stops/direction, drag/constraint, commit/cancel | shape handlers, gradient brush | pending |
+| 22 | Rectangle Gradient: stops/direction, drag/constraint, commit/cancel | shape handlers, gradient brush | software-verified (Session39; 67 configurations/761 checks; full gate/local receipt) |
 | 23 | Spam Text: content, font/size, spacing, colour, pressure, rotation | text brush/settings | pending |
 | 24 | Resampler: source sampling, tap/drag, size, filtering, alpha, edges | resampler brush/runtime | pending |
 | 25 | Mosaic: source/colour, tile settings, geometry, preview/commit | mosaic brush/runtime | pending |

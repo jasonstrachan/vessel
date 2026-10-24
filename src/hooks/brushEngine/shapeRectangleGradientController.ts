@@ -1,6 +1,9 @@
 import type { Point2D, RectangleGradientSettings } from './shapeTypes';
 import { spreadPaletteColors } from './engineShared';
+import type { SierraLiteVariety } from './dithering';
 import { getAppStoreState } from '@/stores/appStoreAccess';
+import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
+import { resolveLostEdgeTileSize } from '@/utils/ditherConstants';
 import { createCcCustomTileThresholdResolver } from '@/utils/colorCycle/ccCustomTilePattern';
 
 type CanvasPoolLike = {
@@ -29,7 +32,8 @@ export type DrawRectangleGradientArgs = {
     patternStyle?: string,
     customPalette?: string[],
     phaseOffset?: { x: number; y: number },
-    imageTileThresholdResolver?: (x: number, y: number) => number | null
+    imageTileThresholdResolver?: (x: number, y: number) => number | null,
+    sierraLiteVariety?: SierraLiteVariety,
   ) => ImageData;
   applyDitheringWithFillResolution: (
     imageData: ImageData,
@@ -39,7 +43,8 @@ export type DrawRectangleGradientArgs = {
     patternStyle?: string,
     customPalette?: string[],
     phaseOffset?: { x: number; y: number },
-    imageTileThresholdResolver?: (x: number, y: number) => number | null
+    imageTileThresholdResolver?: (x: number, y: number) => number | null,
+    sierraLiteVariety?: SierraLiteVariety,
   ) => ImageData;
   canvasPool: CanvasPoolLike;
   getRisographPattern: (ctx: CanvasRenderingContext2D) => CanvasPattern | null;
@@ -246,37 +251,25 @@ export const drawRectangleGradient = ({
             colors.length > 0 ? colors : [brushSettings.color],
             brushSettings.ditherPaletteSpread
           );
+          const sierraLiteVariety = algorithm === 'sierra-lite' ? {
+            diversity: Math.max(0, Math.min(100, Number.isFinite(brushSettings.ditherPatternDiversity)
+              ? brushSettings.ditherPatternDiversity ?? 100 : 100)) / 100,
+            seed: 0,
+          } : undefined;
+          const ditherOptions: [
+            phaseOffset?: Point2D,
+            imageTileThresholdResolver?: (x: number, y: number) => number | null,
+            sierraLiteVariety?: SierraLiteVariety,
+          ] = sierraLiteVariety
+            ? [undefined, imageTileThresholdResolver, sierraLiteVariety]
+            : imageTileThresholdResolver ? [undefined, imageTileThresholdResolver] : [];
           const ditheredData = fillResolution > 1
-            ? imageTileThresholdResolver
-              ? applyDitheringWithFillResolution(
-                  imageData,
-                  numColors,
-                  fillResolution,
-                  algorithm,
-                  patternStyle,
-                  paletteColors,
-                  undefined,
-                  imageTileThresholdResolver
-                )
-              : applyDitheringWithFillResolution(
-                imageData,
-                numColors,
-                fillResolution,
-                algorithm,
-                patternStyle,
-                paletteColors
+            ? applyDitheringWithFillResolution(
+                imageData, numColors, fillResolution, algorithm, patternStyle, paletteColors, ...ditherOptions
               )
-            : imageTileThresholdResolver
-              ? applyDithering(
-                  imageData,
-                  numColors,
-                  algorithm,
-                  patternStyle,
-                  paletteColors,
-                  undefined,
-                  imageTileThresholdResolver
-                )
-              : applyDithering(imageData, numColors, algorithm, patternStyle, paletteColors);
+            : applyDithering(
+                imageData, numColors, algorithm, patternStyle, paletteColors, ...ditherOptions
+              );
 
           tempCtx.putImageData(ditheredData, 0, 0);
 
@@ -302,17 +295,12 @@ export const drawRectangleGradient = ({
 
       if (pattern) {
         const effect = getRisographEffectSettings(risographIntensity, { isPixelBrush });
-        if (effect.alpha > 0) {
+        const minX = Math.floor(Math.min(...corners.map((c) => c.x)));
+        const minY = Math.floor(Math.min(...corners.map((c) => c.y)));
+        const maxX = Math.ceil(Math.max(...corners.map((c) => c.x)));
+        const maxY = Math.ceil(Math.max(...corners.map((c) => c.y)));
+        if (effect.alpha > 0 && (maxX - minX) * (maxY - minY) >= 16) {
           ctx.save();
-
-          const minX = Math.floor(Math.min(...corners.map((c) => c.x)));
-          const minY = Math.floor(Math.min(...corners.map((c) => c.y)));
-          const maxX = Math.ceil(Math.max(...corners.map((c) => c.x)));
-          const maxY = Math.ceil(Math.max(...corners.map((c) => c.y)));
-          if ((maxX - minX) * (maxY - minY) < 16) {
-            ctx.restore();
-            return;
-          }
 
           const seed = hashNumbers(minX, minY, maxX, maxY, risographIntensity);
           const rng = createSeededRng(seed);
@@ -388,6 +376,24 @@ export const drawRectangleGradient = ({
 
           ctx.restore();
         }
+      }
+    }
+
+    const lostEdge = Number.isFinite(brushSettings.lostEdge)
+      ? Math.max(0, Math.min(100, brushSettings.lostEdge ?? 0))
+      : 0;
+    if (!isPreview && lostEdge > 0) {
+      const bounds = {
+        minX: Math.min(...corners.map(corner => corner.x)),
+        minY: Math.min(...corners.map(corner => corner.y)),
+        maxX: Math.max(...corners.map(corner => corner.x)),
+        maxY: Math.max(...corners.map(corner => corner.y)),
+      };
+      if (bounds.maxX > 0 && bounds.maxY > 0 &&
+          bounds.minX < ctx.canvas.width && bounds.minY < ctx.canvas.height) {
+        // Erode only this completed stroke overlay, after every material pass.
+        applyLostEdgeErosionToContext(ctx, corners, bounds, 4, lostEdge,
+          resolveLostEdgeTileSize(brushSettings.fillResolution ?? 1));
       }
     }
 

@@ -88,7 +88,7 @@ export const useDrawingCanvasRectangleGradientFinalize = ({
     const lineVecX = dx / length;
     const lineVecY = dy / length;
 
-    const cursor = (store.canvas?.cursor ?? rectState.currentPos ?? endPos) as Point;
+    const cursor = (rectState.currentPos ?? endPos) as Point;
     const toCursorX = cursor.x - startPos.x;
     const toCursorY = cursor.y - startPos.y;
     const cursorWidth = Math.abs(-lineVecY * toCursorX + lineVecX * toCursorY) * 2;

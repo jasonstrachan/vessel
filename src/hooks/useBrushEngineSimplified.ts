@@ -1327,6 +1327,7 @@ export const useBrushEngineSimplified = () => {
 
   const rectangleGradientSettings = useMemo(() => ({
     opacity: tools.brushSettings.opacity,
+    lostEdge: tools.brushSettings.lostEdge,
     color: tools.brushSettings.color,
     ditherEnabled: tools.brushSettings.ditherEnabled,
     risographIntensity: tools.brushSettings.risographIntensity,
@@ -1334,6 +1335,7 @@ export const useBrushEngineSimplified = () => {
     gradientBands: tools.brushSettings.gradientBands,
     fillResolution: tools.brushSettings.fillResolution,
     ditherAlgorithm: tools.brushSettings.ditherAlgorithm,
+    ditherPatternDiversity: tools.brushSettings.ditherPatternDiversity,
     patternStyle: tools.brushSettings.patternStyle,
     patternTileId: tools.brushSettings.patternTileId,
     patternTileScale: tools.brushSettings.patternTileScale,
@@ -1344,6 +1346,7 @@ export const useBrushEngineSimplified = () => {
     risographColorShift: tools.brushSettings.risographColorShift,
   }), [
     tools.brushSettings.opacity,
+    tools.brushSettings.lostEdge,
     tools.brushSettings.color,
     tools.brushSettings.ditherEnabled,
     tools.brushSettings.risographIntensity,
@@ -1351,6 +1354,7 @@ export const useBrushEngineSimplified = () => {
     tools.brushSettings.gradientBands,
     tools.brushSettings.fillResolution,
     tools.brushSettings.ditherAlgorithm,
+    tools.brushSettings.ditherPatternDiversity,
     tools.brushSettings.patternStyle,
     tools.brushSettings.patternTileId,
     tools.brushSettings.patternTileScale,

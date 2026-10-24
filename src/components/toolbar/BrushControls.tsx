@@ -3591,8 +3591,10 @@ const BrushControls = () => {
             forceOn={Boolean(capability.forceDither)}
             isDitherPreset={isDitherPreset}
             showPxlEdgeToggle={isDitherShapePreset}
+            showPressureResolutionControls={activeSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT}
+            showStrokeOnlyControls={activeSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT}
             afterPresRes={
-              <PigmentLiftControls
+              activeSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT && <PigmentLiftControls
                 settings={activeSettings}
                 onChange={setActiveSettings}
                 idSuffix="gradient"
@@ -3608,7 +3610,7 @@ const BrushControls = () => {
           onChange={setActiveSettings}
           idSuffix="gradient"
           Slider={NonCcSlider}
-          showHueAndEdges={currentTool !== 'eraser'}
+          showHueAndEdges={currentTool !== 'eraser' && activeSettings.brushShape !== BrushShape.RECTANGLE_GRADIENT}
         />
 
         {/* Test Swatches Button */}

@@ -15,12 +15,10 @@ atmosphere, shadows, and compositional fields whose direction matters.
 | Gradient source | None samples the canvas; the other entries use a chosen preset gradient. Sampling integrates the plane, while a preset introduces a designed colour sequence. |
 | Colors | Number of bands or colours, from 2–64. Few make a graphic division; many make a smoother transition. |
 | Lostedge | Erodes parts of the rectangle boundary so the field can merge with surrounding paint. |
-| Dither / Algorithm / Pattern | Enables a spatial mix and selects its distribution. |
-| Res / Pres Res / Max | Base dither-cell size, optional pressure response, and largest linked cell. |
-| Pxl Edge | Preserves hard dither boundaries. |
-| PigLift | Subtracts underlying material with Strength, Feather, and Texture before applying the field. |
-| Riso | Adds print Intensity, Hue Jitter, and optional edge emphasis. |
-| Draw Test Swatches | Renders diagnostic swatches for judging the active gradient and texture. Use for setup, then remove or undo them before treating the composition as final. |
+| Dither / Algorithm / Pattern | Enables a spatial mix and selects its distribution. Sierra Lite also exposes Variety. |
+| Res | Fixed dither-cell size. |
+| Riso | Adds print texture at the chosen Intensity. |
+| Draw Test Swatches | Adds a fixed diagnostic palette to the active normal layer. Undo removes the swatches; they do not use the current gradient or texture settings. |
 
 The preferred preset configuration enables dithering around Res 3.
 
@@ -36,9 +34,8 @@ The preferred preset configuration enables dithering around Res 3.
 ## Starting points
 
 - **Architectural light:** sampled source, many colours, low Res, clean edges.
-- **Graphic panel:** chosen gradient, few colours, Bayer, Pxl Edge on.
-- **Worn projection:** moderate Lostedge, restrained Riso, PigLift with soft
-  Feather.
+- **Graphic panel:** chosen gradient, few colours, Bayer, low Res.
+- **Worn projection:** moderate Lostedge and restrained Riso.
 
 Do not use a smooth gradient to conceal unclear value structure. Confirm the
 two endpoint colours work as a simple plane first.

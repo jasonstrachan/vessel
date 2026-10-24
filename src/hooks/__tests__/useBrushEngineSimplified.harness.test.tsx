@@ -4,6 +4,7 @@ import { render, act } from '@testing-library/react';
 import { useBrushEngineSimplified } from '../useBrushEngineSimplified';
 import * as liveStrokePreviewController from '../brushEngine/liveStrokePreviewController';
 import * as colorCycleDrawController from '../brushEngine/colorCycleDrawController';
+import * as rectangleGradientController from '../brushEngine/shapeRectangleGradientController';
 
 // Mock dependencies
 const mockApplyDitheringWithFillResolution = jest.fn((...args: any[]) => args[0] as ImageData);
@@ -151,6 +152,54 @@ describe('useBrushEngineSimplified harness', () => {
     expect(engineRef).toBeDefined();
     expect(typeof engineRef.resetStroke).toBe('function');
     expect(typeof engineRef.drawBrush).toBe('function');
+  });
+
+  it('forwards live Rectangle Gradient Variety changes through its settings memo', async () => {
+    const draw = jest.spyOn(rectangleGradientController, 'drawRectangleGradient').mockImplementation(() => {});
+    const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => {
+      tools: { brushSettings: Record<string, unknown> };
+    } } }).useAppStore.getState();
+    const previousTools = state.tools;
+    let engine: ReturnType<typeof useBrushEngineSimplified> | undefined;
+    let view: ReturnType<typeof render> | undefined;
+    const onReady = (ready: ReturnType<typeof useBrushEngineSimplified>) => { engine = ready; };
+    try {
+      state.tools = { ...state.tools, brushSettings: { ...state.tools.brushSettings, ditherPatternDiversity: 0 } };
+      await act(async () => { view = render(<Harness onReady={onReady} />); });
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      engine!.drawRectangleGradient(ctx, 20, 40, 100, 40, 40, ['#000', '#fff'], false);
+      expect(draw.mock.calls.at(-1)![0].brushSettings).toEqual(expect.objectContaining({ ditherPatternDiversity: 0 }));
+      state.tools = { ...state.tools, brushSettings: { ...state.tools.brushSettings, ditherPatternDiversity: 100 } };
+      await act(async () => { view!.rerender(<Harness onReady={onReady} />); });
+      engine!.drawRectangleGradient(ctx, 20, 40, 100, 40, 40, ['#000', '#fff'], false);
+      expect(draw.mock.calls.at(-1)![0].brushSettings).toEqual(expect.objectContaining({ ditherPatternDiversity: 100 }));
+    } finally {
+      view?.unmount(); state.tools = previousTools; draw.mockRestore();
+    }
+  });
+
+  it('forwards live Rectangle Gradient Lostedge changes through its settings memo', async () => {
+    const draw = jest.spyOn(rectangleGradientController, 'drawRectangleGradient').mockImplementation(() => {});
+    const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => {
+      tools: { brushSettings: Record<string, unknown> };
+    } } }).useAppStore.getState();
+    const previousTools = state.tools;
+    let engine: ReturnType<typeof useBrushEngineSimplified> | undefined;
+    let view: ReturnType<typeof render> | undefined;
+    const onReady = (ready: ReturnType<typeof useBrushEngineSimplified>) => { engine = ready; };
+    try {
+      state.tools = { ...state.tools, brushSettings: { ...state.tools.brushSettings, lostEdge: 0 } };
+      await act(async () => { view = render(<Harness onReady={onReady} />); });
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      engine!.drawRectangleGradient(ctx, 20, 40, 100, 40, 40, ['#000', '#fff'], false);
+      expect(draw.mock.calls.at(-1)![0].brushSettings).toEqual(expect.objectContaining({ lostEdge: 0 }));
+      state.tools = { ...state.tools, brushSettings: { ...state.tools.brushSettings, lostEdge: 100 } };
+      await act(async () => { view!.rerender(<Harness onReady={onReady} />); });
+      engine!.drawRectangleGradient(ctx, 20, 40, 100, 40, 40, ['#000', '#fff'], false);
+      expect(draw.mock.calls.at(-1)![0].brushSettings).toEqual(expect.objectContaining({ lostEdge: 100 }));
+    } finally {
+      view?.unmount(); state.tools = previousTools; draw.mockRestore();
+    }
   });
 
   it.each([false, true])('retains pending alpha healing only for a custom stamp (%s)', async (custom) => {

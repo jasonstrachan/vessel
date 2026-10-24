@@ -350,6 +350,55 @@ describe('pointerHandlers main flows', () => {
     expect(resolveShapePreviewOpacity()).toBe(0.6);
   });
 
+  it.each([
+    [true, false], [true, true], [false, false], [false, true],
+  ])('admits rectangle world width before preview RAF (drawing=%s, queued=%s)', (isDrawing, queued) => {
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        brushSettings: { ...baseDynamic.tools.brushSettings, brushShape: BrushShape.RECTANGLE_GRADIENT },
+      },
+    });
+    deps.interaction.state.isDrawing = isDrawing;
+    deps.toolStateMachine.isRectangleGradient = true;
+    deps.toolStateMachine.rectangleBrushState = {
+      drawingState: 'definingWidth', startPos: { x: 64, y: 128 }, endPos: { x: 192, y: 128 },
+      currentPos: { x: 192, y: 128 }, width: 0, startColor: '#000000', endColor: '#ffffff',
+    };
+    deps.pan.screenToWorld = (x, y) => ({ x: x * 2 - 32, y: y * 2 - 20 });
+    deps.pan.worldToScreen = (x, y) => ({ x: (x + 32) / 2, y: (y + 20) / 2 });
+    const move = jest.mocked(deps.toolStateMachine.handleRectangleGradientMouseMove).mockReturnValue('width');
+    const previewCallbacks: FrameRequestCallback[] = [];
+    jest.spyOn(global, 'requestAnimationFrame').mockImplementation(callback => {
+      previewCallbacks.push(callback);
+      return previewCallbacks.length;
+    });
+    jest.spyOn(performance, 'now').mockReturnValue(1000);
+    deps.previewAnimationFrameRef!.current = queued ? 99 : null;
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerMove(makePointerEvent({ clientX: 80, clientY: 90, buttons: 0 }));
+
+    expect(move).toHaveBeenCalledTimes(1);
+    expect(move).toHaveBeenCalledWith({ x: 128, y: 160 });
+    expect(deps.setRectangleBrushState).not.toHaveBeenCalled();
+    if (queued) {
+      expect(previewCallbacks).toHaveLength(0);
+    } else {
+      const overlay = deps.overlayCanvasRef.current!;
+      const context = overlay.getContext('2d')!;
+      context.createLinearGradient = jest.fn(() => ({ addColorStop: jest.fn() }) as unknown as CanvasGradient);
+      const overlay2d: { getContext(id: '2d'): CanvasRenderingContext2D | null } = overlay;
+      jest.spyOn(overlay2d, 'getContext').mockReturnValue(context);
+      jest.mocked(deps.sampleColorsAlongLine).mockReturnValue(['#000000', '#ffffff']);
+      // A delayed old preview must not regain authority over newer world state.
+      deps.toolStateMachine.rectangleBrushState.currentPos = { x: 128, y: 180 };
+      deps.toolStateMachine.rectangleBrushState.width = 104;
+      expect(previewCallbacks).toHaveLength(1);
+      previewCallbacks[0](1000);
+      expect(deps.setRectangleBrushState).not.toHaveBeenCalled();
+    }
+  });
+
   it('promotes dither-shape preview masks to whole cells only for Pxl Edge', () => {
     expect(resolveDitherShapePreviewMaskOptions({
       isDitherShapePreview: true,

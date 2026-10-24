@@ -176,6 +176,41 @@ describe('DitherControls wiring', () => {
     expect(screen.getByLabelText('Pressure-linked Max Pixel Size')).toBeInTheDocument();
   });
 
+  it('keeps fixed resolution editable when pressure controls are unsupported without clearing retained linkage', () => {
+    const onChange = jest.fn();
+    const settings = Object.freeze({
+      ...baseSettings,
+      brushShape: BrushShape.RECTANGLE_GRADIENT,
+      pressureLinkedFillResolution: true,
+      pressureLinkedFillMaxResolution: 16,
+      pressureDitherSmoosh: true,
+    });
+    render(
+      <DitherControls
+        settings={settings}
+        onChange={onChange}
+        forceOn
+        hideToggle
+        showPressureResolutionControls={false}
+        showStrokeOnlyControls={false}
+      />,
+    );
+
+    expect(screen.queryByLabelText('Pressure-linked Resolution')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pressure-linked Max Pixel Size')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pressure dither Smoosh')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+    const resolution = screen.getByLabelText('Dither Resolution');
+    expect(resolution).toBeEnabled();
+    expect(resolution).toHaveValue('4');
+    fireEvent.change(resolution, { target: { value: '6' } });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ fillResolution: 6 });
+    expect(settings.pressureLinkedFillResolution).toBe(true);
+    expect(settings.pressureLinkedFillMaxResolution).toBe(16);
+    expect(settings.pressureDitherSmoosh).toBe(true);
+  });
+
   it('enables resolution slider when not pressure-linked', () => {
     const onChange = jest.fn();
     render(

@@ -1,3 +1,6 @@
+import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
+import { snapshotFramebufferRegion } from '@/stores/layers/layerCloneService';
+import type { Layer } from '@/types';
 import { logError } from '@/utils/debug';
 import type { CaptureROI } from '@/stores/useAppStore';
 
@@ -7,11 +10,14 @@ import type { CaptureROI } from '@/stores/useAppStore';
 interface VesselStore {
   getState: () => {
     currentOffscreenCanvas?: HTMLCanvasElement;
-  captureCanvasToActiveLayer: (
-    canvas: HTMLCanvasElement,
-    roi?: CaptureROI,
-    options?: { mode?: 'alpha' | 'replace' }
-  ) => Promise<void>;
+    layers: Layer[];
+    activeLayerId: string | null;
+    history: { isCapturing: boolean };
+    captureCanvasToActiveLayer: (
+      canvas: HTMLCanvasElement,
+      roi?: CaptureROI,
+      options?: { mode?: 'alpha' | 'replace' }
+    ) => Promise<void>;
   };
 }
 
@@ -24,6 +30,10 @@ export const drawTestSwatches = async () => {
   }
 
   const state = store.getState();
+  const layer = state.layers.find((candidate) => candidate.id === state.activeLayerId);
+  if (!layer || layer.layerType !== 'normal' || layer.locked || state.history.isCapturing) {
+    return;
+  }
 
   // Get the current offscreen canvas
   const offscreenCanvas = state.currentOffscreenCanvas;
@@ -33,8 +43,17 @@ export const drawTestSwatches = async () => {
     return;
   }
 
-  const ctx = offscreenCanvas.getContext('2d');
+  // The offscreen canvas contains other visible layers; author only this action's pixels.
+  const swatchCanvas = document.createElement('canvas');
+  swatchCanvas.width = offscreenCanvas.width;
+  swatchCanvas.height = offscreenCanvas.height;
+  const ctx = swatchCanvas.getContext('2d');
   if (!ctx) return;
+  const beforeImage = snapshotFramebufferRegion(
+    layer.framebuffer,
+    offscreenCanvas.width,
+    offscreenCanvas.height,
+  ) ?? cloneLayerImageData(layer.imageData);
 
   // Combined dithering palette (from useBrushEngine.ts DITHER_PALETTE)
   const testColors = [
@@ -121,8 +140,15 @@ export const drawTestSwatches = async () => {
   ctx.restore();
 
   // Capture the canvas to the active layer to persist the swatches
-  await state.captureCanvasToActiveLayer(offscreenCanvas);
-
+  await state.captureCanvasToActiveLayer(swatchCanvas);
+  await commitLayerHistory({
+    layerId: layer.id,
+    beforeImage,
+    beforeColorState: null,
+    actionType: 'brush',
+    description: 'Draw test swatches',
+    tool: 'brush',
+  });
 };
 
 // Make it available globally

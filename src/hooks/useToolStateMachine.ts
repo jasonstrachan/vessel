@@ -26,6 +26,9 @@ export function useToolStateMachine({
   const polygonGradientStateRef = useStoreSelectorRef(selectPolygonGradientState);
   const toolsRef = useStoreSelectorRef(selectToolsState);
   const paletteRef = useStoreSelectorRef((state) => state.palette);
+
+  // Retain exact length movement without rendering on every sample.
+  const tempEndPosRef = useRef({ x: 0, y: 0 });
   
   // Rectangle gradient state machine
   const handleRectangleGradientMouseDown = useCallback((worldPos: { x: number; y: number }) => {
@@ -38,18 +41,18 @@ export function useToolStateMachine({
     
     // Start defining length
     const startColor = sampleColorAtPosition(worldPos.x, worldPos.y);
+    tempEndPosRef.current = { x: worldPos.x, y: worldPos.y };
     setRectangleBrushState({
       drawingState: 'definingLength',
       startPos: { x: worldPos.x, y: worldPos.y },
       endPos: { x: worldPos.x, y: worldPos.y },
+      currentPos: { x: worldPos.x, y: worldPos.y },
+      width: 0,
       startColor: startColor
     });
     
     return true; // Proceed with drawing state
   }, [sampleColorAtPosition, setRectangleBrushState, rectangleBrushStateRef]);
-  
-  // Ref to store the end position without triggering re-renders
-  const tempEndPosRef = useRef({ x: 0, y: 0 });
   
   const handleRectangleGradientMouseMove = useCallback((worldPos: { x: number; y: number }) => {
     const currentState = rectangleBrushStateRef.current;
@@ -68,7 +71,16 @@ export function useToolStateMachine({
       }
       return 'length'; // Return preview type
     } else if (currentState.drawingState === 'definingWidth') {
-      // Don't update state, just return for preview
+      const dx = currentState.endPos.x - currentState.startPos.x;
+      const dy = currentState.endPos.y - currentState.startPos.y;
+      const length = Math.hypot(dx, dy);
+      const toPointX = worldPos.x - currentState.startPos.x;
+      const toPointY = worldPos.y - currentState.startPos.y;
+      const width = length > 0 ? Math.abs(-dy * toPointX + dx * toPointY) * 2 / length : 0;
+      setRectangleBrushState({
+        currentPos: { x: worldPos.x, y: worldPos.y },
+        width,
+      });
       return 'width'; // Return preview type
     }
     
@@ -97,10 +109,13 @@ export function useToolStateMachine({
   }, [setRectangleBrushState, rectangleBrushStateRef]);
   
   const resetRectangleGradient = useCallback(() => {
+    tempEndPosRef.current = { x: 0, y: 0 };
     setRectangleBrushState({
       drawingState: 'idle',
       startPos: { x: 0, y: 0 },
-      endPos: { x: 0, y: 0 }
+      endPos: { x: 0, y: 0 },
+      currentPos: { x: 0, y: 0 },
+      width: 0,
     });
   }, [setRectangleBrushState]);
 

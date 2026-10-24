@@ -340,6 +340,98 @@ describe('BrushControls', () => {
     expect(mockStore.tools.eraserSettings).toEqual(savedEraserSettings);
   });
 
+  it.each([false, true])('hides unsupported Rectangle effects with dithering %s without changing retained settings', (ditherEnabled) => {
+    mockStore.currentBrushPreset = { id: 'rectangle-gradient', name: 'Rectangle Gradient' };
+    Object.assign(mockStore.tools.brushSettings, {
+      brushShape: BrushShape.RECTANGLE_GRADIENT,
+      ditherEnabled,
+      fillResolution: 4,
+      pressureLinkedFillResolution: true,
+      pressureLinkedFillMaxResolution: 16,
+      pressureDitherSmoosh: true,
+      pigmentLiftEnabled: true,
+      pigmentLiftStrength: 1,
+      pigmentLiftFeather: 12,
+      pigmentLiftNoise: 1,
+      risographIntensity: 60,
+      risographColorShift: 10,
+      risographOutline: true,
+    });
+    const savedSettings = { ...mockStore.tools.brushSettings };
+
+    render(<BrushControls />);
+
+    expect(screen.queryByLabelText('Pressure-linked Resolution')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pressure-linked Max Pixel Size')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pressure dither Smoosh')).not.toBeInTheDocument();
+    expect(screen.queryByText('PigLift', { selector: 'label' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pigment Lift Strength')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pigment Lift Feather')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pigment Lift Texture')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Riso Hue Jitter')).not.toBeInTheDocument();
+    expect(screen.queryByRole('checkbox', { name: 'Edges' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Risograph Intensity')).toHaveValue('60');
+    expect(mockStore.tools.brushSettings).toEqual(savedSettings);
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+  });
+
+  it('preserves the existing Polygon controls in the shared gradient panel', () => {
+    mockStore.currentBrushPreset = { id: 'polygon-gradient', name: 'Polygon Gradient' };
+    Object.assign(mockStore.tools.brushSettings, {
+      brushShape: BrushShape.POLYGON_GRADIENT,
+      ditherEnabled: true,
+      pressureLinkedFillResolution: true,
+      pressureLinkedFillMaxResolution: 16,
+      pressureDitherSmoosh: true,
+      pigmentLiftEnabled: true,
+      risographIntensity: 60,
+      risographColorShift: 10,
+      risographOutline: true,
+    });
+    const savedSettings = { ...mockStore.tools.brushSettings };
+
+    render(<BrushControls />);
+
+    expect(screen.getByLabelText('Pressure-linked Resolution')).toBeChecked();
+    expect(screen.getByLabelText('Pressure-linked Max Pixel Size')).toHaveValue(16);
+    expect(screen.getByLabelText('Pressure dither Smoosh')).toBeChecked();
+    expect(screen.getByText('PigLift', { selector: 'label' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Pigment Lift Strength')).toBeInTheDocument();
+    expect(screen.getByLabelText('Riso Hue Jitter')).toHaveValue('10');
+    expect(screen.getByRole('checkbox', { name: 'Edges' })).toBeChecked();
+    expect(mockStore.tools.brushSettings).toEqual(savedSettings);
+    expect(mockStore.setBrushSettings).not.toHaveBeenCalled();
+  });
+
+  it('keeps supported Rectangle resolution and Riso intensity editable with hidden retained pressure linkage', () => {
+    mockStore.currentBrushPreset = { id: 'rectangle-gradient', name: 'Rectangle Gradient' };
+    Object.assign(mockStore.tools.brushSettings, {
+      brushShape: BrushShape.RECTANGLE_GRADIENT,
+      ditherEnabled: true,
+      fillResolution: 4,
+      pressureLinkedFillResolution: true,
+      pressureLinkedFillMaxResolution: 16,
+      risographIntensity: 60,
+    });
+    const savedSettings = { ...mockStore.tools.brushSettings };
+
+    render(<BrushControls />);
+
+    const resolution = screen.getByLabelText('Dither Resolution');
+    expect(resolution).toBeEnabled();
+    expect(resolution).toHaveValue('4');
+    fireEvent.change(resolution, { target: { value: '7' } });
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ fillResolution: 7 });
+
+    const intensity = screen.getByLabelText('Risograph Intensity');
+    fireEvent.change(intensity, { target: { value: '35' } });
+    fireEvent.blur(intensity);
+    expect(mockStore.setBrushSettings).toHaveBeenLastCalledWith({ risographIntensity: 35 });
+    expect(mockStore.tools.brushSettings).toEqual(savedSettings);
+    expect(mockStore.setEraserSettings).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])('hides unsupported eraser pigment lift controls with dithering %s', (ditherEnabled) => {
     mockStore.tools.currentTool = 'eraser';
     mockStore.tools.eraserSettings = {
