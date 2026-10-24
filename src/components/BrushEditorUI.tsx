@@ -45,6 +45,7 @@ const InlineBrushEditor: React.FC = () => {
     lightnessAdjust: brushLightnessAdjust = 0,
     saturationAdjust: brushSaturationAdjust = 100,
   } = brushSettings;
+  const selectedCustomBrushIsSaved = customBrushes.some(brush => brush.id === selectedCustomBrush);
   const setBrushEditorHue = useAppStore((state) => state.setBrushEditorHue);
   const setBrushEditorLightness = useAppStore((state) => state.setBrushEditorLightness);
   const setBrushEditorSaturation = useAppStore((state) => state.setBrushEditorSaturation);
@@ -338,6 +339,7 @@ const InlineBrushEditor: React.FC = () => {
     brushShape,
     currentOffscreenCanvas,
     selectedCustomBrush,
+    selectedCustomBrushIsSaved,
     startBrushEdit
   ]);
 
@@ -738,11 +740,13 @@ const InlineBrushEditor: React.FC = () => {
         brushId: brushEditor.editingBrushId,
         isColorizable: false,
         width: adjustedPixels.width,
-        height: adjustedPixels.height
+        height: adjustedPixels.height,
+        colorCycle: getCustomBrushByIdUnsafe?.(brushEditor.editingBrushId)?.colorCycle,
       });
     }
   }, [
     basePixels,
+    getCustomBrushByIdUnsafe,
     brushEditor.editingBrushId,
     brushEditor.hueShift,
     brushEditor.lightness,

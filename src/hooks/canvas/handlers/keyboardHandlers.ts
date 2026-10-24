@@ -242,6 +242,29 @@ export const createKeyboardHandlers = (
       }
     }
 
+    if (
+      event.key === 'Escape' &&
+      dynamic.tools.currentTool === 'custom' &&
+      dynamic.tools.customBrushCapture.mode === 'freehand' &&
+      deps.customFreehandCaptureRuntimeRef.current.active
+    ) {
+      const customCapture = deps.customFreehandCaptureRuntimeRef.current;
+      event.preventDefault();
+      event.stopPropagation();
+      // Pointer handlers retain this object for the held gesture and its eventual release.
+      customCapture.active = false;
+      customCapture.pointerId = null;
+      customCapture.points = [];
+      customCapture.bounds = null;
+      deps.setCustomBrushFreehandPath(null);
+      clearSelectionOverlay();
+      deps.isMouseDownRef.current = false;
+      deps.suppressBootstrapUntilPointerUpRef.current = true;
+      deps.setShowBrushCursor(true);
+      redrawCanvas();
+      return;
+    }
+
     const runtime = deps.selectionRuntimeRef.current;
     if (event.key === 'Escape' && cancelSelectionSession({
       runtime,

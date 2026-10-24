@@ -401,13 +401,7 @@ export interface ToolsSlice {
   setBrushEditorHue: (hue: number) => void;
   setBrushEditorLightness: (lightness: number) => void;
   setBrushEditorSaturation: (saturation: number) => void;
-  updateCurrentBrushTip: (brushTip: {
-    imageData: ImageData;
-    brushId: string;
-    isColorizable: boolean;
-    width?: number;
-    height?: number;
-  }) => void;
+  updateCurrentBrushTip: (brushTip: NonNullable<BrushSettings['currentBrushTip']>) => void;
   refreshCurrentBrushTipFromSource: () => void;
   _saveCurrentBrushSettings: () => void;
   saveBrushSettings: (brushId: string, settings: Partial<BrushSettings>) => void;
@@ -1747,6 +1741,9 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     }
 
     if (tool === 'custom') {
+      if (stateBeforeSwitch.brushEditor.status === 'EDITING') {
+        stateBeforeSwitch.cancelBrushEdit(stateBeforeSwitch.currentOffscreenCanvas);
+      }
       const currentState = get();
       if (currentState.temporaryCustomBrush) {
         get().setTemporaryCustomBrush(null);

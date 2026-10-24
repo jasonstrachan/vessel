@@ -713,13 +713,7 @@ export interface AppState {
   setBrushEditorHue: (hue: number) => void;
   setBrushEditorLightness: (lightness: number) => void;
   setBrushEditorSaturation: (saturation: number) => void;
-  updateCurrentBrushTip: (brushTip: {
-    imageData: ImageData;
-    brushId: string;
-    isColorizable: boolean;
-    width?: number;
-    height?: number;
-  }) => void;
+  updateCurrentBrushTip: (brushTip: NonNullable<BrushSettings['currentBrushTip']>) => void;
   refreshCurrentBrushTipFromSource: () => void;
 
   // Brush Preset Management

@@ -1414,6 +1414,55 @@ describe('tools slice', () => {
       expect(nextState.tools.brushSettings.currentBrushTip?.colorCycle).toEqual(brush.colorCycle);
     });
 
+    it.each([true, false])('ends saved-brush editing before capture entry (offscreen canvas: %s) without changing source or saved ink', (hasOffscreenCanvas) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 64;
+      const imageData = new ImageData(8, 8);
+      imageData.data.set([255, 0, 0, 128], 0);
+      const brush: CustomBrush = {
+        id: 'capture-entry-saved', name: 'Saved capture source', imageData,
+        width: 8, height: 8, naturalWidth: 8, naturalHeight: 8, maxDimension: 8,
+        createdAt: 1, thumbnail: '',
+      };
+      const store = useAppStore.getState();
+      store.addCustomBrush(brush);
+      store.startBrushEdit(brush.id, canvas);
+      useAppStore.setState({ currentOffscreenCanvas: hasOffscreenCanvas ? canvas : null });
+      const before = useAppStore.getState();
+      expect(before.brushEditor.status).toBe('EDITING');
+      expect(before.tools.brushSettings.selectedCustomBrush).toBe(brush.id);
+      const saved = before.getCustomBrushByIdUnsafe(brush.id);
+      const sourcePixels = canvas.getContext('2d')?.getImageData(0, 0, 64, 64).data.slice();
+      const layers = before.layers;
+      const history = before.history;
+      const selection = { start: before.selectionStart, end: before.selectionEnd, mask: before.selectionMask };
+
+      before.setCurrentTool('custom');
+
+      const after = useAppStore.getState();
+      expect(after.brushEditor).toEqual(defaultBrushEditorState);
+      expect(after.tools.currentTool).toBe('custom');
+      expect(after.tools.brushSettings.selectedCustomBrush).toBeNull();
+      expect(after.tools.brushSettings.currentBrushTip).toBeUndefined();
+      expect(after.getCustomBrushByIdUnsafe(brush.id)).toBe(saved);
+      expect(after.getCustomBrushByIdUnsafe(brush.id)?.imageData.data).toEqual(imageData.data);
+      expect(after.layers).toBe(layers);
+      expect(after.history).toBe(history);
+      expect({ start: after.selectionStart, end: after.selectionEnd, mask: after.selectionMask }).toEqual(selection);
+      expect(canvas.getContext('2d')?.getImageData(0, 0, 64, 64).data).toEqual(sourcePixels);
+      expect(after.currentOffscreenCanvas).toBe(hasOffscreenCanvas ? canvas : null);
+    });
+
+    it('keeps the active editor when a non-capture tool is selected', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 64;
+      useAppStore.getState().startBrushEdit('pixel-square', canvas);
+      const editor = useAppStore.getState().brushEditor;
+      expect(editor.status).toBe('EDITING');
+      useAppStore.getState().setCurrentTool('eraser');
+      expect(useAppStore.getState().brushEditor).toBe(editor);
+    });
+
     it('cancels editing and resets brush selection when cancelBrushEdit runs', () => {
       const canvas = document.createElement('canvas');
       canvas.width = 64;

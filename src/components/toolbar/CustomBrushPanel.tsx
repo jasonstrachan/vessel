@@ -36,7 +36,7 @@ export const CustomBrushPanel = () => {
   const { selectionStart, selectionEnd } = useAppStore(selectSelectionRects);
   const selectionSource = useAppStore((state) => state.selectionLastAction?.source ?? null);
   const clearSelection = useAppStore((state) => state.clearSelection);
-  const currentOffscreenCanvas = useAppStore((state) => state.currentOffscreenCanvas);
+  const compositeLayersToCanvasSync = useAppStore((state) => state.compositeLayersToCanvasSync);
   const setTemporaryCustomBrush = useAppStore((state) => state.setTemporaryCustomBrush);
   const setBrushSettings = useAppStore((state) => state.setBrushSettings);
   const setGlobalBrushSize = useAppStore((state) => state.setGlobalBrushSize);
@@ -84,8 +84,9 @@ export const CustomBrushPanel = () => {
 
   const resolveCaptureSource = useCallback(async () => {
     if (sampleAllLayers || !activeLayer) {
+      const compositeCanvas = document.createElement('canvas');
       return {
-        sourceCanvas: currentOffscreenCanvas,
+        sourceCanvas: compositeLayersToCanvasSync(compositeCanvas) ? compositeCanvas : null,
         sourceLayer: activeLayer,
         expectsColorCycle: false,
       };
@@ -114,7 +115,7 @@ export const CustomBrushPanel = () => {
     };
   }, [
     activeLayer,
-    currentOffscreenCanvas,
+    compositeLayersToCanvasSync,
     ensureColorCycleLayerRuntime,
     sampleAllLayers,
   ]);

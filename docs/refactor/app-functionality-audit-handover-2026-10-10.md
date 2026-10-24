@@ -646,6 +646,79 @@ all control extrema and broad performance remain separate limits. Continue Area2
 Custom brush capture from a fresh preservation baseline.
 
 
+## Session39 — Area27 final software signoff: Custom brush capture
+
+Area27 is software-verified. Six reproduced capture/editor defects are repaired at
+their owners; the completed-area local commit receipt follows. Areas 01–27 complete;
+Area28 custom-brush painting/edit/removal is next,29–65 pending. Remain on main;
+no push, deployment, branch or worktree change.
+
+A27-01: clipping a CC Freehand region at the right/bottom edge cropped RGBA correctly
+but retained requested-stride index rows. The positive native witness had348 index
+mismatches,210 under visible alpha. Canonical indices now share the actual clamped
+RGBA rectangle; the old prefix slice is removed. Impossible canonical/RGBA size
+mismatches follow the existing fail-closed raster-fallback policy.
+
+A27-02: All layers sampled the viewport static cache, omitting visible paused CC
+material. Capture now uses the existing complete compositor on a private target.
+The static cache remains static; normal+CC source contributions are independently
+composed and compared exactly. All layers produces a raster tip without indexed
+metadata; active CC retains schema 3 indexed-tip data.
+
+A27-03: Save retained the selected temporary ID but did not retrigger editor
+activation when that ID became a saved asset. A narrow saved-membership boolean
+now participates in the existing activation effect. A27-04: the editor's adjusted
+tip writer dropped CC metadata, including on zero-adjustment reload activation.
+It now retains the matching saved asset metadata. Both duplicated update-action
+declarations reuse the existing BrushSettings tip model; no runtime store wrapper.
+Native Lightness 100, Hue 180 and Saturation 0 autosave exact expected RGB/alpha,
+retain ID/count, and agree with the active tip.
+
+A27-05: Escape cleared panel data but left the shared held Freehand runtime active;
+mouse release created a new brush. The keyboard owner clears that object in place,
+clears its preview/path and suppresses the old held-pointer restart. Real pointer
+and keyboard integration verifies late moves/release and a fresh capture.
+A27-06: selecting capture from a saved EDITING brush retained the old editor and
+modal keyboard scope. Capture tool entry now uses existing editor cancellation,
+as preset switching already does. No modal-scope bypass or extra save is introduced.
+Saved pixels, source layers and history remain exact, with or without an offscreen
+canvas; ordinary eraser editing remains supported.
+
+Final production artifact: `03432e6d4fac11a481c41f81dabb48d054d7bd70ef9046696748671ed32e530e`.
+All 19 native cases/255 checks pass across six suites on these same bytes, with zero
+aborts/page errors and exact owned-storage restoration. Coverage includes Box/
+Freehand alpha/crops, reverse/edge geometry, empty/minimum-width policy, source/
+composite choice, Save/generated Custom N names/default/reload, editor HLS,
+Recapture/Discard, held Escape/recovery and saved-editor capture entry. There is
+no public Rename control. Box completion legitimately adds one selection-history
+entry; Freehand adds none. Later library/editor actions preserve source/history.
+
+CC acceptance uses current schema 3 indexed-tip: direct resident Uint16 indices,
+captured alpha, one actual palette, finite source speed 0.17 where explicitly seeded,
+global phase/jitter 0/cycle 256. Version 1 storage and its nested schema 3 payload are
+independently decoded through real reload and actual current-tip restoration.
+Six resident planes remain source-preservation witnesses; historical true-stroke
+plans are not a different capture contract or a painting/replay acceptance claim.
+
+Verification: isolated task-only candidate type-check/lint and 609
+suites/5984 tests pass, with one existing skipped suite/test and two
+snapshots. Production build, source review and mixed-owner isolation/replay pass.
+Twelve source/test inputs plus these two ledgers are necessary for six owner repairs.
+The original 47 work changes are retained; two mixed keyboard owners contribute
+only reviewed audit deltas to the commit, and the original staged patch stays exact.
+
+Earlier probe mistakes are excluded: pointer-up correctly targets the capturing
+workspace; Lightness labels its Root, requiring the descendant slider; asynchronous
+wait predicates were replaced by synchronous exact-byte autosave checks; Escape
+is observed at early window capture before app propagation handlers. Failed and
+superseded evidence remains available; no application patch was made for these
+fixture corrections. Physical tablet/visual signoff, broad performance, project-file
+roundtrip/quota/corruption and broader custom painting/removal remain outside Area27.
+
+Receipts: `output/playwright/area27-preview-final-v2-session39.json`,
+`area27-isolated-gate-v2-session39.json`, `area27-native-final-session39.json`,
+`area27-source-freeze-final-v2-session39.json` and `area27-commit-receipt-session39.json`.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

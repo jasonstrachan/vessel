@@ -100,7 +100,7 @@ export const selectionToCaptureBounds = (
 
 const clampBoundsToCanvas = (
   bounds: BrushCaptureBounds,
-  canvas: HTMLCanvasElement | OffscreenCanvas
+  canvas: Pick<HTMLCanvasElement, 'width' | 'height'>
 ): BrushCaptureBounds | null => {
   const startX = Math.max(0, Math.min(bounds.x, canvas.width));
   const startY = Math.max(0, Math.min(bounds.y, canvas.height));
@@ -359,6 +359,10 @@ const cropPaintIndexMap = (
   }
 
   const { width: canvasWidth, height: canvasHeight } = resolveCycleCanvasSize(layer);
+  const captureBounds = clampBoundsToCanvas(bounds, { width: canvasWidth, height: canvasHeight });
+  if (!captureBounds || captureBounds.width !== width || captureBounds.height !== height) {
+    return undefined;
+  }
   const snapshot = resolveLayerPaintSnapshot(layer.id);
   if (!snapshot) {
     return undefined;
@@ -367,13 +371,13 @@ const cropPaintIndexMap = (
     snapshot,
     width: canvasWidth,
     height: canvasHeight,
-    rect: bounds,
+    rect: captureBounds,
   });
   if (!paintRegion) {
     return undefined;
   }
 
-  return Uint16Array.from(paintRegion.slice(0, width * height));
+  return Uint16Array.from(paintRegion);
 };
 
 const buildLuminancePhaseMap = (

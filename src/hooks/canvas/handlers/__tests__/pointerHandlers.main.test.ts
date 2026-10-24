@@ -6,6 +6,7 @@ import type { EventHandlerDependenciesInput } from '../../canvasEventHandlerDeps
 import { captureSelectionSnapshot } from '@/history/helpers/selectionHistory';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { createPointerHandlers } from '../pointerHandlers';
+import { createKeyboardHandlers } from '../keyboardHandlers';
 import {
   resolveDitherShapePreviewMaskOptions,
   resolveShapePreviewOpacity,
@@ -750,6 +751,48 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setCustomBrushFreehandPath).toHaveBeenCalled();
     expect(deps.setCurrentTool).not.toHaveBeenCalledWith('brush');
     expect(dynamicDepsRef.current.tools.currentTool).toBe('custom');
+  });
+
+  it('cancels a held custom freehand through Escape before queued moves and release, then captures a fresh path', () => {
+    useAppStore.setState((state) => ({
+      ui: { ...state.ui, keyboardScope: { ...state.ui.keyboardScope, active: 'canvas' } },
+    }));
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'custom',
+        customBrushCapture: { mode: 'freehand', sampleAllLayers: false, freehandPath: null },
+      },
+    }, { getMousePos: (event) => ({ x: event.clientX, y: event.clientY }) });
+    const pointer = createPointerHandlers(deps);
+    const keyboard = createKeyboardHandlers(deps);
+    const runtime = deps.customFreehandCaptureRuntimeRef.current;
+    pointer.handlePointerDown(makePointerEvent({ pointerId: 7, clientX: 10, clientY: 10 }));
+    pointer.handlePointerMove(makePointerEvent({ pointerId: 7, clientX: 30, clientY: 10, buttons: 1 }));
+    pointer.handlePointerMove(makePointerEvent({ pointerId: 7, clientX: 30, clientY: 30, buttons: 1 }));
+    expect(runtime.active).toBe(true);
+    expect(runtime.points.length).toBeGreaterThan(1);
+    jest.mocked(deps.setCustomBrushFreehandPath).mockClear();
+
+    keyboard.handleKeyDown(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(runtime.active).toBe(false);
+    expect(deps.customFreehandCaptureRuntimeRef.current).toBe(runtime);
+    pointer.handlePointerMove(makePointerEvent({ pointerId: 7, clientX: 40, clientY: 40, buttons: 1 }));
+    pointer.handlePointerUp(makePointerEvent({ pointerId: 7, clientX: 40, clientY: 40, buttons: 0 }));
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenCalledTimes(1);
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenLastCalledWith(null);
+    expect(runtime).toEqual({ active: false, pointerId: null, points: [], bounds: null });
+    expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.finalizeDrawing).not.toHaveBeenCalled();
+    expect(deps.clearSelection).not.toHaveBeenCalled();
+
+    pointer.handlePointerDown(makePointerEvent({ pointerId: 8, clientX: 50, clientY: 50 }));
+    pointer.handlePointerMove(makePointerEvent({ pointerId: 8, clientX: 70, clientY: 50, buttons: 1 }));
+    pointer.handlePointerUp(makePointerEvent({ pointerId: 8, clientX: 60, clientY: 70, buttons: 0 }));
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenLastCalledWith({
+      points: [{ x: 50, y: 50 }, { x: 70, y: 50 }, { x: 60, y: 70 }],
+      bounds: { x: 50, y: 50, width: 20, height: 20 },
+    });
   });
 
   it('includes the pointer-up point when completing a custom freehand capture', () => {

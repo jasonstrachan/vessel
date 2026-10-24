@@ -1,6 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { render, fireEvent, screen } from '@testing-library/react';
+import type { BrushSettings, CustomBrush, CustomBrushColorCycleV3 } from '@/types';
+
+const makeCustomBrush = (): CustomBrush => {
+  const imageData = new ImageData(16, 16);
+  imageData.data.set([40, 80, 160, 128, 120, 180, 60, 255]);
+  return {
+    id: 'custom-1', name: 'Custom One', imageData, thumbnail: '',
+    width: 16, height: 16, createdAt: 0,
+  };
+};
 
 // Heavy mocking to avoid real store/effects
 const mockState = {
@@ -20,6 +30,7 @@ const mockState = {
       hueShift: 0,
       lightnessAdjust: 0,
       saturationAdjust: 100,
+      currentBrushTip: undefined as BrushSettings['currentBrushTip'],
     },
   },
   project: {
@@ -29,16 +40,7 @@ const mockState = {
     height: 32,
     backgroundColor: '#000',
     layers: [],
-    customBrushes: [
-      {
-        id: 'custom-1',
-        name: 'Custom One',
-        imageData: new ImageData(16, 16),
-        thumbnail: '',
-        width: 16,
-        height: 16,
-      },
-    ],
+    customBrushes: [makeCustomBrush()] as CustomBrush[],
     createdAt: new Date(),
     updatedAt: new Date(),
   },
@@ -51,6 +53,8 @@ const mockState = {
   refreshCurrentBrushTipFromSource: jest.fn(),
   updateCurrentBrushTip: jest.fn(),
   getCustomBrushById: () => mockState.project.customBrushes[0],
+  getCustomBrushByIdUnsafe: (id: string) => mockState.project.customBrushes.find(brush => brush.id === id) ?? null,
+  currentOffscreenCanvas: null as HTMLCanvasElement | null,
   pushKeyboardScope: jest.fn(),
   popKeyboardScope: jest.fn(),
 };
@@ -116,6 +120,82 @@ jest.mock('@/components/BrushEditorUI', () => {
 import BrushEditorUI from '@/components/BrushEditorUI';
 
 describe('BrushEditorUI sliders (mocked store)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockState.project.customBrushes = [makeCustomBrush()];
+    mockState.currentOffscreenCanvas = null;
+    mockState.brushEditor.status = 'EDITING';
+    mockState.brushEditor.editingBrushId = 'custom-1';
+    mockState.brushEditor.hueShift = 0;
+    mockState.brushEditor.lightness = 0;
+    mockState.brushEditor.saturation = 100;
+    mockState.tools.brushSettings.selectedCustomBrush = 'custom-1';
+    mockState.tools.brushSettings.currentBrushTip = undefined;
+  });
+
+  it.each([0, 35])('preserves the saved indexed-tip metadata during active editor adjustment at Lightness%s', lightness => {
+    const brush = makeCustomBrush();
+    const colorCycle: CustomBrushColorCycleV3 = {
+      schemaVersion: 3, payloadKind: 'indexed-tip', source: 'color-cycle-layer',
+      mapWidth: 16, mapHeight: 16, sourceCycleLength: 256,
+      paintIndexMap: Uint16Array.from({ length: 256 }, (_, i) => i),
+      alphaMask: Uint8Array.from({ length: 256 }, (_, i) => brush.imageData.data[i * 4 + 3]),
+      gradient: [{ position: 0, color: '#204080' }, { position: 1, color: '#b8e060' }],
+      speed: 0.17, phaseMode: 'global', phaseJitter: 0,
+    };
+    brush.colorCycle = colorCycle;
+    mockState.project.customBrushes = [brush];
+    mockState.brushEditor.lightness = lightness;
+    mockState.tools.brushSettings.currentBrushTip = {
+      brushId: brush.id, imageData: brush.imageData, width: 16, height: 16,
+      isColorizable: false, colorCycle,
+    };
+
+    render(<BrushEditorUI />);
+
+    const calls = mockState.updateCurrentBrushTip.mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const tip = calls[calls.length - 1][0] as NonNullable<BrushSettings['currentBrushTip']>;
+    expect(tip.brushId).toBe(brush.id);
+    expect(tip.colorCycle).toBe(colorCycle);
+    expect(tip.colorCycle).toEqual(brush.colorCycle);
+    expect(tip.imageData.data[3]).toBe(128);
+    expect(tip.imageData.data[7]).toBe(255);
+    expect(Array.from(colorCycle.paintIndexMap)).toEqual(Array.from({ length: 256 }, (_, i) => i));
+  });
+
+  it('retries actual editor activation when the selected temporary tip becomes a saved asset', () => {
+    const brush = makeCustomBrush();
+    mockState.brushEditor.status = 'IDLE';
+    mockState.project.customBrushes = [];
+    const canvas = document.createElement('canvas');
+    mockState.currentOffscreenCanvas = canvas;
+    mockState.tools.brushSettings.currentBrushTip = {
+      brushId: brush.id, imageData: brush.imageData, width: 16, height: 16, isColorizable: false,
+    };
+    const { rerender } = render(<BrushEditorUI />);
+    expect(mockState.startBrushEdit).toHaveBeenCalledTimes(1);
+
+    mockState.project.customBrushes = [brush];
+    rerender(<BrushEditorUI />);
+
+    expect(mockState.startBrushEdit).toHaveBeenCalledTimes(2);
+    expect(mockState.startBrushEdit).toHaveBeenLastCalledWith(brush.id, canvas);
+  });
+
+  it('does not retry temporary-tip activation when only an unrelated saved asset arrives', () => {
+    mockState.brushEditor.status = 'IDLE';
+    mockState.project.customBrushes = [];
+    mockState.currentOffscreenCanvas = document.createElement('canvas');
+    const { rerender } = render(<BrushEditorUI />);
+    expect(mockState.startBrushEdit).toHaveBeenCalledTimes(1);
+
+    mockState.project.customBrushes = [{ ...makeCustomBrush(), id: 'unrelated' }];
+    rerender(<BrushEditorUI />);
+
+    expect(mockState.startBrushEdit).toHaveBeenCalledTimes(1);
+  });
+
   it('updates hue/lightness/saturation and mirrors into brush settings', () => {
     render(<BrushEditorUI />);
 

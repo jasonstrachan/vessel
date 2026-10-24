@@ -46,12 +46,16 @@ type MockState = {
   selectionEnd: { x: number; y: number } | null;
   selectionLastAction: { source: string } | null;
   currentOffscreenCanvas: HTMLCanvasElement | null;
+  compositeLayersToCanvasSync: jest.Mock;
   temporaryCustomBrush: unknown | null;
   tools: {
     customBrushCapture: {
       sampleAllLayers: boolean;
       mode: 'rectangle' | 'freehand';
-      freehandPath: null;
+      freehandPath: {
+        points: Array<{ x: number; y: number }>;
+        bounds: { x: number; y: number; width: number; height: number };
+      } | null;
     };
     brushSettings: {
       brushShape: string;
@@ -118,6 +122,7 @@ function makeBaseState(): MockState {
     selectionEnd: { x: 4, y: 4 },
     selectionLastAction: { source: 'custom-selection-final' },
     currentOffscreenCanvas: canvas,
+    compositeLayersToCanvasSync: jest.fn(() => false),
     temporaryCustomBrush: null,
     tools: {
       customBrushCapture: {
@@ -177,6 +182,7 @@ describe('CustomBrushPanel CC capture hint', () => {
     });
     (useAppStore as unknown as { setState: (partial: unknown) => void }).setState({
       setTemporaryCustomBrush,
+      compositeLayersToCanvasSync: jest.fn(() => useAppStore.getState().layers.length > 0),
     });
     mockCaptureBrushFromCanvas.mockReturnValue(createCaptureResult());
     mockCaptureBrushFromPath.mockReturnValue(createCaptureResult());
@@ -254,6 +260,81 @@ describe('CustomBrushPanel CC capture hint', () => {
       (useAppStore as unknown as { getState: () => MockState }).getState().setTemporaryCustomBrush as jest.Mock;
     const tempBrushArg = setTemporaryCustomBrush.mock.calls.at(-1)?.[0] as { colorCycle?: unknown };
     expect(tempBrushArg.colorCycle).toBeUndefined();
+  });
+
+  it.each(['rectangle', 'freehand'] as const)(
+    'captures full visible-layer material instead of the static cache in %s mode',
+    async (mode) => {
+      const initial = useAppStore.getState();
+      const staticCanvas = initial.currentOffscreenCanvas!;
+      const normalOnly = createCaptureResult().imageData;
+      normalOnly.data.set([255, 0, 0, 255], 0);
+      const fullVisible = new ImageData(new Uint8ClampedArray(normalOnly.data), 4, 4);
+      fullVisible.data.set([0, 0, 255, 255], 4);
+      const pixels = new WeakMap<HTMLCanvasElement, ImageData>([[staticCanvas, normalOnly]]);
+      const composite = jest.fn((target: HTMLCanvasElement) => {
+        target.width = 16;
+        target.height = 16;
+        pixels.set(target, fullVisible);
+        return true;
+      });
+      const capture = (source: HTMLCanvasElement) => ({
+        ...createCaptureResult(),
+        imageData: pixels.get(source) ?? new ImageData(4, 4),
+      });
+      mockCaptureBrushFromCanvas.mockImplementation(capture);
+      mockCaptureBrushFromPath.mockImplementation(capture);
+      useAppStore.setState((state) => ({
+        compositeLayersToCanvasSync: composite,
+        tools: {
+          ...state.tools,
+          customBrushCapture: {
+            ...state.tools.customBrushCapture,
+            mode,
+            sampleAllLayers: true,
+            freehandPath: mode === 'freehand' ? {
+              points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 2, y: 4 }],
+              bounds: { x: 0, y: 0, width: 4, height: 4 },
+            } : null,
+          },
+        },
+      }));
+
+      render(<CustomBrushPanel />);
+
+      await waitFor(() => {
+        const published = jest.mocked(useAppStore.getState().setTemporaryCustomBrush).mock.calls.at(-1)?.[0];
+        expect(published?.imageData.data).toEqual(fullVisible.data);
+      });
+      expect(composite).toHaveBeenCalledTimes(1);
+      expect(composite.mock.calls[0][0]).not.toBe(staticCanvas);
+      expect(useAppStore.getState().currentOffscreenCanvas).toBe(staticCanvas);
+      expect(mockCaptureColorCycleDataFromLayer).not.toHaveBeenCalled();
+      expect(useAppStore.getState().ensureColorCycleLayerRuntime).not.toHaveBeenCalled();
+      const published = jest.mocked(useAppStore.getState().setTemporaryCustomBrush).mock.calls.at(-1)?.[0];
+      expect(published?.colorCycle).toBeUndefined();
+      expect(useAppStore.getState().setBrushSettings).toHaveBeenCalledWith(expect.objectContaining({
+        customBrushColorCycle: false,
+      }));
+    },
+  );
+
+  it('does not fall back to the static cache when full composition fails', async () => {
+    const composite = jest.fn(() => false);
+    useAppStore.setState((state) => ({
+      compositeLayersToCanvasSync: composite,
+      tools: {
+        ...state.tools,
+        customBrushCapture: { ...state.tools.customBrushCapture, sampleAllLayers: true },
+      },
+    }));
+
+    render(<CustomBrushPanel />);
+
+    await waitFor(() => expect(composite).toHaveBeenCalledTimes(1));
+    expect(mockCaptureBrushFromCanvas).not.toHaveBeenCalled();
+    expect(useAppStore.getState().setTemporaryCustomBrush).not.toHaveBeenCalled();
+    expect(useAppStore.getState().clearSelection).not.toHaveBeenCalled();
   });
 
   it('does not capture while the rectangle marquee is only a preview', () => {

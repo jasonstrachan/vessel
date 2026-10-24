@@ -107,6 +107,8 @@ const createDeps = (): KeyboardDeps => {
         currentBrushPresetId: null,
       } as unknown,
     },
+    customFreehandCaptureRuntimeRef: { current: { active: false, pointerId: null, points: [], bounds: null } },
+    setCustomBrushFreehandPath: jest.fn(),
     selectionRuntimeRef: {
       current: {
         pendingSelectionHistory: null,
@@ -498,4 +500,58 @@ describe('keyboard selection gesture cancellation', () => {
     expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(false);
     expect(deps.stateMachine.dispatch).not.toHaveBeenCalled();
   });
+});
+
+describe('keyboard custom freehand capture cancellation', () => {
+  const prepareCapture = () => {
+    const deps = createDeps();
+    deps.dynamicDepsRef.current.tools.currentTool = 'custom';
+    deps.dynamicDepsRef.current.tools.customBrushCapture = {
+      mode: 'freehand', sampleAllLayers: false, freehandPath: null,
+    };
+    Object.assign(deps.customFreehandCaptureRuntimeRef.current, {
+      active: true, pointerId: 7, points: [{ x: 10, y: 10 }, { x: 30, y: 20 }],
+      bounds: { minX: 10, minY: 10, maxX: 30, maxY: 20 },
+    });
+    deps.isMouseDownRef.current = true;
+    return deps;
+  };
+
+  it('resets the shared active capture object and overlay without finalizing or changing selection', () => {
+    mockedUseAppStore.getState.mockReturnValue({ ui: { keyboardScope: { active: 'canvas' } } });
+    const deps = prepareCapture();
+    const sharedRuntime = deps.customFreehandCaptureRuntimeRef.current;
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+    createKeyboardHandlers(deps).handleKeyDown(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(deps.customFreehandCaptureRuntimeRef.current).toBe(sharedRuntime);
+    expect(sharedRuntime).toEqual({ active: false, pointerId: null, points: [], bounds: null });
+    expect(deps.setCustomBrushFreehandPath).toHaveBeenCalledWith(null);
+    expect(deps.overlayCanvasRef.current?.getContext('2d')?.clearRect).toHaveBeenCalledWith(0, 0, 100, 100);
+    expect(deps.isMouseDownRef.current).toBe(false);
+    expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(true);
+    expect(deps.setShowBrushCursor).toHaveBeenCalledWith(true);
+    expect(deps.draw).toHaveBeenCalled();
+    expect(deps.interaction.dispatch).not.toHaveBeenCalled();
+    expect(deps.drawingHandlers.finalizeDrawing).not.toHaveBeenCalled();
+    expect(deps.stateMachine.dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each(['inactive', 'other-tool', 'box', 'modal', 'other-key'] as const)(
+    'leaves %s capture state untouched', (control) => {
+      mockedUseAppStore.getState.mockReturnValue({ ui: { keyboardScope: { active: control === 'modal' ? 'modal' : 'canvas' } } });
+      const deps = prepareCapture();
+      if (control === 'inactive') deps.customFreehandCaptureRuntimeRef.current.active = false;
+      if (control === 'other-tool') deps.dynamicDepsRef.current.tools.currentTool = 'brush';
+      if (control === 'box') deps.dynamicDepsRef.current.tools.customBrushCapture.mode = 'rectangle';
+      const before = structuredClone(deps.customFreehandCaptureRuntimeRef.current);
+      const event = new KeyboardEvent('keydown', { key: control === 'other-key' ? 'a' : 'Escape', cancelable: true });
+      createKeyboardHandlers(deps).handleKeyDown(event);
+      expect(event.defaultPrevented).toBe(false);
+      expect(deps.customFreehandCaptureRuntimeRef.current).toEqual(before);
+      expect(deps.setCustomBrushFreehandPath).not.toHaveBeenCalled();
+      expect(deps.draw).not.toHaveBeenCalled();
+      expect(deps.suppressBootstrapUntilPointerUpRef.current).toBe(false);
+    },
+  );
 });
