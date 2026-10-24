@@ -17,6 +17,7 @@ export function noiseFill(shape: ShapeDefinition, params: FillParams): FillResul
 
   const requestedSize = Math.max(0.1, params.spacing ?? 0.5);
   let pixelSize = clamp(requestedSize, 0.1, 8);
+  const speckScale = clamp(params.thickness ?? 1, 0.2, 4);
   const jitter = clamp01(params.variance ?? 0.3);
   const randomness = clamp01(params.noiseRandomness ?? 0);
   const contrast = clamp(0.1 + (params.noiseContrast ?? 0.65) * 2.9, 0.1, 3);
@@ -134,6 +135,7 @@ export function noiseFill(shape: ShapeDefinition, params: FillParams): FillResul
         const sizeVariance = 1 + (rng() - 0.5) * randomness * 0.8;
         dotSize = clamp(dotSize * sizeVariance, pixelSize * 0.45, pixelSize * 1.6);
       }
+      dotSize *= speckScale;
 
       dotInstances.push({
         center,

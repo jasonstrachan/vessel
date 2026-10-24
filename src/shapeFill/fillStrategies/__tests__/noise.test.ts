@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto';
+
 import { noiseFill } from '../noise';
 import type { FillParams, ShapeDefinition } from '../../types';
+import { renderFill } from '../../renderers/cpuRenderer';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 
 const squareShape: ShapeDefinition = {
@@ -28,6 +31,80 @@ const baseParams: FillParams = {
 };
 
 describe('noiseFill', () => {
+  it('preserves the complete pre-Speck Size output at the default multiplier1', () => {
+    const result = noiseFill(squareShape, { ...baseParams, spacing: 4, fillColor: '#000000' });
+    expect(createHash('sha256').update(JSON.stringify(result)).digest('hex')).toMatchInlineSnapshot(`"6626867a5d9066da3d42505cbbb08816f673ad26c02663943cf2dfc83bbcfd8c"`);
+  });
+
+  it.each([0, 0.8])('scales specks without changing seeded cells or colors at randomness%s', randomness => {
+    const params = { ...baseParams, spacing: 10, noiseRandomness: randomness, fillColor: '#2060c0' };
+    const normal = noiseFill(squareShape, params).dotInstances ?? [];
+    expect(normal.length).toBeGreaterThan(0);
+
+    for (const multiplier of [0.2, 0.5, 3, 4]) {
+      const scaled = noiseFill(squareShape, { ...params, thickness: multiplier }).dotInstances ?? [];
+      expect(scaled).toHaveLength(normal.length);
+      scaled.forEach((dot, index) => {
+        const original = normal[index];
+        if (original.size === undefined) throw new Error('Noise needs explicit square sizes');
+        expect(dot.size).toBe(original.size * multiplier);
+        expect(dot.radius).toBe(original.radius * multiplier);
+        expect({ center: dot.center, color: dot.color, alpha: dot.alpha, shade: dot.shade, shape: dot.shape })
+          .toEqual({ center: original.center, color: original.color, alpha: original.alpha,
+            shade: original.shade, shape: original.shape });
+      });
+    }
+  });
+
+  it.each([[-1, 0.2], [5, 4]])('bounds imported Speck Size%s to the visible multiplier%s', (thickness, multiplier) => {
+    const dots = noiseFill(squareShape, { ...baseParams, spacing: 4, noiseRandomness: 0, thickness }).dotInstances ?? [];
+    expect(dots.length).toBeGreaterThan(0);
+    for (const dot of dots) {
+      expect(dot.size).toBe(4 * multiplier);
+      expect(dot.radius).toBe(2 * multiplier);
+    }
+  });
+
+  it('publishes different raster material through the actual square renderer for Speck Size0.5/1/3', () => {
+    const rasterize = (thickness: number) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 100;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas2D unavailable');
+      const pixels = new Uint8ClampedArray(100 * 100 * 4);
+      // Canvas I/O boundary for this opaque integer-square profile. The real
+      // renderer supplies colors and rectangles; project bounds clip them.
+      const draw = jest.spyOn(ctx, 'fillRect').mockImplementation((x, y, width, height) => {
+        expect([x, y, width, height].every(Number.isInteger)).toBe(true);
+        const color = parseCssColor(String(ctx.fillStyle));
+        expect(color.a).toBe(255);
+        expect(ctx.globalAlpha).toBe(1);
+        for (let py = Math.max(0, y); py < Math.min(100, y + height); py++) {
+          for (let px = Math.max(0, x); px < Math.min(100, x + width); px++) {
+            pixels.set([color.r, color.g, color.b, 255], (py * 100 + px) * 4);
+          }
+        }
+      });
+      try {
+        renderFill(ctx, noiseFill(squareShape, { ...baseParams, spacing: 4,
+          noiseRandomness: 0, fillColor: '#000000', thickness }));
+        expect(draw).toHaveBeenCalledTimes(625);
+      } finally {
+        draw.mockRestore();
+      }
+      return pixels;
+    };
+    const small = rasterize(0.5);
+    const normal = rasterize(1);
+    const large = rasterize(3);
+    const occupied = (pixels: Uint8ClampedArray) => pixels.filter((_value, index) => index % 4 === 3 && pixels[index] > 0).length;
+    expect(occupied(small)).toBe(2500);
+    expect(occupied(normal)).toBe(10000);
+    expect(occupied(large)).toBe(10000);
+    expect(small).not.toEqual(normal);
+    expect(large).not.toEqual(normal);
+  });
+
   it('produces deterministic results for the same seed and parameters', () => {
     const dotsA = noiseFill(squareShape, baseParams).dotInstances ?? [];
     const dotsB = noiseFill(squareShape, baseParams).dotInstances ?? [];

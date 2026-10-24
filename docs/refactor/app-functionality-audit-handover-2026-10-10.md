@@ -7,7 +7,7 @@ marquee/layer deletion/deselection plus strokes that disappear until Undo.
 This supersedes the historical no-subagent/model notes below. The current branch
 and all unrelated work remain preserved. Areas01–19 retain their prior area
 signoffs; the follow-up defects below are repaired and locally committed in375d6480e.
-Areas20–25 signoffs follow; Areas26–65 remain incomplete, with no whole-app completion claimed.
+Areas20–26 signoffs follow; Areas27–65 remain incomplete, with no whole-app completion claimed.
 
 - S39-01: completed marquee Escape left its bounds/mask active. Raster previews
   appeared but canonical commits outside that selection were clipped; native
@@ -563,6 +563,87 @@ Evidence: `reported-cc-oneuse-native-final-session39.json`, final production bin
 isolated gate, source-v2 freeze, independent review and native scripts/receipts under
 ignored `output/playwright/`. Named-session cleanup confirms no matching daemon.
 Continue Area26 Shape Pattern from a fresh preservation baseline.
+
+
+## Session39 — Area26 final software signoff: Shape Pattern
+
+Area 26 is software-verified. Areas 01–26 are complete; Areas 27–65 remain pending.
+The guarded local commit is recorded in `area26-commit-receipt-session39.json`.
+Four qualified native defects are repaired through the existing owners:
+
+- A26-01: polygon release handed geometry to a fill session but left parallel store
+  drawing state active. First Undo cancelled that stale state and left pixels/history
+  unchanged. Clear completed store drawing/points alongside the existing local-ref
+  handoff. First Undo now reaches bitmap history; active draft/session cancellation
+  retains precedence and its existing reversible session delta.
+- A26-02: Noise Speck Size changed stored values without changing generated material.
+  Apply its existing .2–4 multiplier to final square size/radius after original
+  randomness. Default 1 preserves the complete old output; centers, RNG, colours,
+  sampling cadence, clip and cell budget remain unchanged.
+- A26-03: after a released Hatch width edit with no canvas movement, Enter published
+  exactly the old thin preview despite final parameters saying 4. Pointer confirmation
+  recomputed the thick material. Enter now targets the existing Shape Fill finalizer;
+  the duplicated colour/erosion/stale-canvas path is removed. A single-key operation
+  on the existing registry avoids recursive broad flushing. The existing passive
+  pending waiter remains unchanged; the new active registration is nonpassive.
+  Missing owner leaves the draft untouched and target-task rejection propagates.
+  Any current-parameter clamp occurs after successful common target validation.
+- A26-04: native layer-menu lock reached an uncommitted adjusting session, but both
+  confirmation paths could publish pixels while locked. Reject locked targets at
+  the existing final-target validator before payload/rendering. Unsupported CC and
+  missing/invalid-target contracts remain preserved; unlock permits a fresh shape.
+
+Production artifact `1f1e2763f5b54d1f67cdfada9d0f26903f4e72250d42a933cd73b13fd9bb868f` passes
+**76 native cases / 1,019 checks** across four suites. All eight public
+strategies produce positive material with exact canonical/normalized-framebuffer
+history. Starter strategy/Enter pairs require identical finite observed points;
+native 6 px segments preserve actual rectangle corners/area before exact solid/cell
+oracles. Noise's separate-channel field is source-bounded, not assumed monochrome.
+Eight nondefault material profiles, 39 isolated numeric controls, five shared
+variants, three exact seeded repeats and post-release session cancellation pass.
+Sampled blue source, Background colour, Pixel, Lostedge and outline have positive
+material witnesses; every source/other layer remains exact. Combined overlay
+readback proves visible feedback, not isolated strategy-preview fidelity.
+
+Marquee 40×60 clips to exactly 2,400 pixels; Delete/Undo/re-delete/Redo/empty Delete,
+completed-selection Escape and fresh outside material pass. Outer 132 px geometry
+clears actual handles without bypassing hit tests. Real new regular layers with sparse blank allocation,
+normal rows/routing, both locked confirmation paths/unlock recovery, positive CC
+seed/rejection→normal fresh, strategy and target changes during adjustment all pass.
+A strategy switch retains the begun strategy; a target-row switch commits to the
+original normal layer. Final material and history match those observed policies. Both post-release width 4 confirmation paths now publish exact
+matching material without canvas movement, then first Undo/Redo replays exactly.
+Owned storage restoration passes where explicitly managed; no runtime errors occur.
+
+Before receipts and deterministic regressions fail at the owning seams. Final
+independent reviews cover all ten source/test inputs. Task-only type-check, lint
+and **609 suites / 5,962 tests** pass with both snapshots and the existing skipped
+suite/test. The final production build binds five runtime owners and five tests.
+The complete area commit is twelve files including these two ledgers, with no
+mixed original owners. All 47 original working paths and the exact three-file staged
+patch remain preserved. No push, deployment, branch or worktree change.
+
+Initial probe failures caused by requested-box versus normalized geometry,
+selection's legitimate history entry, live handle interception and inherited
+Hatch organic width variation are retained as fixture exclusions. No tolerance,
+geometry injection, shader workaround or generator clone was added. BG support
+uses an independent observed-polygon Canvas reference: exact occupancy, opaque
+interior, empty exterior and monotonic base alpha under source-over, rather than
+an invalid exact partial-edge alpha assertion. A native diagnostic proves the single
+right-edge pixel exactly matches its independent Canvas reference; Hatch alpha
+legitimately mixes white primary into greys over black. The original BG requested-box
+and saturated-white assertions are excluded fixture errors. The complete 56-case control
+suite passed with qualified BG coverage and positive primary contribution; source,
+full gate and production build remain unchanged. Earlier starter-v2 overwrite was
+confined to ignored unexecuted preparation; root's merged/reviewed v3 and qualified
+v4 retain the Noise contract and exact observed-geometry prerequisites.
+
+Evidence: `area26-native-final-session39.json`, production binding, isolated gate,
+source freezes, qualified before receipts, independent reviews and native scripts
+under ignored `output/playwright/`. Exact named-session cleanup confirms no matching
+daemon. Physical tablet, subjective visual signoff, exhaustive generator statistics,
+all control extrema and broad performance remain separate limits. Continue Area27
+Custom brush capture from a fresh preservation baseline.
 
 
 ## Current continuation — Session38, Area19 complete

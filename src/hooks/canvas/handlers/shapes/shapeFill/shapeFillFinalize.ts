@@ -19,6 +19,7 @@ const LOST_EDGE_TILE_SIZE = 4;
 export type ShapeFillFinalizeOutcome =
   | 'committed-raster'
   | 'blocked-unsupported-layer'
+  | 'blocked-locked-layer'
   | 'failed-empty-overlay'
   | 'failed-missing-target'
   | 'failed-invalid-project-size';
@@ -55,6 +56,14 @@ export const validateShapeFillFinalizeTarget = ({
       ok: false,
       outcome: 'blocked-unsupported-layer',
       message: 'Shape Fill cannot commit to a Color Cycle layer yet. Select a normal layer.',
+    };
+  }
+
+  if (activeLayer.locked) {
+    return {
+      ok: false,
+      outcome: 'blocked-locked-layer',
+      message: 'Shape Fill cannot commit to a locked layer. Unlock it to edit.',
     };
   }
 

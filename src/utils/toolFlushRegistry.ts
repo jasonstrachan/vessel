@@ -31,6 +31,15 @@ export const unregisterToolFlush = (key: string): void => {
   registry.delete(key);
 };
 
+export const runToolFlush = async (key: string): Promise<boolean> => {
+  const registration = registry.get(key);
+  if (!registration) {
+    return false;
+  }
+  await registration.task();
+  return true;
+};
+
 export const flushPendingToolWork = async (
   options: FlushPendingToolWorkOptions = {}
 ): Promise<void> => {

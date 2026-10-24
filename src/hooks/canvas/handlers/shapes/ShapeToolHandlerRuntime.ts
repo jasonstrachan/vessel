@@ -643,6 +643,8 @@ export interface ShapeToolHandler {
   handlePointerUp: (event: React.PointerEvent<HTMLCanvasElement>) => boolean;
 }
 
+export const SHAPE_FILL_COMMIT_KEY = 'shape-tool:shape-fill-commit';
+
 export const clampTriangleSize = (value: number) => Math.min(200, Math.max(8, value));
 
 const TRIANGLE_SIZE_EXPONENT = 1.1;
@@ -742,6 +744,16 @@ export const createShapeToolHandler = (
       await pendingShapeFillFinalize;
     }
   });
+
+  registerToolFlush(SHAPE_FILL_COMMIT_KEY, async () => {
+    if (pendingShapeFillFinalize) {
+      await pendingShapeFillFinalize;
+      return;
+    }
+    if (getAppStoreState().shapeFill.session) {
+      await finalizeShapeFillResult();
+    }
+  }, { passive: false });
 
   let shapeAdjustHelper: ShapeAdjustHelper | null = null;
   let lastPreviewRect: ShapeFillPreviewRect | null = null;
@@ -1032,6 +1044,9 @@ export const createShapeToolHandler = (
     }
 
     const store = getAppStoreState();
+    if (store.shapeFill.session?.stage === FillStage.AdjustingParam) {
+      store.commitShapeFillParameter();
+    }
     const payload = store.finalizeShapeFillSession();
     if (!payload) {
       return false;
@@ -3898,6 +3913,8 @@ export const createShapeToolHandler = (
         store.beginShapeFillSession(points);
         drawingHandlers.isDrawingShapeRef.current = false;
         drawingHandlers.shapePointsRef.current = [];
+        store.setShapeDrawing(false);
+        store.clearShapePoints();
         const session = getAppStoreState().shapeFill.session;
         if (session?.stage === FillStage.AdjustingParam) {
           renderShapeFillLiveResult(session);

@@ -1,17 +1,8 @@
-import { getAppStoreState } from '@/stores/appStoreAccess';
-import { debugLog } from '@/utils/debug';
 import { useCallback } from 'react';
-import { computeShapeFillColors } from '@/shapeFill/colorUtils';
-import { FillStage } from '@/shapeFill/types';
-import { snapPointToPixel } from '@/utils/pixelSharp';
-import { applyLostEdgeErosionToContext } from '@/shapeFill/lostEdgeErosion';
 
-const LOST_EDGE_TILE_SIZE = 4;
-
-interface ShapePointLike {
-  x: number;
-  y: number;
-}
+import { getAppStoreState } from '@/stores/appStoreAccess';
+import { SHAPE_FILL_COMMIT_KEY } from '@/hooks/canvas/handlers/shapes/ShapeToolHandler';
+import { runToolFlush } from '@/utils/toolFlushRegistry';
 
 interface DrawingHandlersLike {
   initDrawingCanvas: () => void;
@@ -38,9 +29,7 @@ interface UseDrawingCanvasFinalizeActiveShapeOptions {
 export const useDrawingCanvasFinalizeActiveShape = ({
   finalizeRectangleGradientFromState,
   drawingHandlers,
-  sampleColorAtPosition,
   stateMachine,
-  overlayCanvasRef,
   rebuildStaticComposite,
   compositeCanvasDirtyRef,
   setNeedsRedraw,
@@ -55,105 +44,7 @@ export const useDrawingCanvasFinalizeActiveShape = ({
     }
 
     if (store.shapeFill.session) {
-      if (store.shapeFill.session.stage === FillStage.AdjustingParam) {
-        store.commitShapeFillParameter();
-      }
-
-      const payload = getAppStoreState().finalizeShapeFillSession();
-      if (payload) {
-        if (!drawingHandlers.drawingCanvasRef.current) {
-          drawingHandlers.initDrawingCanvas();
-        }
-
-        const canvas = drawingHandlers.drawingCanvasRef.current;
-        const ctx = canvas?.getContext('2d');
-        if (canvas && ctx) {
-          const storeSnapshot = getAppStoreState();
-          const colors = computeShapeFillColors({
-            points: payload.shape.points as ShapePointLike[],
-            palette: storeSnapshot.palette,
-            brushColor: storeSnapshot.tools.brushSettings.color,
-            sampleUnderShape: storeSnapshot.shapeFill.sampleUnderShape,
-            useBackgroundColor: storeSnapshot.shapeFill.useBackgroundColor,
-            sampleColorAtPosition,
-            fallbackBackground: storeSnapshot.project?.backgroundColor,
-          });
-          const pixelPerfect = storeSnapshot.shapeFill.pixelPerfectMode;
-
-          const primaryColor =
-            colors.primary === 'background' && colors.background
-              ? colors.background
-              : colors.foreground;
-          const secondaryColor =
-            colors.primary === 'background' ? colors.foreground : colors.background;
-
-          payload.params = {
-            ...payload.params,
-            fillColor: primaryColor,
-          };
-          if (secondaryColor) {
-            payload.params.backgroundColor = secondaryColor;
-          } else if ('backgroundColor' in payload.params) {
-            delete (payload.params as { backgroundColor?: string }).backgroundColor;
-          }
-
-          const renderPolygon = pixelPerfect
-            ? payload.shape.points.map((point) => snapPointToPixel(point, { strategy: 'nearest' }))
-            : payload.shape.points;
-          const byFill = (storeSnapshot.shapeFill.paramsByFill as Record<string, Partial<typeof payload.params>>)[
-            payload.fillId
-          ] ?? {};
-
-          const sessionParams = storeSnapshot.shapeFill.session?.params ?? {};
-          const uiLostEdge = sessionParams.lostEdge ?? byFill.lostEdge;
-          const perFillEdge = byFill.lostEdge;
-          const payloadEdge = payload.params.lostEdge;
-
-          const rawLostEdge = uiLostEdge ?? perFillEdge ?? payloadEdge ?? 0;
-          const lostEdge = Math.max(0, Math.min(100, rawLostEdge));
-
-          if (process.env.NODE_ENV !== 'production') {
-            debugLog('raw-console', '[shapeFill] lostEdge', {
-              uiLostEdge,
-              perFillEdge,
-              payloadEdge,
-              rawLostEdge,
-              lostEdge,
-            });
-          }
-
-          if (lostEdge > 0) {
-            const bounds = payload.shape.bounds;
-            const padding = Math.max(
-              4,
-              Math.ceil((payload.params.thickness ?? 1) * 2 + (payload.params.spacing ?? 0))
-            );
-
-            applyLostEdgeErosionToContext(ctx, renderPolygon, bounds, padding, lostEdge, LOST_EDGE_TILE_SIZE);
-          }
-
-          drawingHandlers.drawingCanvasHasContent.current = true;
-          try {
-            await drawingHandlers.finalizeDrawing(false);
-          } finally {
-            stateMachine.finalizationComplete();
-          }
-
-          const overlayCanvas = overlayCanvasRef.current;
-          overlayCanvas?.getContext('2d')?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-          getAppStoreState().cancelShapeFillSession();
-
-          if (rebuildStaticComposite()) {
-            compositeCanvasDirtyRef.current = false;
-          }
-
-          setNeedsRedraw((prev) => prev + 1);
-          interactionDispatch({ type: 'DRAWING_END' });
-          return true;
-        }
-      }
-      return true;
+      return runToolFlush(SHAPE_FILL_COMMIT_KEY);
     }
 
     if (tools.shapeMode && drawingHandlers.isDrawingShapeRef.current) {
@@ -178,9 +69,7 @@ export const useDrawingCanvasFinalizeActiveShape = ({
     drawingHandlers,
     finalizeRectangleGradientFromState,
     interactionDispatch,
-    overlayCanvasRef,
     rebuildStaticComposite,
-    sampleColorAtPosition,
     setNeedsRedraw,
     stateMachine,
     tools.shapeMode,

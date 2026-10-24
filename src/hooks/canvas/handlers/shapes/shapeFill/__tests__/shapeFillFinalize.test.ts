@@ -1,13 +1,19 @@
 import type { ShapeFillFinalizePayload } from '@/shapeFill';
 import type { FillStrategy } from '@/shapeFill/types';
+import type { Layer } from '@/types';
 import { renderShapeFillFinalOverlay, validateShapeFillFinalizeTarget } from '../shapeFillFinalize';
 
-const makeLayer = (layerType?: 'color-cycle') => ({
+const makeLayer = (layerType: Layer['layerType'] = 'normal'): Layer => ({
   id: layerType === 'color-cycle' ? 'cc-layer' : 'raster-layer',
   name: 'Layer',
   visible: true,
   opacity: 1,
+  blendMode: 'source-over',
+  locked: false,
+  order: 0,
   imageData: null,
+  framebuffer: document.createElement('canvas'),
+  alignment: { fit: 'none', horizontal: 'center', vertical: 'center', positioning: 'anchor' },
   layerType,
 });
 
@@ -58,19 +64,45 @@ describe('shapeFillFinalize', () => {
     })).toMatchObject({ ok: false, outcome: 'failed-missing-target' });
 
     expect(validateShapeFillFinalizeTarget({
-      activeLayer: makeLayer('color-cycle') as never,
+      activeLayer: makeLayer('color-cycle'),
       project: { width: 16, height: 16 },
     })).toMatchObject({ ok: false, outcome: 'blocked-unsupported-layer' });
 
     expect(validateShapeFillFinalizeTarget({
-      activeLayer: makeLayer() as never,
+      activeLayer: makeLayer(),
       project: { width: 0, height: 16 },
     })).toMatchObject({ ok: false, outcome: 'failed-invalid-project-size' });
 
     expect(validateShapeFillFinalizeTarget({
-      activeLayer: makeLayer() as never,
+      activeLayer: makeLayer(),
       project: { width: 16, height: 16 },
     })).toMatchObject({ ok: true });
+  });
+
+  it('rejects a raster target locked after a valid draft began and admits it again after unlocking', () => {
+    const layer = makeLayer();
+    const project = { width: 16, height: 16 };
+
+    expect(validateShapeFillFinalizeTarget({ activeLayer: layer, project })).toEqual({
+      ok: true,
+      layer,
+      project,
+    });
+
+    const lockedLayer = { ...layer, locked: true };
+    expect(validateShapeFillFinalizeTarget({ activeLayer: lockedLayer, project })).toEqual({
+      ok: false,
+      outcome: 'blocked-locked-layer',
+      message: 'Shape Fill cannot commit to a locked layer. Unlock it to edit.',
+    });
+    expect(lockedLayer.locked).toBe(true);
+
+    const unlockedLayer = { ...lockedLayer, locked: false };
+    expect(validateShapeFillFinalizeTarget({ activeLayer: unlockedLayer, project })).toEqual({
+      ok: true,
+      layer: unlockedLayer,
+      project,
+    });
   });
 
   it('renders final overlay and proves visible pixels before commit', () => {
