@@ -19,9 +19,14 @@ Text brings cultural meaning immediately; it is never a neutral pattern.
 | Opacity | Strength and readability of the text. |
 | Spacing / Vel | Distance between text stamps and optional response to drawing speed. |
 | Lostedge | Omits or weakens parts of the textual trail. Useful for damaged transmission or fading memory. |
-| Auto Pick | Samples canvas colour as the text is painted, embedding language in the image. |
+| Auto Pick | Samples canvas colour at the start of each stroke. |
 | Pressure / Min / Max | Varies type scale with pressure. |
 | Grid Snap / grid size | Aligns text to a shared module, useful for terminals, ledgers, architecture, and structured fields. |
+
+Each stamp emits one Unicode code point from the text, including spaces, then
+continues cyclically. Emoji surrogate pairs stay together. Combining marks and
+multi-code-point emoji sequences remain separate stamps; the brush does not
+shape whole words or group grapheme clusters.
 
 The preset begins around Size 20, Spacing 10, full opacity, Grid Snap on, the
 Courier font family, and Mixed Chaos content.

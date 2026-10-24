@@ -135,4 +135,6 @@ export const renderGridSnappedStroke = (args: RenderGridSnappedStrokeArgs): void
   pixelQueue.lastStrokePosition = { x: snappedTo.x, y: snappedTo.y };
   pixelQueue.lastDrawnX = snappedTo.x;
   pixelQueue.lastDrawnY = snappedTo.y;
+  pixelQueue.waitingPixelX = snappedTo.x;
+  pixelQueue.waitingPixelY = snappedTo.y;
 };

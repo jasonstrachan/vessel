@@ -7,7 +7,7 @@ marquee/layer deletion/deselection plus strokes that disappear until Undo.
 This supersedes the historical no-subagent/model notes below. The current branch
 and all unrelated work remain preserved. Areas01–19 retain their prior area
 signoffs; the follow-up defects below are repaired and locally committed in375d6480e.
-Areas20–22 signoffs follow; Areas23–65 remain incomplete, with no whole-app completion claimed.
+Areas20–23 signoffs follow; Areas24–65 remain incomplete, with no whole-app completion claimed.
 
 - S39-01: completed marquee Escape left its bounds/mask active. Raster previews
   appeared but canonical commits outside that selection were clipped; native
@@ -299,6 +299,73 @@ Physical hardware, subjective appearance, performance, custom pattern library
 work and broader per-preset persistence retain their separate audit owners.
 Continue with Area 23 Spam Text using the prepared native starter and a fresh
 post-commit preservation baseline; Areas 24–25 also have read-only preparations.
+
+
+## Session39 — Area23 final software signoff: Spam Text
+
+Area 23 is software-verified. Areas 01–23 are complete; Areas 24–65 remain pending.
+The guarded local commit is recorded in `area23-commit-receipt-session39.json`.
+Two reproduced defects are repaired at their owners:
+
+- A23-01: valid custom `A😀B` previously reached Canvas as `A`, two lone
+  surrogates, then `B`. SpamTextSequence now caches Unicode code points during
+  initialization and emits them intact, without per-stamp splitting. ASCII,
+  whitespace, preset fallback, wrapping, reset and retained cursor behavior remain.
+  Full grapheme grouping is explicitly outside this code-point contract.
+- A23-02: grid traversal completed its cells but left stale pending coordinates.
+  Release emitted an unrelated origin stamp, consumed an extra character and
+  skipped the next visible character. A near-origin native case committed 34 extra
+  pixels. The grid renderer now synchronizes pending coordinates to its completed
+  endpoint; already drawn or deliberately rejected cells cannot become deferred
+  stamps. Non-grid finalization remains unchanged. Regressions cover regular
+  Square/Round, native Spam continuity, anisotropic custom snapping and rejection.
+
+Production artifact `a5265c7f6aeda17f98eb910810bafcc89b4362149c65f92981a48cc6b0f3fc29` passes
+**48 native cases / 400 checks** across seven suites. Coverage includes
+all five Content choices, eight Font requests with positive native ink, Size 8–72,
+Opacity 0/.4/1, Spacing 1/40, Grid 16 same-cell coalescing and adjacent cells, native
+pen pressures .25/.75 at50–150%, measured velocity on/off controls, Lostedge 0/50/100,
+AutoPick against an independently blue-start/red-end source, project-edge clipping,
+CC rejection followed by normal-layer fresh ink, custom content replacement and
+empty/whitespace fallback. Selection→paint→Delete→Undo/Redo→repeated Delete→Escape→
+fresh ink, existing layer-row routing and locked-target rejection pass. Real
+Unicode code-point output, no release-time ghost/character skip, exact bitmap
+history and other-layer preservation are included.
+
+Control prerequisites remain explicit. System font fallback can share raster
+appearance; requests and actual ink are verified without invented uniqueness.
+Velocity requires measured event-time separation and exact off-control centres.
+Lostedge 50 proves positive retained pixels/holes;100 may remove the entire glyph
+and produce an exact history no-op. AutoPick samples once at stroke start; native
+Canvas accumulation independently reproduces every raw/final colour byte, including
+ordinary overlap rounding. No arbitrary RGB tolerance or source compensation was
+introduced. Independent glyph masks compare all 65,536 binary support pixels; isolated
+reference-alpha differences remain diagnostic because that isolated drawing does
+not reproduce the complete production compositing seam. Exact canonical RGBA,
+normalized framebuffer and Undo/Redo remain strict.
+
+Focused owner regressions fail before and pass after: Unicode: 7 semantic failures,
+then 14 passing tests; grid: 5 semantic failures, then four suites / 62 passing tests
+with existing finalizer/custom coverage. Independent reviews found no actionable
+issues. Final task-only type-check, lint and **603 suites / 5,866 tests**
+pass, together with the existing snapshot and skipped suite/test. The successful
+production build binds both final runtime owners and all five task inputs.
+
+The seven-file boundary contains two runtime files, two regression suites, the
+artist guide and these two ledgers. All began clean at HEAD. All 47 original
+working paths and the exact three-file staged patch remain preserved. No branch
+change, push or deployment. Rejected observer assumptions and the superseded
+gate remain in `area23-native-final-session39.json`; original evidence is retained.
+Native font appearance is platform-specific; physical tablet, subjective visual
+signoff and broad performance remain separate limits. Sequence rewind with bitmap
+Undo and full grapheme grouping were not invented. The separate legacy
+`spam-brush` phrase plugin is not this public character-stamp path.
+
+Evidence: `area23-native-final-session39.json`,
+`area23-preview-final-v1-session39.json`, `area23-isolated-gate-v2-session39.json`,
+source freezes, before/after logs and review notes under ignored `output/playwright/`.
+Named-session cleanup confirms no matching daemon remains. Continue with Area24
+Resampler from its prepared native starter and a fresh post-commit baseline.
 
 
 ## Current continuation — Session38, Area19 complete

@@ -1,4 +1,5 @@
 import { BrushEngineFacade } from '@/hooks/brushEngine/BrushEngineFacade';
+import { createPixelCircleStamp } from '@/hooks/brushEngine/brushStampController';
 import { resolveCustomPatternDrawDimensions } from '@/hooks/brushEngine/shapes';
 import { BrushShape, type BrushSettings } from '@/types';
 
@@ -30,6 +31,127 @@ const createBaseSettings = (): BrushSettings => ({
 });
 
 describe('BrushEngineFacade grid snap stamping', () => {
+  const rasterWindow = globalThis as typeof globalThis & { __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean };
+
+  beforeEach(() => {
+    rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
+  });
+
+  afterEach(() => {
+    delete rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    jest.restoreAllMocks();
+  });
+
+  it('does not consume an extra Spam character when releasing a completed grid segment', () => {
+    const engine = new BrushEngineFacade({
+      brushSettings: { ...createBaseSettings(), brushShape: BrushShape.SPAM_TEXT },
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 192;
+    const ctx = canvas.getContext('2d')!;
+    const fillText = jest.spyOn(ctx, 'fillText');
+    engine.initializeSpamText('mixed', 'ABCD');
+
+    engine.renderBrushStroke(ctx, {
+      from: { x: 64, y: 64 }, to: { x: 80, y: 64 },
+      pressure: 1, velocity: 0, timestamp: 1,
+    });
+    const accepted = fillText.mock.calls.map((call) => [...call]);
+    expect(accepted.map((call) => call[0])).toEqual(['A', 'B', 'C']);
+    const count = engine.getSpamTextState().charIndex;
+    engine.finalizeStroke(ctx);
+    engine.finalizeStroke(ctx);
+
+    expect(fillText.mock.calls).toEqual(accepted);
+    expect(engine.getSpamTextState().charIndex).toBe(count);
+    engine.resetStroke();
+    engine.renderBrushStroke(ctx, {
+      from: { x: 128, y: 64 }, to: { x: 128, y: 64 },
+      pressure: 1, velocity: 0, timestamp: 2,
+    });
+    expect(fillText.mock.calls.map((call) => call[0])).toEqual(['A', 'B', 'C', 'D']);
+    expect(engine.getSpamTextState().charIndex).toBe(count + 1);
+  });
+
+  it.each([BrushShape.SQUARE, BrushShape.PIXEL_ROUND])('preserves a non-origin %s grid stamp raster during finalization', (brushShape) => {
+    const brushStampCache = new Map<string, HTMLCanvasElement>();
+    const engine = new BrushEngineFacade({
+      brushSettings: { ...createBaseSettings(), brushShape },
+      createPixelCircleStamp: (size) => createPixelCircleStamp({ size, brushStampCache }),
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d')!;
+    engine.renderBrushStroke(ctx, {
+      from: { x: 16, y: 16 }, to: { x: 16, y: 16 },
+      pressure: 1, velocity: 0, timestamp: 1,
+    });
+    const before = ctx.getImageData(0, 0, 64, 64).data.slice();
+    expect(before.some((value, index) => index % 4 === 3 && value > 0)).toBe(true);
+    expect(ctx.getImageData(0, 0, 1, 1).data[3]).toBe(0);
+
+    engine.finalizeStroke(ctx);
+    engine.finalizeStroke(ctx);
+
+    expect(ctx.getImageData(0, 0, 64, 64).data).toEqual(before);
+    expect(ctx.getImageData(0, 0, 1, 1).data[3]).toBe(0);
+  });
+
+  it('leaves no deferred custom stamp after anisotropic custom snapping', () => {
+    const engine = new BrushEngineFacade({
+      brushSettings: {
+        ...createBaseSettings(), brushShape: BrushShape.CUSTOM,
+        gridSnapEnabled: false, customBrushSnapEnabled: true, size: 20,
+      },
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    const imageData = new ImageData(20, 10);
+    imageData.data.fill(255);
+    const drawImage = jest.spyOn(ctx, 'drawImage');
+    engine.renderBrushStroke(ctx, {
+      from: { x: 21, y: 21 }, to: { x: 59, y: 39 },
+      pressure: 1, velocity: 0, timestamp: 1,
+      customBrushData: { imageData, width: 20, height: 10 },
+    });
+    const stamps = engine.consumeRecentStamps();
+    expect(stamps.map(({ x, y }) => ({ x, y }))).toEqual([
+      { x: 20, y: 20 }, { x: 40, y: 30 }, { x: 60, y: 40 },
+    ]);
+    expect(drawImage).toHaveBeenCalled();
+    const calls = drawImage.mock.calls.map((call) => [...call]);
+    const queue = engine.getPixelQueue();
+    expect([queue.waitingPixelX, queue.waitingPixelY]).toEqual([60, 40]);
+
+    engine.finalizeStroke(ctx);
+
+    expect(drawImage.mock.calls).toEqual(calls);
+  });
+
+  it('does not turn a rejected grid contact into an unchecked deferred Spam stamp', () => {
+    const engine = new BrushEngineFacade({
+      brushSettings: { ...createBaseSettings(), brushShape: BrushShape.SPAM_TEXT },
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 128;
+    const ctx = canvas.getContext('2d')!;
+    const fillText = jest.spyOn(ctx, 'fillText');
+    const admission = jest.spyOn(engine, 'canDrawAt').mockReturnValue(false);
+    engine.initializeSpamText('mixed', 'AB');
+    engine.renderBrushStroke(ctx, {
+      from: { x: 64, y: 64 }, to: { x: 80, y: 64 },
+      pressure: 1, velocity: 0, timestamp: 1,
+    });
+    expect(admission).toHaveBeenCalled();
+    expect(fillText).not.toHaveBeenCalled();
+
+    engine.finalizeStroke(ctx);
+
+    expect(fillText).not.toHaveBeenCalled();
+    expect(engine.getSpamTextState().charIndex).toBe(0);
+  });
+
   it('stamps across every traversed grid cell for pixel square regardless of spacing', () => {
     const engine = new BrushEngineFacade({
       brushSettings: createBaseSettings(),

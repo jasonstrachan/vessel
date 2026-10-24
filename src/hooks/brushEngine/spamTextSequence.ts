@@ -8,11 +8,14 @@ const SPAM_TEXTS: Record<string, string> = {
 
 export interface SpamTextState {
   currentText: string;
+  /** Number of emitted Unicode code points, including completed cycles. */
   charIndex: number;
   initialized: boolean;
 }
 
 export class SpamTextSequence {
+  private codePoints: string[] = [];
+
   private state: SpamTextState = {
     currentText: '',
     charIndex: 0,
@@ -20,11 +23,11 @@ export class SpamTextSequence {
   };
 
   getNextChar(): string {
-    if (!this.state.currentText) {
+    if (!this.codePoints.length) {
       return 'S';
     }
 
-    const char = this.state.currentText[this.state.charIndex % this.state.currentText.length];
+    const char = this.codePoints[this.state.charIndex % this.codePoints.length];
     this.state.charIndex += 1;
     return char;
   }
@@ -35,6 +38,7 @@ export class SpamTextSequence {
     } else {
       this.state.currentText = SPAM_TEXTS[contentType] || SPAM_TEXTS.mixed;
     }
+    this.codePoints = Array.from(this.state.currentText);
 
     if (!this.state.initialized) {
       this.state.charIndex = 0;
