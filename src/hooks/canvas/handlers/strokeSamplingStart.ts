@@ -1,6 +1,7 @@
 import { usesCcSampledGradient } from '@/utils/colorCycle/ccColourPickup';
 import type React from 'react';
 import type { AppState } from '@/stores/useAppStore';
+import { BrushShape } from '@/types';
 
 export const initializeStrokeSamplingState = ({
   currentState,
@@ -33,12 +34,15 @@ export const initializeStrokeSamplingState = ({
   const isCCStroke = ccFlags.isAny;
   const autoSampleOneShot = !!currentState.tools.brushSettings.autoSampleGradient;
   const autoSampleRealtime = !!currentState.tools.brushSettings.autoSampleGradientRealtime;
-  if (isCCStroke && !currentState.tools.brushSettings.colorCyclePickupEnabled && (autoSampleOneShot || autoSampleRealtime)) {
+  const isMosaicSample = !isCCStroke && currentState.tools.brushSettings.brushShape === BrushShape.MOSAIC && autoSampleOneShot;
+  if (isMosaicSample || (isCCStroke && !currentState.tools.brushSettings.colorCyclePickupEnabled && (autoSampleOneShot || autoSampleRealtime))) {
     autoSamplePointsRef.current = [worldPos];
     autoSampleLastUpdateRef.current = 0;
-    autoSampleForkRef.current = true;
-    brushSamplingPreviewActiveRef.current = autoSampleOneShot;
-    if (autoSampleOneShot) {
+    if (isCCStroke) {
+      autoSampleForkRef.current = true;
+    }
+    brushSamplingPreviewActiveRef.current = isCCStroke && autoSampleOneShot;
+    if (brushSamplingPreviewActiveRef.current) {
       renderBrushSamplingPreview(autoSamplePointsRef.current);
     }
   }

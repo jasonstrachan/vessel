@@ -296,21 +296,22 @@ describe('global brush persistence', () => {
   });
 
   it('clamps hydrated Resampler shape mode while retaining saved maps and raw material preferences', async () => {
-    const memories = { resampler: true, mosaic: true, 'color-cycle-shape': true };
+    const memories = { resampler: true, mosaic: true, 'soft-round': true, 'color-cycle-shape': true };
     loadMock.mockReturnValue({
       lastBrushId: 'resampler',
       shapeModeByBrush: memories,
       brushSpecificSettings: { resampler: { risographIntensity: 37, continuousSampling: true, resampleInterval: 7 } },
     });
     const { useAppStore } = await import('@/stores/useAppStore');
-    const { mosaicBrushPreset, resamplerBrushPreset } = await import('@/presets/brushPresets');
+    const { defaultBrushPreset, resamplerBrushPreset } = await import('@/presets/brushPresets');
     const state = useAppStore.getState();
 
     expect(state.currentBrushPreset?.id).toBe('resampler');
     expect(state.tools.shapeMode).toBe(false);
     expect(state.shapeModeByBrush).toEqual(memories);
     expect(state.tools.brushSettings).toMatchObject({ risographIntensity: 37, continuousSampling: true, resampleInterval: 7 });
-    state.setBrushPreset(mosaicBrushPreset);
+    state.setBrushPreset(defaultBrushPreset);
+    state.setShapeMode(true);
     expect(useAppStore.getState().tools.shapeMode).toBe(true);
     state.setBrushPreset(resamplerBrushPreset);
     expect(useAppStore.getState().tools.shapeMode).toBe(false);
@@ -338,7 +339,7 @@ describe('global brush persistence', () => {
     expect(state.tools.brushSettings.risographIntensity).toBe(37);
   });
 
-  it('restores per-brush shape mode for mosaic', async () => {
+  it('retains raw Mosaic Shape preference while denying unsupported effective Shape on startup', async () => {
     loadMock.mockReturnValue({
       shapeModeByBrush: { mosaic: true },
       lastBrushId: 'mosaic',
@@ -349,7 +350,31 @@ describe('global brush persistence', () => {
 
     expect(state.shapeModeByBrush?.mosaic).toBe(true);
     expect(state.currentBrushPreset?.id).toBe('mosaic');
-    expect(state.tools.shapeMode).toBe(true);
+    expect(state.tools.shapeMode).toBe(false);
+    state.setBrushSettings({ mosaicTilePx: 13 });
+    jest.advanceTimersByTime(300);
+    expect(saveMock.mock.calls.at(-1)?.[0].shapeModeByBrush.mosaic).toBe(true);
+  });
+
+  it('clamps an effective Mosaic tip restored through another preset without rewriting raw maps', async () => {
+    const { BrushShape } = await import('@/types');
+    const memories = { mosaic: true, 'soft-round': true, 'color-cycle-shape': true };
+    loadMock.mockReturnValue({
+      lastBrushId: 'soft-round',
+      shapeModeByBrush: memories,
+      brushSpecificSettings: { 'soft-round': { brushShape: BrushShape.MOSAIC, mosaicTilePx: 13 } },
+    });
+    const { useAppStore } = await import('@/stores/useAppStore');
+    const state = useAppStore.getState();
+
+    expect(state.currentBrushPreset?.id).toBe('soft-round');
+    expect(state.tools.brushSettings).toMatchObject({ brushShape: BrushShape.MOSAIC, mosaicTilePx: 13 });
+    expect(state.tools.shapeMode).toBe(false);
+    expect(state.shapeModeByBrush).toEqual(memories);
+    expect(state.brushSpecificSettings['soft-round']).toMatchObject({ brushShape: BrushShape.MOSAIC, mosaicTilePx: 13 });
+    state.setBrushSettings({ mosaicTilePx: 14 });
+    jest.advanceTimersByTime(300);
+    expect(saveMock.mock.calls.at(-1)?.[0].shapeModeByBrush).toEqual(memories);
   });
 
   it('remembers polygon sampling toggle per brush', async () => {

@@ -209,7 +209,7 @@ export const renderBrushStrokeWithServices = (
   renderContext.beginStampTracking(pressure, settings.opacity);
   try {
     if (settings.shape === BrushShape.MOSAIC) {
-      renderContext.mosaicRenderer.renderStroke(ctx, drawFrom, drawTo, pressure, rotation);
+      renderContext.mosaicRenderer.renderStroke(ctx, drawFrom, drawTo, pressure, rotation, spacing);
       return;
     }
 

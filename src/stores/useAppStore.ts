@@ -1101,7 +1101,8 @@ const hydrateGlobalBrushSettings = (): void => {
       }
     }
 
-    if (nextTools.brushSettings.brushShape === BrushShape.RESAMPLER && nextTools.shapeMode) {
+    if ((nextTools.brushSettings.brushShape === BrushShape.RESAMPLER ||
+         nextTools.brushSettings.brushShape === BrushShape.MOSAIC) && nextTools.shapeMode) {
       nextTools = { ...nextTools, shapeMode: false };
     }
 

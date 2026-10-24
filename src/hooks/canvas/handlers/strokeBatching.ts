@@ -245,20 +245,25 @@ export const processBatchedStrokes = (
   for (let i = 0; i < batch.length; i++) {
     const { pos: worldPos, pressure, timestampMs } = batch[i];
     const pointTimestampMs = Number.isFinite(timestampMs) ? (timestampMs as number) : performance.now();
-    const shouldAutoSample =
+    const shouldSampleMosaic =
+      !ccProcessFlags.isAny && brushSettings.brushShape === BrushShape.MOSAIC && brushSettings.autoSampleGradient;
+    const shouldAutoSample = shouldSampleMosaic || (
       ccProcessFlags.isAny &&
       !currentState.tools.brushSettings.colorCyclePickupEnabled &&
       (currentState.tools.brushSettings.autoSampleGradient ||
-        currentState.tools.brushSettings.autoSampleGradientRealtime);
+        currentState.tools.brushSettings.autoSampleGradientRealtime));
     if (shouldAutoSample) {
       args.autoSamplePointsRef.current.push(worldPos);
       if (args.autoSamplePointsRef.current.length > 5000) {
         args.autoSamplePointsRef.current.splice(0, args.autoSamplePointsRef.current.length - 5000);
       }
-      if (!args.brushSamplingPreviewActiveRef.current) {
-        deps.updateAutoSampledGradient(args.autoSamplePointsRef.current);
-      } else {
-        deps.renderBrushSamplingPreview(args.autoSamplePointsRef.current);
+      // Mosaic keeps painting; sample the committed composite once, before raster publication.
+      if (!shouldSampleMosaic) {
+        if (!args.brushSamplingPreviewActiveRef.current) {
+          deps.updateAutoSampledGradient(args.autoSamplePointsRef.current);
+        } else {
+          deps.renderBrushSamplingPreview(args.autoSamplePointsRef.current);
+        }
       }
     }
     const shouldSampled =

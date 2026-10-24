@@ -7,7 +7,7 @@ marquee/layer deletion/deselection plus strokes that disappear until Undo.
 This supersedes the historical no-subagent/model notes below. The current branch
 and all unrelated work remain preserved. Areas01–19 retain their prior area
 signoffs; the follow-up defects below are repaired and locally committed in375d6480e.
-Areas20–24 signoffs follow; Areas25–65 remain incomplete, with no whole-app completion claimed.
+Areas20–25 signoffs follow; Areas26–65 remain incomplete, with no whole-app completion claimed.
 
 - S39-01: completed marquee Escape left its bounds/mask active. Raster previews
   appeared but canonical commits outside that selection were clipped; native
@@ -436,6 +436,92 @@ Named-session cleanup confirms no matching daemon remains. Continue with Area25
 Mosaic from its prepared starter and a fresh post-commit preservation baseline.
 
 
+## Session39 — Area25 final software signoff: Mosaic
+
+Area 25 is software-verified. Areas 01–25 are complete; Areas 26–65 remain pending.
+The guarded local commit is recorded in `area25-commit-receipt-session39.json`.
+Three reproduced defects are repaired through existing owners:
+
+- A25-01: Vel ignored the already computed shared spacing value, leaving all 17
+  centres identical at measured slow/fast speeds. Route computed absolute spacing
+  to Mosaic's interval renderer. Preserve its original rounded/default base,
+  distance already travelled in a pending gap, segment/palette behavior and exact
+  VelOFF output. Reset clears the per-stroke effective interval; invalid overrides
+  fall back safely without compounding the base.
+- A25-02: a restored Mosaic Shape preference entered generic polygon fill and
+  painted 9,216 foreground pixels instead of Mosaic material. No Mode control or
+  polygon Mosaic renderer exists. Keep effective Mosaic mode as Stroke at the
+  existing settings/action/preset/tool/hydration admission seams, retaining raw
+  saved maps and supported regular/CC shape memories. A polygon material policy
+  was not invented. Earlier Area24 Mosaic-enabled memory controls are replaced
+  with actually supported Soft controls; old artifact receipts remain unchanged.
+- A25-03: the visible one-use Sample action disabled itself without capturing
+  colours. Initialize/collect its path through existing refs, then use the existing
+  reference-aware sampler before ordinary raster publication. It reads committed
+  source layers separately from held Mosaic ink, applies stops through normal
+  brush settings and disables one-use. Preserve the gesture's existing painting,
+  bitmap history, repeated-palette commits and source layers. Empty/read-failure
+  paths retain the palette and normal commit. Retained CC pickup/realtime settings
+  do not block Mosaic sampling or activate CC preview/document/live branches.
+
+The full gate also caught explicit CC classification losing priority to stale
+Mosaic settings in the new condition. Preserve CC admission/pickup precedence
+in initialization and collection. The new regression and existing pickup test
+pass without changing that existing test's expectations.
+
+Production artifact `655f6f1bdb055bfa9b7511d3e07d02cdf7b560ada9418c550623025844c9aa33` passes
+**48 native cases / 538 checks** across seven suites. Coverage includes
+independently configured palette material, Tile/Blocks/Palette/Size/Opacity,
+Spacing and measured Vel response, actual pen pressures .25/.75 at 50–150% with off-controls,
+rotation, Pixel smoothing, Segment and jitter, fixed-seed repetition, native Rand
+and replay, and Dither at/beyond its 65,536-source-pixel cap. Above the existing
+cap the positive flat fallback is verified, not mistaken for a dither effect.
+Actual gradient choices/editor stop changes, one-use red/blue capture and the next
+Mosaic material pass. Size 1/500, zero-opacity old-ink/no-history/recovery, CC-target
+rejection→normal fresh ink, and actual new-layer rows/lock/unlock/routing pass.
+Marquee paint→Delete→Undo/Redo→repeated/empty Delete→Escape→fresh outside ink
+passes with explicit canvas/handle prerequisites. Old raw Shape false/true maps
+both start as effective Stroke; direct denial, native tool return and supported
+Soft shape-memory restoration pass. All accepted bitmap/framebuffer history is
+exact and other layers/source remain byte-preserved.
+
+Pressure is not an application clipping bug. Actual writer→preview→canonical→
+framebuffer/history is exact. Independent captured-pixel Canvas references using
+native translate→rotate operations match both fractional-pressure writers exactly;
+setting a near-quarter-turn matrix directly can rasterize edge coverage differently.
+No pixel tolerance, mask relaxation or rendering compensation was added. Newly
+added regular layers legitimately start as null pixels plus a zero 1×1 framebuffer;
+the observer preserves that representation and requires full project surfaces after
+authoring. Generic CC GradientEditor presence is legitimate. An extra retained CC one-use
+preference probe reproduces a separate stalled input-start/finalization contract.
+It is outside Mosaic public controls and is recorded for immediate separate repair,
+not counted as a passing preservation case. Its actual native failure and six-plane
+readback remain intact. Dedicated CC has no Mosaic action dropdown. Owned storage bytes and
+session packets are restored on real reload, with legitimate telemetry recorded.
+
+Owner regressions fail before and pass after. Final independent reviews cover all
+eleven source/test inputs. Task-only type-check, lint and **608 suites /
+5,929 tests** pass with the existing snapshot and skipped suite/test. A final
+production build binds seven runtime owners and four regression files. The complete
+commit boundary is thirteen files with these two ledgers; all task owners began
+clean at HEAD. The failed fixture gate, CC-regression gate and superseded build
+remain recorded and are excluded from final acceptance.
+
+All 47 original working paths and the exact three-file staged patch remain preserved.
+No branch change, push or deployment. Physical tablet, subjective appearance,
+broad performance and sequence materialization remain separate audit limits.
+Sampling reset is covered deterministically; a new native mid-stroke Escape
+cancellation policy was not invented. No unsupported polygon implementation or
+unreachable dedicated CC action was silently marked passed.
+
+Evidence: `area25-native-final-session39.json`,
+`area25-preview-final-v2-session39.json`, `area25-isolated-gate-v3-session39.json`,
+source freezes, before/after logs and independent reviews under ignored
+`output/playwright/`. Named-session cleanup confirms no matching daemon remains.
+Immediately repair the separately reproduced CC sampling-start contract, then
+continue Area26 Shape Pattern from a fresh preservation baseline.
+
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -478,7 +564,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 22 | Rectangle Gradient: stops/direction, drag/constraint, commit/cancel | shape handlers, gradient brush | software-verified (Session39; 67 configurations/761 checks; full gate/local receipt) |
 | 23 | Spam Text: content, font/size, spacing, colour, pressure, grid, selection/history | text brush/settings | software-verified (Session39; 48 native cases/400 checks; full gate/local receipt) |
 | 24 | Resampler: source sampling, tap/drag, size, filtering, alpha, edges | resampler brush/runtime | software-verified (Session39; 43 native cases/411 checks; full gate/local receipt) |
-| 25 | Mosaic: source/colour, tile settings, geometry, preview/commit | mosaic brush/runtime | pending |
+| 25 | Mosaic: source/colour, tile settings, geometry, preview/commit | mosaic brush/runtime | software-verified (Session39; 48 native cases/538 checks; full gate/local receipt) |
 | 26 | Shape Pattern: each exposed fill strategy and controls, boundaries, colour, preview/final | shapeFill, shape handlers/settings | pending |
 | 27 | Custom brush capture: region, alpha, normal/CC data, save/name/default, reload | custom tool, brush editor, project slice | pending |
 | 28 | Custom brush painting/edit/removal: size/rotation/pressure/spacing, palette, defaults, library | BrushLibrary, custom presets, brush runtime | pending |

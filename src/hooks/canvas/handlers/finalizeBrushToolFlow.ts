@@ -3,6 +3,7 @@ import type { AppState } from '@/stores/useAppStore';
 import type { ColorCycleSerializedState } from '@/history/helpers/colorCycle';
 import type { CaptureRegion } from '@/hooks/canvas/utils/captureRegions';
 import type { BrushSettings, CanvasSnapshot, Layer, Tool } from '@/types';
+import { BrushShape } from '@/types';
 import {
   prepareFinalizeBrushContext,
   type PrepareFinalizeBrushContextDeps,
@@ -118,6 +119,26 @@ export const runFinalizeBrushToolFlow = async ({
     isAnyColorCycleBrush,
     shouldDisableCoalescing,
   };
+
+  if (
+    currentTool === 'brush' && nextLayer.layerType === 'normal' &&
+    activeSettings.brushShape === BrushShape.MOSAIC && activeSettings.autoSampleGradient
+  ) {
+    const sampling = deps.finalizeColorCycleBrushBaseDeps;
+    try {
+      // Held Mosaic ink is still an overlay here; the sampler reads the committed composite.
+      const stops = sampling.computeAutoSampleStops([...sampling.autoSamplePointsRef.current], { allowTiny: true });
+      if (stops && stops.length >= 2) {
+        sampling.storeRef.current.setBrushSettings({ colorCycleGradient: stops });
+      }
+    } catch {
+      deps.finalizeRasterFallbackDeps.logError('[finalize] Mosaic sampling failed; retaining the current palette.');
+    } finally {
+      sampling.autoSamplePointsRef.current = [];
+      sampling.autoSampleLastUpdateRef.current = 0;
+      sampling.storeRef.current.setBrushSettings({ autoSampleGradient: false });
+    }
+  }
 
   const finalizeResult = await strokeFinalizeProbeTime(
     'runFinalizeColorCycleBrush',

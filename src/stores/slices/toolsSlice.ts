@@ -1344,7 +1344,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         ...(forceShapeModeOffForCustom
           ? { shapeMode: false, lastRegularShapeMode: false }
           : {}),
-        ...(newSettings.brushShape === BrushShape.RESAMPLER
+        ...((newSettings.brushShape === BrushShape.RESAMPLER || newSettings.brushShape === BrushShape.MOSAIC)
           ? { shapeMode: false }
           : {}),
       },
@@ -1704,7 +1704,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       });
     } catch {}
 
-    if (state.tools.brushSettings.brushShape === BrushShape.RESAMPLER) {
+    if (state.tools.brushSettings.brushShape === BrushShape.RESAMPLER ||
+        state.tools.brushSettings.brushShape === BrushShape.MOSAIC) {
       return { tools: { ...state.tools, shapeMode: false } };
     }
 
@@ -1823,7 +1824,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         if (currentToolSupportsShapes && !nextToolSupportsShapes) {
           if (isCurrentColorCycleBrush) {
             lastColorCycleShapeMode = state.tools.shapeMode;
-          } else if (state.tools.brushSettings.brushShape !== BrushShape.RESAMPLER) {
+          } else if (state.tools.brushSettings.brushShape !== BrushShape.RESAMPLER &&
+                     state.tools.brushSettings.brushShape !== BrushShape.MOSAIC) {
             lastRegularShapeMode = state.tools.shapeMode;
           }
           newShapeMode = false;
@@ -1837,7 +1839,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             : (mosaicShapeMode ?? lastRegularShapeMode ?? false);
         }
 
-        if (newBrushSettings.brushShape === BrushShape.RESAMPLER) {
+        if (newBrushSettings.brushShape === BrushShape.RESAMPLER ||
+            newBrushSettings.brushShape === BrushShape.MOSAIC) {
           newShapeMode = false;
         }
 
@@ -2347,7 +2350,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       isRegularPixelPresetId(preset.id);
 
     let nextShapeMode: boolean;
-    if (newBrushSettings.brushShape === BrushShape.RESAMPLER) {
+    if (newBrushSettings.brushShape === BrushShape.RESAMPLER ||
+        newBrushSettings.brushShape === BrushShape.MOSAIC) {
       nextShapeMode = false;
     } else if (forceShapeModePreset) {
       nextShapeMode = true;
@@ -2404,7 +2408,7 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
         shapeMode: nextShapeMode,
         ...(isNewCC
           ? { lastColorCycleShapeMode: nextShapeMode }
-          : newBrushSettings.brushShape === BrushShape.RESAMPLER
+          : (newBrushSettings.brushShape === BrushShape.RESAMPLER || newBrushSettings.brushShape === BrushShape.MOSAIC)
             ? {}
             : { lastRegularShapeMode: nextShapeMode }
         ),

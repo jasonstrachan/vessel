@@ -19,11 +19,13 @@ interface MosaicStrokeRendererOptions {
 
 export class MosaicStrokeRenderer {
   private state: MosaicState | null = null;
+  private previousSpacingPx: number | null = null;
 
   constructor(private options: MosaicStrokeRendererOptions) {}
 
   reset(): void {
     this.state = null;
+    this.previousSpacingPx = null;
   }
 
   renderStroke(
@@ -32,16 +34,28 @@ export class MosaicStrokeRenderer {
     to: { x: number; y: number },
     pressure: number,
     rotation: number,
+    computedSpacingPx?: number,
   ): void {
     const state = this.ensureState(from.x, from.y);
     if (!state || !state.stampCanvas) {
       return;
     }
 
+    const spacingPx = this.options.getBrushSettings().velocitySpacingEnabled &&
+      typeof computedSpacingPx === 'number' && Number.isFinite(computedSpacingPx) && computedSpacingPx > 0
+      ? Math.max(1, computedSpacingPx)
+      : state.spacingPx;
+    if (state.hasStamped && this.previousSpacingPx !== null && this.previousSpacingPx !== spacingPx) {
+      // A speed change adjusts the pending gap without discarding its travelled distance.
+      const travelled = Math.max(0, this.previousSpacingPx - state.spacingRemainingPx);
+      state.spacingRemainingPx = Math.max(0, spacingPx - travelled);
+    }
+    this.previousSpacingPx = spacingPx;
+
     if (!state.hasStamped) {
       this.drawStamp(ctx, from.x, from.y, state, pressure, rotation);
       state.hasStamped = true;
-      state.spacingRemainingPx = state.spacingPx;
+      state.spacingRemainingPx = spacingPx;
     }
 
     const dx = to.x - state.lastX;
@@ -63,7 +77,7 @@ export class MosaicStrokeRenderer {
       const nextX = cursorX + dirX * step;
       const nextY = cursorY + dirY * step;
 
-      this.stampSegment(ctx, cursorX, cursorY, nextX, nextY, state, pressure, rotation);
+      this.stampSegment(ctx, cursorX, cursorY, nextX, nextY, state, pressure, rotation, spacingPx);
 
       remaining -= step;
       state.segmentRemainingPx -= step;
@@ -89,6 +103,7 @@ export class MosaicStrokeRenderer {
     state: MosaicState,
     pressure: number,
     rotation: number,
+    spacingPx: number,
   ): void {
     const dx = toX - fromX;
     const dy = toY - fromY;
@@ -106,7 +121,7 @@ export class MosaicStrokeRenderer {
 
     if (spacingRemaining <= 0) {
       this.drawStamp(ctx, cursorX, cursorY, state, pressure, rotation);
-      spacingRemaining = state.spacingPx;
+      spacingRemaining = spacingPx;
     }
 
     while (remaining >= spacingRemaining) {
@@ -114,7 +129,7 @@ export class MosaicStrokeRenderer {
       cursorY += dirY * spacingRemaining;
       remaining -= spacingRemaining;
       this.drawStamp(ctx, cursorX, cursorY, state, pressure, rotation);
-      spacingRemaining = state.spacingPx;
+      spacingRemaining = spacingPx;
     }
 
     spacingRemaining -= remaining;
