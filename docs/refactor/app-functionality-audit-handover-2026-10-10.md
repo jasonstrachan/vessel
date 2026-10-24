@@ -719,6 +719,65 @@ Receipts: `output/playwright/area27-preview-final-v2-session39.json`,
 `area27-isolated-gate-v2-session39.json`, `area27-native-final-session39.json`,
 `area27-source-freeze-final-v2-session39.json` and `area27-commit-receipt-session39.json`.
 
+## Session39 — Area28 software-verified: Custom brush painting/edit/removal
+
+Areas01–28 have complete software evidence. Area28 repairs five reproduced
+contracts: colour edits retain custom size and separate regular-size memory;
+pixel-mode custom strokes commit their active release pattern; pattern rotation
+is applied once; sampled colour updates preserve the active engine instead of
+stamping twice; pixel painting forwards the canonical tint policy.
+
+The ten source/test files repair those five owning contracts, with independent
+review and meaningful regressions that fail before each repair. Source capture,
+metadata, library deletion policy and unrelated controls are not rewritten.
+All 47 original work paths and the exact original staged patch remain preserved.
+The complete-area local commit receipt is
+`output/playwright/area28-commit-receipt-session39.json`.
+
+Final production artifact: `ea36538ea874264b52193a773e1a6f816de4db7ef04a0d2bf6a02913509c15e8`.
+**34 native cases / 956 checks across ten suites pass**, all on that artifact,
+with no page errors or aborted cases and exact owned-storage restoration:
+
+- Normal saved tips7: native size16/32/64, smooth spacing, partial alpha,
+  zero/half opacity, recovery, edited asset's next mark and exact Undo/Redo.
+- Separate colour-only size1 and public inherited-pixel/saved-smooth pair2:
+  preserve32/global100 through Lightness; commit the independently requested
+  release cap while retaining the distinct smooth spacing contract.
+- Geometry8: native pen forces.25/.75 with pressure OFF/ON, rotation OFF/ON,
+  aspect-based custom snapping and square-grid snapping; independent pixels.
+- Sample4: public inherited pixel/saved smooth modes crossed with Sample OFF/ON;
+  exact sampled/raw colour and fractional alpha, one stamp, source preservation.
+- Library3 and default-reload painting1: inactive/active/default deletion,
+  retained-tip continuation without resurrection, fresh Pixel recovery, default
+  unset and a real restored default's next mark without row reselection.
+- Captured CC4: real schema3 capture; OFF normal replay; indexed CC authoring;
+  raster target rejection/recovery and accepted CC tip authoring. Independent
+  map/support/semantic definition/slot/speed/flow/phase on all six planes;
+  exact history and published alpha. Indexed RGB clock arithmetic is not claimed.
+- Shared regressions4: ordinary Pixel sampling OFF/ON and fresh strokes retain
+  exact half-opacity pixels; actual Resampler rotation OFF/ON satisfies analytic
+  quarter-turn intent and complete independent quadrant pixels.
+
+The isolated task-only candidate passes type-check, lint and full Jest:
+`1 skipped, 609 passed, 609 of 610 total`; `1 skipped, 6006 passed, 6007 total`. The production build passes. Final
+source/runtime review finds no remaining actionable issue in this enumerated
+scope. All native cases use actual input, source-independent intended geometry,
+canonical/framebuffer/source-plane preservation and exact Undo/Redo where applicable.
+
+Earlier invalid setup/size explanations and failed before receipts remain
+preserved separately. The Colour Cycle snapshot without a deferred-publication
+fence is excluded; its replacement awaits exactly one natural source/target
+history publication without flushing or changing production code. The old Resampler observed-angle proof did not establish
+requested direction; the new independent quarter-turn regression supersedes it.
+Shared exhaustive controls remain Area29; subsequent areas29–65 are pending.
+Physical tablet feel and artistic visual signoff remain separate.
+No push, deployment, branch or worktree change is included.
+
+Receipts: `area28-source-freeze-final-v1-session39.json`,
+`area28-preview-final-v1-session39.json`, `area28-isolated-gate-v1-session39.json`,
+`area28-native-final-session39.json` and `area28-commit-receipt-session39.json`
+under ignored `output/playwright/`.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

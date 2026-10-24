@@ -1,5 +1,6 @@
 import { createPixelQueue, shouldDrawStamp, createStrokeProcessor } from '../strokeProcessor';
 import { BrushShape, type BrushSettings } from '@/types';
+import type { RenderSettings } from '../types';
 
 const baseBrushSettings: BrushSettings = {
   size: 80,
@@ -147,5 +148,42 @@ describe('pigment lift mask', () => {
     expect(ctx.globalCompositeOperation).toBe('source-over');
     expect(ctx.globalAlpha).toBe(1);
     expect((ctx as unknown as { drawImage: jest.Mock }).drawImage).toHaveBeenCalled();
+  });
+});
+
+
+describe('custom pixel body colorization admission', () => {
+  it.each([
+    { name: 'active tint wins over legacy false', isColorizable: true, centerAlignment: false, expected: true },
+    { name: 'explicit original pixels win over legacy true', isColorizable: false, centerAlignment: true, expected: false },
+    { name: 'legacy tint remains when active flag is absent', isColorizable: undefined, centerAlignment: true, expected: true },
+    { name: 'legacy original pixels remain when active flag is absent', isColorizable: undefined, centerAlignment: false, expected: false },
+  ])('$name at both first and later admitted custom stamps', ({ isColorizable, centerAlignment, expected }) => {
+    const pattern = new ImageData(4, 4);
+    pattern.data.set([255, 0, 0, 255, 0, 0, 255, 128]);
+    const before = new Uint8ClampedArray(pattern.data);
+    const drawShape = jest.fn();
+    const processor = createStrokeProcessor({ applyThrottledColorJitter: color => color, drawShape });
+    const queue = processor.createPixelQueue();
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Expected native pixel I/O context');
+    const brushSettings = { ...baseBrushSettings, brushShape: BrushShape.CUSTOM, size: 8, spacing: 10, antialiasing: false, dashedEnabled: false, pigmentLiftEnabled: false };
+    const renderSettings: RenderSettings = {
+      size: 8, opacity: 0.5, color: '#e08c36', antiAliasing: false, pixelAlignment: true,
+      spacing: 10, rotation: 0, shape: BrushShape.CUSTOM, risographIntensity: 0,
+      pattern, customPatternDimensions: { width: 8, height: 4 }, isColorizable, centerAlignment,
+    };
+    ctx.fillStyle = renderSettings.color;
+    const normalizedColor = ctx.fillStyle;
+    processor.drawPixelPerfectLine(ctx, 10, 20, 35, 20, renderSettings, queue, brushSettings);
+    // Real pixel admission/cadence runs; only the downstream shape I/O is observed.
+    expect(drawShape.mock.calls).toEqual([10, 19, 29].map(x => [
+      ctx, x, 20, 8, BrushShape.CUSTOM, false, 0, 0,
+      pattern, expected, { width: 8, height: 4 },
+    ]));
+    expect(ctx.fillStyle).toBe(normalizedColor);
+    expect(pattern.data).toEqual(before);
+    expect(queue.waitingPixelX).toBe(35);
   });
 });

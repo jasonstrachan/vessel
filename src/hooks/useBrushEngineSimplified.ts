@@ -684,12 +684,13 @@ export const useBrushEngineSimplified = () => {
     });
   }, [resolvedEngineBrushSettings]);
 
-  // Create brush engine facade - only recreate when structural dependencies change
   const getNativeAuthoredSupportContext = useCallback((rawCtx: CanvasRenderingContext2D) => {
     return rawCtx.canvas === liveStrokeRawRef.current ? alphaPressureSupportCtxRef.current : null;
   }, []);
 
-  const brushEngine = useMemo(() => {
+  // The facade owns stroke queues; live settings must not replace an admitted stroke's owner.
+  const brushEngineRef = useRef<ReturnType<typeof createBrushEngineFacade> | null>(null);
+  if (!brushEngineRef.current) {
     const config: BrushEngineConfig = {
       brushSettings: resolvedEngineBrushSettings,
       transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
@@ -702,8 +703,9 @@ export const useBrushEngineSimplified = () => {
       customBrushes: project?.customBrushes || []
     };
 
-    return createBrushEngineFacade(config);
-  }, [resolvedEngineBrushSettings, project?.customBrushes, getPatternTempContext, createPixelCircleStamp, createPixelSquareStamp, getRotationTempContext, getNativeAuthoredSupportContext, activeLayerTransparencyLock]);
+    brushEngineRef.current = createBrushEngineFacade(config);
+  }
+  const brushEngine = brushEngineRef.current;
 
   // Update engine config when settings change
   useEffect(() => {
@@ -712,7 +714,8 @@ export const useBrushEngineSimplified = () => {
       transparencyLockEnabled: Boolean(activeLayerTransparencyLock),
       getPatternTempContext,
       brushStampCache: brushStampCacheRef.current,
-      getRotationTempContext
+      getRotationTempContext,
+      customBrushes: project?.customBrushes || [],
     });
 
     // Initialize spam text when the Spam Text brush is selected
@@ -721,7 +724,7 @@ export const useBrushEngineSimplified = () => {
       const customText = resolvedEngineBrushSettings.spamCustomText;
       brushEngine.initializeSpamText(contentType, customText);
     }
-  }, [brushEngine, resolvedEngineBrushSettings, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
+  }, [brushEngine, resolvedEngineBrushSettings, project?.customBrushes, getPatternTempContext, getRotationTempContext, activeLayerTransparencyLock]);
 
   const shouldApplyStrokeDitherForSettings = useCallback((settings: BrushSettings) => {
     return shouldApplyStrokeDitherForSettingsUtil(settings);

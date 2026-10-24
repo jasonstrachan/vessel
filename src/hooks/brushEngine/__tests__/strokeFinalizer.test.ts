@@ -5,6 +5,9 @@ import * as risographTexture from '@/utils/risographTexture';
 import { BrushEngineFacade } from '../BrushEngineFacade';
 import { createPixelCircleStamp } from '../brushStampController';
 import type { Rect } from '../engineShared';
+import type { CustomBrushStrokeData } from '../brushEngineFacadeTypes';
+import { finalizePixelStroke, resolveDeferredPixelStamp } from '../strokeFinalizer';
+import { createBrushUtilities } from '../utilities';
 
 type PreviewResult = { canvas: HTMLCanvasElement; bounds: Rect };
 type PreviewEngine = BrushEngineFacade & {
@@ -409,4 +412,83 @@ describe('admitted native eraser risograph stream', () => {
     expect(random).toHaveBeenCalledTimes(1);
   });
 
+});
+
+
+describe('custom pattern deferred pixel endpoint', () => {
+  beforeEach(() => { rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true; });
+  afterEach(() => {
+    delete rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    jest.restoreAllMocks();
+  });
+
+  const customTip = (rasterSize = { width: 32, height: 16 }): CustomBrushStrokeData => {
+    const canvas = document.createElement('canvas');
+    canvas.width = rasterSize.width;
+    canvas.height = rasterSize.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, canvas.width / 4, canvas.height);
+    ctx.globalAlpha = 0.5; ctx.fillStyle = '#0000ff';
+    ctx.fillRect(canvas.width / 4, 0, canvas.width / 4, canvas.height);
+    ctx.globalAlpha = 1; ctx.fillStyle = '#00ff00';
+    ctx.fillRect(canvas.width / 2, canvas.height / 2, canvas.width / 2, canvas.height / 2);
+    return { imageData: ctx.getImageData(0, 0, canvas.width, canvas.height), width: 32, height: 16, isColorizable: false };
+  };
+
+  it.each([
+    { name: 'original tip', opacity: 1, pressureEnabled: false, pressure: 0.5, diameter: 32, raster: { width: 32, height: 16 } },
+    { name: 'half-opacity tip', opacity: 0.5, pressureEnabled: false, pressure: 0.5, diameter: 32, raster: { width: 32, height: 16 } },
+    { name: 'low-pressure tip', opacity: 1, pressureEnabled: true, pressure: 0.25, diameter: 22, raster: { width: 32, height: 16 } },
+    { name: 'high-pressure tip', opacity: 1, pressureEnabled: true, pressure: 0.75, diameter: 42, raster: { width: 32, height: 16 } },
+    { name: 'natural aspect independent of raster', opacity: 1, pressureEnabled: false, pressure: 0.5, diameter: 32, raster: { width: 8, height: 8 } },
+  ])('commits the actual $name material at release after the admitted interval stamps', ({ opacity, pressureEnabled, pressure, diameter, raster }) => {
+    const fixture = setup({ brushShape: BrushShape.CUSTOM, size: 32, spacing: 20, opacity, pressureEnabled, minPressure: 50, maxPressure: 150 });
+    const tip = customTip(raster);
+    const sourceBefore = new Uint8ClampedArray(tip.imageData.data);
+    const draw = (from: { x: number; y: number }, to: { x: number; y: number }) => fixture.engine.renderBrushStroke(fixture.ctx, {
+      from, to, pressure, velocity: 0, timestamp: 1, customBrushData: tip,
+    });
+    draw({ x: 96, y: 160 }, { x: 96, y: 160 });
+    for (let x = 97; x <= 184; x++) draw({ x: x - 1, y: 160 }, { x, y: 160 });
+    const queue = fixture.engine.getPixelQueue();
+    expect(queue.waitingPixelX).toBe(184);
+    expect(queue.lastDrawnX).toBe(183);
+
+    const source = document.createElement('canvas'); source.width = tip.imageData.width; source.height = tip.imageData.height;
+    source.getContext('2d')!.putImageData(tip.imageData, 0, 0);
+    const scaled = document.createElement('canvas'); scaled.width = diameter; scaled.height = Math.round(diameter / 2);
+    const sc = scaled.getContext('2d')!; sc.imageSmoothingEnabled = false;
+    sc.drawImage(source, 0, 0, source.width, source.height, 0, 0, scaled.width, scaled.height);
+    const expected = surface(); expected.ctx.imageSmoothingEnabled = false; expected.ctx.globalAlpha = opacity;
+    // This independently specified cadence is the existing delayed-pixel interval contract.
+    for (const x of [96, 115, 135, 155, 175]) expected.ctx.drawImage(scaled, x - scaled.width / 2, 160 - scaled.height / 2);
+    expect(differenceCount(pixels(fixture.canvas), pixels(expected.canvas))).toBe(0);
+    const before = pixels(fixture.canvas);
+    expect(fixture.engine.getPixelStrokePreview!({ rawCanvas: fixture.canvas, bounds: fullBounds })).toBeNull();
+    expect(differenceCount(pixels(fixture.canvas), before)).toBe(0);
+
+    expected.ctx.drawImage(scaled, 184 - scaled.width / 2, 160 - scaled.height / 2);
+    fixture.engine.finalizeStroke(fixture.ctx);
+    expect(differenceCount(pixels(fixture.canvas), pixels(expected.canvas))).toBe(0);
+    expect(differenceCount(pixels(fixture.canvas), before)).toBeGreaterThan(0);
+    expect(tip.imageData.data).toEqual(sourceBefore);
+    if (diameter === 32 && opacity === 1) {
+      expect([...fixture.ctx.getImageData(199, 164, 1, 1).data]).toEqual([0, 255, 0, 255]);
+    }
+  });
+
+  it.each([false, true])('preserves the active tip and natural dimensions with colorizable=%s in the deferred shape call', (isColorizable) => {
+    const brushSettings = settings({ brushShape: BrushShape.CUSTOM, size: 32, spacing: 20 });
+    const fixture = setup(brushSettings);
+    const tip = { ...customTip({ width: 8, height: 8 }), isColorizable };
+    fixture.engine.renderBrushStroke(fixture.ctx, { from: { x: 96, y: 160 }, to: { x: 184, y: 160 }, pressure: 0.5, velocity: 0, timestamp: 1, customBrushData: tip });
+    const args = { brushSettings, pixelQueue: fixture.engine.getPixelQueue(), lastStrokePressure: 0.5, lastCustomBrushData: tip, utilities: createBrushUtilities(() => brushSettings) };
+    const stamp = resolveDeferredPixelStamp({ ...args, composite: 'source-over' });
+    expect(stamp?.settings.pattern).toBe(tip.imageData);
+    expect(stamp?.settings.customPatternDimensions).toEqual({ width: 32, height: 16 });
+    expect(stamp?.settings.isColorizable).toBe(isColorizable);
+    const shapeDrawer = jest.fn();
+    finalizePixelStroke({ ...args, ctx: fixture.ctx, shapeDrawer });
+    expect(shapeDrawer).toHaveBeenCalledWith(fixture.ctx, 184, 160, 32, BrushShape.CUSTOM, false, 0, 0, tip.imageData, isColorizable, { width: 32, height: 16 });
+  });
 });

@@ -5,6 +5,8 @@ import { useBrushEngineSimplified } from '../useBrushEngineSimplified';
 import * as liveStrokePreviewController from '../brushEngine/liveStrokePreviewController';
 import * as colorCycleDrawController from '../brushEngine/colorCycleDrawController';
 import * as rectangleGradientController from '../brushEngine/shapeRectangleGradientController';
+import type { CustomBrush, Layer } from '@/types';
+import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 // Mock dependencies
 const mockApplyDitheringWithFillResolution = jest.fn((...args: any[]) => args[0] as ImageData);
@@ -417,33 +419,124 @@ describe('useBrushEngineSimplified harness', () => {
         let current: ReturnType<typeof useBrushEngineSimplified> | undefined;
         const onReady = (runtime: ReturnType<typeof useBrushEngineSimplified>) => { current = runtime; };
         const mounted = render(<Harness onReady={onReady} />);
-        const admitted = current!;
         const firstOwner = mockFacadeOwners[0];
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = 32;
         const ctx = canvas.getContext('2d')!;
         ctx.globalCompositeOperation = target === 'destination-out' ? 'destination-out' : 'source-over';
         const cursor = target === 'erase-mask' ? { target: 'erase-mask' as const } : {};
-        act(() => { admitted.drawBrush(ctx, { x: 4, y: 4 }, { x: 8, y: 4 }, cursor); });
+        act(() => { current!.drawBrush(ctx, { x: 4, y: 4 }, { x: 8, y: 4 }, cursor); });
         state.tools.brushSettings = { ...state.tools.brushSettings, risographIntensity: 100 };
         mounted.rerender(<Harness onReady={onReady} />);
-        expect(mockFacadeOwners).toHaveLength(2);
-        admitted.updateConfig({ brushSettings: state.tools.brushSettings as unknown as Parameters<typeof admitted.updateConfig>[0]['brushSettings'] });
-        act(() => { admitted.drawBrush(ctx, { x: 8, y: 4 }, { x: 24, y: 4 }, cursor); });
+        act(() => { current!.drawBrush(ctx, { x: 8, y: 4 }, { x: 24, y: 4 }, cursor); });
         expect(firstOwner.beginStroke).toHaveBeenCalledTimes(1);
         expect(firstOwner.beginStroke).toHaveBeenCalledWith(target === 'paint' ? 'paint' : 'erase-mask');
-        expect(mockFacadeOwners[1].beginStroke).not.toHaveBeenCalled();
         expect(firstOwner.renderBrushStroke).toHaveBeenCalledTimes(2);
-        expect(mockFacadeOwners[1].renderBrushStroke).not.toHaveBeenCalled();
-        act(() => { admitted.finalizeStroke(ctx); });
+        act(() => { current!.finalizeStroke(ctx); });
         expect(firstOwner.finalizeStroke).toHaveBeenCalledTimes(1);
-        expect(mockFacadeOwners[1].finalizeStroke).not.toHaveBeenCalled();
+        expect(mockFacadeOwners).toHaveLength(1);
       } finally {
         state.tools = previousTools;
         global.requestAnimationFrame = originalRaf;
       }
     },
   );
+
+  it('keeps one real initial stamp through sampled-colour rerenders and applies live settings to the continuing stroke', async () => {
+    const actualFacade = jest.requireActual<typeof import('../brushEngine/BrushEngineFacade')>('../brushEngine/BrushEngineFacade');
+    const mockedFacade = jest.requireMock<typeof import('../brushEngine/BrushEngineFacade')>('../brushEngine/BrushEngineFacade');
+    const factory = jest.spyOn(mockedFacade, 'createBrushEngineFacade').mockImplementation(actualFacade.createBrushEngineFacade);
+    const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => {
+      tools: { brushSettings: Record<string, unknown>; currentTool?: string };
+      project: { width: number; height: number; customBrushes?: CustomBrush[] };
+      layers: Layer[];
+      activeLayerId: string | null;
+    } } }).useAppStore.getState();
+    const previousTools = state.tools;
+    const previousProject = state.project;
+    const previousLayers = state.layers;
+    const previousActiveLayerId = state.activeLayerId;
+    const originalRaf = global.requestAnimationFrame;
+    const imageData = new ImageData(8, 4);
+    imageData.data.set([255, 0, 0, 128]);
+    const customBrushData = { imageData, width: 8, height: 4, isColorizable: false };
+    state.tools = {
+      currentTool: 'brush',
+      brushSettings: {
+        ...previousTools.brushSettings, brushShape: 'custom', size: 8, opacity: 0.5,
+        spacing: 20, color: '#000000', antialiasing: true, useSwatchColor: false,
+        pressureEnabled: false, pressureOpacityEnabled: false, gridSnapEnabled: false,
+        customBrushSnapEnabled: false, rotationEnabled: false, ditherEnabled: false,
+        pressureLinkedFillResolution: false, risographIntensity: 0, lostEdge: 0,
+      },
+    };
+    state.project = { width: 64, height: 64, customBrushes: [] };
+    global.requestAnimationFrame = (callback: FrameRequestCallback) => { callback(0); return 0; };
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      let current: ReturnType<typeof useBrushEngineSimplified> | undefined;
+      const onReady = (runtime: ReturnType<typeof useBrushEngineSimplified>) => { current = runtime; };
+      view = render(<Harness onReady={onReady} />);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 64;
+      const ctx = canvas.getContext('2d')!;
+      act(() => { current!.drawBrush(ctx, { x: 8, y: 8 }, { x: 8, y: 8 }, { pressure: 1, customBrushData }); });
+      expect(current!.consumeRecentStamps()).toEqual([expect.objectContaining({ x: 8, y: 8, size: 8, alpha: 0.5 })]);
+
+      state.tools = { ...state.tools, brushSettings: { ...state.tools.brushSettings, color: '#e08c36', useSwatchColor: true } };
+      view.rerender(<Harness onReady={onReady} />);
+      act(() => { current!.drawBrush(ctx, { x: 8, y: 8 }, { x: 8, y: 8 }, { pressure: 1, customBrushData: { ...customBrushData, isColorizable: true } }); });
+      expect(current!.consumeRecentStamps()).toEqual([]);
+
+      state.tools = { ...state.tools, brushSettings: { ...state.tools.brushSettings, size: 12, opacity: 0.25 } };
+      view.rerender(<Harness onReady={onReady} />);
+      act(() => { current!.drawBrush(ctx, { x: 8, y: 8 }, { x: 28, y: 8 }, { pressure: 1, customBrushData: { ...customBrushData, isColorizable: true } }); });
+      expect(current!.consumeRecentStamps()).toEqual([expect.objectContaining({ x: 28, y: 8, size: 12, alpha: 0.25 })]);
+      act(() => { current!.finalizeStroke(ctx); current!.resetStroke(); });
+      act(() => { current!.drawBrush(ctx, { x: 28, y: 8 }, { x: 28, y: 8 }, { pressure: 1, customBrushData }); });
+      expect(current!.consumeRecentStamps()).toEqual([expect.objectContaining({ x: 28, y: 8, size: 12, alpha: 0.25 })]);
+      const owner = factory.mock.results[0].value;
+      const update = jest.spyOn(owner, 'updateConfig');
+      const savedBrush: CustomBrush = {
+        id: 'replacement-project-tip', name: 'Replacement project tip', imageData,
+        width: 8, height: 4, createdAt: 1, thumbnail: '',
+      };
+      const layer: Layer = {
+        id: 'replacement-project-layer', name: 'Replacement layer', layerType: 'normal',
+        visible: true, locked: false, transparencyLocked: true, opacity: 1,
+        blendMode: 'source-over', order: 0, imageData: new ImageData(64, 64),
+        framebuffer: canvas, alignment: createDefaultLayerAlignment(),
+      };
+      // Project/layer transitions keep their explicit reset authority; configuration stays live.
+      act(() => { current!.resetStroke(); });
+      state.project = { width: 64, height: 64, customBrushes: [savedBrush] };
+      state.layers = [layer];
+      state.activeLayerId = layer.id;
+      view.rerender(<Harness onReady={onReady} />);
+      expect(update).toHaveBeenLastCalledWith(expect.objectContaining({
+        customBrushes: state.project.customBrushes, transparencyLockEnabled: true,
+      }));
+      expect(window.transparencyLockEnabled).toBe(true);
+      state.layers = [{ ...layer, transparencyLocked: false }];
+      view.rerender(<Harness onReady={onReady} />);
+      expect(update).toHaveBeenLastCalledWith(expect.objectContaining({
+        customBrushes: state.project.customBrushes, transparencyLockEnabled: false,
+      }));
+      expect(window.transparencyLockEnabled).toBe(false);
+      act(() => { current!.drawBrush(ctx, { x: 40, y: 8 }, { x: 40, y: 8 }, { pressure: 1, customBrushData }); });
+      expect(current!.consumeRecentStamps()).toEqual([expect.objectContaining({ x: 40, y: 8, size: 12, alpha: 0.25 })]);
+      update.mockRestore();
+      expect(factory).toHaveBeenCalledTimes(1);
+    } finally {
+      view?.unmount();
+      state.tools = previousTools;
+      state.project = previousProject;
+      state.layers = previousLayers;
+      state.activeLayerId = previousActiveLayerId;
+      global.requestAnimationFrame = originalRaf;
+      factory.mockRestore();
+    }
+  });
 
   it('restores the preview region without clearing artwork when Dither Stroke BG fill is off', async () => {
     const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => any } }).useAppStore.getState();

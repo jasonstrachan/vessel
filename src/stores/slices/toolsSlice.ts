@@ -2536,9 +2536,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     // The BrushEditorUI panel renders and manages its own off-main canvas
 
     // Automatically select the brush being edited
-    const targetSize = typeof state.globalBrushSize === 'number'
-      ? state.globalBrushSize
-      : 100;
+    const isActiveCustomBrush =
+      state.tools.brushSettings.brushShape === BrushShape.CUSTOM &&
+      state.tools.brushSettings.selectedCustomBrush === brushId;
+    const targetSize = isActiveCustomBrush
+      ? state.tools.brushSettings.size
+      : typeof state.globalBrushSize === 'number'
+        ? state.globalBrushSize
+        : 100;
     const newBrushSettings = {
       ...state.tools.brushSettings,
       brushShape: BrushShape.CUSTOM,
@@ -2578,9 +2583,8 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
       },
       tools: {
         ...state.tools,
-        brushSettings: newBrushSettings
+        brushSettings: newBrushSettings,
       },
-      globalBrushSize: targetSize
     };
   }),
   saveBrushEdit: (canvas) => {
@@ -2702,8 +2706,14 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
     scaledBrushCache.clear();
 
     set((current) => {
-      const targetSize =
-        typeof current.globalBrushSize === 'number' ? current.globalBrushSize : 100;
+      const isActiveCustomBrush =
+        state.tools.brushSettings.brushShape === BrushShape.CUSTOM &&
+        state.tools.brushSettings.selectedCustomBrush === brushId;
+      const targetSize = isActiveCustomBrush
+        ? state.tools.brushSettings.size
+        : typeof current.globalBrushSize === 'number'
+          ? current.globalBrushSize
+          : 100;
       const brushTipSource =
         targetBrush ??
         current.getCustomBrushById(targetCustomBrushId) ??
@@ -2735,7 +2745,6 @@ export const createToolsSlice: StateCreator<AppState, [], [], ToolsSlice> = (set
             currentBrushTip: nextBrushTip,
           },
         },
-        globalBrushSize: targetSize,
       };
     });
   },

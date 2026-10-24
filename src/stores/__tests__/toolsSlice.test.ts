@@ -1334,6 +1334,112 @@ describe('tools slice', () => {
   });
 
   describe('brush editor lifecycle', () => {
+    it('keeps a selected custom tip at captured scale when its editor opens and restarts', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 64;
+      const imageData = new ImageData(128, 64);
+      imageData.data.set([210, 30, 70, 128]);
+      const brush: CustomBrush = {
+        id: 'editor-captured-scale', name: 'Captured scale', imageData,
+        width: 128, height: 64, naturalWidth: 128, naturalHeight: 64,
+        maxDimension: 128, createdAt: 1, thumbnail: '',
+      };
+      const store = useAppStore.getState();
+      store.setGlobalBrushSize(12);
+      store.addCustomBrush(brush);
+      store.setBrushPreset(createCustomBrushPreset(brush));
+      const before = useAppStore.getState();
+      expect(before.tools.brushSettings.size).toBe(128);
+      expect(before.globalBrushSize).toBe(12);
+
+      for (let restart = 0; restart < 2; restart += 1) {
+        useAppStore.getState().startBrushEdit(brush.id, canvas);
+        const editing = useAppStore.getState();
+        expect(editing.brushEditor.status).toBe('EDITING');
+        expect(editing.tools.brushSettings).toMatchObject({
+          selectedCustomBrush: brush.id, size: 128, customBrushSizePercent: 100,
+        });
+        expect(editing.globalBrushSize).toBe(12);
+        expect(editing.getCustomBrushByIdUnsafe(brush.id)).toBe(before.getCustomBrushByIdUnsafe(brush.id));
+        expect(editing.tools.brushSettings.currentBrushTip?.imageData).toEqual(imageData);
+        expect(editing.layers).toBe(before.layers);
+        expect(editing.history).toBe(before.history);
+      }
+    });
+
+    it('preserves the active custom scale and separate regular size through a colour save and editor restart', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 128;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Expected editor canvas context');
+      const source = new ImageData(128, 64);
+      source.data.set([210, 30, 70, 128]);
+      const edited = new ImageData(128, 64);
+      edited.data.set([255, 255, 255, 128]);
+      const brush: CustomBrush = {
+        id: 'editor-scaled-colour', name: 'Scaled colour', imageData: source,
+        width: 128, height: 64, naturalWidth: 128, naturalHeight: 64,
+        maxDimension: 128, createdAt: 1, thumbnail: '',
+        colorCycle: {
+          schemaVersion: 2, mode: 'captured-data', source: 'color-cycle-layer',
+          sourceCycleLength: 256, mapWidth: 128, mapHeight: 64,
+          phaseMap: new Uint16Array(128 * 64),
+        },
+      };
+      const store = useAppStore.getState();
+      store.setGlobalBrushSize(12);
+      store.addCustomBrush(brush);
+      store.setBrushPreset(createCustomBrushPreset(brush));
+      store.startBrushEdit(brush.id, canvas);
+      // Custom size is separate from regular-brush memory, including after an explicit resize.
+      useAppStore.getState().setBrushSettings({ size: 64 });
+      useAppStore.getState().setBrushEditorLightness(40);
+      const before = useAppStore.getState();
+      expect(before.tools.brushSettings.customBrushSizePercent).toBe(50);
+      expect(before.globalBrushSize).toBe(12);
+      const readEditor = jest.spyOn(ctx, 'getImageData').mockReturnValue(edited);
+      try {
+        before.saveBrushEdit(canvas);
+      } finally {
+        readEditor.mockRestore();
+      }
+
+      const saved = useAppStore.getState();
+      expect(saved.brushEditor.status).toBe('IDLE');
+      expect(saved.tools.brushSettings).toMatchObject({
+        selectedCustomBrush: brush.id, size: 64, customBrushSizePercent: 50,
+      });
+      expect(saved.globalBrushSize).toBe(12);
+      expect(saved.getCustomBrushByIdUnsafe(brush.id)?.imageData).toBe(edited);
+      expect(saved.tools.brushSettings.currentBrushTip?.imageData).toBe(edited);
+      expect(saved.getCustomBrushByIdUnsafe(brush.id)?.colorCycle).toEqual(brush.colorCycle);
+      expect(saved.tools.brushSettings.currentBrushTip?.colorCycle).toEqual(brush.colorCycle);
+      expect([...source.data.slice(0, 4)]).toEqual([210, 30, 70, 128]);
+      expect(saved.layers).toBe(before.layers);
+      expect(saved.history).toBe(before.history);
+
+      saved.startBrushEdit(brush.id, canvas);
+      const restarted = useAppStore.getState();
+      expect(restarted.tools.brushSettings.size).toBe(64);
+      expect(restarted.tools.brushSettings.customBrushSizePercent).toBe(50);
+      expect(restarted.globalBrushSize).toBe(12);
+      expect(restarted.tools.brushSettings.currentBrushTip?.imageData).toEqual(edited);
+      expect(restarted.layers).toBe(before.layers);
+      expect(restarted.history).toBe(before.history);
+    });
+
+    it('retains regular size fallback when entering a built-in brush editor', () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 32;
+      const store = useAppStore.getState();
+      store.setGlobalBrushSize(12);
+      store.startBrushEdit('pixel-square', canvas);
+      expect(useAppStore.getState().tools.brushSettings.size).toBe(12);
+      expect(useAppStore.getState().globalBrushSize).toBe(12);
+    });
+
     it('enters editing mode and centers the brush when startBrushEdit is called', () => {
       const canvas = document.createElement('canvas');
       canvas.width = 128;

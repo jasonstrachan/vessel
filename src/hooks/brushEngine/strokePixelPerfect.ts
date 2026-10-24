@@ -183,7 +183,7 @@ const drawPixelStamp = (
     settings.rotation,
     settings.risographIntensity,
     settings.pattern,
-    settings.centerAlignment,
+    settings.isColorizable ?? settings.centerAlignment,
     settings.customPatternDimensions,
   );
 };

@@ -3,7 +3,7 @@ import { BrushShape, type BrushSettings } from '@/types';
 import type { createShapeDrawer } from './shapes';
 import type { createBrushUtilities } from './utilities';
 import type { PixelQueue, RenderSettings } from './types';
-import type { CustomBrushStrokeData } from './brushEngineFacadeTypes';
+import { resolveCustomPatternDimensions, type CustomBrushStrokeData } from './brushEngineFacadeTypes';
 
 type ShapeDrawer = ReturnType<typeof createShapeDrawer>;
 type BrushUtilities = ReturnType<typeof createBrushUtilities>;
@@ -61,6 +61,9 @@ export const resolveDeferredPixelStamp = ({
     shape: brushSettings.brushShape || BrushShape.ROUND,
     risographIntensity: brushSettings.risographIntensity || 0,
     blendMode: composite,
+    pattern: lastCustomBrushData?.imageData,
+    isColorizable: lastCustomBrushData?.isColorizable,
+    customPatternDimensions: resolveCustomPatternDimensions(lastCustomBrushData ?? undefined),
   };
 
   return { x: pixelQueue.waitingPixelX, y: pixelQueue.waitingPixelY, settings };
@@ -84,5 +87,8 @@ export const finalizePixelStroke = ({ ctx, shapeDrawer, ...args }: FinalizeStrok
     false,
     settings.rotation,
     settings.risographIntensity,
+    settings.pattern,
+    settings.isColorizable,
+    settings.customPatternDimensions,
   );
 };

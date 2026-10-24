@@ -237,7 +237,8 @@ export const drawShape = (
       drawY,
       size,
       pattern,
-      rotation,
+      // The dispatcher already applied rotation to the target context.
+      rotation: 0,
       centerAlignment,
       customPatternDimensions,
       cache: deps?.customPatternCache,
