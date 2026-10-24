@@ -398,6 +398,7 @@ const LayersPanel: React.FC = () => {
         currentPresetId === 'color-cycle-gradient' ||
         currentPresetId === 'color-cycle-flat-dither' ||
         currentPresetId === 'color-cycle-stroke' ||
+        currentPresetId === 'checkered' ||
         currentPresetId === 'color-cycle-shape' ||
         currentPresetId === 'color-cycle-triangle';
       if (!isCurrentCustomCcBrush) {

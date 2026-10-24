@@ -25,7 +25,7 @@ import {
 } from './tile';
 import { resolveStampDitherSecondaryIndex } from './mask';
 import type { StampDitherRuntime } from './runtime';
-import type { StampDitherStrokeData } from './state';
+import { resolveStampDitherFlowBits, restoreStampDitherBasePixel, type StampDitherStrokeData } from './state';
 
 const hasRecordedStampScales = (strokeData: StampDitherStrokeData): boolean =>
   Array.isArray(strokeData.stampSeqMeta) && strokeData.stampSeqMeta.length > 0;
@@ -136,7 +136,6 @@ export const recomposeStampDitherOverlay = (args: {
   const tag = state.stampDitherTag;
   const primary = state.stampDitherPrimaryBuffer;
   const base = state.stampDitherBaseIdx;
-  const baseG = state.stampDitherBaseGid;
   const baseTag = state.stampDitherBaseTag;
   if (!bounds || !tag || !primary) return;
   const rawAlgo = config.algorithm || 'sierra-lite';
@@ -226,31 +225,21 @@ export const recomposeStampDitherOverlay = (args: {
         data[idx] = p;
         gid[idx] = p === 0 ? 0 : flowSlot;
         spd[idx] = p === 0 ? 0 : speedByte;
+        if (handle.phaseData) handle.phaseData[idx] = p === 0 ? 0 : state.stampDitherPhaseIntent?.[idx] ?? 0;
+        if (handle.flowData) handle.flowData[idx] = p === 0 ? 0 : state.stampDitherFlowBits ?? resolveStampDitherFlowBits(animator);
         if (def) def[idx] = 0;
         continue;
       }
       if (bgFillOff) {
-        if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
-          const v = base[idx];
-          data[idx] = v;
-          if (v === 0) {
-            gid[idx] = 0;
-            spd[idx] = 0;
-            if (def) def[idx] = 0;
-          } else if (baseG && baseG.length === gid.length) {
-            gid[idx] = baseG[idx];
-            if (def) def[idx] = state.stampDitherBaseDef?.[idx] ?? 0;
-          } else {
-            gid[idx] = flowSlot;
-            if (def) def[idx] = 0;
-          }
-        }
+        restoreStampDitherBasePixel(state, handle, idx);
         continue;
       }
       const secondary = resolveStampDitherSecondaryIndex(p, state.stampDitherInkOffset);
       data[idx] = secondary;
       gid[idx] = secondary === 0 ? 0 : flowSlot;
       spd[idx] = secondary === 0 ? 0 : speedByte;
+      if (handle.phaseData) handle.phaseData[idx] = secondary === 0 ? 0 : state.stampDitherPhaseIntent?.[idx] ?? 0;
+      if (handle.flowData) handle.flowData[idx] = secondary === 0 ? 0 : state.stampDitherFlowBits ?? resolveStampDitherFlowBits(animator);
       if (def) def[idx] = 0;
     }
   }
@@ -540,9 +529,6 @@ export const finalizeStampDither = (args: {
   const spd = handle.speedData;
   const speedByte = encodeColorCycleSpeedByte(cycleSpeed);
   const bgFillOff = !config.bgFill;
-  const base = state.stampDitherBaseIdx;
-  const baseG = state.stampDitherBaseGid;
-  const baseTag = state.stampDitherBaseTag;
   const def = state.gradientDefIdBuffer;
 
   for (let y = minY; y <= maxY; y += 1) {
@@ -559,31 +545,21 @@ export const finalizeStampDither = (args: {
         data[idx] = primaryIndex;
         gid[idx] = primaryIndex === 0 ? 0 : flowSlot;
         spd[idx] = primaryIndex === 0 ? 0 : speedByte;
+        if (handle.phaseData) handle.phaseData[idx] = primaryIndex === 0 ? 0 : state.stampDitherPhaseIntent?.[idx] ?? 0;
+        if (handle.flowData) handle.flowData[idx] = primaryIndex === 0 ? 0 : state.stampDitherFlowBits ?? resolveStampDitherFlowBits(animator);
         if (def) def[idx] = 0;
         continue;
       }
       if (bgFillOff) {
-        if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
-          const v = base[idx];
-          data[idx] = v;
-          if (v === 0) {
-            gid[idx] = 0;
-            spd[idx] = 0;
-            if (def) def[idx] = 0;
-          } else if (baseG && baseG.length === gid.length) {
-            gid[idx] = baseG[idx];
-            if (def) def[idx] = state.stampDitherBaseDef?.[idx] ?? 0;
-          } else {
-            gid[idx] = flowSlot;
-            if (def) def[idx] = 0;
-          }
-        }
+        restoreStampDitherBasePixel(state, handle, idx);
         continue;
       }
       const secondary = resolveStampDitherSecondaryIndex(primaryIndex, state.stampDitherInkOffset);
       data[idx] = secondary;
       gid[idx] = secondary === 0 ? 0 : flowSlot;
       spd[idx] = secondary === 0 ? 0 : speedByte;
+      if (handle.phaseData) handle.phaseData[idx] = secondary === 0 ? 0 : state.stampDitherPhaseIntent?.[idx] ?? 0;
+      if (handle.flowData) handle.flowData[idx] = secondary === 0 ? 0 : state.stampDitherFlowBits ?? resolveStampDitherFlowBits(animator);
       if (def) def[idx] = 0;
     }
   }

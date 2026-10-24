@@ -10,7 +10,23 @@ import { bindLayerStrokeBuffersToAnimator, createLayerStrokeState } from '../col
 import { createSampledStrokePreview } from '../sampledStrokePreview';
 import { createStampDitherRuntime, finalizeStampDither, type StampDitherAlgorithm } from '../strokeStampDither';
 
-it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].flatMap((unresolve) => (['sierra-lite', 'bayer', 'pattern'] as StampDitherAlgorithm[]).flatMap((algorithm) => [false, true].map(bristles => ({ source, unresolve, algorithm, bristles }))))) )('previews committed $source $algorithm inks with Unresolve $unresolve and Bristles $bristles without touching authoring', ({ source: gradientSource, unresolve, algorithm, bristles }) => {
+type PreviewCase = {
+  source: 'sampled' | 'manual' | 'fg';
+  unresolve: boolean;
+  algorithm: StampDitherAlgorithm;
+  bristles: boolean;
+  intent?: number[];
+  flowBits?: number;
+};
+const previewCases: PreviewCase[] = (['sampled', 'manual', 'fg'] as const).flatMap(source =>
+  [false, true].flatMap(unresolve => (['sierra-lite', 'bayer', 'pattern'] as StampDitherAlgorithm[])
+    .flatMap(algorithm => [false, true].map(bristles => ({ source, unresolve, algorithm, bristles })))));
+previewCases.push(
+  { source: 'sampled', unresolve: false, algorithm: 'bayer', bristles: true, intent: [9, 17, 28, 99], flowBits: 3 },
+  { source: 'sampled', unresolve: false, algorithm: 'bayer', bristles: true, intent: [0, 0, 0, 99], flowBits: 0 },
+);
+
+it.each(previewCases)('previews committed $source $algorithm inks with Unresolve $unresolve and Bristles $bristles (intent $intent) without touching authoring', ({ source: gradientSource, unresolve, algorithm, bristles, intent, flowBits }) => {
   const layer: Layer = {
     id: 'preview-inks', name: 'Inks', visible: true, opacity: 1, blendMode: 'source-over',
     locked: false, transparencyLocked: false, order: 0, imageData: null,
@@ -45,6 +61,9 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
     stampDitherPrimaryBuffer: new Uint8Array([20, 20, 100, 0]),
     stampDitherStrokeEpoch: 1, stampDitherStampSeq: 2,
     stampDitherBounds: { minX: 0, minY: 0, maxX: 2, maxY: 0 } };
+  if (intent) stroke.stampDither.stampDitherPhaseIntent = Uint8Array.from(intent);
+  if (flowBits !== undefined) stroke.stampDither.stampDitherFlowBits = flowBits;
+  const originalIntent = stroke.stampDither.stampDitherPhaseIntent?.slice();
   const original = Object.fromEntries(Object.entries(stroke.buffers).map(([key, buffer]) => [key, [...buffer]]));
   const setDefIdData = jest.spyOn(animator, 'setDefIdData');
   const setGradientSlot = jest.spyOn(animator, 'setGradientSlot').mockImplementation(() => {});
@@ -76,7 +95,11 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
       const { data: paint, gid } = animator.getIndexBuffers();
       mapped = paint.slice();
       mappedGid = gid!.slice();
-      if (bristles) expect([...animator.getIndexBuffers().phase!]).toEqual(original.phase);
+      if (bristles) expect([...animator.getIndexBuffers().phase!]).toEqual(intent
+        ? [...intent.slice(0, 3), original.phase[3]] : original.phase);
+      expect([...animator.getIndexBuffers().flow!]).toEqual(session.sampledAlignment
+        ? [1, 1, 1, original.flow[3]]
+        : flowBits !== undefined ? [flowBits, flowBits, flowBits, original.flow[3]] : original.flow);
       expect(paint).not.toBe(stroke.buffers.paint);
       expect([...stroke.buffers.paint]).toEqual(original.paint);
       expect(gid![3]).toBe(3);
@@ -88,6 +111,8 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
     expect(() => preview!(() => { throw new Error('render failed'); })).toThrow('render failed');
     expect(setDefIdData.mock.calls.at(-1)![0]).toBe(stroke.buffers.def);
     expect(Object.fromEntries(Object.entries(stroke.buffers).map(([key, buffer]) => [key, [...buffer]]))).toEqual(original);
+    expect(stroke.stampDither.stampDitherPhaseIntent).toEqual(originalIntent);
+    expect(stroke.stampDither.stampDitherFlowBits).toBe(flowBits);
     if (gradientSource === 'sampled' && unresolve && !bristles) {
       stroke.stampDither.stampSourceDistances = [0, 0, 600];
       const sourcePreview = createSampledStrokePreview(layer.id, animator, stroke, 2, () => dither);

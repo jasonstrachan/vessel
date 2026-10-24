@@ -3,11 +3,18 @@ import React, { useEffect } from 'react';
 import { render, act } from '@testing-library/react';
 import { useBrushEngineSimplified } from '../useBrushEngineSimplified';
 import * as liveStrokePreviewController from '../brushEngine/liveStrokePreviewController';
+import * as colorCycleDrawController from '../brushEngine/colorCycleDrawController';
 
 // Mock dependencies
 const mockApplyDitheringWithFillResolution = jest.fn((...args: any[]) => args[0] as ImageData);
 const mockSetSpeed = jest.fn();
 const mockSetLayerBaseSpeed = jest.fn();
+const mockSetStampDitherEnabled = jest.fn();
+const mockSetStampDitherAlgorithm = jest.fn();
+const mockSetStampDitherPatternStyle = jest.fn();
+const mockSetStampDitherPixelSize = jest.fn();
+const mockSetStampDitherBgFill = jest.fn();
+const mockSetStampDitherPressureLinked = jest.fn();
 const mockGetPixelStrokePreview = jest.fn(() => null);
 const mockFacadeOwners: Array<{ beginStroke: jest.Mock; renderBrushStroke: jest.Mock; finalizeStroke: jest.Mock }> = [];
 const getMockManagedBrush = () => ({
@@ -25,7 +32,12 @@ const getMockManagedBrush = () => ({
   setDitherEnabled: jest.fn(),
   setDitherPixelSize: jest.fn(),
   setPxlEdgeEnabled: jest.fn(),
-  setStampDitherEnabled: jest.fn(),
+  setStampDitherEnabled: mockSetStampDitherEnabled,
+  setStampDitherAlgorithm: mockSetStampDitherAlgorithm,
+  setStampDitherPatternStyle: mockSetStampDitherPatternStyle,
+  setStampDitherPixelSize: mockSetStampDitherPixelSize,
+  setStampDitherBgFill: mockSetStampDitherBgFill,
+  setStampDitherPressureLinked: mockSetStampDitherPressureLinked,
   setPressureEnabled: jest.fn(),
   setMinPressure: jest.fn(),
   setMaxPressure: jest.fn(),
@@ -139,6 +151,86 @@ describe('useBrushEngineSimplified harness', () => {
     expect(engineRef).toBeDefined();
     expect(typeof engineRef.resetStroke).toBe('function');
     expect(typeof engineRef.drawBrush).toBe('function');
+  });
+
+  it.each([false, true])('retains pending alpha healing only for a custom stamp (%s)', async (custom) => {
+    const draw = jest.spyOn(colorCycleDrawController, 'drawColorCycleStroke').mockImplementation(() => {});
+    let engine: ReturnType<typeof useBrushEngineSimplified> | undefined;
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => {
+        view = render(<Harness onReady={(ready) => { engine = ready; }} />);
+      });
+      const ctx = document.createElement('canvas').getContext('2d')!;
+      engine!.drawColorCycle(ctx, 5, 5, 1, 0, custom ? {
+        customStamp: { imageData: new ImageData(2, 2), width: 2, height: 2 },
+      } : undefined);
+      expect(draw).toHaveBeenCalledTimes(1);
+      const callback = draw.mock.calls[0][0].healColorCycleEraseMask;
+      if (custom) {
+        expect(callback).toEqual(expect.any(Function));
+      } else {
+        expect(callback).toBeUndefined();
+      }
+    } finally {
+      view?.unmount();
+      draw.mockRestore();
+    }
+  });
+
+  it.each([
+    ['checkered', 'color-cycle', true],
+    ['color-cycle-stroke', 'color-cycle', true],
+    ['checkered', 'normal', false],
+    ['color-cycle-stroke', 'normal', false],
+    ['pixel-square', 'color-cycle', false],
+  ] as const)('synchronizes live stamp material edits for %s on %s only when admitted', async (preset, layerType, admitted) => {
+    type HarnessState = {
+      tools: { brushSettings: Record<string, unknown>; currentTool?: string };
+      currentBrushPreset?: { id: string } | null;
+      layers: Array<{ id: string; layerType: string }>;
+      activeLayerId: string | null;
+    };
+    const state = (jest.requireMock('@/stores/useAppStore') as {
+      useAppStore: { getState: () => HarnessState };
+    }).useAppStore.getState();
+    const previous = { tools: state.tools, currentBrushPreset: state.currentBrushPreset, layers: state.layers, activeLayerId: state.activeLayerId };
+    const materialSetters = [mockSetStampDitherEnabled, mockSetStampDitherAlgorithm, mockSetStampDitherPatternStyle, mockSetStampDitherPixelSize, mockSetStampDitherBgFill, mockSetStampDitherPressureLinked];
+    state.currentBrushPreset = { id: preset };
+    state.layers = [{ id: 'live-material-layer', layerType }];
+    state.activeLayerId = 'live-material-layer';
+    state.tools = { currentTool: 'brush', brushSettings: {
+      ...previous.tools.brushSettings, brushShape: preset === 'pixel-square' ? 'square' : 'color_cycle',
+      colorCycleStampDitherEnabled: true, colorCycleStampDitherPixelSize: 64,
+      colorCycleStampDitherBgFill: true, colorCycleStampDitherPressureLinked: false,
+      ditherAlgorithm: 'bayer', patternStyle: 'dots',
+    } };
+    const onReady = () => {};
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => { view = render(<Harness onReady={onReady} />); });
+      materialSetters.forEach(setter => setter.mockClear());
+      state.tools = { ...state.tools, brushSettings: {
+        ...state.tools.brushSettings, colorCycleStampDitherPixelSize: 1,
+        colorCycleStampDitherBgFill: false, colorCycleStampDitherPressureLinked: true,
+        ditherAlgorithm: 'pattern', patternStyle: 'vertical-lines',
+      } };
+      await act(async () => { view!.rerender(<Harness onReady={onReady} />); });
+      if (admitted) {
+        expect(mockSetStampDitherEnabled).toHaveBeenLastCalledWith(true);
+        expect(mockSetStampDitherAlgorithm).toHaveBeenLastCalledWith('pattern');
+        expect(mockSetStampDitherPatternStyle).toHaveBeenLastCalledWith('vertical-lines');
+        expect(mockSetStampDitherPixelSize).toHaveBeenLastCalledWith(1);
+        expect(mockSetStampDitherBgFill).toHaveBeenLastCalledWith(false);
+        expect(mockSetStampDitherPressureLinked).toHaveBeenLastCalledWith(true);
+      } else {
+        materialSetters.forEach(setter => expect(setter).not.toHaveBeenCalled());
+      }
+    } finally {
+      view?.unmount();
+      Object.assign(state, previous);
+      materialSetters.forEach(setter => setter.mockClear());
+    }
   });
 
 

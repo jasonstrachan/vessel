@@ -47,6 +47,10 @@ export type StampDitherBgFillWriter = {
   data: Uint8Array;
   gradientId: Uint8Array;
   speedData: Uint8Array;
+  phaseData?: Uint8Array;
+  flowData?: Uint8Array;
+  phaseIntent?: Uint8Array;
+  flowBits: number;
   defData?: Uint16Array;
   tile: Uint8Array;
   tileClamp: number;
@@ -108,6 +112,8 @@ const writeStampDitherBgFillSpan = (
     writer.data.fill(0, start, end);
     writer.gradientId.fill(0, start, end);
     writer.speedData.fill(0, start, end);
+    writer.phaseData?.fill(0, start, end);
+    writer.flowData?.fill(0, start, end);
     if (writer.defData) {
       writer.defData.fill(0, start, end);
     }
@@ -128,6 +134,8 @@ const writeStampDitherBgFillSpan = (
     const usePrimary = writer.usePattern ? t === 1 : t <= writer.coverageByte;
     recordIndexedAuthoringPixel(writer.data, idx);
     writer.data[idx] = usePrimary ? primaryIndex : secondaryIndex;
+    if (writer.phaseData) writer.phaseData[idx] = writer.phaseIntent?.[idx] ?? 0;
+    if (writer.flowData) writer.flowData[idx] = writer.flowBits;
     writerLocalX += 1;
     if (writerLocalX === writer.tileClamp) writerLocalX = 0;
   }
@@ -172,6 +180,9 @@ export const applyStampDitherMask = (
     if (baseDef && def) {
       baseDef[idx] = def[idx];
     }
+    if (strokeData.stampDitherBaseSpeed) strokeData.stampDitherBaseSpeed[idx] = strokeData.speedBuffer?.[idx] ?? 0;
+    if (strokeData.stampDitherBaseFlow) strokeData.stampDitherBaseFlow[idx] = strokeData.flowBuffer?.[idx] ?? 0;
+    if (strokeData.stampDitherBasePhase) strokeData.stampDitherBasePhase[idx] = strokeData.phaseBuffer?.[idx] ?? 0;
   };
 
   const tagValue = ((strokeEpoch & 0xffff) << 16) | (stampSeq & 0xffff);
@@ -247,6 +258,8 @@ export const applyStampDitherMask = (
             writer.data[idx] = nextIndex;
             writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
             writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+            if (writer.phaseData) writer.phaseData[idx] = nextIndex === 0 ? 0 : writer.phaseIntent?.[idx] ?? 0;
+            if (writer.flowData) writer.flowData[idx] = nextIndex === 0 ? 0 : writer.flowBits;
             if (writer.defData) {
               writer.defData[idx] = 0;
             }
@@ -406,6 +419,8 @@ export const applyStampDitherMask = (
           writer.data[idx] = nextIndex;
           writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
           writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+          if (writer.phaseData) writer.phaseData[idx] = nextIndex === 0 ? 0 : writer.phaseIntent?.[idx] ?? 0;
+          if (writer.flowData) writer.flowData[idx] = nextIndex === 0 ? 0 : writer.flowBits;
           if (writer.defData) {
             writer.defData[idx] = 0;
           }
@@ -466,6 +481,8 @@ export const applyStampDitherMask = (
           writer.data[idx] = nextIndex;
           writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
           writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+          if (writer.phaseData) writer.phaseData[idx] = nextIndex === 0 ? 0 : writer.phaseIntent?.[idx] ?? 0;
+          if (writer.flowData) writer.flowData[idx] = nextIndex === 0 ? 0 : writer.flowBits;
           if (writer.defData) {
             writer.defData[idx] = 0;
           }
@@ -525,6 +542,8 @@ export const applyStampDitherMask = (
           writer.data[idx] = nextIndex;
           writer.gradientId[idx] = nextIndex === 0 ? 0 : writer.flowSlot;
           writer.speedData[idx] = nextIndex === 0 ? 0 : writer.speedByte;
+          if (writer.phaseData) writer.phaseData[idx] = nextIndex === 0 ? 0 : writer.phaseIntent?.[idx] ?? 0;
+          if (writer.flowData) writer.flowData[idx] = nextIndex === 0 ? 0 : writer.flowBits;
           if (writer.defData) {
             writer.defData[idx] = 0;
           }

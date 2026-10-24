@@ -275,7 +275,7 @@ export function runColorCyclePaintStroke(
     });
   }
 
-  if (!useStampDither || bristlesEnabled) {
+  if (!useStampDither) {
     clearStrokeDefIdsForStamp({
       buffers: strokeData.buffers,
       width: canvasWidth,
@@ -404,6 +404,16 @@ function paintStampDither(
     ...requestedConfig,
     diversity: stampDitherState.stampDitherDiversity ?? requestedConfig.diversity,
   };
+  const bristles = appState.tools.brushSettings.colorCycleBristlesEnabled === true;
+  const phaseLength = context.getCanvasWidth() * context.getCanvasHeight();
+  if (bristles && stampDitherState.stampDitherPhaseIntent?.length !== phaseLength) {
+    stampDitherState.stampDitherPhaseIntent = new Uint8Array(phaseLength);
+  }
+  const phaseIntent = stampDitherState.stampDitherPhaseIntent;
+  const writePhase = bristles && phaseIntent
+    ? createCcBristleWriter(phaseIntent, { x, y }, strokeData.lastPoint,
+      appState.tools.brushSettings.colorCycleBristleWidth, appState.tools.brushSettings.colorCycleBristleStrength)
+    : undefined;
   const perf = context.getPerfStroke();
   const stampStart = perf ? nowMs() : 0;
   let lastMaskMs = 0;
@@ -412,6 +422,10 @@ function paintStampDither(
   applyStampDitherStamp({
     animator,
     acceptsPixel: strokeData.paintMask?.acceptsPixel,
+    phaseAtPixel: writePhase && phaseIntent ? (index, px, py) => {
+      writePhase(index, px, py);
+      return phaseIntent[index];
+    } : undefined,
     state: stampDitherState,
     config,
     runtime: context.getStampDitherRuntime(),

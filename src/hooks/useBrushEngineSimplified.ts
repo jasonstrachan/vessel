@@ -765,7 +765,9 @@ export const useBrushEngineSimplified = () => {
   const isCCGradient = isCcGradientPreset(currentBrushPreset?.id);
   const isCCStrokePreset = currentBrushPreset?.id === 'color-cycle-stroke';
   const isCCGradientActiveLayer = isCCGradient && activeLayer?.layerType === 'color-cycle';
-  const shouldApplyToolbarColorCycleSettings = (isCCGradient || isCCStrokePreset) && activeLayer?.layerType === 'color-cycle';
+  const shouldApplyToolbarColorCycleSettings =
+    (isCCGradient || isCCStrokePreset || currentBrushPreset?.id === 'checkered') &&
+    activeLayer?.layerType === 'color-cycle';
   const isDitherStrokeBrush = tools.brushSettings.brushShape === BrushShape.PIXEL_DITHER;
   const ditherStrokeGuardWarnedRef = useRef(false);
   const warnIfDitherStrokePath = useCallback((context: string) => {
@@ -1762,7 +1764,8 @@ export const useBrushEngineSimplified = () => {
       requestGradientApply,
       flushGradientApply,
       renderColorCycle,
-      healColorCycleEraseMask,
+      // Native tips use finalized admitted pixels; custom stamps retain their alpha mask.
+      healColorCycleEraseMask: options?.customStamp ? healColorCycleEraseMask : undefined,
       firstStampImmediateRef,
       mirrorScheduledRef,
       gridSnapStrokePointRef: colorCycleGridSnapStrokePointRef,

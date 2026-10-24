@@ -362,6 +362,49 @@ describe('IndexBuffer', () => {
     });
   });
 
+  describe('native authoring phase replacement', () => {
+    beforeEach(() => {
+      buffer.setPalette(['#ff0000', '#00ff00', '#0000ff']);
+    });
+
+    it('resets phase for a same-index pixel write without changing untouched pixels', () => {
+      buffer.getDirectData().fill(2);
+      buffer.getDirectPhaseData().fill(252);
+      buffer.setPixel(20, 20, 2);
+
+      expect(buffer.getPixel(20, 20)).toBe(2);
+      expect(buffer.getDirectPhaseData()[20 * 100 + 20]).toBe(0);
+      expect(buffer.getDirectPhaseData()[20 * 100 + 21]).toBe(252);
+    });
+
+    it.each(['primary', 'secondary', 'clear', 'skip'] as const)(
+      'replaces phase only on accepted Checkered %s writes', mode => {
+        buffer.getDirectData().fill(2);
+        buffer.getDirectGradientIdData().fill(7);
+        buffer.getDirectSpeedData().fill(33);
+        buffer.getDirectFlowData().fill(2);
+        buffer.getDirectPhaseData().fill(252);
+        const mask = new Uint8Array([mode === 'primary' ? 1 : 0]);
+        buffer.paintCheckeredPixelatedWithIndex(
+          20, 20, 1, 2, mask, 1, mode === 'clear',
+          mode === 'secondary' ? 3 : undefined, 9, 0, 0, 44, 1,
+        );
+
+        for (let y = 0; y < 100; y++) for (let x = 0; x < 100; x++) {
+          const index = y * 100 + x;
+          const inTip = x >= 18 && x < 22 && y >= 18 && y < 22;
+          const checker = inTip && ((x - 18) + (y - 18)) % 2 === 0;
+          const written = checker && mode !== 'skip';
+          expect(buffer.getDirectPhaseData()[index]).toBe(written ? 0 : 252);
+          expect(buffer.getDirectData()[index]).toBe(written && mode === 'clear' ? 0 : written && mode === 'secondary' ? 3 : 2);
+          expect(buffer.getDirectGradientIdData()[index]).toBe(written ? mode === 'clear' ? 0 : 9 : 7);
+          expect(buffer.getDirectSpeedData()[index]).toBe(written ? mode === 'clear' ? 0 : 44 : 33);
+          expect(buffer.getDirectFlowData()[index]).toBe(written ? mode === 'clear' ? 0 : 1 : 2);
+        }
+      },
+    );
+  });
+
   describe('fill operation', () => {
     beforeEach(() => {
       buffer.setPalette(['#ff0000', '#00ff00', '#0000ff']);

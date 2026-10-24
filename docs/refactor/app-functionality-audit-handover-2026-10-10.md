@@ -7,7 +7,7 @@ marquee/layer deletion/deselection plus strokes that disappear until Undo.
 This supersedes the historical no-subagent/model notes below. The current branch
 and all unrelated work remain preserved. Areas01–19 retain their prior area
 signoffs; the follow-up defects below are repaired and locally committed in375d6480e.
-Area20 signoff follows; Areas21–65 remain incomplete, with no whole-app completion claimed.
+Areas20–21 signoffs follow; Areas22–65 remain incomplete, with no whole-app completion claimed.
 
 - S39-01: completed marquee Escape left its bounds/mask active. Raster previews
   appeared but canonical commits outside that selection were clipped; native
@@ -114,6 +114,93 @@ commit, then bind `area21-checkered-starter-prepared-session39.js` to the final
 production SHA. All subagents use GPT-6.1Sol. Historical model/no-subagent notes
 below are superseded by the current human instruction; continuation-chat creation
 remains blocked and must not be retried without new direct authorization.
+
+
+## Session39 — Area 21 final software signoff: Checkered
+
+Area 21 is software-verified. Areas 01–21 are complete; Areas 22–65 remain pending.
+Five reproduced owner defects are repaired:
+
+- A21-01: Add CC Layer retains Checkered instead of changing to CC Tonal Dither.
+  One entry in the existing preset allowlist repairs the owner. Checkered fails
+  before while Stroke/Pixel fallback controls pass; all 62 panel tests pass after.
+- A21-02: ordinary indexed paint resets prior phase before its same-index early
+  return. Native blue Pickup previously inherited Bristle phase and rendered
+  neutral ink despite the new blue palette. The two native after cases pass 20 checks.
+- A21-03: Checkered enters the existing live CC material synchronization gate.
+  Res/BG/algorithm/pattern edits formerly applied one interaction behind. Four
+  native after cases pass 37 checks, with actual held settings and Stroke controls.
+- A21-04: Direct Dither bypassed indexed phase authoring. Before, Bristle-seeded
+  ordinary repaint retained phase on 3,120 BG-on / 1,612 BG-off admitted pixels. Fresh
+  writes now use current flow and separate current-stroke phase intent; original
+  paint/gid/def/speed/flow/phase are captured once per epoch and restored in holes.
+  Current Bristles are prepared before material admission and survive both replay
+  paths. The superseded post-dither Bristle pass is removed. Tests also reproduce
+  old-speed corruption on accepted→hole replay and legacy flow4 reauthoring.
+- A21-05: native pointerdown/movement eagerly changed the permanent erase mask
+  before admission. Its quadrant checker disagreed with actual alternating cells,
+  restoring 400 wrong pixels; empty Pencil restored 800 pixels and added history.
+  Those eager calls and guessed native preview healing are retired. Existing
+  finalized admitted/explicit-empty footprints now own healing. Native repaint
+  stays masked until commit. Custom alpha/same-index healing retains its existing
+  pending callback because custom stamps have a different finalized-mask contract.
+  Typed legacy dispatch signatures remain only for composition compatibility.
+
+Final production artifact `133ee37f16f456cd96d050b7061947d7b6016ae2c8ce3f5ed08925dccd8054ba` passes
+**121 native configurations / 1179 checks** across 13 suites. These include:
+all 11 algorithms / eight patterns, material Res1/4/64 and pressure links, independent
+checker and rotated footprints, size/pressure extrema, spacing/dashes, Band/Speed
+and measured velocity links, source/FG/seam controls, Pencil/Bristle/Lostedge/Pickup,
+transparency lock and exact erased-pixel boundaries. Same/cross-layer marquee →
+Delete → Undo → re-delete → Redo → Escape → fresh outside drawing passes. All
+relevant canonical six-plane/layer RGBA history checks remain exact.
+
+Direct Dither OFF controls and current Bristles Bayer/Sierra ×BGon/off pass with
+independent material/phase arithmetic. Two varying-pressure native pen cases use
+constant tip geometry and Pres Res changes with actual overlapping ownership;
+accepted↔hole witnesses, old metadata restoration, current phase and exact final
+RGBA/history pass. This is injected trusted pen input, not physical-tablet signoff.
+
+Final task-only gate passes type-check, lint and **601 suites / 5,805 tests**,
+with the existing skipped suite/test and passing snapshot. Source and independent
+review cover all 17 source/test files; eleven runtime owners and six final test inputs
+match the production build and isolated gate.
+The clean candidate excludes the original sampling hunks in three mixed owners;
+reviewed three-way resolutions retain HEAD's inline recording and the full phase
+repair. V2 candidate patch-context failure and v3 fixture type error are preserved.
+The v4 full gate caught 12 older-state preview phase failures, and a focused test
+also reproduced uniform reverse-flow replacement. The preview constructor now
+uses copied flow/phase write buffers, preserves canonical Bristle phase only for
+older paired BG-on states without explicit intent, and infers uniform currently
+owned flow only when no explicit scalar exists. Explicit phase/flow zero wins.
+All six canonical planes and intent remain unchanged even when drawing throws.
+The native Palette/Sample before control already passed 2 cases / 12 checks because
+real Dither strokes supply intent; this is constructor compatibility, not a
+claimed native preview bug. Three focused suites / 95 tests pass, and the final v5
+full gate supersedes all failed candidates. No application workaround was added.
+
+Rejected fixtures remain explicit. Older Ocean/neutral-workspace/history no-op
+assumptions were corrected at their prerequisites. The first variable-pressure
+probe wrapped the raw brush after a seed had cached a bound draw adapter, so it
+observed no stamps; corrected v3 wraps the actual cached draw I/O and retains all
+oracles. This was an invalid observation fixture, not an app defect. Palette paired
+inks may share raw ownership indices while definitions distinguish colours; a
+black-endpoint tap is not a valid two-ink witness. All original receipts remain.
+
+Evidence: `area21-native-final-session39.json`, `area21-preview-final-v6-session39.json`,
+`area21-isolated-gate-v5-session39.json` and independent owner/candidate
+reviews under output/playwright. Named browser cleanup reports no matching daemon.
+Commit guard preserves all 47 original working paths and the original three-file
+staged edits; only 17 reviewed source/test files plus these two ledgers are committed.
+Physical hardware, subjective appearance, performance, custom pattern authoring
+and global playback retain their separate audit owners. No whole-app completion,
+push, deployment, branch or worktree change is claimed.
+
+Area 22 has native fail-before evidence for stale zero-move endpoints, Enter width
+and an inert Lostedge control. Resolution's initial red→blue Bayer witness was
+mathematically degenerate; corrected native Fire black→white witness passes.
+These are pending Area 22 work, not repaired or accepted here. Continue 22–65 in this
+chat with GPT-6.1 Sol subagents and a fresh post-commit preservation baseline.
 
 
 ## Current continuation — Session38, Area19 complete

@@ -116,6 +116,7 @@ export class IndexBuffer {
 
   private writeData(index: number, value: number): void {
     recordIndexedAuthoringPixel(this.data, index);
+    this.phaseData[index] = 0;
     const previous = this.data[index];
     if (previous === value) {
       return;
@@ -388,7 +389,6 @@ export class IndexBuffer {
           this.gradientId[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSlot;
           this.speedData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedSpeed;
           this.flowData[dataIndex] = normalizedIndex === 0 ? 0 : normalizedFlowBits;
-          this.phaseData[dataIndex] = 0;
         }
       }
     }

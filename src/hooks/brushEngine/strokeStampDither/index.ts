@@ -1,3 +1,4 @@
+import { visitStrokeStampPixels } from '../strokeDefClear';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { isCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
@@ -23,6 +24,8 @@ import {
 } from './mask';
 import {
   ensureStampDitherBaseBuffers,
+  resolveStampDitherFlowBits,
+  restoreStampDitherBasePixel,
   type StampDitherShape,
   type StampDitherStrokeData,
 } from './state';
@@ -123,6 +126,8 @@ const applyStampDitherToRegion = (
         data[idx] = nextIndex;
         gradientId[idx] = nextIndex === 0 ? 0 : flowSlot;
         speedData[idx] = nextIndex === 0 ? 0 : speedByte;
+        if (handle.phaseData) handle.phaseData[idx] = nextIndex === 0 ? 0 : strokeData.stampDitherPhaseIntent?.[idx] ?? 0;
+        if (handle.flowData) handle.flowData[idx] = nextIndex === 0 ? 0 : strokeData.stampDitherFlowBits ?? 0;
         if (defData) defData[idx] = 0;
         localX += 1;
         if (localX === tileClamp) localX = 0;
@@ -161,29 +166,7 @@ const applyStampDitherToRegion = (
           ? (t === 1)
           : (t <= coverageByte);
       if (bgFillOff && !usePrimary) {
-        const base = strokeData.stampDitherBaseIdx;
-        const baseG = strokeData.stampDitherBaseGid;
-        const baseTag = strokeData.stampDitherBaseTag;
-        if (base && baseTag && base.length === data.length && baseTag[idx] === strokeEpoch) {
-          const v = base[idx];
-          data[idx] = v;
-          if (v === 0) {
-            gradientId[idx] = 0;
-            speedData[idx] = 0;
-            if (defData) defData[idx] = 0;
-          } else if (baseG && baseG.length === gradientId.length) {
-            gradientId[idx] = baseG[idx];
-            // Retained paint must keep its durable palette reference across save/reopen.
-            if (defData) defData[idx] = strokeData.stampDitherBaseDef?.[idx] ?? 0;
-          } else {
-            gradientId[idx] = flowSlot;
-            if (defData) defData[idx] = 0;
-          }
-        } else {
-          localX += 1;
-          if (localX === tileClamp) localX = 0;
-          continue;
-        }
+        restoreStampDitherBasePixel(strokeData, handle, idx);
         localX += 1;
         if (localX === tileClamp) localX = 0;
         continue;
@@ -194,6 +177,8 @@ const applyStampDitherToRegion = (
         data[idx] = primaryIndex;
         gradientId[idx] = primaryIndex === 0 ? 0 : flowSlot;
         speedData[idx] = primaryIndex === 0 ? 0 : speedByte;
+        if (handle.phaseData) handle.phaseData[idx] = primaryIndex === 0 ? 0 : strokeData.stampDitherPhaseIntent?.[idx] ?? 0;
+        if (handle.flowData) handle.flowData[idx] = primaryIndex === 0 ? 0 : strokeData.stampDitherFlowBits ?? 0;
         if (defData) defData[idx] = 0;
         localX += 1;
         if (localX === tileClamp) localX = 0;
@@ -204,6 +189,8 @@ const applyStampDitherToRegion = (
       data[idx] = secondary;
       gradientId[idx] = secondary === 0 ? 0 : flowSlot;
       speedData[idx] = secondary === 0 ? 0 : speedByte;
+      if (handle.phaseData) handle.phaseData[idx] = secondary === 0 ? 0 : strokeData.stampDitherPhaseIntent?.[idx] ?? 0;
+      if (handle.flowData) handle.flowData[idx] = secondary === 0 ? 0 : strokeData.stampDitherFlowBits ?? 0;
       if (defData) defData[idx] = 0;
       localX += 1;
       if (localX === tileClamp) localX = 0;
@@ -240,6 +227,7 @@ export const applyStampDitherStamp = (args: {
   height: number;
   isAnimating: boolean;
   acceptsPixel?: (x: number, y: number) => boolean;
+  phaseAtPixel?: (index: number, x: number, y: number) => number;
   onScheduleRecompose?: (tileScale: number) => void;
   perf?: {
     onMask?: (ms: number, bounds: { minX: number; minY: number; maxX: number; maxY: number }) => void;
@@ -263,6 +251,30 @@ export const applyStampDitherStamp = (args: {
     height,
     onScheduleRecompose,
   } = args;
+
+  if (!state.gradientIdBuffer || !state.gradientDefIdBuffer || !state.speedBuffer || !state.flowBuffer || !state.phaseBuffer) {
+    const handle = state.stampDitherFillHandle ?? animator.beginDirectFill();
+    state.gradientIdBuffer ??= handle.gradientId;
+    state.gradientDefIdBuffer ??= handle.defIdData ?? undefined;
+    state.speedBuffer ??= handle.speedData;
+    state.flowBuffer ??= handle.flowData;
+    state.phaseBuffer ??= handle.phaseData;
+    if (!state.stampDitherFillHandle) animator.endDirectFill({ markDirty: false });
+  }
+  state.stampDitherFlowBits = resolveStampDitherFlowBits(animator);
+  // Phase intent belongs to this stroke, never to the older pixels underneath it.
+  if ((state.stampDitherStampSeq ?? 0) === 0) state.stampDitherPhaseIntent?.fill(0);
+  if (args.phaseAtPixel || state.stampDitherPhaseIntent) {
+    if (state.stampDitherPhaseIntent?.length !== width * height) {
+      state.stampDitherPhaseIntent = new Uint8Array(width * height);
+    }
+    const intent = state.stampDitherPhaseIntent;
+    visitStrokeStampPixels({ width, height, x, y, brushSize: pressureSize, shape: stampShape, rotation: args.rotation }, (px, py) => {
+      if (args.acceptsPixel && !args.acceptsPixel(px, py)) return;
+      const index = py * width + px;
+      intent[index] = args.phaseAtPixel?.(index, px, py) ?? 0;
+    });
+  }
 
   const baseTileScale = Math.max(1, config.pixelSize);
   const diversity = state.stampDitherDiversity ?? Math.max(0, Math.min(1, config.diversity ?? 1));
@@ -370,6 +382,10 @@ export const applyStampDitherStamp = (args: {
         data: fusedHandle.data,
         gradientId: fusedHandle.gradientId,
         speedData: fusedHandle.speedData,
+        phaseData: fusedHandle.phaseData,
+        flowData: fusedHandle.flowData,
+        phaseIntent: state.stampDitherPhaseIntent,
+        flowBits: state.stampDitherFlowBits,
         defData: state.gradientDefIdBuffer,
         tile,
         tileClamp: tileSize,

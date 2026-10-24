@@ -5,7 +5,11 @@ import {
   flushBufferedSequentialEvents,
 } from '@/hooks/canvas/handlers/sequential/sequentialCapture';
 import { startBrushToolStroke } from '@/hooks/canvas/handlers/startBrushToolStroke';
+import { startColorCycleStroke } from '@/hooks/canvas/handlers/startColorCycleStroke';
+import { createMaskHealingDispatchers, type MaskHealState } from '@/hooks/canvas/handlers/maskHealing';
 import { processBatchedStrokes, type ProcessBatchedStrokesArgs, type ProcessBatchedStrokesDeps } from '@/hooks/canvas/handlers/strokeBatching';
+import { MaskManager } from '@/layers/MaskManager';
+import { BrushStampSource } from '@/tools/stamps/BrushStampSource';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
 import { BrushShape, type Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -294,6 +298,156 @@ describe('sequential color-cycle routing', () => {
 
   afterEach(() => {
     setFeatureFlag('enableSequentialRecordMode', false);
+  });
+
+  const createErasedMaskHarness = (pencil = false) => {
+    createColorCycleState();
+    const mask = document.createElement('canvas');
+    mask.width = mask.height = 32;
+    // Pixel-backed Canvas2D I/O boundary: the shared test canvas records calls only.
+    const pixels = new Uint8ClampedArray(32 * 32 * 4);
+    for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255;
+    const saved: GlobalCompositeOperation[] = [];
+    const context: Partial<CanvasRenderingContext2D> = {
+      canvas: mask,
+      globalCompositeOperation: 'source-over',
+      globalAlpha: 1,
+      save: () => { saved.push(context.globalCompositeOperation!); },
+      restore: () => { context.globalCompositeOperation = saved.pop() ?? 'source-over'; },
+      fillRect: (x, y, width, height) => {
+        for (let py = Math.max(0, Math.floor(y)); py < Math.min(32, y + height); py++) {
+          for (let px = Math.max(0, Math.floor(x)); px < Math.min(32, x + width); px++) {
+            pixels[(py * 32 + px) * 4 + 3] = context.globalCompositeOperation === 'destination-out' ? 0 : 255;
+          }
+        }
+      },
+      getImageData: (x, y, width, height) => {
+        const data = new Uint8ClampedArray(width * height * 4);
+        for (let row = 0; row < height; row++) for (let col = 0; col < width; col++) {
+          const from = ((y + row) * 32 + x + col) * 4;
+          data.set(pixels.subarray(from, from + 4), (row * width + col) * 4);
+        }
+        return new ImageData(data, width, height);
+      },
+    };
+    const ctx = context as CanvasRenderingContext2D;
+    const mask2d: { getContext(contextId: '2d'): CanvasRenderingContext2D | null } = mask;
+    jest.spyOn(mask2d, 'getContext').mockReturnValue(ctx);
+    useAppStore.setState(state => ({
+      layers: state.layers.map(layer => ({
+        ...layer,
+        colorCycleData: { ...layer.colorCycleData!, flowMode: 'forward', eraseMask: mask, eraseMaskVersion: 4 },
+      })),
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          colorCycleStampShape: 'checkered',
+          size: 8,
+          pressureEnabled: false,
+          colorCyclePencilEnabled: pencil,
+          colorCyclePencilSensitivity: 0,
+        },
+      },
+    }));
+    const manager = new MaskManager({
+      getLayer: id => useAppStore.getState().layers.find(layer => layer.id === id),
+      getProjectSize: () => ({ width: 32, height: 32 }),
+      updateLayer: (id, patch) => useAppStore.setState(state => ({
+        layers: state.layers.map(layer => layer.id === id
+          ? { ...layer, ...patch, colorCycleData: { ...layer.colorCycleData!, ...patch.colorCycleData } }
+          : layer),
+      })),
+    });
+    const maskHealStateRef = { current: null as MaskHealState | null };
+    const stampSource = new BrushStampSource({
+      getState: useAppStore.getState,
+      brushRuntime: { drawBrush: (target, _from, to) => target.fillRect(to.x - 4, to.y - 4, 8, 8) },
+      userBrushEngine: {
+        isUserBrush: () => false, setActiveBrush: jest.fn(), startStroke: jest.fn(),
+        continueStroke: jest.fn(), endStroke: jest.fn(),
+      },
+      resolveCustomBrush: () => undefined,
+    }, { forceOpaque: true });
+    const healing = createMaskHealingDispatchers({
+      maskHealStateRef,
+      maskManager: manager,
+      createBrushStampSource: () => stampSource,
+      isEnabled: true,
+      getState: useAppStore.getState,
+      debugWarn: jest.fn(),
+    });
+    const readMask = () => Array.from(ctx.getImageData(0, 0, 32, 32).data);
+    return { ctx, manager, maskHealStateRef, stampSource, healing, readMask, before: readMask() };
+  };
+
+  it.each(['checkered', 'empty-pencil', 'failed-draw'] as const)(
+    'preserves the permanent erase mask until actual %s admission commits', mode => {
+      const harness = createErasedMaskHarness(mode === 'empty-pencil');
+      const state = useAppStore.getState();
+      const target = state.layers[0].colorCycleData!.canvas!.getContext('2d')!;
+      const drawColorCycle = jest.fn(() => {
+        if (mode === 'failed-draw') throw new Error('Painter failed');
+      });
+      const start = () => startColorCycleStroke({
+        currentState: state,
+        worldPos: { x: 16, y: 16 },
+        pressure: mode === 'empty-pencil' ? 0.1 : 1,
+        customBrushData: undefined,
+        ccStrokeFlags: { isStandard: true, isShapeVariant: false, isCustom: false, isAny: true },
+        colorCyclePixelQueue: { current: null },
+        createPixelQueue,
+        scheduleRecompose: jest.fn(),
+        resamplerBrushDataRef: { current: undefined },
+        colorCycleLastPosRef: { current: null },
+        colorCycleDistanceRef: { current: 0 },
+        colorCycleLastRotationRef: { current: undefined },
+        ccFlowVelocityRef: { current: { smoothedPxPerMs: 0 } },
+        getCCStampTargetCtx: () => target,
+        brushRuntime: { drawColorCycle },
+        resolveBrushRotation: () => ({ rotation: 0, nextRotation: 0 }),
+        getColorCycleBrushManager: () => ({ getSurfaceBrush: () => null }),
+        debugLog: jest.fn(),
+        beginMaskHealingStroke: harness.healing.beginMaskHealingStroke,
+      });
+
+      if (mode === 'failed-draw') expect(start).toThrow('Painter failed');
+      else expect(start()).toBe('handled');
+      expect(drawColorCycle).toHaveBeenCalledTimes(1);
+      // Cancellation/failure cleanup cannot publish unadmitted mask changes.
+      harness.healing.endMaskHealingStroke();
+      expect(harness.readMask()).toEqual(harness.before);
+      expect(useAppStore.getState().layers[0].colorCycleData!.eraseMaskVersion).toBe(4);
+    },
+  );
+
+  it('does not extend a guessed erase footprint before an actual color-cycle movement commits', () => {
+    const { args, deps, drawColorCycle } = createColorCycleBatchHarness({
+      batch: [{ pos: { x: 24, y: 16 }, pressure: 1 }],
+      lastDrawPos: { x: 16, y: 16 },
+      spacing: 1,
+    });
+    const harness = createErasedMaskHarness();
+    const state = useAppStore.getState(), target = state.layers[0].colorCycleData!.canvas!.getContext('2d')!;
+    harness.ctx.save();
+    harness.ctx.globalCompositeOperation = 'destination-out';
+    harness.stampSource.begin(harness.ctx, { x: 16, y: 16 }, 1, { skipInitialStamp: true });
+    // A retained legacy dispatcher must not regain authority through movement.
+    harness.maskHealStateRef.current = {
+      ctx: harness.ctx, layerId: 'layer-cc', dirty: false,
+      stampSource: harness.stampSource,
+    };
+    deps.storeRef.current = state;
+    deps.getCCStampTargetCtx = () => target;
+    deps.isEraserV2 = true;
+    deps.extendMaskHealingStroke = harness.healing.extendMaskHealingStroke;
+
+    processBatchedStrokes(args, deps);
+    harness.healing.endMaskHealingStroke();
+
+    expect(drawColorCycle).toHaveBeenCalled();
+    expect(harness.readMask()).toEqual(harness.before);
+    expect(useAppStore.getState().layers[0].colorCycleData!.eraseMaskVersion).toBe(4);
   });
 
   it('starts color-cycle stroke on sequential layer and captures canonical stamps', () => {

@@ -43,7 +43,6 @@ export const startColorCycleStroke = ({
   resolveBrushRotation,
   getColorCycleBrushManager,
   debugLog,
-  beginMaskHealingStroke,
 }: {
   currentState: AppState;
   worldPos: Point;
@@ -78,10 +77,6 @@ export const startColorCycleStroke = ({
   const isColorCycleLayer = activeLayer?.layerType === 'color-cycle';
   if (!isColorCycleLayer) {
     return 'abort';
-  }
-
-  if (activeLayer) {
-    beginMaskHealingStroke(activeLayer.id, worldPos, pressure);
   }
 
   configureStartColorCycleStroke({

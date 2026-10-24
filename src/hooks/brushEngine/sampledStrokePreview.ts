@@ -69,6 +69,20 @@ export const createSampledStrokePreview = (
     const previewDefs = source.def.slice();
     const dither = getDither?.(stroke);
     if (dither) {
+      let previewFlowBits = ownership.stampDitherFlowBits;
+      if (previewFlowBits === undefined) {
+        for (let index = 0; index < source.paint.length; index++) {
+          const tag = ownership.stampDitherTag[index];
+          if (!source.paint[index] || source.gid[index] !== TEMP_SAMPLE_SLOT ||
+              (tag >>> 16) !== ((ownership.stampDitherStrokeEpoch ?? 1) & 0xffff) ||
+              !(tag & 0xffff) || !ownership.stampDitherPrimaryBuffer[index]) continue;
+          if (previewFlowBits === undefined) previewFlowBits = source.flow[index];
+          else if (previewFlowBits !== source.flow[index]) {
+            previewFlowBits = undefined;
+            break;
+          }
+        }
+      }
       animator.withPreviewIndexBuffer(buffer, previewDefs, () => {
         finalizeStampDither({
           ...dither, animator, width: animator.width, height: animator.height, flowSlot: TEMP_SAMPLE_SLOT,
@@ -76,6 +90,11 @@ export const createSampledStrokePreview = (
             ...ownership,
             paint: buffer.getDirectData(), gradientIdBuffer: buffer.getDirectGradientIdData(),
             gradientDefIdBuffer: previewDefs, speedBuffer: buffer.getDirectSpeedData(),
+            flowBuffer: buffer.getDirectFlowData(), phaseBuffer: buffer.getDirectPhaseData(),
+            // Replay only reads intent; legacy paired Bristles stored it in canonical phase.
+            stampDitherPhaseIntent: ownership.stampDitherPhaseIntent ??
+              (session.sampledBristles && dither.config.bgFill ? source.phase : undefined),
+            stampDitherFlowBits: previewFlowBits,
             // The finalizer's scratch state must not write through live handles or caches.
             stampDitherFillHandle: undefined, stampDitherChoice: undefined, stampSeqToTileScale: undefined,
           },

@@ -380,9 +380,6 @@ export const processBatchedStrokes = (
               args.lastDrawTimestampRef.current = pointTimestampMs;
               continue;
             }
-            if (activeLayer && deps.isEraserV2 && isColorCycleLayer) {
-              deps.extendMaskHealingStroke(drawFrom, drawTo, pressure);
-            }
             targetCtx.globalCompositeOperation = 'source-over';
             targetCtx.globalAlpha = 1;
 

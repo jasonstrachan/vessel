@@ -1,3 +1,5 @@
+import { createCcBristleWriter } from '../ccBristles';
+import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { BAYER_4x4_MATRIX } from '@/utils/ditherAlgorithms';
 import { resolveSierraLiteBinaryField } from '@/lib/colorCycle/gobletPlaybackMath';
 import { createCumulativeThresholdResolver } from '@/utils/ditherPatterns/cumulativeThresholdPattern';
@@ -1087,5 +1089,185 @@ describe('strokeStampDither', () => {
 
     expect(smallCoverage).toBe(8);
     expect(largeCoverage).toBe(32);
+  });
+});
+
+describe('direct stamp metadata ownership', () => {
+  const width = 32;
+  const height = 32;
+  const count = width * height;
+  const ranks = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const tip = (x: number, y: number) => x >= 8 && x < 24 && y >= 8 && y < 24 && x < 22
+    && (Math.floor((x - 8) / 4) + Math.floor((y - 8) / 4)) % 2 === 0;
+  const primary = (x: number, y: number, scale: number) =>
+    ranks[(Math.floor(y / scale) % 4) * 4 + Math.floor(x / scale) % 4] <= 8;
+  type PhaseAtPixel = Parameters<typeof stampDither.applyStampDitherStamp>[0]['phaseAtPixel'];
+
+  const fixture = (bgFill: boolean, oldFlow = 2) => {
+    const handle = {
+      data: new Uint8Array(count).fill(11),
+      gradientId: new Uint8Array(count).fill(7),
+      defIdData: new Uint16Array(count).fill(91),
+      speedData: new Uint8Array(count).fill(33),
+      phaseData: Uint8Array.from({ length: count }, (_, i) => 200 + i % 55),
+      flowData: new Uint8Array(count).fill(oldFlow),
+      width,
+      height,
+    };
+    const animator = {
+      beginDirectFill: () => handle,
+      endDirectFill: jest.fn(),
+      markDirtyBounds: jest.fn(),
+      hasWebGL: () => false,
+      getFlowMode: () => 'forward' as const,
+    } as unknown as Parameters<typeof stampDither.applyStampDitherStamp>[0]['animator'];
+    const state: stampDither.StampDitherStrokeData = {
+      paint: handle.data,
+      gradientIdBuffer: handle.gradientId,
+      gradientDefIdBuffer: handle.defIdData,
+      speedBuffer: handle.speedData,
+      phaseBuffer: handle.phaseData,
+      flowBuffer: handle.flowData,
+      stampDitherStrokeEpoch: 1,
+      stampDitherStampSeq: 0,
+    };
+    const config: stampDither.StampDitherConfig = {
+      algorithm: 'bayer-4x4', pixelSize: 1, bgFill, pressureLinked: false, seed: 0, diversity: 0,
+    };
+    const runtime = stampDither.createStampDitherRuntime(0);
+    const stamp = (phaseAtPixel?: PhaseAtPixel, scale = 1) => stampDither.applyStampDitherStamp({
+      animator, state, config: { ...config, pixelSize: scale }, runtime, stampShape: 'checkered', x: 16, y: 16,
+      pressure: 1, pressureSize: 16, primaryIndex: 11, flowSlot: 3, cycleSpeed: .5,
+      width, height, isAnimating: false, acceptsPixel: x => x < 22, phaseAtPixel,
+    });
+    const replay = (scale: number) => stampDither.recomposeStampDitherOverlay({
+      animator, state, config: { ...config, pixelSize: scale }, runtime,
+      flowSlot: 3, cycleSpeed: .5, tileScale: scale,
+    });
+    const finalize = (scale: number) => stampDither.finalizeStampDither({
+      animator, state, config: { ...config, pixelSize: scale }, runtime,
+      width, height, flowSlot: 3, cycleSpeed: .5, ditherStrength: 1,
+    });
+    return { handle, state, stamp, replay, finalize };
+  };
+
+  const channels = (handle: ReturnType<typeof fixture>['handle'], index: number) => [
+    handle.data[index], handle.gradientId[index], handle.defIdData[index],
+    handle.speedData[index], handle.flowData[index], handle.phaseData[index],
+  ];
+  const installBristles = (f: ReturnType<typeof fixture>): PhaseAtPixel => {
+    const intent = new Uint8Array(count);
+    f.state.stampDitherPhaseIntent = intent;
+    const write = createCcBristleWriter(intent, { x: 16, y: 16 }, null, 2, 50);
+    return (index, x, y) => { write(index, x, y); return intent[index]; };
+  };
+
+  it.each([true, false])('ordinary BG=%s replaces phase only on admitted material', bg => {
+    const f = fixture(bg);
+    const original = f.handle.phaseData.slice();
+    f.stamp();
+    const differences: unknown[] = [];
+    for (let i = 0; i < count; i++) {
+      const x = i % width, y = Math.floor(i / width);
+      const admitted = tip(x, y) && (bg || primary(x, y, 1));
+      const expected = admitted ? 0 : original[i];
+      if (f.handle.phaseData[i] !== expected) differences.push({ x, y, admitted, expected, phase: f.handle.phaseData[i] });
+    }
+    expect(differences).toEqual([]);
+  });
+
+  it('restores old speed when BG-off membership changes from accepted to rejected', () => {
+    const f = fixture(false);
+    f.stamp();
+    const becameHole: number[] = [], becameInk: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const x = i % width, y = Math.floor(i / width);
+      if (!tip(x, y)) continue;
+      if (primary(x, y, 1) && !primary(x, y, 2)) becameHole.push(i);
+      if (!primary(x, y, 1) && primary(x, y, 2)) becameInk.push(i);
+    }
+    expect(becameHole.length).toBeGreaterThan(0);
+    expect(becameInk.length).toBeGreaterThan(0);
+    becameHole.forEach(i => expect(f.handle.speedData[i]).toBe(encodeColorCycleSpeedByte(.5)));
+    f.replay(2);
+    expect(becameHole.map(i => f.handle.speedData[i])).toEqual(becameHole.map(() => 33));
+  });
+
+  it.each([false, true])('replays overlapping BG-off strokes and changed membership across all six planes (Bristles=%s)', bristles => {
+    const f = fixture(false);
+    const original = Array.from({ length: count }, (_, i) => channels(f.handle, i));
+    const phaseAtPixel = bristles ? installBristles(f) : undefined;
+    f.stamp(phaseAtPixel);
+    f.stamp(phaseAtPixel);
+    const intendedPhase = f.state.stampDitherPhaseIntent?.slice();
+    let acceptedToHole = 0, holeToAccepted = 0;
+    for (let i = 0; i < count; i++) {
+      const x = i % width, y = Math.floor(i / width);
+      if (!tip(x, y)) continue;
+      acceptedToHole += Number(primary(x, y, 1) && !primary(x, y, 2));
+      holeToAccepted += Number(!primary(x, y, 1) && primary(x, y, 2));
+    }
+    expect(acceptedToHole).toBeGreaterThan(0);
+    expect(holeToAccepted).toBeGreaterThan(0);
+    for (const scale of [2, 1]) {
+      f.stamp(phaseAtPixel, scale);
+      f.replay(scale);
+      expect(f.finalize(scale)).toBe(true);
+      const differences: unknown[] = [];
+      for (let i = 0; i < count; i++) {
+        const x = i % width, y = Math.floor(i / width);
+        const admitted = tip(x, y) && primary(x, y, scale);
+        const expected = admitted ? [11, 3, 0, encodeColorCycleSpeedByte(.5), 1, intendedPhase?.[i] ?? 0] : original[i];
+        const actual = channels(f.handle, i);
+        if (actual.some((value, j) => value !== expected[j])) differences.push({ x, y, scale, admitted, actual, expected });
+      }
+      expect(differences).toEqual([]);
+    }
+  });
+
+  it('preserves complete direct-fill originals when optional state aliases are absent', () => {
+    const f = fixture(false);
+    const original = Array.from({ length: count }, (_, i) => channels(f.handle, i));
+    delete f.state.gradientIdBuffer;
+    delete f.state.gradientDefIdBuffer;
+    delete f.state.speedBuffer;
+    delete f.state.flowBuffer;
+    delete f.state.phaseBuffer;
+    f.stamp();
+    for (const scale of [1, 2, 1]) {
+      if (scale !== 1) f.stamp(undefined, scale);
+      f.replay(scale);
+      const differences: unknown[] = [];
+      for (let i = 0; i < count; i++) {
+        const x = i % width, y = Math.floor(i / width);
+        const admitted = tip(x, y) && primary(x, y, scale);
+        const expected = admitted ? [11, 3, 0, encodeColorCycleSpeedByte(.5), 1, 0] : original[i];
+        const actual = channels(f.handle, i);
+        if (actual.some((value, j) => value !== expected[j])) differences.push({ x, y, scale, admitted, actual, expected });
+      }
+      expect(differences).toEqual([]);
+    }
+  });
+
+  it('reauthors legacy flow4 to current forward flow1 only on accepted material', () => {
+    const f = fixture(false, 4);
+    f.stamp();
+    const differences: unknown[] = [];
+    for (let i = 0; i < count; i++) {
+      const x = i % width, y = Math.floor(i / width);
+      const admitted = tip(x, y) && primary(x, y, 1), expected = admitted ? 1 : 4;
+      if (f.handle.flowData[i] !== expected) differences.push({ x, y, admitted, expected, flow: f.handle.flowData[i] });
+    }
+    expect(differences).toEqual([]);
+  });
+
+  it.each([true, false])('preserves explicit current Bristles through unchanged final replay (BG=%s)', bgFill => {
+    const f = fixture(bgFill);
+    f.stamp(installBristles(f));
+    const held = f.handle.phaseData.slice();
+    const strandPhases = held.filter((_, i) => tip(i % width, Math.floor(i / width)) && (bgFill || primary(i % width, Math.floor(i / width), 1)));
+    expect(new Set(strandPhases).size).toBeGreaterThan(1);
+    expect(f.finalize(1)).toBe(true);
+    expect(f.handle.phaseData).toEqual(held);
   });
 });

@@ -23,7 +23,12 @@ export type StampDitherState = {
   stampDitherBaseIdx?: Uint8Array;
   stampDitherBaseGid?: Uint8Array;
   stampDitherBaseDef?: Uint16Array;
+  stampDitherBaseSpeed?: Uint8Array;
+  stampDitherBaseFlow?: Uint8Array;
+  stampDitherBasePhase?: Uint8Array;
   stampDitherBaseTag?: Uint16Array;
+  stampDitherPhaseIntent?: Uint8Array;
+  stampDitherFlowBits?: number;
   stampDitherLockedBucket?: number;
   stampDitherStrokeScale?: number;
   stampDitherOriginUnits?: { x: number; y: number } | null;
@@ -42,6 +47,8 @@ export type StampDitherStrokeData = StampDitherState & {
   gradientIdBuffer?: Uint8Array;
   gradientDefIdBuffer?: Uint16Array;
   speedBuffer?: Uint8Array;
+  flowBuffer?: Uint8Array;
+  phaseBuffer?: Uint8Array;
   stampSeqMeta?: Array<[number, number]>;
   stampSeqToTileScale?: Uint16Array;
 };
@@ -82,9 +89,37 @@ export const ensureStampDitherBaseBuffers = (
   if (!strokeData.stampDitherBaseDef || strokeData.stampDitherBaseDef.length !== size) {
     strokeData.stampDitherBaseDef = new Uint16Array(size);
   }
+  if (!strokeData.stampDitherBaseSpeed || strokeData.stampDitherBaseSpeed.length !== size) {
+    strokeData.stampDitherBaseSpeed = new Uint8Array(size);
+  }
+  if (!strokeData.stampDitherBaseFlow || strokeData.stampDitherBaseFlow.length !== size) {
+    strokeData.stampDitherBaseFlow = new Uint8Array(size);
+  }
+  if (!strokeData.stampDitherBasePhase || strokeData.stampDitherBasePhase.length !== size) {
+    strokeData.stampDitherBasePhase = new Uint8Array(size);
+  }
   if (!strokeData.stampDitherBaseTag || strokeData.stampDitherBaseTag.length !== size) {
     strokeData.stampDitherBaseTag = new Uint16Array(size);
   }
+};
+
+export const restoreStampDitherBasePixel = (
+  state: StampDitherStrokeData,
+  handle: ReturnType<ColorCycleAnimator['beginDirectFill']>,
+  index: number,
+): void => {
+  if (state.stampDitherBaseTag?.[index] !== (state.stampDitherStrokeEpoch ?? 1)) return;
+  handle.data[index] = state.stampDitherBaseIdx?.[index] ?? 0;
+  handle.gradientId[index] = state.stampDitherBaseGid?.[index] ?? 0;
+  handle.speedData[index] = state.stampDitherBaseSpeed?.[index] ?? 0;
+  if (state.gradientDefIdBuffer) state.gradientDefIdBuffer[index] = state.stampDitherBaseDef?.[index] ?? 0;
+  if (handle.flowData) handle.flowData[index] = state.stampDitherBaseFlow?.[index] ?? 0;
+  if (handle.phaseData) handle.phaseData[index] = state.stampDitherBasePhase?.[index] ?? 0;
+};
+
+export const resolveStampDitherFlowBits = (animator: ColorCycleAnimator): number => {
+  const mode = animator.getFlowMode?.();
+  return mode === 'forward' ? 1 : mode === 'reverse' ? 2 : mode === 'pingpong' ? 3 : 0;
 };
 
 export const ensureStampDitherTag = (

@@ -2,6 +2,12 @@ import React from 'react';
 import { act, createEvent, fireEvent, render, screen } from '@testing-library/react';
 
 import { trackPendingHistoryCommit, waitForPendingHistoryCommits } from '@/history/pendingHistoryCommits';
+import {
+  checkeredBrushPreset,
+  colorCycleGradientBrushPreset,
+  colorCycleStrokeBrushPreset,
+  pixelBrushPreset,
+} from '@/presets/brushPresets';
 import { BrushShape, type BrushPreset, type Layer } from '@/types';
 import { registerToolFlush, unregisterToolFlush } from '@/utils/toolFlushRegistry';
 
@@ -1720,6 +1726,38 @@ describe('LayersPanel interactions', () => {
         },
       },
     });
+  });
+
+  it.each([
+    { preset: checkeredBrushPreset, expectedPreset: checkeredBrushPreset },
+    { preset: colorCycleStrokeBrushPreset, expectedPreset: colorCycleStrokeBrushPreset },
+    { preset: pixelBrushPreset, expectedPreset: colorCycleGradientBrushPreset },
+  ])('selects the expected preset when adding a color-cycle layer with $preset.name active', ({
+    preset,
+    expectedPreset,
+  }) => {
+    state.addLayer.mockReturnValueOnce('cc-layer-new');
+    state.brushPresets = [
+      colorCycleGradientBrushPreset,
+      colorCycleStrokeBrushPreset,
+      checkeredBrushPreset,
+      pixelBrushPreset,
+    ];
+    state.currentBrushPreset = preset;
+    state.tools.brushSettings = {
+      ...state.tools.brushSettings,
+      brushShape: preset === pixelBrushPreset ? BrushShape.SQUARE : BrushShape.COLOR_CYCLE,
+    };
+
+    render(<LayersPanel />);
+
+    fireEvent.click(screen.getByTitle('Add CC Layer'));
+
+    expect(state.addLayer).toHaveBeenCalledTimes(1);
+    expect(state.initColorCycleForLayer).toHaveBeenCalledWith('cc-layer-new', 64, 64);
+    expect(state.setBrushPreset).toHaveBeenCalledTimes(1);
+    expect(state.setBrushPreset.mock.calls[0]?.[0]).toBe(expectedPreset);
+    expect(state.setBrushPreset).toHaveBeenCalledWith(expectedPreset, true);
   });
 
   it('preserves an active temporary color-cycle custom brush when adding a color-cycle layer', () => {
