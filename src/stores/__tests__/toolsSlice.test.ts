@@ -14,6 +14,7 @@ import { createCustomBrushPreset } from '@/utils/customBrushPreset';
 import { BrushShape, Project, type CustomBrush } from '@/types';
 import { defaultCropState } from '@/stores/slices/cropSlice';
 import { DEFAULT_RECTANGLE_BRUSH_STATE } from '@/stores/helpers/toolsState';
+import { loadGlobalBrushSettings, saveGlobalBrushSettings } from '@/utils/brushSettingsStorage';
 
 const createMockProject = (): Project => ({
   id: 'test-project',
@@ -55,6 +56,83 @@ const resetToolsState = () => {
 describe('tools slice', () => {
   beforeEach(() => {
     resetToolsState();
+  });
+
+  it('remembers risograph Outline immediately per preset, including explicit OFF', () => {
+    const pixel = brushPresets.find((preset) => preset.id === 'pixel-square')!;
+    const soft = brushPresets.find((preset) => preset.id === 'soft-round')!;
+    const original = useAppStore.getState();
+    original.setBrushPreset(pixel);
+    useAppStore.getState().setBrushSettings({
+      opacity: 0.43, spacing: 7, risographIntensity: 83, risographOutline: true,
+    });
+    expect(useAppStore.getState().brushSpecificSettings[pixel.id]).toMatchObject({
+      opacity: 0.43, spacing: 7, risographIntensity: 83, risographOutline: true,
+    });
+
+    useAppStore.getState().setBrushPreset(soft);
+    expect(useAppStore.getState().tools.brushSettings.risographOutline).toBe(false);
+    useAppStore.getState().setBrushSettings({
+      opacity: 0.82, spacing: 11, risographIntensity: 17, risographOutline: false,
+    });
+    expect(useAppStore.getState().brushSpecificSettings[soft.id]).toHaveProperty('risographOutline', false);
+
+    useAppStore.getState().setBrushPreset(pixel);
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+      opacity: 0.43, spacing: 7, risographIntensity: 83, risographOutline: true,
+    });
+    useAppStore.getState().setBrushPreset(soft);
+    expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+      opacity: 0.82, spacing: 11, risographIntensity: 17, risographOutline: false,
+    });
+    expect(useAppStore.getState().layers).toBe(original.layers);
+    expect(useAppStore.getState().history).toBe(original.history);
+  });
+
+  it.each([true, false])('snapshots live risograph Outline %s into preset storage before switching', (outline) => {
+    const pixel = brushPresets.find((preset) => preset.id === 'pixel-square')!;
+    const soft = brushPresets.find((preset) => preset.id === 'soft-round')!;
+    useAppStore.getState().setBrushPreset(pixel);
+    // A hydrated/live field must be included by the switch snapshot independently
+    // of the changed-setting autosave path exercised above.
+    useAppStore.setState((state) => ({
+      ...state,
+      tools: {
+        ...state.tools,
+        brushSettings: {
+          ...state.tools.brushSettings,
+          opacity: 0.43, spacing: 7, risographIntensity: 83, risographOutline: outline,
+        },
+      },
+      brushSpecificSettings: {
+        ...state.brushSpecificSettings,
+        [pixel.id]: { opacity: 0.43, spacing: 7, risographIntensity: 83 },
+      },
+    }));
+    useAppStore.getState().setBrushPreset(soft);
+    expect(useAppStore.getState().brushSpecificSettings[pixel.id]).toHaveProperty('risographOutline', outline);
+
+    const storageKey = 'vessel:brush-settings';
+    const previous = localStorage.getItem(storageKey);
+    try {
+      saveGlobalBrushSettings({
+        brushSpecificSettings: useAppStore.getState().brushSpecificSettings,
+        lastBrushId: pixel.id,
+      });
+      const restored = loadGlobalBrushSettings();
+      expect(restored?.brushSpecificSettings?.[pixel.id]).toHaveProperty('risographOutline', outline);
+      useAppStore.setState((state) => ({
+        ...state,
+        brushSpecificSettings: restored?.brushSpecificSettings ?? {},
+      }));
+      useAppStore.getState().setBrushPreset(pixel);
+      expect(useAppStore.getState().tools.brushSettings).toMatchObject({
+        opacity: 0.43, spacing: 7, risographIntensity: 83, risographOutline: outline,
+      });
+    } finally {
+      if (previous === null) localStorage.removeItem(storageKey);
+      else localStorage.setItem(storageKey, previous);
+    }
   });
 
   it('restores the Dither Grad drawing shape after switching brushes', () => {

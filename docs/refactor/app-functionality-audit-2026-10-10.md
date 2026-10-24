@@ -777,6 +777,69 @@ Receipts: `area28-source-freeze-final-v1-session39.json`,
 `area28-native-final-session39.json` and `area28-commit-receipt-session39.json`
 under ignored `output/playwright/`.
 
+## Session39 — Area29 software-verified: Shared brush controls and pattern library
+
+Areas01–29 have complete software evidence. A29-01 repairs the supported Pixel
+Riso Outline preference: native true survives preset reentry and real startup,
+while explicit false remains saved and separate presets retain their own values.
+Two existing whitelist fields in toolsSlice and three meaningful regressions in
+its existing test file are the complete application/test scope, plus these two
+ledgers. Defaults, renderer behavior and the current Rectangle Edges omission
+policy are preserved. No Mosaic application repair was justified.
+
+Final artifact: `8d9328c8eb487443dd6a40d94ed54398c7e6155bad06fe63d31e1cb832c4019d`.
+**40 native cases / 1088 checks across six suites pass**, with no page errors
+or aborted cases and exact owned preference/library restoration:
+
+- Shared geometry12: Soft contour/filled Shape, actual held overlay Escape and
+  fresh drawing; initial/mid/released Shift; Pixel/Soft grid and native16→32 cell
+  change; V0 solid/dashed support, canonical/framebuffer and first Undo/Redo.
+- Composition/preferences12: real L/G endpoints and draft Escape, independently
+  modeled V0/V10 slow/fast dashes with measured timing, Mosaic Pixel OFF/ON with
+  fractional41px geometry, preset/tool round trips, real saved startup and the
+  effective clamp of an explicitly declared historical unsupported Shape bit.
+- Pattern lifecycle10: PNG preview/Cancel, Save/new/existing pack/scaled tiles,
+  exact authored normal and CC support, valid/malformed private import, reload,
+  byte-exact backup, owned removal/missing warning and fresh Pixel recovery.
+- Outline/policy3: public true→preset reentry, genuine saved startup with ordinary
+  preference/painting/history controls, and supported Rectangle Colors/Intensity
+  persistence while Edges remains absent.
+- CUSTOM Shape2: captured asymmetric tip; contour OFF versus source-qualified
+  world-phase repeat ON, transparent/partial-alpha interior, preserved asset and
+  source planes, exact whole-target history. Basic CC shapes retain their earlier
+  completed owners; no generic Rect/Oval selector is invented.
+- Project pack next-mark1: the actual UI-selected declared member authors the
+  independently expected normal pattern. Normal per-stroke alternation is not
+  claimed; CC per-stroke pack re-resolution is a separate contract.
+
+The Mosaic reference correction is independently qualified, not a runtime fix or
+pixel tolerance. Actual target history contains Pixel4 fill→clear→clear with no
+intervening read before the41px smooth stamp. A detached Pixel4 fill→clear recipe
+reproduces every native writer byte; adding a post-clear read returns the fresh
+Canvas raster. Final acceptance uses one fixed matching-history reference and a
+strict actual-history prerequisite, independent source/palette/geometry, exact
+raw→canonical/framebuffer publication and history. No dual-hash/best-match gate
+or production context normalization was added. Earlier surface-only preview,
+missing Grid32 center, file chooser/option/VM/buffer observers, L/G area, timing
+and startup-palette fixture failures remain preserved with their corrections.
+
+The isolated task-only gate passes type-check, lint and full Jest:
+`1 skipped, 609 passed, 609 of 610 total`; `1 skipped, 6009 passed, 6010 total`. Production build and final source review
+pass. All47 original working paths and the original staged patch remain exact.
+The complete-area commit receipt is `output/playwright/area29-commit-receipt-session39.json`.
+
+File attachments use the actual hidden public input as a declared I/O boundary;
+OS file/folder pickers and directory handles were not exercised. Every original
+private-library record, typed threshold and archive byte is preserved. No public
+Reset Brush or universal AA control exists on this path. Physical tablet feel,
+other browsers, performance and artist visual signoff are not claimed.
+
+Area30 Fill is next; Areas30–65 remain pending. No push, deployment, branch or
+worktree change is included. Receipts under ignored `output/playwright/`:
+`area29-source-freeze-final-v1-session39.json`, `area29-preview-final-v1-session39.json`,
+`area29-isolated-gate-v1-session39.json`, `area29-native-final-session39.json`,
+`area29-mosaic-canvas-history-qualified-reference-session39.json` and the commit receipt.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -823,7 +886,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 26 | Shape Pattern: each exposed fill strategy and controls, boundaries, colour, preview/final | shapeFill, shape handlers/settings | software-verified (Session39; 76 native cases/1019 checks; full gate/local receipt) |
 | 27 | Custom brush capture: region, alpha, normal/CC data, save/name/default, reload | custom tool, brush editor, project slice | software-verified (Session39; 19 native cases/255 checks; final gate/local receipt) |
 | 28 | Custom brush painting/edit/removal: size/rotation/pressure/spacing, palette, defaults, library | BrushLibrary, custom presets, brush runtime | software-verified (Session39;34 native cases/956 checks;final gate/local receipt) |
-| 29 | Shared brush controls: shape mode/basic shapes, constraints, grid snap, dashed strokes, antialiasing, custom pattern creation/import/local library, reset/per-preset persistence | BrushControls, tools slice | pending |
+| 29 | Shared brush controls: shape mode/basic shapes, constraints, grid snap, dashed strokes, antialiasing, custom pattern creation/import/local library, reset/per-preset persistence | BrushControls, tools slice | software-verified (Session39;40 native cases/1088 checks;final gate/local receipt) |
 | 30 | Fill: tolerance/contiguous, alpha/colour, selection boundary, raster/CC/sequence, undo/redo | fillTool, tools slice | pending |
 | 31 | Eyedropper: click/held P, source/sample size, alpha, FG/BG, return to previous tool | color picker handlers/panel | pending |
 | 32 | Colour panel: RGB/HSL, FG/BG swap, opacity, swatches/recent palettes | ColorPickerPanel, palette slice | pending |
