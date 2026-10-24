@@ -919,6 +919,85 @@ focused commit receipt under ignored `output/playwright/`. Source and browser
 ownership remain centralized. Continue with Area31 Eyedropper after the fresh
 post-commit preservation baseline.
 
+## Session39 — Area31 software-verified: Eyedropper
+
+A31-01 is repaired at the Canvas sampling owner. With a transparent normal layer
+active, genuine visible blue CC/sequence material previously sampled white.
+Actual50% normal-red-over-blue displayed purple but sampled red; hiding that
+normal target returned white. Source/view/history stayed exact, establishing a
+sampling-authority error. Before receipts are
+`area31-visible-animated-qualified-before-session39.json` and
+`area31-supplement-qualified-before-v2-session39.json`. Earlier failed setup and
+screen-render receipts remain immutable and are not accepted sampling proof.
+
+The three-file repair is `useDrawingCanvasSampling.ts`, existing
+`useDrawingCanvasRenderSetupBridge.ts` and existing sampler tests. The bridge
+supplies the existing visible-layer compositor with actual segment/layer refs.
+Sampling uses a reusable project-aligned region buffer (public fixed kernel at
+most3x3), preserving the intentionally static compositor/cache. Mutable scratch
+readback bypasses the stable-source batch cache, and visible sequence samples
+refresh at the same coordinate. Blend/mask/frame algorithms, active-CC semantic
+gradient sampling, public UI and source documents are unchanged.
+
+Final production artifact `d04b4df40bbb2d22b3d2084a795d1a176dda8140c5f4d60926726a14269a68e5` passes **17 native cases / 391
+checks** across five suites, with exact owned-storage restoration and no runtime
+errors. `area31-native-final-session39.json` binds all prepared scripts, results,
+source hashes and the new production artifact; static cache bytes also remain
+exact around every animated-source sampling contact.
+
+- Persistent click, actual held pointer drag and released hover; FG/BG isolation,
+  opaque RGB conversion of partial source alpha, fixed Canvas3x3 highest-alpha
+  versus Reference1px, actual source-toggle/row designation.
+- Held-P/repeat/up from Brush and Eraser with exact geometry/preferences return;
+  Escape while held, already-persistent picker, real rename-text suppression and
+  fresh workspace recovery.
+- Actual FG opacity37 to transparent-Canvas white fallback; real Pixel8 paint,
+  same-coordinate sample, Undo/Redo/sample and fresh two-stamp publication/replay;
+  hidden partial reference plus transparent-reference Canvas fallback.
+- Two genuine occupied CC marks with distinct Uint16-bound definitions; exact
+  source/runtime stops, seam, sampled motion, stable gradient IDs/dedup and
+  unchanged FG/BG, six canonical planes, source rasters and history.
+- Visible native CC/sequence blue with normal target; genuinely recorded blue0 /
+  red1 / blue0 sampling; native normal occlusion, Layer Opacity50, Hide/Show and
+  opacity100 recovery. Every displayed64-pixel region has an independent colour
+  oracle and every pick preserves canonical sources/events/all8frames/history.
+
+The same finalized tests fail8/pass5 on original runtime and pass13 repaired;
+related focused tests total43 passes. Root fullgateV1 caught only two ambient
+WebGPU overload errors in the test Canvas adapter; V1 log/candidate are retained.
+The bounded type-only correction preserves emitted test JavaScript byte-for-byte
+(`area31-test-type-only-v2-proof-session39.json`). Runtime source hashes remain
+unchanged. Clean candidate fullgateV2 passes type-check, lint and full Jest:
+Test Suites: 1 skipped, 610 passed, 610 of 611 total
+Tests:       1 skipped, 6054 passed, 6055 total
+Snapshots:   2 passed, 2 total
+Production preview build exits0; final source binding is
+`area31-source-freeze-final-v2-session39.json`. Independent runtime/test review is
+`area31-sampling-independent-review-geometry39.md`; the current type/guard rebind
+is separately recorded. No existing failing gate is silently relabelled green.
+
+Original47 dirty/untracked paths and original staged3files/7additions remain
+protected; staged patch SHA stays `df0184e4…` byte-exact because these three repair
+owners do not overlap it. Only the three task source/test files and these two
+ledgers belong to this area's focused commit. Commit proof is
+`area31-commit-receipt-session39.json`, written by the root guard after success.
+No push, deployment, branch or worktree change. Area32 is next; its prepared
+fixtures require fresh activation/baseline and do not count as completion.
+
+Limits: no sample-size/radius UI exists; do not infer it was tested. No OS-focus,
+physical-device, reference-asset, cold/private-state or full adjusted/interlace /
+display-filter acceptance is claimed by this area. Existing renderer policies
+remain their owners' contracts.
+
+Adjacent Area37 lead remains: genuine blue CC/sequence plus genuine red normal
+above it, Layer Opacity50 and declared `blendMode: screen` displayed uniform
+`[128,0,127,255]` instead of independently expected `[128,0,255,255]`. The screen
+phase stopped at the display premise before sampling. Current panel has no blend
+selector, so this is an I/O-setting presentation witness, not blend-UI acceptance.
+Retain `area31-supplement-before-v1-classification-and-area37-lead-session39.json`
+and investigate the rendering owner in Area37. The completed Eyedropper repair
+includes no compositor change and does not claim that deferred finding is fixed.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -967,7 +1046,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 28 | Custom brush painting/edit/removal: size/rotation/pressure/spacing, palette, defaults, library | BrushLibrary, custom presets, brush runtime | software-verified (Session39;34 native cases/956 checks;final gate/local receipt) |
 | 29 | Shared brush controls: shape mode/basic shapes, constraints, grid snap, dashed strokes, antialiasing, custom pattern creation/import/local library, reset/per-preset persistence | BrushControls, tools slice | software-verified (Session39;40 native cases/1088 checks;final gate/local receipt) |
 | 30 | Fill: tolerance/contiguous, alpha/colour, selection boundary, raster/CC/sequence, undo/redo | fillTool, tools slice | software-verified (Session39;32 native cases; focused local commit follows) |
-| 31 | Eyedropper: click/held P, source/sample size, alpha, FG/BG, return to previous tool | color picker handlers/panel | pending |
+| 31 | Eyedropper: click/held P, source/sample size, alpha, FG/BG, return to previous tool | color picker handlers/panel | software-verified (Session39;17native cases/391checks; full gate and focused local commit receipt) |
 | 32 | Colour panel: RGB/HSL, FG/BG swap, opacity, swatches/recent palettes | ColorPickerPanel, palette slice | pending |
 | 33 | Gradients: edit/add/remove/move stops, presets, reverse, recent/custom palette, CC propagation | gradient editor, palette/CC state | pending |
 | 34 | Colour Adjust: hue/saturation/lightness/levels, preview/cancel/apply, selection, CC data, history | ColorAdjustToolPanel, colorAdjust slice | pending |

@@ -13,6 +13,10 @@ type CompositeSampleOptions = {
 
 interface UseDrawingCanvasSamplingOptions {
   compositeCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  renderSamplingComposite?: (
+    context: CanvasRenderingContext2D,
+    region: { x: number; y: number; width: number; height: number },
+  ) => void;
   lastSampleRef: React.MutableRefObject<{ x: number; y: number; color: string; layerId: string | null; preferReference: boolean }>;
   layers: Layer[];
   referenceLayerId: string | null;
@@ -66,6 +70,7 @@ const readCanvasPixel = (
 
 export const useDrawingCanvasSampling = ({
   compositeCanvasRef,
+  renderSamplingComposite,
   lastSampleRef,
   layers,
   referenceLayerId,
@@ -74,6 +79,10 @@ export const useDrawingCanvasSampling = ({
   referenceSamplingSource,
 }: UseDrawingCanvasSamplingOptions) => {
   const referenceSampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const compositeSampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hasVisibleAnimatedLayers = useMemo(() => layers.some((layer) => (
+    layer.visible && (layer.layerType === 'color-cycle' || layer.layerType === 'sequential')
+  )), [layers]);
   const referenceAssetCanvasCacheRef = useRef(new Map<string, {
     dataUrl: string;
     naturalWidth: number;
@@ -139,9 +148,9 @@ export const useDrawingCanvasSampling = ({
     return (
       effectiveSamplingSource.kind === 'asset' ||
       (effectiveSamplingSource.kind === 'layer' && Boolean(referenceLayer)) ||
-      layers.some((layer) => layer.visible && layer.layerType === 'color-cycle')
+      hasVisibleAnimatedLayers
     );
-  }, [effectiveReferenceLayerId, effectiveSamplingSource.kind, layers]);
+  }, [effectiveReferenceLayerId, effectiveSamplingSource.kind, hasVisibleAnimatedLayers, layers]);
 
   const sampleCompositeOpaque = useCallback(
     (x: number, y: number, options: CompositeSampleOptions = {}): string => {
@@ -164,7 +173,28 @@ export const useDrawingCanvasSampling = ({
       const boxW = sx1 - sx0 + 1;
       const boxH = sy1 - sy0 + 1;
 
-      const image = readCanvasSamplingRegion(ctx, sx0, sy0, boxW, boxH);
+      let image: Uint8ClampedArray;
+      if (hasVisibleAnimatedLayers && renderSamplingComposite && typeof document !== 'undefined') {
+        const scratch = compositeSampleCanvasRef.current ?? document.createElement('canvas');
+        compositeSampleCanvasRef.current = scratch;
+        if (scratch.width !== boxW) scratch.width = boxW;
+        if (scratch.height !== boxH) scratch.height = boxH;
+        const scratchContext = scratch.getContext('2d', { willReadFrequently: true });
+        if (!scratchContext) return '#ffffff';
+        scratchContext.clearRect(0, 0, boxW, boxH);
+        scratchContext.save();
+        try {
+          // Keep the compositor and its fallback clips in project coordinates.
+          scratchContext.translate(-sx0, -sy0);
+          renderSamplingComposite(scratchContext, { x: sx0, y: sy0, width: boxW, height: boxH });
+        } finally {
+          scratchContext.restore();
+        }
+        // This reused surface changes per sample, including within one sampling batch.
+        image = scratchContext.getImageData(0, 0, boxW, boxH).data;
+      } else {
+        image = readCanvasSamplingRegion(ctx, sx0, sy0, boxW, boxH);
+      }
 
       let solidAlpha = -1;
       let solidR = 255;
@@ -215,7 +245,7 @@ export const useDrawingCanvasSampling = ({
 
       return '#ffffff';
     },
-    [compositeCanvasRef]
+    [compositeCanvasRef, hasVisibleAnimatedLayers, renderSamplingComposite]
   );
 
   const sampleColorFromReferenceLayer = useCallback(

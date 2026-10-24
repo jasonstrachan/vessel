@@ -1,4 +1,5 @@
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
+import { drawVisibleCompositeStack } from './drawingCanvasCompositeStack';
 import { useDrawingCanvasBaseRenderer } from './useDrawingCanvasBaseRenderer';
 import { useDrawingCanvasCompositeBuffers } from './useDrawingCanvasCompositeBuffers';
 import { useDrawingCanvasLayerRendering } from './useDrawingCanvasLayerRendering';
@@ -52,8 +53,32 @@ export const useDrawingCanvasRenderSetupBridge = ({
     preferReference: true,
   });
 
+  const { renderSplitComposites, rebuildStaticComposite } = useDrawingCanvasCompositeBuffers(
+    compositeBuffersOptions
+  );
+
+  const drawNonActiveVisibleLayers = useDrawingCanvasLayerRendering(layerRenderingOptions);
+  const { compositeSegmentsRef, layerMapRef, compositeBitmap } = baseRendererOptions;
+  const renderSamplingComposite = useCallback<NonNullable<SamplingOptions['renderSamplingComposite']>>(
+    (context, region) => {
+      drawVisibleCompositeStack({
+        ctx: context,
+        visibleRect: region,
+        useSplitOverlay: false,
+        underCompositeCanvas: null,
+        isActivelyErasing: false,
+        drawNonActiveVisibleLayers,
+        segments: compositeSegmentsRef.current,
+        layerMap: layerMapRef.current,
+        compositeBitmap,
+        compositeCanvas: compositeCanvasRef.current,
+      });
+    },
+    [compositeBitmap, compositeCanvasRef, compositeSegmentsRef, drawNonActiveVisibleLayers, layerMapRef],
+  );
   const { sampleColorAtPosition, sampleColorsAlongLine } = useDrawingCanvasSampling({
     compositeCanvasRef,
+    renderSamplingComposite,
     lastSampleRef,
     layers,
     referenceLayerId,
@@ -61,12 +86,6 @@ export const useDrawingCanvasRenderSetupBridge = ({
     referenceAssets,
     referenceSamplingSource,
   });
-
-  const { renderSplitComposites, rebuildStaticComposite } = useDrawingCanvasCompositeBuffers(
-    compositeBuffersOptions
-  );
-
-  const drawNonActiveVisibleLayers = useDrawingCanvasLayerRendering(layerRenderingOptions);
 
   const drawBase = useDrawingCanvasBaseRenderer({
     ...baseRendererOptions,
