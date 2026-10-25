@@ -22,6 +22,8 @@ import {
   resolveGobletAlphaByte,
   resolveGobletIndexedAlphaByte,
   sampleGobletGradient,
+  resolveRecolorPalettePosition,
+  normalizeGobletRecolorGradientStops,
   hasVisibleGobletAlpha,
   resolveInterlaceFrame,
   resolveInterlaceMaskRectangles,
@@ -2936,9 +2938,7 @@ class ColorCycleLayerPlayer {
     this.subtractIndexOffset = false;
 
     const rawIndexPhaseMap = await resolveNumericBuffer(recolorSettings.indexPhaseMap);
-    const indexPhaseMap = rawIndexPhaseMap && this.renderScale !== 1
-      ? downsampleBuffer(rawIndexPhaseMap, sourceWidth, sourceHeight, width, height)
-      : rawIndexPhaseMap;
+    const indexPhaseMap = rawIndexPhaseMap;
     this.indexPhaseMap = indexPhaseMap && indexPhaseMap.length ? indexPhaseMap : null;
 
     const rawPhaseMap = await resolveNumericBuffer(recolorSettings.phaseMap);
@@ -2947,7 +2947,7 @@ class ColorCycleLayerPlayer {
       : rawPhaseMap;
     this.phaseMap = phaseMap && phaseMap.length ? phaseMap : null;
 
-    this.gradient = normalizeGradientStops(recolorSettings.gradient);
+    this.gradient = normalizeGobletRecolorGradientStops(recolorSettings.gradient);
     this.cycleColors = Math.max(1, Math.floor(Number.isFinite(recolorSettings.cycleColors) ? recolorSettings.cycleColors : 16));
     this.mappingMode = recolorSettings.mappingMode === 'continuous' ? 'continuous' : 'banded';
     this.flowMapping = ['palette', 'directional', 'luminance'].includes(recolorSettings.flowMapping)
@@ -2983,6 +2983,11 @@ class ColorCycleLayerPlayer {
     );
     this.currentTick = Number.isFinite(animation.currentTick) ? animation.currentTick : 0;
     this.flowDirection = normalizeFlowDirection(animation.flowDirection, 'forward');
+    this.recolorPaletteSettings = {
+      cycleColors: this.cycleColors, mappingMode: this.mappingMode, indexPhaseMap: this.indexPhaseMap,
+      animation: { flowDirection: this.flowDirection },
+    };
+    this.recolorLut = this.recolorLut ?? new Uint32Array(256);
     this.isAnimating = shouldAnimate;
     this._basePalette32BySlot.clear();
     this._basePaletteSize = this.cycleColors | 0;
@@ -3053,12 +3058,41 @@ class ColorCycleLayerPlayer {
     if (!this.indexBuffer) {
       return;
     }
-    const profileEnabled = typeof window !== 'undefined'
-      && window.localStorage
-      && window.localStorage.getItem('vesselGobletProfile') === 'true';
     const profileNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function'
       ? performance.now()
       : Date.now());
+    if (this.mode === 'recolor') {
+      const nowMs = profileNow();
+      this._lastRenderPath = 'cpu';
+      const fillStart = profileNow();
+      const tick = this.currentTick + this.getRenderTimeSeconds() * this.speed * this.cycleColors;
+      const settings = this.recolorPaletteSettings;
+      const lut = this.recolorLut;
+      for (let index = 0; index < 256; index++) {
+        const color = sampleGobletGradient(this.gradient, resolveRecolorPalettePosition(index, settings, tick));
+        lut[index] = (color.a << 24) | (color.b << 16) | (color.g << 8) | color.r;
+      }
+      const indices = this.flowMapping === 'palette' ? this.indexBuffer : (this.phaseMap ?? this.indexBuffer);
+      for (let i = 0; i < this.pixels32.length; i++) {
+        const color = lut[indices[i]];
+        const alpha = Math.round((this.alpha ? this.alpha[i * 4 + 3] : 255) * (color >>> 24) / 255);
+        this.pixels32[i] = (color & 0xffffff) | (alpha << 24);
+      }
+      const fillMs = profileNow() - fillStart;
+      const blitStart = profileNow();
+      this.ctx.putImageData(this.imageData, 0, 0);
+      if (this.renderScale !== 1 && this.outputCtx && this.renderCanvas) {
+        this.outputCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.outputCtx.drawImage(this.renderCanvas, 0, 0, this.canvas.width, this.canvas.height);
+      }
+      this._lastCpuFillMs = fillMs;
+      this._lastCpuBlitMs = profileNow() - blitStart;
+      this.maybeAdjustRenderScale(nowMs, fillMs);
+      return;
+    }
+    const profileEnabled = typeof window !== 'undefined'
+      && window.localStorage
+      && window.localStorage.getItem('vesselGobletProfile') === 'true';
     const nowMs = profileNow();
     let fillMs = 0;
     const getBaseLut = (speedByte, shiftKey, modeKey, buildFn) => {

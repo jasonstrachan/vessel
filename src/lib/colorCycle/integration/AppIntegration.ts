@@ -69,7 +69,7 @@ export class AppIntegration {
       // Hook into app store for automatic layer cleanup
       this.setupAppStoreHooks();
 
-      // Setup automatic performance adjustments
+      // Setup automatic performance observations
       if (this.config.autoEnablePerformanceMode) {
         this.setupPerformanceMonitoring();
       }
@@ -326,7 +326,7 @@ export class AppIntegration {
    * Setup performance monitoring
    */
   private setupPerformanceMonitoring(): void {
-    // Monitor frame rates and adjust quality automatically
+    // Observe performance without changing user-authored animation settings.
     let frameCount = 0;
     let lastFrameTime = performance.now();
 
@@ -341,9 +341,6 @@ export class AppIntegration {
         
         if (avgFrameTime > 33) { // > 30 FPS
           debugWarn('raw-console', '🐌 Low FPS detected, consider performance optimizations');
-          this.adjustPerformanceSettings(false); // Reduce quality
-        } else if (avgFrameTime < 16) { // < 60 FPS with headroom
-          this.adjustPerformanceSettings(true); // Increase quality
         }
         
         frameCount = 0;
@@ -354,30 +351,6 @@ export class AppIntegration {
     };
 
     requestAnimationFrame(monitorFrame);
-  }
-
-  /**
-   * Adjust performance settings based on monitoring
-   */
-  private adjustPerformanceSettings(increaseQuality: boolean): void {
-    const appState = useAppStore.getState();
-    const recolorLayers = appState.layers.filter(l => 
-      l.colorCycleData?.mode === 'recolor' && l.colorCycleData?.recolorSettings
-    );
-
-    for (const layer of recolorLayers) {
-      if (!layer.colorCycleData?.recolorSettings) continue;
-
-      const settings = layer.colorCycleData.recolorSettings;
-      
-      if (!increaseQuality && settings.animation.fps > 15) {
-        // Reduce FPS to improve performance
-        settings.animation.fps = Math.max(15, settings.animation.fps - 5);
-      } else if (increaseQuality && settings.animation.fps < 30) {
-        // Increase FPS when performance allows
-        settings.animation.fps = Math.min(30, settings.animation.fps + 5);
-      }
-    }
   }
 
   /**

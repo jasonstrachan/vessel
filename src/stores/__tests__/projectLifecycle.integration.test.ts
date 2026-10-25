@@ -1,4 +1,5 @@
 import JSZip from 'jszip';
+import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import { createDefaultExportLayout, createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { BrushShape, type CustomBrush, type DisplayFilterConfig, type Layer, type Project } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
@@ -212,6 +213,110 @@ describe('project slice lifecycle flows', () => {
       },
     }));
   }, 10000);
+
+  describe('loaded Recolor configured FPS', () => {
+    const manager = RecolorManager.getInstance();
+    const clearRegisteredLayers = () => {
+      manager.getRecolorLayers().forEach((layer) => manager.removeLayer(layer.id));
+      manager.pause();
+    };
+    const recolorLayer = (id: string, fps: number): Layer => {
+      const source = new ImageData(Uint8ClampedArray.from([32, 96, 160, 128]), 1, 1);
+      return makeLayer(id, {
+        imageData: source,
+        layerType: 'color-cycle',
+        colorCycleData: {
+          mode: 'recolor', isAnimating: false, hasContent: true,
+          recolorSettings: {
+            quantizationMode: 'rgb332', ditherMode: 'off',
+            indexBuffer: Uint8Array.from([43]), palette: Uint32Array.from([0xffa06020]),
+            originalImageData: source, cycleColors: 16,
+            gradient: [{ position: 0, color: '#2060a0' }, { position: 1, color: '#2060a0' }],
+            mappingMode: 'continuous', flowMapping: 'palette', currentLOD: 'full',
+            animation: { fps, speed: 0.7, ticksPerFrame: 0.7466666666666666,
+              currentTick: 7.25, isPlaying: false, flowDirection: 'reverse' },
+          },
+        },
+      });
+    };
+    const loadedResult = (layers: Layer[], id = 'loaded-recolor-fps') => ({
+      project: { id, name: id, width: 8, height: 8, layers, backgroundColor: '#000000',
+        createdAt: new Date(0), updatedAt: new Date(0), customBrushes: [] },
+      fileName: `${id}.vs`, fileHandle: null,
+    });
+    const sourceSnapshot = (layer: Layer) => {
+      const settings = layer.colorCycleData?.recolorSettings;
+      return {
+        animation: { ...settings?.animation },
+        indices: Array.from(settings?.indexBuffer ?? []),
+        palette: Array.from(settings?.palette ?? []),
+        original: Array.from(settings?.originalImageData?.data ?? []),
+        pixels: Array.from(layer.imageData?.data ?? []),
+        gradient: settings?.gradient.map((stop) => ({ ...stop })),
+      };
+    };
+    beforeEach(() => { clearRegisteredLayers(); manager.setFPS(60); });
+    afterEach(() => { clearRegisteredLayers(); manager.setFPS(60); });
+
+    it.each([15, 30, 60])('restores agreed saved FPS %s without mutating old registrations or saved source', async (fps) => {
+      const oldLayer = recolorLayer('old-registered-recolor', 30);
+      expect(await manager.registerExistingLayer(oldLayer)).toBe(true);
+      const oldBefore = sourceSnapshot(oldLayer);
+      const layers = [recolorLayer('loaded-a', fps), recolorLayer('loaded-b', fps)];
+      const before = layers.map(sourceSnapshot);
+      const load = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;
+      load.mockResolvedValueOnce(loadedResult(layers));
+      await useAppStore.getState().loadProject();
+      expect(manager.getConfiguredFPS()).toBe(fps);
+      expect(manager.getRecolorLayers()).toEqual([]);
+      expect(manager.isAnimating()).toBe(false);
+      expect(sourceSnapshot(oldLayer)).toEqual(oldBefore);
+      expect(useAppStore.getState().layers.map(sourceSnapshot)).toEqual(before);
+    });
+
+    it.each([[], [15, 30], [15, NaN], [15, 0], [15, 61], [15, 24]].map((fpsValues) => [fpsValues]))(
+      'keeps the existing target for absent, mixed or invalid saved FPS %j', async (fpsValues) => {
+        manager.setFPS(30);
+        const layers = fpsValues.length ? fpsValues.map((fps, i) => recolorLayer(`loaded-${i}`, fps)) : [makeLayer('normal')];
+        const before = layers.map(sourceSnapshot);
+        const load = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;
+        load.mockResolvedValueOnce(loadedResult(layers));
+        await useAppStore.getState().loadProject();
+        expect(manager.getConfiguredFPS()).toBe(30);
+        expect(useAppStore.getState().layers.map(sourceSnapshot)).toEqual(before);
+      },
+    );
+
+    it('keeps the current target when any saved Recolor layer has no FPS', async () => {
+      manager.setFPS(30);
+      const layers = [recolorLayer('valid', 15), recolorLayer('legacy-missing-fps', 15)];
+      Reflect.deleteProperty(layers[1].colorCycleData!.recolorSettings!.animation, 'fps');
+      const before = layers.map(sourceSnapshot);
+      const load = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;
+      load.mockResolvedValueOnce(loadedResult(layers));
+      await useAppStore.getState().loadProject();
+      expect(manager.getConfiguredFPS()).toBe(30);
+      expect(useAppStore.getState().layers.map(sourceSnapshot)).toEqual(before);
+    });
+
+    it('does not change configured FPS when an older load loses the replacement fence', async () => {
+      let resolveRestore!: (layers: Layer[]) => void;
+      const restore = jest.requireMock('@/utils/projectIO').restoreColorCycleBrushes as jest.Mock;
+      restore.mockImplementationOnce(() => new Promise<Layer[]>((resolve) => { resolveRestore = resolve; }));
+      const load = jest.requireMock('@/utils/projectIO').loadProjectFromFile as jest.Mock;
+      const layers = [recolorLayer('stale-loaded', 15)];
+      load.mockResolvedValueOnce(loadedResult(layers, 'stale-loaded'));
+      const pending = useAppStore.getState().loadProject();
+      // Let public load reach its asynchronous source restore before replacing the document.
+      while (!resolveRestore) { await Promise.resolve(); }
+      useAppStore.getState().setProject(loadedResult([makeLayer('replacement')], 'replacement').project);
+      manager.setFPS(30);
+      resolveRestore(layers);
+      await pending;
+      expect(useAppStore.getState().project?.id).toBe('replacement');
+      expect(manager.getConfiguredFPS()).toBe(30);
+    });
+  });
 
   it.each(['sampled', 'fg', 'manual'] as const)('preserves the %s brush source while creating the startup document', (source) => {
     const previous = useAppStore.getState();

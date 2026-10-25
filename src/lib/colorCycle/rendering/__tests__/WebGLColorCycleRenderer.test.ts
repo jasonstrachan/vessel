@@ -163,3 +163,53 @@ describe('WebGLColorCycleRenderer context reservations', () => {
     renderer.dispose();
   });
 });
+
+describe('explicit Recolor lookup and alpha transport', () => {
+  const createRenderer = () => {
+    const gl = createWebGL2Stub();
+    (gl.getUniformLocation as jest.Mock).mockImplementation((_program, name: string) => ({ name }));
+    const canvas = document.createElement('canvas');
+    Object.defineProperty(canvas, 'getContext', { configurable: true, value: jest.fn(() => gl) });
+    return { gl, renderer: new WebGLColorCycleRenderer({ width: 3, height: 1, canvas }) };
+  };
+
+  it('uses the existing gid channel for exact source alpha and restores ordinary brush mode on upload', () => {
+    const { gl, renderer } = createRenderer();
+    try {
+      const indices = new Uint8Array([0, 12, 255]), alpha = new Uint8Array([0, 128, 255]);
+      renderer.setRecolorData(indices, alpha);
+      renderer.render(0, 0, 'forward');
+      expect(gl.uniform1f).toHaveBeenCalledWith(expect.objectContaining({ name: 'u_recolorMode' }), 1);
+      expect((gl.texSubImage2D as jest.Mock).mock.calls.some(call => call.at(-1) === alpha)).toBe(true);
+      const sources = (gl.shaderSource as jest.Mock).mock.calls.map(call => String(call[1]));
+      const fragment = sources.find(source => source.includes('u_recolorMode'))!;
+      expect((fragment.match(/uniform sampler2D /g) ?? [])).toHaveLength(8);
+      expect(fragment.indexOf('if (u_recolorMode > 0.5)')).toBeLessThan(fragment.indexOf('// Index 0 = transparent'));
+      expect(fragment).toContain('(fIdx + 0.5) / u_paletteSize');
+      expect(fragment).toContain('recolor.a *= gidN');
+      // The brush contract, including zero speed being static, is still present and mode-gated.
+      expect(fragment).toContain('if (fSpd < 0.5)');
+      renderer.setIndexData(indices);
+      renderer.render(1, 1, 'forward');
+      const modes = (gl.uniform1f as jest.Mock).mock.calls.filter(call => call[0]?.name === 'u_recolorMode').map(call => call[1]);
+      expect(modes).toEqual([1, 0]);
+    } finally { renderer.dispose(); }
+  });
+
+  it('validates exact dimensions, retains palette alpha when source alpha is absent and resets on resize', () => {
+    const { gl, renderer } = createRenderer();
+    try {
+      expect(() => renderer.setRecolorData(new Uint8Array(2))).toThrow('dimensions');
+      expect(() => renderer.setRecolorData(new Uint8Array(3), new Uint8Array(2))).toThrow('dimensions');
+      renderer.setRecolorData(new Uint8Array([0, 1, 2]));
+      renderer.render(0, 0, 'forward');
+      expect(gl.uniform1f).toHaveBeenCalledWith(expect.objectContaining({ name: 'u_recolorMode' }), 2);
+      renderer.resize(2, 2);
+      expect(() => renderer.setRecolorData(new Uint8Array(3))).toThrow('dimensions');
+      renderer.setIndexData(new Uint8Array(4));
+      renderer.render(0, 0, 'forward');
+      const modes = (gl.uniform1f as jest.Mock).mock.calls.filter(call => call[0]?.name === 'u_recolorMode').map(call => call[1]);
+      expect(modes).toEqual([2, 0]);
+    } finally { renderer.dispose(); }
+  });
+});

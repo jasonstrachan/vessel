@@ -1,3 +1,4 @@
+import { resolveRecolorPalettePosition } from '@/lib/colorCycle/gobletPlaybackMath';
 import { parseCssColor } from '@/utils/color/parseCssColor';
 import type { Layer } from '@/types';
 
@@ -20,43 +21,18 @@ export class CPUColorCycleRenderer {
     if (!imageData) return null;
 
     const { width, height } = imageData;
-    const flowMapping = settings.flowMapping ?? 'palette';
-
-    if (flowMapping === 'palette') {
-      if (!settings.indexBuffer) return null;
-      const gradientLUT = this.buildGradientLUT(settings, tick);
-      const fb = this.getFrameBuffer(layer.id, width, height);
-      this.fillPixelsFromIndices(
-        settings.indexBuffer,
-        gradientLUT,
-        fb.pixels32,
-        width,
-        height,
-        settings.originalImageData?.data
-      );
-      return fb.imageData;
-    }
-
-    this.ensurePhaseMap(layer, settings);
-    const phaseMap = settings.phaseMap;
-    if (!phaseMap) return null;
-
+    const indices = this.getRenderIndices(layer, settings);
+    if (!indices) return null;
     const gradientLUT = this.buildGradientLUT(settings, tick);
     const fb = this.getFrameBuffer(layer.id, width, height);
-    const pixels32 = fb.pixels32;
-    const original = settings.originalImageData?.data;
-    if (original && original.length >= width * height * 4) {
-      for (let i = 0, aIdx = 3; i < phaseMap.length; i++, aIdx += 4) {
-        const rgb = gradientLUT[phaseMap[i]] & 0x00ffffff;
-        const a = original[aIdx];
-        pixels32[i] = (a << 24) | rgb;
-      }
-    } else {
-      for (let i = 0; i < phaseMap.length; i++) {
-        pixels32[i] = gradientLUT[phaseMap[i]];
-      }
-    }
+    this.fillPixelsFromIndices(indices, gradientLUT, fb.pixels32, width, height, settings.originalImageData?.data);
     return fb.imageData;
+  }
+
+  getRenderIndices(layer: Layer, settings: RecolorSettings): Uint8Array | undefined {
+    if ((settings.flowMapping ?? 'palette') === 'palette') return settings.indexBuffer;
+    this.ensurePhaseMap(layer, settings);
+    return settings.phaseMap;
   }
 
   releaseLayer(layerId: string): void {
@@ -149,59 +125,14 @@ export class CPUColorCycleRenderer {
     return map;
   }
 
-  private buildGradientLUT(
+  buildGradientLUT(
     settings: RecolorSettings,
     tick: number
   ): Uint32Array {
     const lut = new Uint32Array(256);
     const gradient = settings.gradient ?? [];
-    const bands = Math.max(1, Math.floor(settings.cycleColors));
-    const mappingMode = settings.mappingMode ?? 'banded';
-
-    const flow = settings.animation.flowDirection;
-    const dirSign = flow === 'reverse' ? -1 : 1;
-    const normalizedShift = dirSign * (tick / Math.max(1, bands));
-
-    const reflect01 = (value: number): number => {
-      const two = 2;
-      let t = value % two;
-      if (t < 0) t += two;
-      return t <= 1 ? t : two - t;
-    };
-
-    const indexPhaseMap = settings.indexPhaseMap;
     for (let i = 0; i < 256; i++) {
-      let pos: number;
-      if (mappingMode === 'continuous') {
-        const base = indexPhaseMap ? indexPhaseMap[i] / 255 : i / 255;
-        if (flow === 'pingpong' || flow === 'bounce') {
-          pos = reflect01(base + normalizedShift);
-        } else {
-          const shifted = base + (normalizedShift % 1);
-          pos = ((shifted % 1) + 1) % 1;
-        }
-      } else {
-        let bandPos: number;
-        if (indexPhaseMap) {
-          const bandIndex = Math.max(
-            0,
-            Math.min(bands - 1, Math.floor((indexPhaseMap[i] / 255) * bands))
-          );
-          bandPos = bandIndex / bands;
-        } else {
-          bandPos = (i % bands) / bands;
-        }
-
-        if (flow === 'pingpong' || flow === 'bounce') {
-          pos = reflect01(bandPos + normalizedShift);
-        } else {
-          const shifted = bandPos + (normalizedShift % 1);
-          pos = ((shifted % 1) + 1) % 1;
-        }
-      }
-
-      if (pos >= 1) pos = 0.999999;
-      if (pos < 0) pos = 0;
+      const pos = resolveRecolorPalettePosition(i, settings, tick);
 
       const color = gradient.length > 0
         ? this.sampleGradient(gradient, pos)
@@ -214,7 +145,7 @@ export class CPUColorCycleRenderer {
   }
 
   private sampleGradient(
-    gradient: Array<{ position: number; color: string }>,
+    gradient: RecolorSettings['gradient'],
     position: number
   ): { r: number; g: number; b: number; a: number } {
     if (gradient.length === 0) {
@@ -222,7 +153,7 @@ export class CPUColorCycleRenderer {
     }
 
     if (gradient.length === 1) {
-      return this.parseColor(gradient[0].color);
+      return this.parseColor(gradient[0].color, gradient[0].opacity);
     }
 
     let leftStop = gradient[0];
@@ -242,8 +173,8 @@ export class CPUColorCycleRenderer {
     const range = rightStop.position - leftStop.position;
     const localProgress = range > 0 ? (position - leftStop.position) / range : 0;
 
-    const leftColor = this.parseColor(leftStop.color);
-    const rightColor = this.parseColor(rightStop.color);
+    const leftColor = this.parseColor(leftStop.color, leftStop.opacity);
+    const rightColor = this.parseColor(rightStop.color, rightStop.opacity);
 
     return {
       r: Math.round(leftColor.r + (rightColor.r - leftColor.r) * localProgress),
@@ -253,8 +184,10 @@ export class CPUColorCycleRenderer {
     };
   }
 
-  private parseColor(color: string): { r: number; g: number; b: number; a: number } {
-    return parseCssColor(color, { r: 255, g: 255, b: 255, a: 255 });
+  private parseColor(color: string, opacity?: number): { r: number; g: number; b: number; a: number } {
+    const parsed = parseCssColor(color, { r: 255, g: 255, b: 255, a: 255 });
+    const stopOpacity = Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity!)) : 1;
+    return { ...parsed, a: Math.round(parsed.a * stopOpacity) };
   }
 
   private getFrameBuffer(
@@ -282,7 +215,7 @@ export class CPUColorCycleRenderer {
     if (originalAlpha && originalAlpha.length >= width * height * 4) {
       for (let i = 0, aIdx = 3; i < indices.length; i++, aIdx += 4) {
         const rgb = lut[indices[i]] & 0x00ffffff;
-        const a = originalAlpha[aIdx];
+        const a = Math.round(originalAlpha[aIdx] * (lut[indices[i]] >>> 24) / 255);
         outPixels32[i] = (a << 24) | rgb;
       }
       return;

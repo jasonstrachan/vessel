@@ -1,6 +1,7 @@
 import type { StoreApi } from 'zustand';
 import historyManager from '@/history/historyService';
 import type { HistoryEntry } from '@/history/actionTypes';
+import { cloneRecolorSettings } from '@/history/deltas/recolorDelta';
 import { HistoryReplayRecoveryError } from '@/history/errors';
 import {
   captureColorCycleBrushState,
@@ -193,6 +194,7 @@ const cloneLayerForHistory = (
     layerCopy.layerType = 'color-cycle';
     layerCopy.colorCycleData = {
       ...existingColorCycleData,
+      recolorSettings: cloneRecolorSettings(existingColorCycleData.recolorSettings),
       hasContent: hasCCPixels,
       gradient: existingColorCycleData.gradient ? [...existingColorCycleData.gradient] : undefined,
       gradientDefs: existingColorCycleData.gradientDefs

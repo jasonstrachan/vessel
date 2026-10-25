@@ -5,7 +5,6 @@
  * and real-time performance monitoring.
  */
 
-import { debugWarn } from '@/utils/debug';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Layer } from '../../types';
 import { RecolorManager } from '../../lib/colorCycle/RecolorManager';
@@ -15,7 +14,7 @@ import { useKeyboardScope } from '../../hooks/useKeyboardScope';
 import { useRecolorState } from './hooks/useRecolorState';
 
 // Modular sub-components
-import { GradientEditor } from '../ui/GradientEditor';
+import { GradientEditor, type GradientEditorHandle } from '../ui/GradientEditor';
 import { useAppStore } from '../../stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
 import { selectCurrentTool } from '@/stores/selectors/toolsSelectors';
@@ -27,16 +26,16 @@ import {
 // Extract colors feature removed from UI
 import { ConfirmationDialog } from './dialogs/ConfirmationDialog';
 
-type GradientStop = { position: number; color: string };
+type GradientStop = { position: number; color: string; opacity?: number };
 
-const cloneStops = (stops?: Array<{ position: number; color: string }> | null): GradientStop[] =>
-  (stops ?? DEFAULT_GRADIENT_STOPS).map((stop) => ({ position: stop.position, color: stop.color }));
+const cloneStops = (stops?: GradientStop[] | null): GradientStop[] =>
+  (stops ?? DEFAULT_GRADIENT_STOPS).map((stop) => ({ ...stop }));
 
 export interface RecolorPanelProps {
   activeLayer: Layer | null;
   isVisible: boolean;
   onError?: (error: string) => void;
-  onCommit?: (gradient: Array<{ position: number; color: string }>) => void;
+  onCommit?: (gradient: GradientStop[]) => void;
   onCancel?: () => void;
 }
 
@@ -52,11 +51,11 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     state,
     actions,
     processLayer,
-    toggleAnimation,
     updateLayerSpeed,
     updateLayerCycleColors,
     updateLayerFlowDirection,
     updateLayerMappingMode,
+    updateLayerFlowMapping,
     updateGradient,
     updateGlobalFPS,
     successMessage
@@ -86,6 +85,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   });
   const [plannedGradient, setPlannedGradient] = useState<GradientStop[]>(() => cloneStops(DEFAULT_GRADIENT_STOPS));
 
+  const gradientEditorRef = useRef<GradientEditorHandle>(null);
   const originalGradientRef = useRef<GradientStop[] | null>(null);
   const latestPreviewRef = useRef<GradientStop[] | null>(null);
   const hasPendingChangesRef = useRef(false);
@@ -100,7 +100,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   const applyBrushGradient = useCallback(
     (stops: GradientStop[]) => {
       setBrushSettings({
-        colorCycleGradient: stops.map((stop) => ({ position: stop.position, color: stop.color })),
+        colorCycleGradient: stops.map((stop) => ({ ...stop })),
       });
     },
     [setBrushSettings],
@@ -115,7 +115,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
   const commitGradientForLayer = useCallback(
     (layerId: string, stops: GradientStop[]) => {
       const targetLayer = layersById.get(layerId);
-      if (!targetLayer) {
+      if (!targetLayer || targetLayer.locked) {
         return;
       }
 
@@ -188,12 +188,12 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
   const recolorGradientTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recolorGradientPendingRef = useRef<{
-    stops: Array<{ position: number; color: string }>;
+    stops: GradientStop[];
     layerId: string;
   } | null>(null);
 
   const scheduleRecolorGradientUpdate = useCallback(
-    (stops: Array<{ position: number; color: string }>, immediate = false) => {
+    (stops: GradientStop[], immediate = false) => {
       if (!activeLayerId) {
         return;
       }
@@ -268,6 +268,8 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     recolorGradientPendingRef.current = null;
 
     const originalStops = cloneStops(originalGradientRef.current);
+    gradientEditorRef.current?.cancelDraft(originalStops);
+    if (!hasPendingChangesRef.current) return;
     commitGradientForLayer(activeLayerId, originalStops);
 
     if (!isRecolorEnabled) {
@@ -287,9 +289,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (hasPendingChangesRef.current) {
-          revertToOriginal();
-        }
+        revertToOriginal();
         onCancel?.();
       }
     };
@@ -352,14 +352,15 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
 
       {/* Recolor Mode Controls (allow pre-configuration before conversion) */}
       {activeLayer && (
-        <div className="space-y-4">
+        <fieldset aria-label="Recolor controls" disabled={activeLayer.locked} inert={activeLayer.locked} className="m-0 min-w-0 space-y-4 border-0 p-0">
           {/* Gradient Editor - always visible; first selection applies conversion and plays */}
           <div className="mb-2">
           <GradientEditor
+            ref={gradientEditorRef}
             sampleTarget="recolor"
             stops={isRecolorEnabled ? (recolorSettings?.gradient || []) : plannedGradient}
             onChange={async (stops) => {
-              if (!activeLayer) return;
+              if (!activeLayer || activeLayer.locked) return;
 
               const clonedStops = cloneStops(stops);
               hasPendingChangesRef.current = true;
@@ -370,21 +371,19 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
                 scheduleRecolorGradientUpdate(clonedStops);
               } else {
                 setPlannedGradient(clonedStops);
-                const ok = await processLayer(activeLayer, {
+                await processLayer(activeLayer, {
                   quantizationMode: 'rgb332',
                   ditherMode: 'off',
                   cycleColors: plannedSettings.cycleColors,
                   gradientPreset: 'custom',
                   customGradient: clonedStops
+                }, {
+                  speed: plannedSettings.speed,
+                  fps: plannedSettings.fps,
+                  flowDirection: plannedSettings.flowDirection,
+                  mappingMode: plannedSettings.mappingMode,
+                  flowMapping: plannedSettings.flowMapping,
                 });
-                if (ok) {
-                  updateLayerSpeed(activeLayer.id, plannedSettings.speed);
-                  updateGlobalFPS(plannedSettings.fps);
-                  updateLayerFlowDirection(activeLayer.id, plannedSettings.flowDirection);
-                  updateLayerMappingMode(activeLayer.id, plannedSettings.mappingMode);
-                  // Auto-play on first apply
-                  toggleAnimation();
-                }
               }
               if (currentTool !== 'recolor') {
                 setBrushSettings({ colorCycleGradient: clonedStops });
@@ -406,7 +405,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
             mappingMode={isRecolorEnabled ? (recolorSettings?.mappingMode || 'banded') : plannedSettings.mappingMode}
             flowMapping={isRecolorEnabled ? (recolorSettings?.flowMapping || 'palette') : plannedSettings.flowMapping}
             onSpeedChange={(speed) => {
-              if (!activeLayer) return;
+              if (!activeLayer || activeLayer.locked) return;
               if (isRecolorEnabled) {
                 updateLayerSpeed(activeLayer.id, speed);
               } else {
@@ -414,6 +413,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
               }
             }}
             onFPSChange={(fps) => {
+              if (!activeLayer || activeLayer.locked) return;
               if (isRecolorEnabled) {
                 updateGlobalFPS(fps);
               } else {
@@ -421,7 +421,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
               }
             }}
             onCycleColorsChange={(cycleColors) => {
-              if (!activeLayer) return;
+              if (!activeLayer || activeLayer.locked) return;
               if (isRecolorEnabled) {
                 updateLayerCycleColors(activeLayer.id, cycleColors);
               } else {
@@ -429,7 +429,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
               }
             }}
             onFlowDirectionChange={(direction) => {
-              if (!activeLayer) return;
+              if (!activeLayer || activeLayer.locked) return;
               if (isRecolorEnabled) {
                 updateLayerFlowDirection(activeLayer.id, direction);
               } else {
@@ -437,7 +437,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
               }
             }}
             onMappingModeChange={(mode) => {
-              if (!activeLayer) return;
+              if (!activeLayer || activeLayer.locked) return;
               actions.clearError();
               if (isRecolorEnabled) {
                 updateLayerMappingMode(activeLayer.id, mode);
@@ -446,16 +446,10 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
               }
             }}
             onFlowMappingChange={(mode) => {
-              if (!activeLayer) return;
+              if (!activeLayer || activeLayer.locked) return;
               actions.clearError();
               if (isRecolorEnabled) {
-                // Use manager directly via state action
-                try {
-                  const manager = RecolorManager.getInstance();
-                  manager.setLayerFlowMapping(activeLayer.id, mode);
-                } catch (e) {
-                  debugWarn('raw-console', 'Failed to set flow mapping', e);
-                }
+                updateLayerFlowMapping(activeLayer.id, mode);
               } else {
                 setPlannedSettings((prev) => ({ ...prev, flowMapping: mode }));
               }
@@ -469,7 +463,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
                 size="sm"
                 variant="secondary"
                 onClick={() => {
-                  if (!activeLayer) return;
+                  if (!activeLayer || activeLayer.locked) return;
                   try {
                     const manager = RecolorManager.getInstance();
                     manager.clearPaletteDirectionalOrder(activeLayer.id);
@@ -483,7 +477,7 @@ export const RecolorPanel: React.FC<RecolorPanelProps> = ({
           )}
 
           {/* Advanced settings removed per request */}
-        </div>
+        </fieldset>
       )}
 
       {/* Brush mode helper text removed per request */}

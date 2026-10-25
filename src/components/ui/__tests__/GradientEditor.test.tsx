@@ -198,6 +198,45 @@ describe('GradientEditor', () => {
     ]));
   });
 
+  it.each([false, true])('cancels local draft without late publication or Undo/Redo resurrection (forwarded=%s)', (forwarded) => {
+    jest.useFakeTimers({ doNotFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
+    const callbacks = new Map<number, FrameRequestCallback>();
+    let nextId = 0;
+    jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callbacks.set(++nextId, callback); return nextId; });
+    jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { callbacks.delete(id); });
+    const ref = React.createRef<GradientEditorHandle & { cancelDraft?: (stops: Array<{ position: number; color: string; opacity?: number }>) => void }>();
+    const original = [{ position: 0, color: '#2060a0', opacity: 0.4 }, { position: 1, color: '#2060a0', opacity: 1 }];
+    const onChange = jest.fn(), onEditEnd = jest.fn();
+    const view = render(<GradientEditor ref={ref} stops={original} onChange={onChange} onEditEnd={onEditEnd} />);
+    const bar = view.container.querySelector<HTMLElement>('[tabindex="0"]')!;
+    jest.spyOn(bar, 'getBoundingClientRect').mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20, toJSON: () => ({}) });
+    try {
+      fireEvent.click(bar, { clientX: 50 });
+      expect(screen.getAllByRole('button', { name: /^Gradient stop / })).toHaveLength(3);
+      expect(onChange).not.toHaveBeenCalled();
+      if (forwarded) {
+        act(() => { callbacks.forEach(callback => callback(0)); callbacks.clear(); });
+        expect(onChange).toHaveBeenCalledTimes(1);
+        onChange.mockClear();
+      }
+      view.rerender(<GradientEditor ref={ref} stops={original.map(stop => ({ ...stop }))} onChange={onChange} onEditEnd={onEditEnd} />);
+      expect(screen.getAllByRole('button', { name: /^Gradient stop / })).toHaveLength(3);
+      const dequeued = [...callbacks.values()];
+      act(() => ref.current?.cancelDraft?.(original));
+      expect(screen.getAllByRole('button', { name: /^Gradient stop / })).toHaveLength(2);
+      // Deliver even a previously dequeued callback: cleared queued stops must remain inert.
+      act(() => { dequeued.forEach(callback => callback(0)); callbacks.forEach(callback => callback(0)); callbacks.clear(); ref.current?.flushDraft(); jest.runOnlyPendingTimers(); });
+      fireEvent.keyDown(bar, { key: 'z', ctrlKey: true });
+      fireEvent.keyDown(bar, { key: 'z', ctrlKey: true, shiftKey: true });
+      act(() => { callbacks.forEach(callback => callback(0)); callbacks.clear(); ref.current?.flushDraft(); });
+      expect(screen.getAllByRole('button', { name: /^Gradient stop / })).toHaveLength(2);
+      expect(onChange).not.toHaveBeenCalled();
+      expect(onEditEnd).toHaveBeenCalledTimes(1);
+      view.unmount();
+      expect(onChange).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+
   describe('minimum two stops', () => {
     let pendingFrames: Map<number, FrameRequestCallback>;
 

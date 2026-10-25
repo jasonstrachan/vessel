@@ -82,3 +82,216 @@ export const createRecolorDelta = ({ layerId, before, after }: {
   before: ColorCycleRecolorSettings | undefined;
   after: ColorCycleRecolorSettings | undefined;
 }): HistoryDelta | null => before || after ? new RecolorDelta(layerId, before, after) : null;
+
+
+type RecolorGradient = ColorCycleRecolorSettings['gradient'];
+
+class RecolorGradientDelta implements HistoryDelta {
+  readonly _tag = 'recolor-gradient';
+  readonly approxBytes: number;
+  private readonly before: RecolorGradient;
+  private readonly after: RecolorGradient;
+
+  constructor(private readonly layerId: string, before: RecolorGradient, after: RecolorGradient) {
+    this.before = before.map((stop) => ({ ...stop }));
+    this.after = after.map((stop) => ({ ...stop }));
+    this.approxBytes = (before.length + after.length) * 64;
+  }
+
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return prepareAppStoreHistoryDelta(
+      this._tag,
+      direction,
+      (nextDirection) => {
+        const layer = useAppStore.getState().layers.find((entry) => entry.id === this.layerId);
+        if (layer?.layerType !== 'color-cycle' || layer.colorCycleData?.mode !== 'recolor' || !layer.colorCycleData.recolorSettings) {
+          throw new Error('Recolor gradient history target is unavailable.');
+        }
+        const stops = nextDirection === 'forward' ? this.after : this.before;
+        useAppStore.setState((state) => ({
+          layers: state.layers.map((entry) => entry.id === this.layerId ? {
+            ...entry,
+            colorCycleData: {
+              ...entry.colorCycleData,
+              recolorSettings: {
+                ...entry.colorCycleData!.recolorSettings!,
+                gradient: stops.map((stop) => ({ ...stop })),
+              },
+            },
+          } : entry),
+          layersNeedRecomposition: true,
+        }));
+      },
+      ['layers', 'layersNeedRecomposition'],
+      (targets) => this.collectRehydrationTargets(targets),
+    );
+  }
+
+  collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
+    targets.layerIds.add(this.layerId);
+    targets.colorCycleLayerIds.add(this.layerId);
+  }
+}
+
+export const createRecolorGradientDelta = ({ layerId, before, after }: {
+  layerId: string;
+  before: RecolorGradient;
+  after: RecolorGradient;
+}): HistoryDelta | null => JSON.stringify(before) === JSON.stringify(after)
+  ? null
+  : new RecolorGradientDelta(layerId, before, after);
+
+export interface RecolorControlValues {
+  speed: number;
+  cycleColors: number;
+  flowDirection: ColorCycleRecolorSettings['animation']['flowDirection'];
+  mappingMode: ColorCycleRecolorSettings['mappingMode'];
+  flowMapping: ColorCycleRecolorSettings['flowMapping'];
+  fps: number;
+  ticksPerFrame: number;
+}
+
+export const readRecolorControls = (settings: ColorCycleRecolorSettings): RecolorControlValues => ({
+  speed: settings.animation.speed,
+  cycleColors: settings.cycleColors,
+  flowDirection: settings.animation.flowDirection,
+  mappingMode: settings.mappingMode,
+  flowMapping: settings.flowMapping,
+  fps: settings.animation.fps,
+  ticksPerFrame: settings.animation.ticksPerFrame,
+});
+
+export const mergeRecolorControls = (
+  settings: ColorCycleRecolorSettings,
+  values: Partial<RecolorControlValues>,
+): ColorCycleRecolorSettings => ({
+  ...settings,
+  ...('cycleColors' in values ? { cycleColors: values.cycleColors! } : {}),
+  ...('mappingMode' in values ? { mappingMode: values.mappingMode } : {}),
+  ...('flowMapping' in values ? { flowMapping: values.flowMapping, phaseMap: undefined } : {}),
+  animation: {
+    ...settings.animation,
+    ...('speed' in values ? { speed: values.speed! } : {}),
+    ...('flowDirection' in values ? { flowDirection: values.flowDirection! } : {}),
+    ...('fps' in values ? { fps: values.fps! } : {}),
+    ...('ticksPerFrame' in values ? { ticksPerFrame: values.ticksPerFrame! } : {}),
+  },
+});
+
+class RecolorControlDelta implements HistoryDelta {
+  readonly _tag = 'recolor-control';
+  readonly approxBytes = 128;
+  private readonly before: Partial<RecolorControlValues>;
+  private readonly after: Partial<RecolorControlValues>;
+
+  constructor(private readonly layerId: string, before: Partial<RecolorControlValues>, after: Partial<RecolorControlValues>) {
+    this.before = { ...before };
+    this.after = { ...after };
+  }
+
+  prepare(direction: HistoryDirection): PreparedHistoryDelta {
+    return prepareAppStoreHistoryDelta(this._tag, direction, (nextDirection) => {
+      const values = nextDirection === 'forward' ? this.after : this.before;
+      const state = useAppStore.getState();
+      const target = state.layers.find((layer) => layer.id === this.layerId);
+      if (target?.colorCycleData?.mode !== 'recolor' || !target.colorCycleData.recolorSettings) {
+        throw new Error('Recolor control history target is unavailable.');
+      }
+      useAppStore.setState({ layers: state.layers.map((layer) => layer === target ? {
+        ...layer,
+        colorCycleData: { ...layer.colorCycleData!, recolorSettings: mergeRecolorControls(layer.colorCycleData!.recolorSettings!, values) },
+      } : layer), layersNeedRecomposition: true });
+    }, ['layers', 'layersNeedRecomposition'], (targets) => this.collectRehydrationTargets(targets));
+  }
+
+  collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
+    targets.layerIds.add(this.layerId);
+    targets.colorCycleLayerIds.add(this.layerId);
+  }
+}
+
+export const createRecolorControlDelta = ({ layerId, before, after }: {
+  layerId: string;
+  before: Partial<RecolorControlValues>;
+  after: Partial<RecolorControlValues>;
+}): HistoryDelta | null => JSON.stringify(before) === JSON.stringify(after) ? null : new RecolorControlDelta(layerId, before, after);
+
+export interface RecolorFPSState {
+  fps: number;
+  layers: Array<{ id: string; fps: number; ticksPerFrame: number }>;
+}
+
+export const readRecolorFPSState = (fps: number): RecolorFPSState => ({
+  fps,
+  layers: useAppStore.getState().layers.flatMap((layer) => {
+    const settings = layer.colorCycleData?.mode === 'recolor' ? layer.colorCycleData.recolorSettings : undefined;
+    return settings ? [{ id: layer.id, fps: settings.animation.fps, ticksPerFrame: settings.animation.ticksPerFrame }] : [];
+  }),
+});
+
+class RecolorFPSDelta implements HistoryDelta {
+  readonly _tag = 'recolor-fps';
+  readonly approxBytes: number;
+  private readonly before: RecolorFPSState;
+  private readonly after: RecolorFPSState;
+
+  constructor(before: RecolorFPSState, after: RecolorFPSState) {
+    this.before = { fps: before.fps, layers: before.layers.map((layer) => ({ ...layer })) };
+    this.after = { fps: after.fps, layers: after.layers.map((layer) => ({ ...layer })) };
+    this.approxBytes = 32 + (before.layers.length + after.layers.length) * 48;
+  }
+
+  async prepare(direction: HistoryDirection): Promise<PreparedHistoryDelta> {
+    const { RecolorManager } = await import('@/lib/colorCycle/RecolorManager');
+    const manager = RecolorManager.getInstance();
+    const state = useAppStore.getState(), runtimeFPS = manager.getConfiguredFPS();
+    const desired = direction === 'forward' ? this.after : this.before;
+    let mutated = false;
+    const currentProject = () => useAppStore.getState().project?.id === state.project?.id;
+    const publish = () => {
+      const current = useAppStore.getState();
+      useAppStore.setState({ layers: current.layers.map((layer) => {
+        const settings = layer.colorCycleData?.mode === 'recolor' ? layer.colorCycleData.recolorSettings : undefined;
+        if (!settings) return layer;
+        const values = desired.layers.find((entry) => entry.id === layer.id);
+        return { ...layer, colorCycleData: { ...layer.colorCycleData!, recolorSettings: mergeRecolorControls(settings, values ? { fps: values.fps, ticksPerFrame: values.ticksPerFrame } : {}) } };
+      }), layersNeedRecomposition: true });
+    };
+    return {
+      deltaTag: this._tag,
+      apply: () => { if (!currentProject()) throw new Error('Recolor FPS history project changed.'); mutated = true; publish(); },
+      requiresCompensation: () => mutated && currentProject(),
+      collectRehydrationTargets: (targets) => {
+        this.collectRehydrationTargets(targets);
+        for (const layer of state.layers) if (layer.colorCycleData?.mode === 'recolor') { targets.layerIds.add(layer.id); targets.colorCycleLayerIds.add(layer.id); }
+      },
+      finalize: async () => {
+        if (!currentProject()) return;
+        manager.setFPS(desired.fps);
+        // setFPS also rewrites layer timing; restore the exact command-owned metadata.
+        publish();
+        for (const layer of useAppStore.getState().layers) {
+          if (layer.colorCycleData?.mode === 'recolor' && !await manager.restoreLayer(layer)) {
+            throw new Error('Recolor FPS runtime rejected restored timing.');
+          }
+        }
+      },
+      compensate: () => {
+        if (!currentProject()) return;
+        // Registered layers now refer to replay copies; preserve pre-replay store objects.
+        if (manager.getConfiguredFPS() !== runtimeFPS) manager.setFPS(runtimeFPS);
+        useAppStore.setState({ layers: state.layers, layersNeedRecomposition: state.layersNeedRecomposition });
+      },
+    };
+  }
+
+  collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
+    for (const { id } of [...this.before.layers, ...this.after.layers]) {
+      targets.layerIds.add(id);
+      targets.colorCycleLayerIds.add(id);
+    }
+  }
+}
+
+export const createRecolorFPSDelta = ({ before, after }: { before: RecolorFPSState; after: RecolorFPSState }): HistoryDelta | null =>
+  JSON.stringify(before) === JSON.stringify(after) ? null : new RecolorFPSDelta(before, after);

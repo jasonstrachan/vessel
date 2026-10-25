@@ -1962,8 +1962,6 @@ export const serializeColorCycleDataFromResolvedLayer = async (
       } else if (shouldAnimate && animation.isPlaying === false) {
         animation.isPlaying = true;
       }
-      // Flow direction has been removed in-app; normalize export to forward.
-      animation.flowDirection = 'forward';
       const animationSpeed = toFiniteNumberOrNull(animation.speed);
       if (animationSpeed !== null) {
         animation.speed = animationSpeed * layerSpeedScale;

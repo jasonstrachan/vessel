@@ -313,6 +313,10 @@ export class RecolorAnimationController {
   /**
    * Set target FPS for all animations
    */
+  getConfiguredFPS(): number {
+    return this.targetFPS;
+  }
+
   setFPS(fps: number): void {
     this.targetFPS = Math.max(15, Math.min(60, fps));
     this.updateFrameInterval();

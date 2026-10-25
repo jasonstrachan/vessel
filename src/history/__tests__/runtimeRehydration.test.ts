@@ -18,9 +18,11 @@ const mockBrushManager = {
 
 const clearSequentialLayerRendererLayer = jest.fn();
 const mockRestoreRecolorLayer = jest.fn().mockResolvedValue(true);
+const mockRegisteredRecolorLayers = new Map<string, Layer>();
+const mockRemoveRecolorLayer = jest.fn((id: string) => mockRegisteredRecolorLayers.delete(id));
 
 jest.mock('@/lib/colorCycle/RecolorManager', () => ({
-  RecolorManager: { getInstance: () => ({ restoreLayer: mockRestoreRecolorLayer }) },
+  RecolorManager: { getInstance: () => ({ restoreLayer: mockRestoreRecolorLayer, removeLayer: mockRemoveRecolorLayer }) },
 }));
 
 jest.mock('@/lib/sequential/SequentialLayerRenderer', () => ({
@@ -91,8 +93,43 @@ const createRuntimeBrush = () => {
 describe('runtimeRehydration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockRestoreRecolorLayer.mockResolvedValue(true);
+    mockRegisteredRecolorLayers.clear();
+    mockRestoreRecolorLayer.mockImplementation(async (layer: Layer) => {
+      mockRegisteredRecolorLayers.set(layer.id, layer);
+      return true;
+    });
     mockStoreState.layers = [];
+  });
+
+  it('removes stale callback eligibility on normal Undo and re-registers only the current indexed layer on Redo', async () => {
+    const old = makeLayer(document.createElement('canvas'), new ImageData(2, 2));
+    old.colorCycleData!.mode = 'recolor';
+    const unrelated = { ...old, id: 'unrelated-recolor' };
+    mockRegisteredRecolorLayers.set(old.id, old);
+    mockRegisteredRecolorLayers.set(unrelated.id, unrelated);
+    const normal: Layer = { ...old, layerType: 'normal', colorCycleData: undefined };
+    const targets = createRehydrationTargets();
+    targets.layerIds.add(old.id);
+    targets.colorCycleLayerIds.add(old.id);
+    const entry = { id: 'conversion', action: 'layer-structure' as const, label: 'Recolor', ts: 1, docId: 'doc', deltas: [] };
+
+    for (let i = 0; i < 2; i += 1) {
+      mockStoreState.layers = [normal, unrelated];
+      await rehydrateEntryResources(entry, 'backward', targets);
+      expect(mockRegisteredRecolorLayers.has(normal.id)).toBe(false);
+      expect(mockRegisteredRecolorLayers.get(unrelated.id)).toBe(unrelated);
+      const callbackEligible = [...mockRegisteredRecolorLayers.values()].filter((layer) =>
+        layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor',
+      );
+      expect(callbackEligible.map((layer) => layer.id)).toEqual([unrelated.id]);
+
+      const current = { ...old, colorCycleData: { ...old.colorCycleData, mode: 'recolor' as const } };
+      mockStoreState.layers = [current, unrelated];
+      await rehydrateEntryResources(entry, 'forward', targets);
+      expect(mockRegisteredRecolorLayers.get(current.id)).toBe(current);
+      expect(mockRegisteredRecolorLayers.get(current.id)).not.toBe(old);
+      expect(mockRegisteredRecolorLayers.get(unrelated.id)).toBe(unrelated);
+    }
   });
 
   it('restores Recolor through its indexed owner without initializing a brush runtime', async () => {

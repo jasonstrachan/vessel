@@ -122,6 +122,10 @@ const rehydrateColorCycleRuntime = async (
         .map((layer) => layer.id),
     );
     requested.forEach((layerId) => {
+      const layer = store.layers.find((entry) => entry.id === layerId);
+      if (layer?.layerType !== 'color-cycle' || layer.colorCycleData?.mode !== 'recolor') {
+        RecolorManager.getInstance().removeLayer(layerId);
+      }
       if (!liveColorCycleLayerIds.has(layerId)) {
         manager.deleteBrush?.(layerId);
       }

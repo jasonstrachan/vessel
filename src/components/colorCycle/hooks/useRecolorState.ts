@@ -19,6 +19,10 @@ import {
   MIN_RECOLOR_COLOR_CYCLE_SPEED,
 } from '@/constants/colorCycle';
 import { toggleToolbarColorCyclePlayback } from '@/utils/colorCyclePlayback';
+import historyManager from '@/history/historyService';
+import { createRecolorGradientDelta, createRecolorControlDelta, createRecolorFPSDelta, readRecolorControls, mergeRecolorControls, readRecolorFPSState, type RecolorControlValues } from '@/history/deltas/recolorDelta';
+import { createLayerStructureDelta } from '@/history/deltas/layerStructureDelta';
+import { captureLayerStructureSnapshot } from '@/stores/helpers/layerStructureHistory';
 
 const isRecolorLayer = (layer: Layer) =>
   layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor';
@@ -49,25 +53,34 @@ export interface UseRecolorStateOptions {
   onError?: (error: string) => void;
 }
 
+export interface RecolorInitialSettings {
+  speed: number;
+  fps: number;
+  flowDirection: 'forward' | 'reverse' | 'pingpong' | 'bounce';
+  mappingMode: 'banded' | 'continuous';
+  flowMapping: 'palette' | 'directional' | 'luminance';
+}
+
 export interface UseRecolorStateReturn {
   state: RecolorState;
   actions: RecolorActions;
 
   // Layer processing
-  processLayer: (layer: Layer, options?: RecolorOptions) => Promise<boolean>;
+  processLayer: (layer: Layer, options?: RecolorOptions, initialSettings?: RecolorInitialSettings) => Promise<boolean>;
   convertToNormal: (layer: Layer) => Promise<boolean>;
 
   // Animation controls
-  toggleAnimation: () => void;
+  toggleAnimation: () => Promise<void>;
   isAnimating: boolean;
 
   // Settings management
-  updateLayerSpeed: (layerId: string, speed: number) => void;
-  updateLayerCycleColors: (layerId: string, cycleColors: number) => void;
-  updateLayerFlowDirection: (layerId: string, direction: 'forward' | 'reverse' | 'pingpong' | 'bounce') => void;
-  updateLayerMappingMode: (layerId: string, mode: 'banded' | 'continuous') => void;
-  updateGradient: (layer: Layer, gradient: Array<{ position: number; color: string }>) => void;
-  updateGlobalFPS: (fps: number) => void;
+  updateLayerSpeed: (layerId: string, speed: number) => Promise<void>;
+  updateLayerCycleColors: (layerId: string, cycleColors: number) => Promise<void>;
+  updateLayerFlowDirection: (layerId: string, direction: 'forward' | 'reverse' | 'pingpong' | 'bounce') => Promise<void>;
+  updateLayerMappingMode: (layerId: string, mode: 'banded' | 'continuous') => Promise<void>;
+  updateGradient: (layer: Layer, gradient: Array<{ position: number; color: string; opacity?: number }>) => void;
+  updateGlobalFPS: (fps: number) => Promise<void>;
+  updateLayerFlowMapping: (layerId: string, mode: 'palette' | 'directional' | 'luminance') => Promise<void>;
 
   // Performance monitoring
   performanceStats: RecolorPerformanceStats | null;
@@ -90,7 +103,6 @@ export function useRecolorState(
   // Get recolor manager instance
   const recolorManager = useMemo(() => RecolorManager.getInstance(), []);
   const layers = useAppStore(selectLayers);
-  const updateLayer = useAppStore((state) => state.updateLayer);
   const effectivePlaying = useAppStore(selectEffectiveColorCyclePlaying);
   const isAnimating = effectivePlaying;
 
@@ -156,36 +168,6 @@ export function useRecolorState(
   }), [onModeChange, onError]);
 
   // Layer processing
-  const layersById = useMemo(() => {
-    const map = new Map<string, Layer>();
-    layers.forEach((layer) => map.set(layer.id, layer));
-    return map;
-  }, [layers]);
-
-  const processLayer = useCallback(async (layer: Layer, options?: RecolorOptions): Promise<boolean> => {
-    actions.setProcessing(true);
-    actions.clearError();
-
-    try {
-      const success = await recolorManager.processLayer(layer, options);
-
-      if (success) {
-        actions.setMode('recolor');
-        showSuccess('Layer converted to recolor mode');
-      } else {
-        actions.setError('Failed to process layer');
-      }
-
-      return success;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      actions.setError(errorMessage);
-      return false;
-    } finally {
-      actions.setProcessing(false);
-    }
-  }, [recolorManager, actions, showSuccess]);
-
   const convertToNormal = useCallback(async (layer: Layer): Promise<boolean> => {
     actions.setProcessing(true);
     actions.clearError();
@@ -212,7 +194,7 @@ export function useRecolorState(
 
   // Animation controls
   const lastToggleAtRef = useRef<number>(0);
-  const toggleAnimation = useCallback(() => {
+  const toggleAnimation = useCallback(async () => {
     try {
       const now = performance.now?.() ?? Date.now();
       if (now - lastToggleAtRef.current < 250) {
@@ -221,7 +203,7 @@ export function useRecolorState(
       }
       lastToggleAtRef.current = now;
 
-      void toggleToolbarColorCyclePlayback();
+      await toggleToolbarColorCyclePlayback();
     } catch (error) {
       logError('[useRecolorState] Animation toggle error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Animation control error';
@@ -230,104 +212,158 @@ export function useRecolorState(
   }, [actions]);
 
   // Settings management
-  const updateLayerSpeed = useCallback((layerId: string, speed: number) => {
-    const clampedSpeed = Math.max(
-      MIN_RECOLOR_COLOR_CYCLE_SPEED,
-      Math.min(MAX_RECOLOR_COLOR_CYCLE_SPEED, Number.isFinite(speed) ? speed : 0.1)
-    );
-
-    void (async () => {
-      try {
-        const layer = layersById.get(layerId);
-
-        if (!layer || !isRecolorLayer(layer) || !layer.colorCycleData?.recolorSettings?.animation) {
-          actions.setError('Select a recolor layer before adjusting speed.');
-          return;
-        }
-
-        const nextRecolorSettings = {
-          ...layer.colorCycleData.recolorSettings,
-          animation: {
-            ...layer.colorCycleData.recolorSettings.animation,
-            speed: clampedSpeed
-          }
-        };
-
-        try {
-          updateLayer(layerId, {
-            colorCycleData: {
-              ...layer.colorCycleData,
-              recolorSettings: nextRecolorSettings
-            }
-          });
-        } catch (storeError) {
-          debugWarn('raw-console', '[useRecolorState] Failed to push speed into store state:', storeError);
-        }
-
-        let applied = recolorManager.setLayerSpeed(layerId, clampedSpeed);
-
-        if (!applied) {
-          const latestLayer = layersById.get(layerId);
-          if (latestLayer) {
-            await recolorManager.registerExistingLayer(latestLayer);
-            applied = recolorManager.setLayerSpeed(layerId, clampedSpeed);
-          }
-        }
-
-        if (!applied) {
-          actions.setError('Animation is paused. Press Play once, then adjust speed again.');
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to update speed';
-        actions.setError(errorMessage);
+  const applyControl = useCallback(async (layerId: string, values: Partial<RecolorControlValues>, record = true) => {
+    const state = useAppStore.getState();
+    const target = state.layers.find((layer) => layer.id === layerId);
+    const settings = target?.colorCycleData?.recolorSettings;
+    if (!target || target.locked || !isRecolorLayer(target) || !settings) return;
+    const patch = { ...values };
+    if ('speed' in patch || 'cycleColors' in patch) {
+      patch.ticksPerFrame = (patch.speed ?? settings.animation.speed) * (patch.cycleColors ?? settings.cycleColors) / recolorManager.getConfiguredFPS();
+    }
+    const previous = readRecolorControls(settings);
+    const before = Object.fromEntries(Object.keys(patch).map((key) => [key, previous[key as keyof RecolorControlValues]])) as Partial<RecolorControlValues>;
+    const delta = createRecolorControlDelta({ layerId, before, after: patch });
+    if (!delta) return;
+    const next = { ...target, colorCycleData: { ...target.colorCycleData!, recolorSettings: mergeRecolorControls(settings, patch) } };
+    useAppStore.setState({ layers: state.layers.map((layer) => layer === target ? next : layer), layersNeedRecomposition: true });
+    try {
+      if (!await recolorManager.restoreLayer(next)) throw new Error('Failed to initialize recolor animation');
+      const current = useAppStore.getState();
+      if (current.project?.id !== state.project?.id || current.layers.find((layer) => layer.id === layerId) !== next) return;
+      if (record) {
+        const txn = historyManager.begin('settings-change', { layerId, tool: 'recolor' });
+        txn.push(delta); txn.commit('Recolor control');
       }
-    })();
-  }, [recolorManager, actions, layersById, updateLayer]);
-
-  const updateLayerCycleColors = useCallback((layerId: string, cycleColors: number) => {
-    try {
-      recolorManager.setLayerCycleColors(layerId, cycleColors);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update cycle colors';
-      actions.setError(errorMessage);
+      const current = useAppStore.getState();
+      if (current.project?.id === state.project?.id && current.layers.find((layer) => layer.id === layerId) === next) {
+        useAppStore.setState({ layers: current.layers.map((layer) => layer === next ? target : layer), layersNeedRecomposition: state.layersNeedRecomposition });
+        await recolorManager.restoreLayer(target);
+      }
+      actions.setError(error instanceof Error ? error.message : 'Failed to update recolor control');
     }
-  }, [recolorManager, actions]);
+  }, [actions, recolorManager]);
 
-  const updateLayerFlowDirection = useCallback((layerId: string, direction: 'forward' | 'reverse' | 'pingpong' | 'bounce') => {
-    try {
-      recolorManager.setLayerFlowDirection(layerId, direction);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update flow direction';
-      actions.setError(errorMessage);
-    }
-  }, [recolorManager, actions]);
+  const updateLayerSpeed = useCallback(async (layerId: string, speed: number) => {
+    await applyControl(layerId, { speed: Math.max(MIN_RECOLOR_COLOR_CYCLE_SPEED, Math.min(MAX_RECOLOR_COLOR_CYCLE_SPEED, Number.isFinite(speed) ? speed : 0.1)) });
+  }, [applyControl]);
+  const updateLayerCycleColors = useCallback(async (layerId: string, cycleColors: number) => {
+    await applyControl(layerId, { cycleColors });
+  }, [applyControl]);
+  const updateLayerFlowDirection = useCallback(async (layerId: string, flowDirection: RecolorControlValues['flowDirection']) => {
+    await applyControl(layerId, { flowDirection });
+  }, [applyControl]);
+  const updateLayerMappingMode = useCallback(async (layerId: string, mappingMode: RecolorControlValues['mappingMode']) => {
+    await applyControl(layerId, { mappingMode });
+  }, [applyControl]);
+  const updateLayerFlowMapping = useCallback(async (layerId: string, flowMapping: RecolorControlValues['flowMapping']) => {
+    await applyControl(layerId, { flowMapping });
+  }, [applyControl]);
 
-  const updateLayerMappingMode = useCallback((layerId: string, mode: 'banded' | 'continuous') => {
+  const updateGradient = useCallback((layer: Layer, gradient: Array<{ position: number; color: string; opacity?: number }>) => {
     try {
-      recolorManager.setLayerMappingMode(layerId, mode);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update mapping mode';
-      actions.setError(errorMessage);
-    }
-  }, [recolorManager, actions]);
-
-  const updateGradient = useCallback((layer: Layer, gradient: Array<{ position: number; color: string }>) => {
-    try {
-      recolorManager.updateGradient(layer, gradient);
+      const state = useAppStore.getState();
+      const target = state.layers.find((entry) => entry.id === layer.id);
+      const settings = target?.colorCycleData?.recolorSettings;
+      if (!target || target.locked || !isRecolorLayer(target) || !settings) return;
+      const before = settings.gradient.map((stop) => ({ ...stop }));
+      if (!recolorManager.updateGradient(target, gradient)) return;
+      const current = useAppStore.getState();
+      if (current.project?.id !== state.project?.id) return;
+      const after = current.layers.find((entry) => entry.id === target.id)?.colorCycleData?.recolorSettings?.gradient;
+      if (!after) return;
+      const delta = createRecolorGradientDelta({ layerId: target.id, before, after });
+      if (delta) {
+        const txn = historyManager.begin('settings-change', { layerId: target.id, tool: 'recolor' });
+        txn.push(delta);
+        txn.commit('Recolor gradient');
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update gradient';
       actions.setError(errorMessage);
     }
   }, [recolorManager, actions]);
 
-  const updateGlobalFPS = useCallback((fps: number) => {
+  const applyGlobalFPS = useCallback(async (fps: number, record = true) => {
+    const state = useAppStore.getState(), before = readRecolorFPSState(recolorManager.getConfiguredFPS());
+    const targetFPS = Math.max(15, Math.min(60, fps));
+    const nextLayers = state.layers.map((layer) => {
+      const settings = layer.colorCycleData?.mode === 'recolor' ? layer.colorCycleData.recolorSettings : undefined;
+      return settings ? { ...layer, colorCycleData: { ...layer.colorCycleData!, recolorSettings: mergeRecolorControls(settings, { fps: targetFPS, ticksPerFrame: settings.animation.speed * settings.cycleColors / targetFPS }) } } : layer;
+    });
+    const after = { fps: targetFPS, layers: nextLayers.flatMap((layer) => {
+      const settings = layer.colorCycleData?.mode === 'recolor' ? layer.colorCycleData.recolorSettings : undefined;
+      return settings ? [{ id: layer.id, fps: settings.animation.fps, ticksPerFrame: settings.animation.ticksPerFrame }] : [];
+    }) };
+    const delta = createRecolorFPSDelta({ before, after });
+    if (!delta) return;
+    useAppStore.setState({ layers: nextLayers, layersNeedRecomposition: true });
     try {
-      recolorManager.setFPS(fps);
+      for (const layer of nextLayers) if (layer.colorCycleData?.mode === 'recolor' && !await recolorManager.restoreLayer(layer)) throw new Error('Failed to initialize recolor animation');
+      if (useAppStore.getState().project?.id !== state.project?.id) return;
+      recolorManager.setFPS(targetFPS);
+      if (record) { const txn = historyManager.begin('settings-change', { tool: 'recolor' }); txn.push(delta); txn.commit('Recolor FPS'); }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update FPS';
-      actions.setError(errorMessage);
+      if (useAppStore.getState().project?.id === state.project?.id) {
+        if (recolorManager.getConfiguredFPS() !== before.fps) recolorManager.setFPS(before.fps);
+        useAppStore.setState({ layers: state.layers, layersNeedRecomposition: state.layersNeedRecomposition });
+        for (const layer of state.layers) if (layer.colorCycleData?.mode === 'recolor') await recolorManager.restoreLayer(layer);
+      }
+      actions.setError(error instanceof Error ? error.message : 'Failed to update FPS');
     }
-  }, [recolorManager, actions]);
+  }, [actions, recolorManager]);
+  const updateGlobalFPS = useCallback(async (fps: number) => { await applyGlobalFPS(fps); }, [applyGlobalFPS]);
+
+  const processLayer = useCallback(async (
+    layer: Layer,
+    options?: RecolorOptions,
+    initialSettings?: RecolorInitialSettings,
+  ): Promise<boolean> => {
+    actions.setProcessing(true);
+    actions.clearError();
+    try {
+      const state = useAppStore.getState();
+      const target = state.layers.find((entry) => entry.id === layer.id);
+      if (!target || target.locked) return false;
+      const beforeFPS = readRecolorFPSState(recolorManager.getConfiguredFPS());
+      const before = captureLayerStructureSnapshot(state, { actionType: 'layer', description: 'Recolor conversion' });
+      const success = await recolorManager.processLayer(target, options);
+      if (!success) {
+        actions.setError('Failed to process layer');
+        return false;
+      }
+      const isCurrentTarget = () => {
+        const current = useAppStore.getState();
+        return current.project?.id === state.project?.id && current.layers.some((entry) => entry.id === target.id);
+      };
+      if (!isCurrentTarget()) return false;
+      if (initialSettings) {
+        await applyControl(target.id, { speed: initialSettings.speed, flowDirection: initialSettings.flowDirection, mappingMode: initialSettings.mappingMode, flowMapping: initialSettings.flowMapping }, false);
+        if (!isCurrentTarget()) return false;
+        await applyGlobalFPS(initialSettings.fps, false);
+        if (!isCurrentTarget()) return false;
+        await toggleAnimation();
+      }
+      if (!isCurrentTarget()) return false;
+      const after = captureLayerStructureSnapshot(useAppStore.getState(), {
+        actionType: 'layer', description: 'Recolor conversion', previousSnapshot: before,
+      });
+      const txn = historyManager.begin('layer-structure', { layerId: target.id, tool: 'recolor' });
+      txn.push(createLayerStructureDelta({ before, after, runtimeLayerIds: [target.id] }));
+      const fpsDelta = createRecolorFPSDelta({ before: beforeFPS, after: readRecolorFPSState(recolorManager.getConfiguredFPS()) });
+      if (fpsDelta) txn.push(fpsDelta);
+      txn.commit('Recolor conversion');
+      actions.setMode('recolor');
+      showSuccess('Layer converted to recolor mode');
+      return true;
+    } catch (error) {
+      actions.setError(error instanceof Error ? error.message : 'Unknown error occurred');
+      return false;
+    } finally {
+      actions.setProcessing(false);
+    }
+  }, [actions, applyControl, applyGlobalFPS, recolorManager, showSuccess, toggleAnimation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,6 +475,7 @@ export function useRecolorState(
     updateLayerCycleColors,
     updateLayerFlowDirection,
     updateLayerMappingMode,
+    updateLayerFlowMapping,
     updateGradient,
     updateGlobalFPS,
     performanceStats,

@@ -122,6 +122,10 @@ export class RecolorManager {
    */
   async processLayer(layer: Layer, options: RecolorOptions = {}): Promise<boolean> {
     try {
+      // Initial conversion publishes only after indexing has accepted the source.
+      const candidate = layer.layerType === 'normal'
+        ? { ...layer, colorCycleData: undefined }
+        : layer;
 
       // Ensure we have up-to-date pixel data. If the ImageData is empty or stale,
       // try to grab it from the layer's framebuffer (OffscreenCanvas) first.
@@ -130,37 +134,29 @@ export class RecolorManager {
           if (!img) return true;
           const { data, width, height } = img;
           if (width === 0 || height === 0) return true;
-          // Sample alpha across the image on a coarse grid to avoid top-left bias
-          const samples = 400; // up to 400 alpha checks
-          const stepX = Math.max(1, Math.floor(width / 20));
-          const stepY = Math.max(1, Math.floor(height / 20));
-          let checked = 0;
-          for (let y = 0; y < height && checked < samples; y += stepY) {
-            for (let x = 0; x < width && checked < samples; x += stepX) {
-              const idx = (y * width + x) * 4 + 3; // alpha channel
-              if (data[idx] !== 0) return false;
-              checked++;
-            }
+          // Sparse painted pixels are authoritative even when no coarse sample hits them.
+          for (let alpha = 3; alpha < data.length; alpha += 4) {
+            if (data[alpha] !== 0) return false;
           }
           return true;
         };
 
-        if (!layer.imageData || looksEmpty(layer.imageData)) {
+        if (!candidate.imageData || looksEmpty(candidate.imageData)) {
           try {
-            const fb = layer.framebuffer as OffscreenCanvas | undefined;
+            const fb = candidate.framebuffer as OffscreenCanvas | undefined;
             if (fb) {
               const ctx = fb.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D | null;
               if (ctx) {
                 const captured = ctx.getImageData(0, 0, fb.width as number, fb.height as number);
-                // Accept if captured has any alpha > 0 in small sample
+                // Accept captured material whenever any pixel has positive alpha
                 if (!looksEmpty(captured)) {
-                  layer.imageData = captured;
+                  candidate.imageData = captured;
                   return true;
                 }
                 // If captured is empty, still attach a blank ImageData so downstream
                 // processing has valid dimensions and can build index buffers.
                 try {
-                  layer.imageData = new ImageData(fb.width as number, fb.height as number);
+                  candidate.imageData = new ImageData(fb.width as number, fb.height as number);
                   return true;
                 } catch {}
               }
@@ -169,23 +165,28 @@ export class RecolorManager {
         }
         // As a last resort, if imageData exists (even empty), allow processing to continue
         // so recolor can set up its buffers and accept gradients.
-        return !!layer.imageData;
+        return !!candidate.imageData;
       };
 
       // Do not hard-fail here; ensureImageData will create a blank buffer as needed.
       ensureImageData();
       
       // Set layer to color-cycle mode with recolor submode
-      layer.layerType = 'color-cycle';
-      if (!layer.colorCycleData) {
-        layer.colorCycleData = {};
+      candidate.layerType = 'color-cycle';
+      if (!candidate.colorCycleData) {
+        candidate.colorCycleData = {};
       }
-      layer.colorCycleData.mode = 'recolor';
+      candidate.colorCycleData.mode = 'recolor';
       
       // Process layer through engine
-      const success = this.engine.processLayer(layer, options);
+      const success = this.engine.processLayer(candidate, options);
       
       if (success) {
+        if (candidate !== layer) {
+          layer.imageData = candidate.imageData;
+          layer.layerType = candidate.layerType;
+          layer.colorCycleData = candidate.colorCycleData;
+        }
         // Register with animation controller and render an initial frame immediately
         this.animationController.registerLayer(layer);
         // Draw one frame so the user sees recoloring even before animation starts
@@ -499,6 +500,10 @@ export class RecolorManager {
   /**
    * Settings controls
    */
+  getConfiguredFPS(): number {
+    return this.animationController.getConfiguredFPS();
+  }
+
   setFPS(fps: number): void {
     this.animationController.setFPS(fps);
   }
@@ -605,6 +610,7 @@ export class RecolorManager {
       const colorCycleData = layer.colorCycleData;
       colorCycleData.canvasWidth = layer.imageData?.width;
       colorCycleData.canvasHeight = layer.imageData?.height;
+      settings.animation.isPlaying = this.animationController.isAnimating();
       this.layerUpdateCallbacks.forEach((callback) => callback(layer));
       return true;
     } catch (error) {

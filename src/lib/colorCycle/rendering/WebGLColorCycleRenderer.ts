@@ -145,6 +145,8 @@ export class WebGLColorCycleRenderer {
   private uLegacyOffsetLoc: WebGLUniformLocation | null = null;
   private uSpeedMinLoc: WebGLUniformLocation | null = null;
   private uSpeedMaxLoc: WebGLUniformLocation | null = null;
+  private recolorMode = 0;
+  private uRecolorModeLoc: WebGLUniformLocation | null = null;
   private uFlowModeLoc: WebGLUniformLocation | null = null;
 
   private indexTex: WebGLTexture | null = null;
@@ -365,6 +367,7 @@ export class WebGLColorCycleRenderer {
     const w = Math.max(1, Math.floor(width));
     const h = Math.max(1, Math.floor(height));
     if (w === this.width && h === this.height) return;
+    this.recolorMode = 0;
     this.width = w;
     this.height = h;
     this.canvas.width = w;
@@ -471,6 +474,16 @@ export class WebGLColorCycleRenderer {
     this.defLutTexAllocated = false;
   }
 
+  setRecolorData(indexData: Uint8Array, originalAlpha?: Uint8Array) {
+    const size = this.width * this.height;
+    if (indexData.length !== size || (originalAlpha && originalAlpha.length !== size)) {
+      throw new Error('Recolor source dimensions do not match the renderer.');
+    }
+    // Recolor owns this channel as alpha; ordinary uploads restore its gradient-ID meaning.
+    this.setIndexData(indexData, originalAlpha);
+    this.recolorMode = originalAlpha ? 1 : 2;
+  }
+
   setIndexData(
     indexData: Uint8Array,
     gradientIdData?: Uint8Array,
@@ -481,6 +494,7 @@ export class WebGLColorCycleRenderer {
     rect?: { x: number; y: number; width: number; height: number } | null,
     defIdDirty: boolean = true
   ) {
+    this.recolorMode = 0;
     const gl = this.gl;
     gl.useProgram(this.program);
     if (!this.indexTex || !this.gidTex || !this.speedTex || !this.flowTex || !this.defIdTex) {
@@ -569,6 +583,7 @@ export class WebGLColorCycleRenderer {
     void flowMode;
 
     // Set uniforms
+    if (this.uRecolorModeLoc) gl.uniform1f(this.uRecolorModeLoc, this.recolorMode);
     if (this.uOffsetLoc) gl.uniform1f(this.uOffsetLoc, offset);
     if (this.uLegacyOffsetLoc) gl.uniform1f(this.uLegacyOffsetLoc, legacyOffset);
     if (this.uPaletteSizeLoc) gl.uniform1f(this.uPaletteSizeLoc, this.paletteSize);
@@ -636,6 +651,7 @@ export class WebGLColorCycleRenderer {
   }
 
   dispose() {
+    this.recolorMode = 0;
     const gl = this.gl;
     this.canvas.removeEventListener('webglcontextlost', this.handleContextLost);
     this.releaseContextReservation();
@@ -727,6 +743,7 @@ export class WebGLColorCycleRenderer {
       uniform float u_speedMin;
       uniform float u_speedMax;
       uniform float u_flowMode;
+      uniform float u_recolorMode;
 
 
       void main() {
@@ -746,6 +763,14 @@ export class WebGLColorCycleRenderer {
         float defG = floor(defSample.g * 255.0 + 0.5);
         float phaseN = floor(defSample.b * 255.0 + 0.5) / 256.0;
         float defId = defR + defG * 256.0;
+
+        if (u_recolorMode > 0.5) {
+          // CPU Recolor owns phase/flow and lookup construction; brush indexing is separate.
+          vec4 recolor = texture2D(u_paletteTex, vec2((fIdx + 0.5) / u_paletteSize, 0.5 / u_paletteSize));
+          if (u_recolorMode < 1.5) recolor.a *= gidN;
+          gl_FragColor = recolor;
+          return;
+        }
 
         // Index 0 = transparent
         if (fIdx < 0.5) {
@@ -1237,6 +1262,7 @@ export class WebGLColorCycleRenderer {
     this.uSpeedMinLoc = gl.getUniformLocation(this.program, 'u_speedMin');
     this.uSpeedMaxLoc = gl.getUniformLocation(this.program, 'u_speedMax');
     this.uFlowModeLoc = gl.getUniformLocation(this.program, 'u_flowMode');
+    this.uRecolorModeLoc = gl.getUniformLocation(this.program, 'u_recolorMode');
   }
 
   private createTextures() {

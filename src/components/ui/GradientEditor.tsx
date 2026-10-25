@@ -33,6 +33,7 @@ interface GradientEditorProps {
 
 export type GradientEditorHandle = {
   flushDraft: () => void;
+  cancelDraft: (stops: GradientStop[]) => void;
   endEditSession: () => void;
 };
 
@@ -278,11 +279,6 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
     });
   }, [beginEditSession, onChange]);
 
-  useImperativeHandle(ref, () => ({
-    flushDraft: flushPendingGradientUpdate,
-    endEditSession,
-  }), [endEditSession, flushPendingGradientUpdate]);
-
   useEffect(() => {
     return () => {
       flushPendingGradientUpdate();
@@ -431,6 +427,32 @@ export const GradientEditor = forwardRef<GradientEditorHandle, GradientEditorPro
 
     }
   }, [initialStops, sampleTarget, stopsSignature]);
+
+  const cancelDraft = useCallback((authoritativeStops: GradientStop[]) => {
+    if (pendingGradientUpdateRef.current !== null) {
+      cancelAnimationFrame(pendingGradientUpdateRef.current);
+      pendingGradientUpdateRef.current = null;
+    }
+    pendingGradientStopsRef.current = null;
+    const restored = normalizeStops(authoritativeStops);
+    lastPropSigRef.current = stopsSignature(restored);
+    prevStopsRef.current = restored;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    colorPickerUndoRef.current = false;
+    setStops(restored);
+    setSelectedStop(null);
+    onSelectedStopChange?.(null);
+    setIsDragging(false);
+    setActiveColorPickerIndex(null);
+    endEditSession();
+  }, [endEditSession, onSelectedStopChange, stopsSignature]);
+
+  useImperativeHandle(ref, () => ({
+    flushDraft: flushPendingGradientUpdate,
+    cancelDraft,
+    endEditSession,
+  }), [cancelDraft, endEditSession, flushPendingGradientUpdate]);
 
   // Generate CSS gradient string with opacity (fallback transparent when no stops)
   const gradientString = (stops.length > 0

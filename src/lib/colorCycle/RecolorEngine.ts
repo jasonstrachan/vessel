@@ -8,7 +8,6 @@ import { debugLog, debugWarn, logError } from '@/utils/debug';
 import { ColorQuantizer, QuantizationOptions } from './ColorQuantizer';
 import { WebGLColorCycleRenderer } from './rendering/WebGLColorCycleRenderer';
 import { CPUColorCycleRenderer } from './rendering/CPUColorCycleRenderer';
-import { ensurePalette } from '@/lib/colorCycle/paletteService';
 import { DEFAULT_GRADIENT_ID, DEFAULT_GRADIENT_STOPS } from '@/utils/gradientPresets';
 import type { Layer } from '../../types';
 
@@ -23,7 +22,12 @@ export class RecolorEngine {
   private config: RecolorEngineConfig;
   // GPU renderer for palette mapping
   private glRenderer: WebGLColorCycleRenderer | null = null;
-  private lastPaletteHash: string | null = null;
+  private outputSurfaces = new WeakMap<NonNullable<Layer['colorCycleData']>, {
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    alpha: Uint8Array;
+    palette: Uint8Array;
+  }>();
   private gpuUnavailable = false;
   private cpuRenderer = new CPUColorCycleRenderer();
   
@@ -278,30 +282,41 @@ export class RecolorEngine {
             this.glRenderer.resize(width, height);
           }
 
-          const gradientStops =
-            settings.gradient && settings.gradient.length > 0
-              ? settings.gradient
-              : [
-                  { position: 0, color: '#000000' },
-                  { position: 1, color: '#ffffff' },
-                ];
-          const paletteHandle = ensurePalette({ stops: gradientStops });
-          if (this.lastPaletteHash !== paletteHandle.key) {
-            this.glRenderer.setPaletteColors(paletteHandle.rgba);
-            this.lastPaletteHash = paletteHandle.key;
+          let output = this.outputSurfaces.get(colorCycleData);
+          if (!output || output.canvas.width !== width || output.canvas.height !== height) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const context = canvas.getContext('2d');
+            if (!context) throw new Error('Cannot create Recolor output surface.');
+            output = { canvas, context, alpha: new Uint8Array(width * height), palette: new Uint8Array(1024) };
+            this.outputSurfaces.set(colorCycleData, output);
           }
-
-          const bands = Math.max(1, settings.cycleColors || 16);
-          const flowDirection = settings.animation.flowDirection === 'reverse' ? 'reverse' : 'forward';
-          const dir = flowDirection === 'reverse' ? -1 : 1;
-          let offset = (currentTick / bands) * dir;
-          offset = ((offset % 1) + 1) % 1;
-
-          this.glRenderer.setIndexData(settings.indexBuffer!, undefined, undefined, undefined);
-          this.glRenderer.render(offset, offset, flowDirection);
-
+          if (this.glRenderer.isContextLost()) throw new Error('Recolor GPU context is lost.');
+          const indices = this.cpuRenderer.getRenderIndices(layer, settings);
+          if (!indices) throw new Error('Recolor phase source is unavailable.');
+          const lut = this.cpuRenderer.buildGradientLUT(settings, currentTick);
+          for (let i = 0; i < 256; i++) {
+            const color = lut[i];
+            output.palette[i * 4] = color & 255;
+            output.palette[i * 4 + 1] = (color >>> 8) & 255;
+            output.palette[i * 4 + 2] = (color >>> 16) & 255;
+            output.palette[i * 4 + 3] = color >>> 24;
+          }
+          const original = settings.originalImageData;
+          if (original && (original.width !== width || original.height !== height || original.data.length !== width * height * 4)) {
+            throw new Error('Recolor original alpha dimensions do not match.');
+          }
+          if (original) for (let i = 0; i < output.alpha.length; i++) output.alpha[i] = original.data[i * 4 + 3];
+          this.glRenderer.setPaletteColors(output.palette);
+          this.glRenderer.setRecolorData(indices, original ? output.alpha : undefined);
+          this.glRenderer.render(0, 0, 'forward');
+          if (this.glRenderer.isContextLost()) throw new Error('Recolor GPU context was lost during rendering.');
+          // The shared GPU canvas is scratch storage. Publish a completed, independently owned surface.
+          output.context.globalCompositeOperation = 'copy';
+          output.context.drawImage(this.glRenderer.getCanvas(), 0, 0);
           colorCycleData.mode = 'recolor';
-          colorCycleData.canvas = this.glRenderer.getCanvas();
+          colorCycleData.canvas = output.canvas;
           return null;
         } catch (error) {
           logError('[RecolorEngine] GPU render failed, falling back to CPU:', error);
@@ -314,6 +329,7 @@ export class RecolorEngine {
         }
       }
 
+      colorCycleData.canvas = undefined;
       return this.cpuRenderer.render(layer, settings, currentTick);
     } catch (error) {
       logError('[RecolorEngine] Error rendering frame:', error);
@@ -411,6 +427,7 @@ export class RecolorEngine {
       layer.colorCycleData.recolorSettings.indexBuffer = undefined;
       layer.colorCycleData.recolorSettings.palette = undefined;
     }
+    if (layer.colorCycleData) this.outputSurfaces.delete(layer.colorCycleData);
     this.cpuRenderer.releaseLayer(layer.id);
   }
 

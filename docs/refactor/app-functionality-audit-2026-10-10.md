@@ -1201,6 +1201,65 @@ three-file/seven-addition patch remain byte-exact at
 `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`. No mixed owner, push, deployment, branch, worktree or
 new chat is involved. Area35 preparation does not activate or sign off Recolor.
 
+## Session39 — Area35 final software signoff: Recolor
+
+Areas01–35 are software-verified. Area35 passes24 native cases / 2147 checks
+across15 suites on production artifact `d368992571cc8a8c0d8caa11e28a8d74c474357098f26331ffac42addbf2b155`
+(page-f07d52514b0e05f8.js). The full40-source isolated check candidate passes
+type-check, lint, generated Goblet consistency and618 suites /6324 tests /
+two snapshots, with one existing skipped suite/test. Production buildV5 passes
+and preserves Studio. The focused42-file local commit is recorded by
+`area35-commit-receipt-session39.json`; no push or deployment belongs to this area.
+
+The repair preserves sparse painted source and0/128/255 alpha; publishes independent
+per-layer GPU outputs; uses the same Recolor phase math in app CPU/GPU and both Goblet
+players; and preserves all four flows, both mappings, palette index maps and source
+alpha times stop opacity. Ordinary CC brush index/speed semantics remain unchanged.
+Public conversion transfers all six planned controls. Gradient and control changes
+produce bounded, immutable global history commands; FPS replay restores the actual
+global scalar and affected timing metadata with failed-replay compensation. Conversion
+replay hydrates only its target, retains untouched canonical sources and reconciles the
+ephemeral playing flag to the actual controller. No clock or renderer forcing is used.
+
+Public regular conversion bakes the current published frame through its layer owner;
+subsequent genuine Pixel drawing and stroke Undo/Redo pass. The background monitor no
+longer rewrites authored FPS. Actual Save.vs → New → fresh reload → Load → Play restores
+saved consensus15 FPS and exact persisted source/settings, then produces at least three
+successful GPU frames with exact material. PNG normalization of hidden zero-alpha RGB
+and pre-Play lazy canonical state remain explicit representation boundaries. Mixed or
+invalid legacy per-layer FPS is preserved without inventing a global target policy.
+
+Public Goblet downloads retain requested flow; downloaded nonuniform initial output
+matches independently predicted desired and serialized phase. Actual alpha composite
+uses the independently decoded packaged backdrop as its I/O input. Both exported player
+modules also pass deterministic phase/alpha/map/playback tests; generated outputs match
+owners. This does not claim the complete export-format audit, which belongs to Area58.
+
+Locked targets reject conversion and local edits before engine/history changes; native
+disabled/inert controls reflect the same policy. Global cadence from an unlocked owner
+remains global. Pending gradient changes flush to the old owner on tool/layer switches.
+Escape cancels the layer edit and the editor's own queued/local draft, undo/redo stacks,
+selection, picker and drag state through its existing handle. Identical unrelated props
+continue to preserve a pending editor draft; no keyed remount or generic sync workaround.
+
+Final evidence: `area35-source-freeze-v5-session39.json`,
+`area35-final-gate-v1-session39.json`, `area35-preview-after-v5-session39.json`,
+`area35-native-final-v2-session39.json`. The final receipt retains14 unchanged successful
+V1 suites and the corrected lifecycle retest on the same exact build. The retained V1
+lifecycle failure counted a cold lazy observer diagnostic toward its frame wait; V77
+waits for three successful GPU receipts before Pause, with acceptance unchanged. No app
+source or build changed for that fixture correction. All24 cases /2147 checks pass,
+all owned storage is restored, no page errors occur, and both named-session cleanup
+receipts confirm no matching daemon remains.
+
+All47 original working files and the original staged three-file/seven-addition patch
+remain byte-exact (`df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`).
+The preview isolates artifacts while retaining the hash-pinned working baseline47 plus
+owned40 files; the full check candidate contains HEAD plus owned source. Software proof
+excludes physical stylus/device signoff and scheduler-specific wall-clock cadence claims.
+Areas36–65 remain pending. Area36 read-only preparation does not activate it or capture
+a baseline before this area's completed commit.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1253,7 +1312,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 32 | Colour panel: RGB/HSV, FG/BG swap/copy, opacity, shared gradient swatches | ColorPickerPanel, palette slice | software-verified (Session39;11 native cases/392checks; focused local commit follows) |
 | 33 | Gradients: inline stops/history/Hex/Transparent, saved presets/customs/persistence, CC propagation | gradient editor, saved brush gradients, palette/CC state | software-verified (Session39;11 native cases/506 checks; focused local commit follows) |
 | 34 | Colour Adjust: scalar adjustments, ranges/pick, preview/cancel/apply, selection, CC data, history (Levels unavailable) | ColorAdjustToolPanel, colorAdjust slice | software-verified (Session39;30 native cases/775 checks; focused local commit follows) |
-| 35 | Recolor: source modes, quantisation, palette/animation, layer conversion, history | recolor controls, RecolorManager | pending |
+| 35 | Recolor: source modes, quantisation, palette/animation, layer conversion, history | recolor controls, RecolorManager | software-verified (Session39;24 native cases/2147 checks; full gate/local receipt) |
 | 36 | Layers: add/rename/select/delete/duplicate, last layer, active fallback, history | LayersPanel, layers slice/services | pending |
 | 37 | Layers: reorder, multi-select, visibility/lock, opacity/blend, merge | LayersPanel, layer operations | pending |
 | 38 | Layer groups: create/name/collapse/reorder/visibility/opacity/delete, nested behavior | layer groups, LayersPanel | pending |

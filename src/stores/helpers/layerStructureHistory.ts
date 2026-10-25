@@ -57,6 +57,7 @@ export interface CommitLayerStructureHistoryOptions {
   afterSnapshot: LayerStructureSnapshot;
   label: string;
   metadata?: Record<string, unknown>;
+  runtimeLayerIds?: readonly string[];
 }
 
 export const commitLayerStructureHistory = ({
@@ -64,6 +65,7 @@ export const commitLayerStructureHistory = ({
   afterSnapshot,
   label,
   metadata,
+  runtimeLayerIds,
 }: CommitLayerStructureHistoryOptions): void => {
   try {
     const txn = historyManager.begin('layer-structure', metadata ?? {});
@@ -71,6 +73,7 @@ export const commitLayerStructureHistory = ({
       createLayerStructureDelta({
         before: beforeSnapshot,
         after: afterSnapshot,
+        runtimeLayerIds,
       }),
     );
     txn.commit(label);

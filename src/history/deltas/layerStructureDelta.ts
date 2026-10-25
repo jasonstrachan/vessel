@@ -19,6 +19,7 @@ import {
 } from '@/history/actionTypes';
 import { restoreOwnedProperties } from '@/history/storeStateCompensation';
 import { cloneUiShapes } from '@/utils/uiShape';
+import { cloneRecolorSettings } from '@/history/deltas/recolorDelta';
 
 export interface LayerStructureSnapshot {
   snapshot: CanvasSnapshot;
@@ -52,71 +53,88 @@ const cloneTxtShapes = (shapes: readonly TxtShape[]): TxtShape[] => shapes.map((
   selectionTreatments: shape.selectionTreatments?.map((range) => ({ ...range })),
 }));
 
-const cloneLayerForReplay = (layer: Layer): Layer => ({
-  ...layer,
-  imageData: cloneImageData(layer.imageData),
-  alignment: cloneLayerAlignment(layer.alignment),
-  adjustmentData: cloneAdjustmentLayerData(layer.adjustmentData),
-  colorCycleData: layer.colorCycleData
-    ? {
-        ...layer.colorCycleData,
-        colorCycleBrush: undefined,
-        isAnimating: false,
-        canvasImageData: cloneImageData(layer.colorCycleData.canvasImageData) ?? undefined,
-        eraseMaskImageData: cloneImageData(layer.colorCycleData.eraseMaskImageData) ?? undefined,
-        softEdgeMaskImageData: cloneImageData(layer.colorCycleData.softEdgeMaskImageData) ?? undefined,
-        gradient: layer.colorCycleData.gradient
-          ? layer.colorCycleData.gradient.map((stop) => ({ ...stop }))
-          : undefined,
-        gradientDefs: layer.colorCycleData.gradientDefs
-          ? layer.colorCycleData.gradientDefs.map((entry) => ({ ...entry }))
-          : undefined,
-        slotPalettes: layer.colorCycleData.slotPalettes
-          ? layer.colorCycleData.slotPalettes.map((entry) => ({
-              slot: entry.slot,
-              stops: entry.stops.map((stop) => ({ ...stop })),
-            }))
-          : undefined,
-        fgDerivedGradients: layer.colorCycleData.fgDerivedGradients
-          ? layer.colorCycleData.fgDerivedGradients.map((entry) => ({
-              ...entry,
-              spec: { ...entry.spec },
-            }))
-          : undefined,
-        derivedGradients: layer.colorCycleData.derivedGradients
-          ? layer.colorCycleData.derivedGradients.map((entry) => ({
-              ...entry,
-              spec: { ...entry.spec },
-            }))
-          : undefined,
-        gradientDefStore: layer.colorCycleData.gradientDefStore
-          ? layer.colorCycleData.gradientDefStore.map((entry) => ({
-              ...entry,
-              stops: entry.stops.map((stop) => ({ ...stop })),
-              sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
-            }))
-          : undefined,
-      }
-    : undefined,
-  sequentialData: layer.sequentialData
-    ? {
-        ...layer.sequentialData,
-        events: layer.sequentialData.events.map((event) => ({
-          ...event,
-          brush: {
-            ...event.brush,
-            pluginConfig: event.brush.pluginConfig
-              ? { ...event.brush.pluginConfig }
-              : event.brush.pluginConfig,
-            colorCycleGradient: event.brush.colorCycleGradient
-              ? event.brush.colorCycleGradient.map((stop) => ({ ...stop }))
-              : event.brush.colorCycleGradient,
-          },
-          stamps: event.stamps.map((stamp) => ({ ...stamp })),
-        })),
-      }
-    : undefined,
-});
+const cloneLayerForReplay = (layer: Layer): Layer => {
+  const imageData = cloneImageData(layer.imageData);
+  let framebuffer = layer.framebuffer;
+  if (layer.layerType === 'normal' && imageData) {
+    // A snapshot's runtime canvas can contain later converted pixels.
+    framebuffer = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(imageData.width, imageData.height)
+      : document.createElement('canvas');
+    framebuffer.width = imageData.width;
+    framebuffer.height = imageData.height;
+    const context = framebuffer.getContext('2d') as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
+    if (!context) throw new Error('Cannot restore normal layer pixels.');
+    context.putImageData(imageData, 0, 0);
+  }
+  return {
+    ...layer,
+    framebuffer,
+    imageData,
+    alignment: cloneLayerAlignment(layer.alignment),
+    adjustmentData: cloneAdjustmentLayerData(layer.adjustmentData),
+    colorCycleData: layer.colorCycleData
+      ? {
+          ...layer.colorCycleData,
+          recolorSettings: cloneRecolorSettings(layer.colorCycleData.recolorSettings),
+          colorCycleBrush: undefined,
+          isAnimating: false,
+          canvasImageData: cloneImageData(layer.colorCycleData.canvasImageData) ?? undefined,
+          eraseMaskImageData: cloneImageData(layer.colorCycleData.eraseMaskImageData) ?? undefined,
+          softEdgeMaskImageData: cloneImageData(layer.colorCycleData.softEdgeMaskImageData) ?? undefined,
+          gradient: layer.colorCycleData.gradient
+            ? layer.colorCycleData.gradient.map((stop) => ({ ...stop }))
+            : undefined,
+          gradientDefs: layer.colorCycleData.gradientDefs
+            ? layer.colorCycleData.gradientDefs.map((entry) => ({ ...entry }))
+            : undefined,
+          slotPalettes: layer.colorCycleData.slotPalettes
+            ? layer.colorCycleData.slotPalettes.map((entry) => ({
+                slot: entry.slot,
+                stops: entry.stops.map((stop) => ({ ...stop })),
+              }))
+            : undefined,
+          fgDerivedGradients: layer.colorCycleData.fgDerivedGradients
+            ? layer.colorCycleData.fgDerivedGradients.map((entry) => ({
+                ...entry,
+                spec: { ...entry.spec },
+              }))
+            : undefined,
+          derivedGradients: layer.colorCycleData.derivedGradients
+            ? layer.colorCycleData.derivedGradients.map((entry) => ({
+                ...entry,
+                spec: { ...entry.spec },
+              }))
+            : undefined,
+          gradientDefStore: layer.colorCycleData.gradientDefStore
+            ? layer.colorCycleData.gradientDefStore.map((entry) => ({
+                ...entry,
+                stops: entry.stops.map((stop) => ({ ...stop })),
+                sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
+              }))
+            : undefined,
+        }
+      : undefined,
+    sequentialData: layer.sequentialData
+      ? {
+          ...layer.sequentialData,
+          events: layer.sequentialData.events.map((event) => ({
+            ...event,
+            brush: {
+              ...event.brush,
+              pluginConfig: event.brush.pluginConfig
+                ? { ...event.brush.pluginConfig }
+                : event.brush.pluginConfig,
+              colorCycleGradient: event.brush.colorCycleGradient
+                ? event.brush.colorCycleGradient.map((stop) => ({ ...stop }))
+                : event.brush.colorCycleGradient,
+            },
+            stamps: event.stamps.map((stamp) => ({ ...stamp })),
+          })),
+        }
+      : undefined,
+  };
+};
 
 const cloneLayersForReplay = (layers: Layer[]): Layer[] => layers.map((layer) => cloneLayerForReplay(layer));
 
@@ -133,11 +151,14 @@ const collectLayerTargets = (targets: HistoryRehydrationTargets, layers: Layer[]
 class LayerStructureDelta implements HistoryDelta {
   readonly _tag = 'layer-structure';
   readonly approxBytes?: number;
+  private readonly runtimeLayerIds?: ReadonlySet<string>;
 
   constructor(
     private readonly beforeSnapshot: LayerStructureSnapshot,
     private readonly afterSnapshot: LayerStructureSnapshot,
+    runtimeLayerIds?: readonly string[],
   ) {
+    this.runtimeLayerIds = runtimeLayerIds ? new Set(runtimeLayerIds) : undefined;
     const layerCount =
       (beforeSnapshot.snapshot.layers?.length ?? 0) + (afterSnapshot.snapshot.layers?.length ?? 0);
     this.approxBytes = Math.max(1024, layerCount * 512);
@@ -277,17 +298,22 @@ class LayerStructureDelta implements HistoryDelta {
   }
 
   collectRehydrationTargets(targets: HistoryRehydrationTargets): void {
-    collectLayerTargets(targets, this.beforeSnapshot.snapshot.layers ?? []);
-    collectLayerTargets(targets, this.afterSnapshot.snapshot.layers ?? []);
+    const scoped = (layers: Layer[]) => this.runtimeLayerIds
+      ? layers.filter((layer) => this.runtimeLayerIds!.has(layer.id))
+      : layers;
+    collectLayerTargets(targets, scoped(this.beforeSnapshot.snapshot.layers ?? []));
+    collectLayerTargets(targets, scoped(this.afterSnapshot.snapshot.layers ?? []));
   }
 }
 
 interface LayerStructureDeltaOptions {
   before: LayerStructureSnapshot;
   after: LayerStructureSnapshot;
+  runtimeLayerIds?: readonly string[];
 }
 
 export const createLayerStructureDelta = ({
   before,
   after,
-}: LayerStructureDeltaOptions): HistoryDelta => new LayerStructureDelta(before, after);
+  runtimeLayerIds,
+}: LayerStructureDeltaOptions): HistoryDelta => new LayerStructureDelta(before, after, runtimeLayerIds);

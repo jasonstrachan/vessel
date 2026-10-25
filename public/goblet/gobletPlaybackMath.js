@@ -863,3 +863,38 @@ export const hasVisibleGobletAlpha = (alphaBuffer) => {
   }
   return false;
 };
+
+/** Recolor indices are full palette codes, including zero; brush indices use a different contract.
+ * @param {number} index
+ * @param {{cycleColors: number, mappingMode?: string, indexPhaseMap?: ArrayLike<number> | null, animation: {flowDirection: string}}} settings
+ * @param {number} tick
+ */
+export const resolveRecolorPalettePosition = (index, settings, tick) => {
+  const bands = Math.max(1, Math.floor(settings.cycleColors));
+  const mapped = settings.indexPhaseMap ? settings.indexPhaseMap[index] / 255 : null;
+  const base = settings.mappingMode === 'continuous'
+    ? (mapped ?? index / 255)
+    : (mapped === null ? (index % bands) / bands
+      : Math.max(0, Math.min(bands - 1, Math.floor(mapped * bands))) / bands);
+  const flow = settings.animation.flowDirection;
+  const shift = (flow === 'reverse' ? -1 : 1) * tick / bands;
+  let position;
+  if (flow === 'pingpong' || flow === 'bounce') {
+    let phase = (base + shift) % 2;
+    if (phase < 0) phase += 2;
+    position = phase <= 1 ? phase : 2 - phase;
+  } else {
+    const phase = base + shift % 1;
+    position = ((phase % 1) + 1) % 1;
+  }
+  return Math.max(0, position >= 1 ? 0.999999 : position);
+};
+
+/** Stop opacity is Recolor material; ordinary brush normalization remains unchanged. */
+export const normalizeGobletRecolorGradientStops = (stops) => normalizeGobletGradientStops(
+  Array.isArray(stops) ? stops.map((stop) => {
+    const rgba = stop?.rgba ?? parseGobletColor(stop?.color ?? '#ffffff');
+    const opacity = Number.isFinite(stop?.opacity) ? clamp01(stop.opacity) : 1;
+    return { ...stop, rgba: { ...rgba, a: Math.round((rgba.a ?? 255) * opacity) } };
+  }) : stops,
+);

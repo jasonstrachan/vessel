@@ -203,6 +203,8 @@ const buildInlineGobletPlaybackMathRuntime = (playbackMathJs) => {
     'resolveGobletPhase01',
     'foldGobletPingpongPhase',
     'resolveGobletPalettePosition',
+    'resolveRecolorPalettePosition',
+    'normalizeGobletRecolorGradientStops',
     'clampGobletSlotId',
     'resolveGobletGradientSlot',
     'resolveGobletPaletteRow',

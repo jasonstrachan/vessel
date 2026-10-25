@@ -1,4 +1,5 @@
 import type { StoreApi } from 'zustand';
+import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import type { Project, CustomBrush, Layer } from '@/types';
 import { BrushShape } from '@/types';
 import {
@@ -277,6 +278,22 @@ export const createProjectLifecycle = ({
     const nextActiveLayerId = syncedLayers[0]?.id ?? null;
 
     historyManager.assertDocumentReplacementAvailable();
+    const recolorManager = RecolorManager.getInstance();
+    // Detach old document owners before transport setters can mutate their settings.
+    for (const layer of recolorManager.getRecolorLayers()) {
+      recolorManager.removeLayer(layer.id);
+    }
+    recolorManager.pause();
+    const savedRecolorFPS = syncedLayers
+      .filter((layer) => layer.layerType === 'color-cycle' && layer.colorCycleData?.mode === 'recolor')
+      .map((layer) => layer.colorCycleData?.recolorSettings?.animation.fps);
+    const agreedFPS = savedRecolorFPS[0];
+    if (
+      (agreedFPS === 15 || agreedFPS === 30 || agreedFPS === 60) &&
+      savedRecolorFPS.every((fps) => fps === agreedFPS)
+    ) {
+      recolorManager.setFPS(agreedFPS);
+    }
     resetColorCycleRuntimeForProjectReplacement('project-load');
 
     set({

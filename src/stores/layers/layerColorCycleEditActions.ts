@@ -1,5 +1,6 @@
 import type { StateCreator } from 'zustand';
 
+import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
 import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type {
@@ -65,26 +66,35 @@ export const createLayerColorCycleEditActions = ({
       return false;
     }
 
+    const isRecolor = sourceLayer.colorCycleData?.mode === 'recolor';
+    const width = stateBeforeConversion.project.width || 1;
+    const height = stateBeforeConversion.project.height || 1;
+    const sourceCanvas = isRecolor
+      ? sourceLayer.colorCycleData?.canvas ?? null
+      : (sourceLayer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
+        (hasValidFramebuffer(sourceLayer.framebuffer) ? sourceLayer.framebuffer : null);
+    // Recolor already publishes its completed frame; a brush runtime is a different owner.
+    if (isRecolor && (!hasValidFramebuffer(sourceCanvas) || sourceCanvas.width !== width || sourceCanvas.height !== height)) {
+      return false;
+    }
+
     const beforeSnapshot = captureLayerStructureSnapshot(stateBeforeConversion, {
       actionType: 'layer',
       description: 'Convert color-cycle layer to regular',
     });
-    const width = stateBeforeConversion.project.width || 1;
-    const height = stateBeforeConversion.project.height || 1;
-    const sourceCanvas =
-      (sourceLayer.colorCycleData?.canvas as HTMLCanvasElement | OffscreenCanvas | undefined) ??
-      (hasValidFramebuffer(sourceLayer.framebuffer) ? sourceLayer.framebuffer : null);
-    const brush = colorCycleBrushManager.getSurfaceBrush(layerId);
-
-    if (!brush || !sourceCanvas || typeof brush.renderDirectToCanvas !== 'function') {
-      return false;
+    if (!isRecolor) {
+      const brush = colorCycleBrushManager.getSurfaceBrush(layerId);
+      if (!brush || !sourceCanvas || typeof brush.renderDirectToCanvas !== 'function') {
+        return false;
+      }
+      try {
+        brush.renderDirectToCanvas(sourceCanvas as HTMLCanvasElement, layerId);
+      } catch (error) {
+        logError('[convertColorCycleLayerToNormal] Failed to render color-cycle layer', error);
+        return false;
+      }
     }
-    try {
-      brush.renderDirectToCanvas(sourceCanvas as HTMLCanvasElement, layerId);
-    } catch (error) {
-      logError('[convertColorCycleLayerToNormal] Failed to render color-cycle layer', error);
-      return false;
-    }
+    if (!sourceCanvas) return false;
 
     const compositeSource = bakeColorCycleLayerMasks({
       layer: sourceLayer,
@@ -141,7 +151,8 @@ export const createLayerColorCycleEditActions = ({
       layersNeedRecomposition: true,
     }));
 
-    colorCycleBrushManager.removeColorCycleBrush(layerId);
+    if (isRecolor) RecolorManager.getInstance().removeLayer(layerId);
+    else colorCycleBrushManager.removeColorCycleBrush(layerId);
     get().setActiveLayer(layerId, {
       previousActiveLayer: sourceLayer,
       forceLifecycle: true,
@@ -160,6 +171,7 @@ export const createLayerColorCycleEditActions = ({
       afterSnapshot,
       label: 'Convert to regular layer',
       metadata: { layerId, operation: 'convert-color-cycle-to-normal' },
+      runtimeLayerIds: isRecolor ? [layerId] : undefined,
     });
     get().markAllCompositeSegmentsDirty();
     scheduleSlotRebuild('convert-color-cycle-to-normal');
