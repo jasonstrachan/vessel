@@ -442,7 +442,7 @@ export function applyColorAdjustments(imageData: ImageData, options: ColorAdjust
       nextHue = (nextHue + hueShift + 360) % 360;
       nextSaturation = Math.max(0, Math.min(100, nextSaturation * saturationFactor));
 
-      if (vibrance > 0) {
+      if (vibrance > 0 && nextSaturation > 0) {
         const headroom = 100 - nextSaturation;
         nextSaturation = Math.max(0, Math.min(100, nextSaturation + headroom * (vibrance / 100)));
       } else if (vibrance < 0) {

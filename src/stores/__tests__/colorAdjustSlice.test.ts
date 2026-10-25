@@ -1,7 +1,21 @@
 import { useAppStore } from '@/stores/useAppStore';
-import type { Layer, Rectangle } from '@/types';
+import type { GradientSeamProfile, Layer, Rectangle } from '@/types';
 import { parseCssColor } from '@/utils/color/parseCssColor';
-import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
+import {
+  ColorCycleLayerDocument,
+  createColorCycleBrushPersistenceLayerMetaFromLayerData,
+  mergeColorCycleBrushPersistenceLayerMetaForOwner,
+  registerColorCycleBrushLayerSnapshotRuntime,
+  setColorCycleBrushPersistenceLayerMeta,
+  type ColorCycleBrushPersistenceLayerMeta,
+} from '@/lib/colorCycle/document';
+import * as layerHistory from '@/history/helpers/layerHistory';
+import * as layerStructureHistory from '@/stores/helpers/layerStructureHistory';
+import historyManager from '@/history/historyService';
+import type { GradientStop } from '@/lib/GradientPalette';
+import HistoryManager from '@/history/historyManager';
+import { createRehydrationTargets } from '@/history/runtimeRehydration';
+import { selectionSnapshotFromState } from '@/history/selectionState';
 
 // eslint-disable-next-line no-var
 var mockColorCycleBrushManager: {
@@ -338,6 +352,111 @@ describe('colorAdjustSlice preview performance path', () => {
   afterEach(() => {
     resetStore();
   });
+
+  it.each(['normal', 'color-cycle'] as const)(
+    'keeps %s material unchanged when an active selection is outside the layer',
+    async (type) => {
+      const source = new ImageData(new Uint8ClampedArray([0, 128, 255, 255, 64, 96, 128, 128]), 2, 1);
+      const gradient = [{ position: 0, color: '#0000ff' }, { position: 1, color: '#00ff00' }];
+      const layer = type === 'normal'
+        ? createLayer('outside-raster', source)
+        : createColorCycleLayer('outside-cc', gradient);
+      installProjectWithLayer(layer);
+      useAppStore.setState({
+        selectionStart: { x: -4, y: 0 },
+        selectionEnd: { x: 0, y: 1 },
+      });
+
+      const store = useAppStore.getState();
+      const historyBefore = historyManager.entries().length;
+      store.startColorAdjustSession();
+      store.updateColorAdjustParams({ hue: 120 });
+      store.previewColorAdjust();
+      await store.applyColorAdjust();
+
+      const updated = useAppStore.getState().layers[0];
+      if (type === 'normal') {
+        expect(Array.from(updated.imageData!.data)).toEqual(Array.from(source.data));
+      } else {
+        expect(updated.colorCycleData?.gradient).toEqual(gradient);
+        expect(updated.colorCycleData?.slotPalettes?.[0].stops).toEqual(gradient);
+      }
+      expect(useAppStore.getState().selectionStart).toEqual({ x: -4, y: 0 });
+      expect(useAppStore.getState().selectionEnd).toEqual({ x: 0, y: 1 });
+      expect(historyManager.entries()).toHaveLength(historyBefore);
+    },
+  );
+
+  it.each(['normal', 'color-cycle'] as const)(
+    'discards a pending %s preview if its target becomes locked before Apply',
+    async (type) => {
+      const source = new ImageData(new Uint8ClampedArray([0, 128, 255, 255, 64, 96, 128, 128]), 2, 1);
+      const gradient = [{ position: 0, color: '#0000ff' }, { position: 1, color: '#00ff00' }];
+      const layer = type === 'normal'
+        ? createLayer('lock-raster', source)
+        : createColorCycleLayer('lock-cc', gradient);
+      installProjectWithLayer(layer);
+      const store = useAppStore.getState();
+      store.startColorAdjustSession();
+      store.updateColorAdjustParams({ hue: 120 });
+      store.previewColorAdjust();
+      const preview = useAppStore.getState().layers[0];
+      if (type === 'normal') {
+        expect(Array.from(preview.imageData!.data)).not.toEqual(Array.from(source.data));
+      } else {
+        expect(preview.colorCycleData?.gradient).not.toEqual(gradient);
+      }
+
+      store.updateLayer(layer.id, { locked: true });
+      await store.applyColorAdjust();
+
+      const updated = useAppStore.getState().layers[0];
+      expect(updated.locked).toBe(true);
+      if (type === 'normal') {
+        expect(Array.from(updated.imageData!.data)).toEqual(Array.from(source.data));
+      } else {
+        expect(updated.colorCycleData?.gradient).toEqual(gradient);
+        expect(updated.colorCycleData?.slotPalettes?.[0].stops).toEqual(gradient);
+      }
+    },
+  );
+
+  it.each(['normal', 'color-cycle'] as const)(
+    'cancels the complete mixed session if its %s target becomes locked',
+    async (lockedType) => {
+      const source = new ImageData(new Uint8ClampedArray([0, 128, 255, 255, 64, 96, 128, 128]), 2, 1);
+      const gradient = [{ position: 0, color: '#0000ff' }, { position: 1, color: '#00ff00' }];
+      const normal = createLayer('mixed-raster', source);
+      const cc = createColorCycleLayer('mixed-cc', gradient);
+      installProjectWithLayers([normal, cc], cc.id);
+      useAppStore.setState({ selectedLayerIds: [normal.id, cc.id] });
+      const store = useAppStore.getState();
+      store.startColorAdjustSession();
+      store.updateColorAdjustParams({ hue: 120 });
+      store.previewColorAdjust();
+      expect(Array.from(useAppStore.getState().layers[0].imageData!.data))
+        .not.toEqual(Array.from(source.data));
+      expect(useAppStore.getState().layers[1].colorCycleData?.gradient).not.toEqual(gradient);
+
+      store.updateLayer(lockedType === 'normal' ? normal.id : cc.id, { locked: true });
+      const rasterCommit = jest.spyOn(layerHistory, 'commitLayerHistory');
+      const ccCommit = jest.spyOn(layerStructureHistory, 'commitLayerStructureHistory');
+      try {
+        await store.applyColorAdjust();
+        const state = useAppStore.getState();
+        expect(Array.from(state.layers[0].imageData!.data)).toEqual(Array.from(source.data));
+        expect(state.layers[1].colorCycleData?.gradient).toEqual(gradient);
+        expect(state.layers[0].locked).toBe(lockedType === 'normal');
+        expect(state.layers[1].locked).toBe(lockedType === 'color-cycle');
+        expect(state.colorAdjust.active).toBe(false);
+        expect(rasterCommit).not.toHaveBeenCalled();
+        expect(ccCommit).not.toHaveBeenCalled();
+      } finally {
+        rasterCommit.mockRestore();
+        ccCommit.mockRestore();
+      }
+    },
+  );
 
   it('limits adjustments to the selection ROI and leaves outside pixels untouched', () => {
     // 4x4 green image
@@ -876,6 +995,136 @@ describe('colorAdjustSlice preview performance path', () => {
     expect(syncGradientDefRuntime).toHaveBeenCalledWith('cc-def-runtime');
   });
 
+  it('publishes the current whole-layer palette with restored paint after consecutive previews', () => {
+    const layerId = 'cc-current-preview-document';
+    const sourceStops = [
+      { position: 0, color: 'rgb(255, 0, 0)', opacity: 1 },
+      { position: 0.5, color: 'rgb(0, 255, 0)', opacity: 1 },
+      { position: 1, color: 'rgb(0, 0, 255)', opacity: 1 },
+    ];
+    const layer = createColorCycleLayer(layerId, sourceStops);
+    layer.colorCycleData = {
+      ...layer.colorCycleData,
+      gradientDefStore: [{
+        id: 1,
+        kind: 'concentric',
+        stops: sourceStops,
+        sourceStops,
+        hash: 'original-rgb',
+        source: 'manual',
+        createdAtMs: 0,
+        slot: 0,
+      }],
+    };
+    installProjectWithLayer(layer);
+
+    const planes = {
+      paintBuffer: new Uint8Array([1, 1]).buffer,
+      gradientIdBuffer: new Uint8Array([0, 0]).buffer,
+      gradientDefIdBuffer: new Uint16Array([1, 1]).buffer,
+      speedBuffer: new Uint8Array([25, 25]).buffer,
+      flowBuffer: new Uint8Array([1, 1]).buffer,
+      phaseBuffer: new Uint8Array([0, 0]).buffer,
+    };
+    const serializeStop = (stop: GradientStop) => ({
+      ...stop,
+      color: typeof stop.color === 'string'
+        ? stop.color
+        : `rgb(${stop.color.r}, ${stop.color.g}, ${stop.color.b})`,
+    });
+    const readSeamProfile = (value: unknown): GradientSeamProfile | undefined => {
+      if (value === undefined || value === 'hard' || value === 'soft') return value;
+      throw new Error('Unexpected fixture gradient seam profile');
+    };
+    const documentMetadata = (metadata: ColorCycleBrushPersistenceLayerMeta | null) => ({
+      ...metadata,
+      slotPalettes: metadata?.slotPalettes?.map((entry) => ({
+        ...entry,
+        stops: entry.stops.map(serializeStop),
+        seamProfile: readSeamProfile(entry.seamProfile),
+      })),
+      gradientDefStore: metadata?.gradientDefStore?.map((entry) => ({
+        ...entry,
+        stops: entry.stops.map(serializeStop),
+        sourceStops: entry.sourceStops?.map(serializeStop),
+        seamProfile: readSeamProfile(entry.seamProfile),
+      })),
+    });
+    const document = new ColorCycleLayerDocument({
+      layerId,
+      width: 2,
+      height: 1,
+      ...planes,
+      ...documentMetadata(createColorCycleBrushPersistenceLayerMetaFromLayerData(layer.colorCycleData)),
+      hasContent: true,
+      sources: { brushStateSnapshot: true, topLevelBuffers: false, legacyStateRefs: false },
+    });
+    const brush = {
+      getColorCycleLayerDocument: () => document,
+      setLayerColorCycleMeta: (id: string, meta: ColorCycleBrushPersistenceLayerMeta | null) => {
+        setColorCycleBrushPersistenceLayerMeta(brush, id, meta);
+      },
+      syncGradientDefRuntime: jest.fn(),
+    };
+    registerColorCycleBrushLayerSnapshotRuntime(brush, {
+      apply: (id, snapshot) => {
+        // The runtime publication boundary assembles paint with metadata visible now.
+        const currentLayer = useAppStore.getState().layers.find((entry) => entry.id === id);
+        const metadata = mergeColorCycleBrushPersistenceLayerMetaForOwner(
+          brush,
+          id,
+          createColorCycleBrushPersistenceLayerMetaFromLayerData(currentLayer?.colorCycleData),
+        );
+        document.replaceState({
+          ...document.read().snapshot,
+          ...documentMetadata(metadata),
+          paintBuffer: snapshot.paintBuffer?.slice(0),
+          gradientIdBuffer: snapshot.gradientIdBuffer?.slice(0),
+          gradientDefIdBuffer: snapshot.gradientDefIdBuffer?.slice(0),
+          speedBuffer: snapshot.speedBuffer?.slice(0),
+          flowBuffer: snapshot.flowBuffer?.slice(0),
+          phaseBuffer: snapshot.phaseBuffer?.slice(0),
+          hasContent: snapshot.hasContent ?? false,
+        }, 'snapshot-apply');
+      },
+    });
+    mockColorCycleBrushManager.getSelectionMutationBrush.mockReturnValue(brush);
+    mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue(brush);
+    const store = useAppStore.getState();
+    const original = document.read().snapshot;
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ hue: 121 });
+    store.previewColorAdjust();
+    store.updateColorAdjustParams({ hue: 120 });
+    store.previewColorAdjust();
+
+    const rgb = (stops: Array<{ color: string }> | undefined) => stops?.map((stop) => {
+      const parsed = parseCssColor(stop.color);
+      return [parsed.r, parsed.g, parsed.b];
+    });
+    const expected = [[0, 255, 0], [0, 0, 255], [255, 0, 0]];
+    const currentData = useAppStore.getState().layers[0].colorCycleData;
+    expect(rgb(currentData?.gradientDefStore?.[0].stops)).toEqual(expected);
+    const published = document.read().snapshot;
+    expect(rgb(published.gradientDefStore?.[0].stops)).toEqual(expected);
+    expect(rgb(published.gradientDefStore?.[0].sourceStops)).toEqual(expected);
+    expect(rgb(published.slotPalettes?.[0].stops)).toEqual(expected);
+    for (const key of Object.keys(planes) as Array<keyof typeof planes>) {
+      expect(published[key]).toEqual(original[key]);
+    }
+
+    store.resetColorAdjustParams();
+    store.previewColorAdjust();
+    expect(document.read().snapshot).toEqual(original);
+    store.updateColorAdjustParams({ hue: 121 });
+    store.previewColorAdjust();
+    store.updateColorAdjustParams({ hue: 120 });
+    store.previewColorAdjust();
+    expect(rgb(document.read().snapshot.gradientDefStore?.[0].stops)).toEqual(expected);
+    store.cancelColorAdjust();
+    expect(document.read().snapshot).toEqual(original);
+  });
+
   it('applies hue-range targeting to color-cycle gradients', () => {
     const layer = createColorCycleLayer('cc-targeted-layer', [
       { position: 0, color: 'rgb(255, 0, 0)' },
@@ -918,6 +1167,268 @@ describe('colorAdjustSlice preview performance path', () => {
     const updatedGradient = useAppStore.getState().layers[0]?.colorCycleData?.gradient ?? [];
     expect(parseCssColor(updatedGradient[0]?.color ?? '#000000')).toMatchObject({ r: 128, g: 128, b: 128 });
     expect(parseCssColor(updatedGradient[1]?.color ?? '#000000')).toMatchObject({ r: 255, g: 255, b: 0 });
+  });
+
+  it.each(['neutral entry', 'positive preview then Reset', 'no-input Apply'] as const)(
+    'preserves selected CC bindings and neutral history for %s',
+    async (scenario) => {
+      const sourceStops = [
+        { position: 0, color: 'rgb(255, 0, 0)', opacity: 1 },
+        { position: 1, color: 'rgb(255, 255, 0)', opacity: 1 },
+      ];
+      const layer = createColorCycleLayerWithDefStoreOnly('cc-neutral-selected', sourceStops);
+      layer.colorCycleData = {
+        ...layer.colorCycleData,
+        gradient: sourceStops,
+        gradientDefs: [{ id: 'g0', currentSlot: 0 }],
+        slotPalettes: [{ slot: 0, stops: sourceStops }],
+        gradientDefStore: layer.colorCycleData?.gradientDefStore?.map((entry) => ({ ...entry, slot: 0 })),
+        activeGradientId: 'g0',
+        paintSlot: 0,
+      };
+      installProjectWithLayer(layer);
+      const currentSnapshot = {
+        paintBuffer: new Uint8Array([1, 1]).buffer,
+        gradientIdBuffer: new Uint8Array([0, 0]).buffer,
+        gradientDefIdBuffer: new Uint16Array([1, 1]).buffer,
+        speedBuffer: new Uint8Array([25, 25]).buffer,
+        flowBuffer: new Uint8Array([1, 1]).buffer,
+        phaseBuffer: new Uint8Array([0, 0]).buffer,
+        hasContent: true,
+        strokeCounter: 0,
+      };
+      const originalSnapshot = structuredClone(currentSnapshot);
+      const brush = registerMockColorCycleSnapshotRuntime({
+        getColorCycleLayerDocument: () => makeColorCycleLayerDocumentReader(layer.id, currentSnapshot),
+        getCanvas: () => layer.framebuffer,
+        renderDirectToCanvas: jest.fn(),
+        setLayerColorCycleMeta: jest.fn(),
+        syncGradientDefRuntime: jest.fn(),
+      }, currentSnapshot);
+      mockColorCycleBrushManager.getSelectionMutationBrush.mockReturnValue(brush);
+      mockColorCycleBrushManager.getSurfaceBrush.mockReturnValue(brush);
+      mockColorCycleBrushManager.getGradientApplyBrush.mockReturnValue(brush);
+      mockColorCycleBrushManager.getHistoryBrush.mockReturnValue(brush);
+      useAppStore.setState({
+        selectionStart: { x: 0, y: 0 },
+        selectionEnd: { x: 1, y: 1 },
+      });
+      const metadata = () => {
+        const data = useAppStore.getState().layers[0].colorCycleData;
+        return structuredClone({
+          gradient: data?.gradient,
+          gradientDefs: data?.gradientDefs,
+          slotPalettes: data?.slotPalettes,
+          gradientDefStore: data?.gradientDefStore,
+          nextGradientDefId: data?.nextGradientDefId,
+          paintSlot: data?.paintSlot,
+        });
+      };
+      const originalMetadata = metadata();
+      const historyBefore = historyManager.entries().length;
+      const store = useAppStore.getState();
+      store.startColorAdjustSession();
+
+      if (scenario === 'positive preview then Reset') {
+        store.updateColorAdjustParams({ hue: 120 });
+        store.previewColorAdjust();
+        expect(Array.from(new Uint16Array(currentSnapshot.gradientDefIdBuffer))).toEqual([2, 1]);
+        const adjusted = useAppStore.getState().layers[0].colorCycleData?.gradientDefStore?.find(
+          (entry) => entry.id === 2,
+        );
+        expect(parseCssColor(adjusted?.stops[0].color ?? '#000000')).toMatchObject({ r: 0, g: 255, b: 0 });
+        store.resetColorAdjustParams();
+        store.previewColorAdjust();
+      } else if (scenario === 'no-input Apply') {
+        await store.applyColorAdjust();
+      } else {
+        store.previewColorAdjust();
+      }
+
+      expect(Array.from(new Uint8Array(currentSnapshot.gradientIdBuffer))).toEqual([0, 0]);
+      expect(Array.from(new Uint16Array(currentSnapshot.gradientDefIdBuffer))).toEqual([1, 1]);
+      expect(currentSnapshot).toEqual(originalSnapshot);
+      expect(metadata()).toEqual(originalMetadata);
+      expect(historyManager.entries()).toHaveLength(historyBefore);
+      store.cancelColorAdjust();
+    },
+  );
+
+  it('replays mixed raster and CC edits without rewinding the raster twice', async () => {
+    historyManager.clear();
+    const source = new ImageData(new Uint8ClampedArray([255, 0, 0, 255, 255, 0, 0, 255]), 2, 1);
+    const normal = createLayer('mixed-history-normal', source);
+    const cc = createColorCycleLayer('mixed-history-cc', [
+      { position: 0, color: '#ff0000' },
+      { position: 1, color: '#0000ff' },
+    ]);
+    if (!(normal.framebuffer instanceof HTMLCanvasElement)) throw new Error('Expected normal fixture canvas');
+    const context = normal.framebuffer.getContext('2d');
+    if (!context) throw new Error('Expected normal fixture context');
+    let framebufferPixels = source.data.slice();
+    const putPixels = jest.spyOn(context, 'putImageData').mockImplementation((image) => {
+      framebufferPixels = image.data.slice();
+    });
+    const getPixels = jest.spyOn(context, 'getImageData').mockImplementation((x, y, width, height) => {
+      const data = new Uint8ClampedArray(width * height * 4);
+      for (let row = 0; row < height; row++) {
+        for (let col = 0; col < width; col++) {
+          const offset = ((y + row) * 2 + x + col) * 4;
+          data.set(framebufferPixels.subarray(offset, offset + 4), (row * width + col) * 4);
+        }
+      }
+      return new ImageData(data, width, height);
+    });
+    const capture = jest.spyOn(layerStructureHistory, 'captureLayerStructureSnapshot');
+    try {
+      installProjectWithLayers([normal, cc], normal.id);
+      useAppStore.setState({ selectedLayerIds: [normal.id, cc.id] });
+      const ccMetadata = () => {
+        const data = useAppStore.getState().layers.find((layer) => layer.id === cc.id)?.colorCycleData;
+        return structuredClone({
+          gradient: data?.gradient,
+          gradientDefs: data?.gradientDefs,
+          gradientDefStore: data?.gradientDefStore,
+          slotPalettes: data?.slotPalettes,
+          activeGradientId: data?.activeGradientId,
+          paintSlot: data?.paintSlot,
+          nextGradientDefId: data?.nextGradientDefId,
+        });
+      };
+      const originalCcMetadata = ccMetadata();
+      const store = useAppStore.getState();
+      store.startColorAdjustSession();
+      const initialCapture = capture.mock.results[0];
+      if (!initialCapture || initialCapture.type !== 'return') throw new Error('Expected session baseline');
+      const sessionBaseline = initialCapture.value;
+      store.updateColorAdjustParams({ hue: 120 });
+      store.previewColorAdjust();
+      await store.applyColorAdjust();
+      const emitted = historyManager.entries();
+      expect(emitted.map((entry) => entry.deltas.map((delta) => delta._tag))).toEqual([
+        ['bitmap-tile'],
+        ['layer-structure'],
+      ]);
+      const afterCapture = capture.mock.results[1];
+      if (!afterCapture || afterCapture.type !== 'return') throw new Error('Expected CC after snapshot');
+      const afterSnapshot = afterCapture.value;
+      const committedCcMetadata = ccMetadata();
+      // Only external renderer hydration is isolated; replay uses the actual emitted deltas.
+      const replay = new HistoryManager({
+        runtimeRehydration: { createTargets: createRehydrationTargets, rehydrate: async () => {} },
+      });
+      for (const entry of emitted) {
+        const transaction = replay.begin(entry.action, entry.meta);
+        entry.deltas.forEach((delta) => transaction.push(delta));
+        transaction.commit(entry.label);
+      }
+      const red = [255, 0, 0, 255, 255, 0, 0, 255];
+      const green = [0, 255, 0, 255, 0, 255, 0, 255];
+      const expectMaterial = (
+        raster: number[],
+        ccRgb: { r: number; g: number; b: number },
+        expectedCcMetadata: ReturnType<typeof ccMetadata>,
+      ) => {
+        const layers = useAppStore.getState().layers;
+        const rasterLayer = layers.find((layer) => layer.id === normal.id);
+        const ccLayer = layers.find((layer) => layer.id === cc.id);
+        const framebuffer = rasterLayer?.framebuffer;
+        if (!(framebuffer instanceof HTMLCanvasElement)) throw new Error('Expected replayed normal canvas');
+        expect(Array.from(rasterLayer?.imageData?.data ?? [])).toEqual(raster);
+        expect(Array.from(framebuffer.getContext('2d')?.getImageData(0, 0, 2, 1).data ?? [])).toEqual(raster);
+        expect(parseCssColor(ccLayer?.colorCycleData?.slotPalettes?.[0].stops[0].color ?? '#000000')).toMatchObject(ccRgb);
+        expect(ccMetadata()).toEqual(expectedCcMetadata);
+      };
+      expectMaterial(green, { r: 0, g: 255, b: 0 }, committedCcMetadata);
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await replay.undo();
+        expectMaterial(green, { r: 255, g: 0, b: 0 }, originalCcMetadata);
+        expect(replay.entries()).toHaveLength(1);
+        await replay.undo();
+        expectMaterial(red, { r: 255, g: 0, b: 0 }, originalCcMetadata);
+        expect(replay.entries()).toHaveLength(0);
+        await replay.redo();
+        expectMaterial(green, { r: 255, g: 0, b: 0 }, originalCcMetadata);
+        expect(replay.entries()).toHaveLength(1);
+        await replay.redo();
+        expectMaterial(green, { r: 0, g: 255, b: 0 }, committedCcMetadata);
+        expect(replay.entries()).toHaveLength(2);
+      }
+      expect(Array.from(sessionBaseline.snapshot.layers.find((layer) => layer.id === normal.id)?.imageData?.data ?? [])).toEqual(red);
+      expect(Array.from(afterSnapshot.snapshot.layers.find((layer) => layer.id === normal.id)?.imageData?.data ?? [])).toEqual(green);
+    } finally {
+      capture.mockRestore();
+      putPixels.mockRestore();
+      getPixels.mockRestore();
+      historyManager.clear();
+    }
+  });
+
+  it('preserves a normal selection mask and vector while replaying its adjusted pixels', async () => {
+    historyManager.clear();
+    const source = new ImageData(new Uint8ClampedArray([
+      255, 0, 0, 255, 255, 0, 0, 255,
+      255, 0, 0, 255, 255, 0, 0, 255,
+    ]), 2, 2);
+    const layer = createLayer('masked-normal-history', source);
+    installProjectWithLayer(layer);
+    const mask = new ImageData(new Uint8ClampedArray([
+      0, 0, 0, 255, 0, 0, 0, 255,
+      0, 0, 0, 255, 0, 0, 0, 0,
+    ]), 2, 2);
+    useAppStore.setState({
+      selectionStart: { x: 0, y: 0 },
+      selectionEnd: { x: 2, y: 2 },
+      selectionMask: mask,
+      selectionMaskBounds: { x: 0, y: 0, width: 2, height: 2 },
+      selectionMaskLayerId: layer.id,
+      selectionVectorPath: {
+        mode: 'freehand',
+        points: [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 1 }, { x: 1, y: 1 }, { x: 1, y: 2 }, { x: 0, y: 2 }],
+      },
+      selectionLastAction: {
+        action: 'set-bounds',
+        source: 'freehand-selection',
+        ownerKind: 'mask-selection',
+        t: 123,
+        activeLayerId: layer.id,
+        maskLayerId: layer.id,
+        bounds: { x: 0, y: 0, width: 2, height: 2 },
+      },
+    });
+    const originalSelection = selectionSnapshotFromState(useAppStore.getState());
+    const store = useAppStore.getState();
+    store.startColorAdjustSession();
+    store.updateColorAdjustParams({ hue: 120 });
+    store.previewColorAdjust();
+    await store.applyColorAdjust();
+    const adjusted = [
+      0, 255, 0, 255, 0, 255, 0, 255,
+      0, 255, 0, 255, 255, 0, 0, 255,
+    ];
+    expect(Array.from(useAppStore.getState().layers[0].imageData?.data ?? [])).toEqual(adjusted);
+    expect(selectionSnapshotFromState(useAppStore.getState())).toEqual(originalSelection);
+    expect(historyManager.entries()).toHaveLength(1);
+    const replay = new HistoryManager({
+      runtimeRehydration: { createTargets: createRehydrationTargets, rehydrate: async () => {} },
+    });
+    for (const entry of historyManager.entries()) {
+      const transaction = replay.begin(entry.action, entry.meta);
+      entry.deltas.forEach((delta) => transaction.push(delta));
+      transaction.commit(entry.label);
+    }
+    try {
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await replay.undo();
+        expect(Array.from(useAppStore.getState().layers[0].imageData?.data ?? [])).toEqual(Array.from(source.data));
+        expect(selectionSnapshotFromState(useAppStore.getState())).toEqual(originalSelection);
+        await replay.redo();
+        expect(Array.from(useAppStore.getState().layers[0].imageData?.data ?? [])).toEqual(adjusted);
+        expect(selectionSnapshotFromState(useAppStore.getState())).toEqual(originalSelection);
+      }
+    } finally {
+      historyManager.clear();
+    }
   });
 
   it('limits color-cycle preview adjustments to the selected region by remapping slot ids', () => {

@@ -7,7 +7,7 @@ import {
   resolveSelectionRasterScope,
 } from '@/stores/helpers/selectionRoi';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
-import { selectionSnapshotFromValues } from '@/history/selectionState';
+import { selectionSnapshotFromState } from '@/history/selectionState';
 import { copyScalarRegion } from '@/stores/helpers/selectionCapture';
 import {
   captureLayerStructureSnapshot,
@@ -1012,6 +1012,16 @@ const previewColorCycleLayerAdjustments = ({
   }, layer.imageData?.width ?? state.project?.width ?? 0, layer.imageData?.height ?? state.project?.height ?? 0);
 
   if (
+    !colorCycleSelectionScope.bounds &&
+    ((state.selectionStart && state.selectionEnd) ||
+      (colorCycleSelectionScope.selectionMask && colorCycleSelectionScope.selectionMaskBounds))
+  ) {
+    restoreColorCycleLayerAdjustments({ state, set, get, layer });
+    return;
+  }
+
+  if (
+    hasColorAdjustments(params) &&
     originalRuntimeSnapshot &&
     !originalColorCycleData.recolorSettings &&
     previewSelectedColorCycleRegion(
@@ -1028,7 +1038,9 @@ const previewColorCycleLayerAdjustments = ({
     return;
   }
 
-  restoreColorCycleRuntimeSnapshot(layer, originalRuntimeSnapshot);
+  if (originalColorCycleData.mode === 'recolor' && originalColorCycleData.recolorSettings) {
+    restoreColorCycleRuntimeSnapshot(layer, originalRuntimeSnapshot);
+  }
   const nextColorCycleData = hasColorAdjustments(params)
     ? buildAdjustedColorCycleData(originalColorCycleData, params)
     : cloneColorCycleData(originalColorCycleData);
@@ -1054,6 +1066,8 @@ const previewColorCycleLayerAdjustments = ({
   } else {
     requestGradientApply(layer.id, 'color-adjust-preview');
     refreshColorCycleGradientDefRuntime(layer.id, nextColorCycleData);
+    // Snapshot publication must pair pristine paint with this preview's palette metadata.
+    restoreColorCycleRuntimeSnapshot(layer, originalRuntimeSnapshot);
     rerenderColorCycleLayerSurface(get, layer.id, dirtyRects);
   }
 
@@ -1084,6 +1098,14 @@ const previewRasterLayerAdjustments = ({
     selectionMask: state.selectionMask,
     selectionMaskBounds: state.selectionMaskBounds,
   }, originalImageData.width, originalImageData.height);
+  if (
+    !selectionScope.bounds &&
+    ((state.selectionStart && state.selectionEnd) ||
+      (selectionScope.selectionMask && selectionScope.selectionMaskBounds))
+  ) {
+    restoreRasterLayerAdjustments({ state, layer, markLayersNeedRecomposition });
+    return;
+  }
   const selectionBounds = selectionScope.bounds ?? resolveSelectionBounds(
     state,
     originalImageData.width,
@@ -1232,7 +1254,7 @@ const commitRasterColorAdjustHistory = async ({
 }): Promise<void> => {
   const selectionSnapshot =
     state.selectionStart && state.selectionEnd
-      ? selectionSnapshotFromValues(state.selectionStart, state.selectionEnd)
+      ? selectionSnapshotFromState(state)
       : null;
 
   for (const targetLayerId of targetLayerIds) {
@@ -1277,9 +1299,24 @@ const commitColorCycleColorAdjustHistory = ({
   refreshedState: AppState;
   targetLayerIds: string[];
 }): void => {
+  if (!hasColorAdjustments(refreshedState.colorAdjust.params)) {
+    return;
+  }
+
   const colorCycleTargetIds = targetLayerIds.filter((targetLayerId) => {
     const layer = refreshedState.layers.find((entry) => entry.id === targetLayerId);
-    return layer?.layerType === 'color-cycle';
+    if (layer?.layerType !== 'color-cycle') return false;
+    const scope = resolveSelectionRasterScope({
+      selectionStart: refreshedState.selectionStart,
+      selectionEnd: refreshedState.selectionEnd,
+      selectionMask: refreshedState.selectionMask,
+      selectionMaskBounds: refreshedState.selectionMaskBounds,
+    }, layer.imageData?.width ?? refreshedState.project?.width ?? 0, layer.imageData?.height ?? refreshedState.project?.height ?? 0);
+    const hasSelection = Boolean(
+      (refreshedState.selectionStart && refreshedState.selectionEnd) ||
+      (scope.selectionMask && scope.selectionMaskBounds)
+    );
+    return !hasSelection || Boolean(scope.bounds);
   });
 
   if (colorCycleTargetIds.length === 0) {
@@ -1298,9 +1335,30 @@ const commitColorCycleColorAdjustHistory = ({
     return;
   }
 
+  const rasterTargetIds = new Set(targetLayerIds);
+  const committedRasterLayers = new Map(afterSnapshot.snapshot.layers
+    .filter((layer) => layer.layerType === 'normal' && rasterTargetIds.has(layer.id))
+    .map((layer) => [layer.id, layer]));
+  const colorCycleBeforeSnapshot: LayerStructureSnapshot = {
+    ...beforeSnapshot,
+    snapshot: {
+      ...beforeSnapshot.snapshot,
+      layers: beforeSnapshot.snapshot.layers.map((layer) => {
+        const committedRaster = committedRasterLayers.get(layer.id);
+        if (!committedRaster) return layer;
+        // Raster history owns this edit; the later CC entry must leave its bitmap alone.
+        return {
+          ...layer,
+          imageData: cloneLayerImageData(committedRaster.imageData),
+          framebuffer: committedRaster.framebuffer,
+        };
+      }),
+    },
+  };
+
   commitLayerStructureHistory({
     set,
-    beforeSnapshot,
+    beforeSnapshot: colorCycleBeforeSnapshot,
     afterSnapshot,
     label: 'Color adjust',
     metadata: {
@@ -1415,6 +1473,12 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
       return;
     }
 
+    if (targetLayerIds.some((id) => state.layers.find((layer) => layer.id === id)?.locked)) {
+      // A changed target set invalidates the session's shared history baseline.
+      state.cancelColorAdjust();
+      return;
+    }
+
     for (const targetLayerId of targetLayerIds) {
       const layer = state.layers.find((entry) => entry.id === targetLayerId);
       if (!layer) {
@@ -1455,6 +1519,9 @@ export const createColorAdjustSlice: StateCreator<AppState, [], [], ColorAdjustS
 
     get().previewColorAdjust();
     const refreshedState = get();
+    if (!refreshedState.colorAdjust.active) {
+      return;
+    }
     await commitRasterColorAdjustHistory({
       state,
       refreshedState,

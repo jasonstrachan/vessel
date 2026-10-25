@@ -1107,6 +1107,100 @@ byte-exact at `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`
 deployment, branch, worktree or chat creation. Area34 preparation is read-only;
 it is not activated or signed off by this area.
 
+## Session39 — Area34 final software signoff: Colour Adjust
+
+Areas01–34 are software-verified; Areas35–65 remain pending. All30 native cases /
+775 checks pass on production artifact `9b61f9a36b43b8a6d2f92f07cd01c950d4bd99d925214620b483fb9d48979daf`.
+Type-check, lint, 611 suites / 6118 tests and two
+snapshots pass in the isolated task-only gate, with one existing skipped
+suite/test. Production build and independent source/test review pass. A focused
+local commit follows. Current public panel has no Levels controls.
+
+A34-01: native locked normal and CC targets could be edited and committed.
+Shared eligibility/session capture now rejects locked targets before capture.
+A captured target becoming locked cancels the complete shared-baseline session
+and prevents either history publisher. This preserves the current lock flags
+and avoids incorporating unrelated lock state into mixed CC Undo history.
+
+A34-02: genuine negative-origin/project-edge marquees with zero intersection
+fell through to whole-layer adjustments. Raster and CC preview now distinguish
+explicit empty support from no selection and restore pristine material. CC
+history excludes targets with explicit empty support, avoiding empty edit
+entries. Actual native selection/mask state and outside material remain exact.
+
+A34-03: consecutive whole CC previews requested/store/render Hue120 while the
+canonical document retained Hue121. The current store/cache palette metadata
+now precedes pristine paint snapshot publication at the existing runtime seam.
+Literal used definition/sourceStops/slot colours match120 with original six
+planes. Recolor retains its original publication order. Reset and positive
+preview Cancel restore original material without an extra Cancel workaround.
+
+A34-04: neutral selected CC entry/Reset remapped32slot and32definition IDs,
+and no-input Apply published an edit. Selected cloning requires nonneutral
+adjustments; scalar-neutral CC Apply creates no structure transaction. Positive
+selected adjustment, Apply and natural Undo/Redo retain their strict oracles.
+
+A34-05: mixed raster/CC Apply published a raster bitmap entry followed by a CC
+structure entry whose whole-project baseline also rewound the raster pixels.
+The first Undo restored raster canonical data too early and the next bitmap
+Undo failed preparation, leaving its framebuffer adjusted. The CC history
+baseline now contains completed raster target bitmap state; raster entries
+retain sole ownership of their before/after pixels. The two-entry granularity
+is retained. Real-history regressions prove repeated intermediate ownership;
+native Undo/Redo restores exact original and committed material.
+
+A34-06: raster Apply captured endpoint-only selection history. Native Undo
+restored pixels while dropping the actual freehand mask, bounds, layer owner
+and vector path for all480 completed observations over eight seconds. Raster
+history now uses the existing full selection-state snapshot. Undo/Redo retains
+the complete authored selection alongside exact pixels and history counts.
+
+The user explicitly chose to keep greys neutral under positive Vibrance.
+The math owner preserves zero saturation; coloured positive-Vibrance behaviour,
+negative Vibrance, alpha and the existing adjustment ordering are retained.
+Tests require literal grey values across alpha/strength, full desaturation
+composition and an unchanged coloured result. Original CRLF/LF bytes were
+preserved around the one-condition source edit.
+
+Native coverage includes public U/toolbar entry; Hue/Saturation/Vibrance/
+Lightness/Contrast/R/G/B and CC Ink Contrast; numeric draft Enter/Escape;
+Reset/Cancel/Apply/Enter/Escape/tool switch; original composite picking and
+hue wrap/S/L intersection/softness; genuine clipped, empty and freehand-masked
+normal/CC selections; whole/selected CC used metadata, all six planes and
+literal displayed marks; mixed targets; locked/hidden/blank/unsupported target
+admission; natural history and positively witnessed pending-preview races.
+Nonempty erase-mask authoring, full Recolor and export remain their own areas.
+
+Failed fixture classifications remain explicit: project centering must settle
+before a declared camera; vessel-settings is an owned/restored key; native
+range checkboxes use visible labels; AdjustmentLayerPanel owns its colliding
+slider labels; display probes avoid marquee ants. CC Undo can retain richer
+unused runtime dictionaries under the existing persistence contract. Only
+Undo permits recorded extra entries unreferenced by every restored raw ID
+plane; used entries, pre-existing entries, all planes/render/store/masks remain
+exact. Masked-normal Undo captures bytes synchronously and uses completed asynchronous
+observations with a synchronous wait predicate; accepted observations require
+consecutive exact source/history/selection/display samples. Earlier V4 async
+predicate and cached-selection diagnostics were invalid and remain corrected
+in the evidence record. These classifications do not
+weaken positive preview/Apply/Cancel/Redo material checks. The failed V2/V3
+checks preserve their new test-adapter type errors; V5 retains explicit typed metadata
+serialization and reruns the complete gate.
+
+Evidence in ignored output/playwright includes qualified locked/empty-selection,
+CC document-lag and neutral-selected before receipts; final six-source freezeV4;
+isolated gateV5; production previewV5; final native seven-suite manifest and
+area34-native-final-session39.json. Every suite restores its owned storage and
+session packet after real startup persistence and removes observers. The named
+headless browser is closed. These software checks do not establish physical
+tablet/device or subjective visual signoff.
+
+Scope is exactly colorAdjustSession, colorAdjustSlice, imageProcessing, their
+three tests and these two ledgers. All47 original working changes and staged
+three-file/seven-addition patch remain byte-exact at
+`df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`. No mixed owner, push, deployment, branch, worktree or
+new chat is involved. Area35 preparation does not activate or sign off Recolor.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1158,7 +1252,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 31 | Eyedropper: click/held P, source/sample size, alpha, FG/BG, return to previous tool | color picker handlers/panel | software-verified (Session39;17native cases/391checks; full gate and focused local commit receipt) |
 | 32 | Colour panel: RGB/HSV, FG/BG swap/copy, opacity, shared gradient swatches | ColorPickerPanel, palette slice | software-verified (Session39;11 native cases/392checks; focused local commit follows) |
 | 33 | Gradients: inline stops/history/Hex/Transparent, saved presets/customs/persistence, CC propagation | gradient editor, saved brush gradients, palette/CC state | software-verified (Session39;11 native cases/506 checks; focused local commit follows) |
-| 34 | Colour Adjust: hue/saturation/lightness/levels, preview/cancel/apply, selection, CC data, history | ColorAdjustToolPanel, colorAdjust slice | pending |
+| 34 | Colour Adjust: scalar adjustments, ranges/pick, preview/cancel/apply, selection, CC data, history (Levels unavailable) | ColorAdjustToolPanel, colorAdjust slice | software-verified (Session39;30 native cases/775 checks; focused local commit follows) |
 | 35 | Recolor: source modes, quantisation, palette/animation, layer conversion, history | recolor controls, RecolorManager | pending |
 | 36 | Layers: add/rename/select/delete/duplicate, last layer, active fallback, history | LayersPanel, layers slice/services | pending |
 | 37 | Layers: reorder, multi-select, visibility/lock, opacity/blend, merge | LayersPanel, layer operations | pending |

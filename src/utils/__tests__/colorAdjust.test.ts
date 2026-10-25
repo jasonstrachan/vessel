@@ -150,6 +150,47 @@ describe('applyColorAdjustments', () => {
     expect(Array.from(result.data.slice(4, 8))).toEqual([255, 255, 0, 255]);
   });
 
+  it.each([0, 17, 128, 239, 255].flatMap((gray) =>
+    [255, 128, 0].flatMap((alpha) => [25, 100].map((vibrance) => ({ gray, alpha, vibrance }))),
+  ))('keeps gray $gray neutral at vibrance $vibrance and alpha $alpha', ({ gray, alpha, vibrance }) => {
+    const original = createImageData([gray, gray, gray, alpha], 1, 1);
+    const result = applyColorAdjustments(original, {
+      hue: 0,
+      saturation: 0,
+      vibrance,
+      lightness: 0,
+      contrast: 0,
+      red: 0,
+      green: 0,
+      blue: 0,
+      hueRangeEnabled: false,
+      hueRangeStart: 0,
+      hueRangeEnd: 360,
+    });
+
+    expect(Array.from(result.data)).toEqual([gray, gray, gray, alpha]);
+    expect(Array.from(original.data)).toEqual([gray, gray, gray, alpha]);
+  });
+
+  it('keeps a color neutral after full desaturation followed by positive vibrance', () => {
+    const original = createImageData([160, 110, 110, 123], 1, 1);
+    const result = applyColorAdjustments(original, {
+      hue: 0,
+      saturation: -100,
+      vibrance: 100,
+      lightness: 0,
+      contrast: 0,
+      red: 0,
+      green: 0,
+      blue: 0,
+      hueRangeEnabled: false,
+      hueRangeStart: 0,
+      hueRangeEnd: 360,
+    });
+
+    expect(Array.from(result.data)).toEqual([135, 135, 135, 123]);
+  });
+
   it('boosts muted colors with vibrance while preserving alpha', () => {
     const original = createImageData([160, 110, 110, 123], 1, 1);
     const result = applyColorAdjustments(original, {
@@ -175,5 +216,6 @@ describe('applyColorAdjustments', () => {
     expect(g).toBeLessThanOrEqual(original.data[1]);
     expect(b).toBeLessThanOrEqual(original.data[2]);
     expect(a).toBe(123);
+    expect(Array.from(result.data)).toEqual([217, 53, 53, 123]);
   });
 });

@@ -44,7 +44,7 @@ export const resolveColorAdjustTargetLayerIds = (
 };
 
 export const isEligibleColorAdjustLayer = (layer: Layer | null | undefined): layer is Layer => {
-  if (!layer) {
+  if (!layer || layer.locked) {
     return false;
   }
 
@@ -153,6 +153,10 @@ export const buildColorAdjustSessionTargets = <ColorCycleSnapshot>({
   let hasColorCycleTarget = false;
 
   for (const layer of targetLayers) {
+    if (layer.locked) {
+      continue;
+    }
+
     if (layer.layerType === 'color-cycle') {
       const originalGradient = resolveColorCycleGradient(layer);
       if (!originalGradient || originalGradient.length === 0) {
