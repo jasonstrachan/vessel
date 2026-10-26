@@ -1054,7 +1054,10 @@ export const buildProjectGobletArtifact = async (
           horizontal: normalizedAlignment.horizontal ?? 'center',
           vertical: normalizedAlignment.vertical ?? 'center',
           positioning,
-          ...(offsetPercent ? { offsetPercent } : {})
+          ...(offsetPercent ? { offsetPercent } : {}),
+          ...(positioning === 'anchor' && normalizedAlignment.offsetPx
+            ? { offsetPx: { ...normalizedAlignment.offsetPx } }
+            : {})
         };
 
     const layoutAlignment: LayerAlignmentSettings = {
@@ -1063,7 +1066,7 @@ export const buildProjectGobletArtifact = async (
       vertical: alignmentPayload.vertical,
       positioning,
       ...(offsetPercent ? { offsetPercent } : {}),
-      offsetPx: undefined
+      ...(alignmentPayload.offsetPx ? { offsetPx: { ...alignmentPayload.offsetPx } } : {})
     };
 
     if (layer.layerType !== 'adjustment') {

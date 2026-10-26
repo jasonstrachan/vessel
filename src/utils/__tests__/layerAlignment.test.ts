@@ -274,3 +274,34 @@ describe('resolveContainerLayout', () => {
   });
 
 });
+
+
+describe('legacy resolver scaled anchor nudges', () => {
+  test('uses actual sparse None/Contain art scale for destination nudges and ignores them in Auto', () => {
+    const document = { width: 128, height: 96 }, viewport = { width: 128, height: 96 };
+    const alignment: LayerAlignmentSettings = { fit: 'none', positioning: 'anchor', horizontal: 'center',
+      vertical: 'center', offsetPx: { x: 3, y: -2 } };
+    const paintedBounds = { x: 10, y: 6, width: 8, height: 4 };
+    expect(computeLayerDestination({ document, viewport, paintedBounds, alignment }))
+      .toEqual({ x: 63, y: 44, width: 8, height: 4 });
+    expect(computeLayerDestination({ document, viewport, paintedBounds, alignment: { ...alignment, fit: 'contain' } }))
+      .toEqual({ x: 48, y: -16, width: 128, height: 64 });
+    expect(computeLayerDestination({ document, viewport, paintedBounds,
+      alignment: { ...alignment, positioning: 'auto', offsetPercent: { x: 25, y: 50 } } }))
+      .toEqual({ x: 10, y: 6, width: 128, height: 96 });
+  });
+
+  test('preserves finite pixels and adds actual contain scale without changing Auto', () => {
+    const alignment: LayerAlignmentSettings = { fit: 'contain', horizontal: 'center', vertical: 'center',
+      positioning: 'anchor', offsetPx: { x: 7, y: -5 } };
+    expect(normalizeAlignment(alignment).offsetPx).toEqual({ x: 7, y: -5 });
+    expect(computeLayerTransform({ width: 100, height: 50 }, { width: 200, height: 200 }, alignment))
+      .toEqual({ scaleX: 2, scaleY: 2, translateX: 14, translateY: 40 });
+    expect(computeLayerDestination({ document: { width: 100, height: 50 },
+      viewport: { width: 200, height: 200 }, alignment }))
+      .toEqual({ x: 14, y: 40, width: 200, height: 100 });
+    const auto: LayerAlignmentSettings = { ...alignment, positioning: 'auto', offsetPercent: { x: 25, y: 50 } };
+    expect(computeLayerTransform({ width: 100, height: 50 }, { width: 200, height: 200 }, auto))
+      .toEqual(computeLayerTransform({ width: 100, height: 50 }, { width: 200, height: 200 }, { ...auto, offsetPx: undefined }));
+  });
+});

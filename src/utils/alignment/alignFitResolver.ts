@@ -110,7 +110,10 @@ export const normalizeAlignment = (
     horizontal,
     vertical,
     positioning: alignment?.positioning ?? 'auto',
-    offsetPercent: normalizeOffsetPercent(alignment, horizontal, vertical)
+    offsetPercent: normalizeOffsetPercent(alignment, horizontal, vertical),
+    ...(alignment?.positioning === 'anchor' && alignment.offsetPx
+      ? { offsetPx: { x: toNum(alignment.offsetPx.x, 0), y: toNum(alignment.offsetPx.y, 0) } }
+      : {})
   };
 
   return normalized;
@@ -240,8 +243,8 @@ export const computeLayerTransform = (
     const offsetPercentY = (normalized.offsetPercent?.y ?? fallbackPercentY) - fallbackPercentY;
     const offsetX = (offsetPercentX / HUNDRED) * leftoverX;
     const offsetY = (offsetPercentY / HUNDRED) * leftoverY;
-    translateX = pivotX + offsetX;
-    translateY = pivotY + offsetY;
+    translateX = pivotX + offsetX + (normalized.offsetPx?.x ?? 0) * scaleX;
+    translateY = pivotY + offsetY + (normalized.offsetPx?.y ?? 0) * scaleY;
   } else {
     translateX = leftoverX * (percentX / HUNDRED);
     translateY = leftoverY * (percentY / HUNDRED);
@@ -336,9 +339,11 @@ export const computeLayerDestination = (
     const offsetX = (offsetPercentX / HUNDRED) * freeX;
     const offsetY = (offsetPercentY / HUNDRED) * freeY;
 
+    const pixelScaleX = normalized.fit === 'tile' ? 1 : width / basisWidth;
+    const pixelScaleY = normalized.fit === 'tile' ? 1 : height / basisHeight;
     return {
-      x: Math.round(x + offsetX),
-      y: Math.round(y + offsetY),
+      x: Math.round(x + offsetX + (normalized.offsetPx?.x ?? 0) * pixelScaleX),
+      y: Math.round(y + offsetY + (normalized.offsetPx?.y ?? 0) * pixelScaleY),
       width: Math.round(width),
       height: Math.round(height)
     };

@@ -7,6 +7,7 @@ export interface RawAlignInput {
   vertical?: unknown;
   anchor?: unknown;
   offsetPercent?: { x?: unknown; y?: unknown } | null;
+  offsetPx?: { x?: unknown; y?: unknown } | null;
 }
 
 const isFit = (value: unknown): value is AlignInput['fit'] => {
@@ -61,6 +62,10 @@ export const normalizeAlign = (
     vertical,
     anchor
   };
+
+  if (positioning === 'anchor' && raw?.offsetPx) {
+    align.offsetPx = { x: toNumber(raw.offsetPx.x), y: toNumber(raw.offsetPx.y) };
+  }
 
   if (positioning === 'auto') {
     const source = raw?.offsetPercent ?? autoOffsetPercent ?? { x: 50, y: 50 };

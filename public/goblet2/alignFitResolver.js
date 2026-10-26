@@ -65,7 +65,10 @@ export const normalizeAlignment = (alignment) => {
         horizontal,
         vertical,
         positioning: (_c = alignment === null || alignment === void 0 ? void 0 : alignment.positioning) !== null && _c !== void 0 ? _c : 'auto',
-        offsetPercent: normalizeOffsetPercent(alignment, horizontal, vertical)
+        offsetPercent: normalizeOffsetPercent(alignment, horizontal, vertical),
+        ...((alignment === null || alignment === void 0 ? void 0 : alignment.positioning) === 'anchor' && alignment.offsetPx
+            ? { offsetPx: { x: toNum(alignment.offsetPx.x, 0), y: toNum(alignment.offsetPx.y, 0) } }
+            : {})
     };
     return normalized;
 };
@@ -104,7 +107,7 @@ const getBasisSize = (document, paintedBounds, alignment) => {
     return { w, h };
 };
 export const computeLayerTransform = (document, viewport, alignment, _options = {}) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
     const normalized = normalizeAlignment(alignment);
     const safeViewport = resolveViewport(viewport);
     const safeDocument = resolveDocument(document);
@@ -171,8 +174,8 @@ export const computeLayerTransform = (document, viewport, alignment, _options = 
         const offsetPercentY = ((_h = (_g = normalized.offsetPercent) === null || _g === void 0 ? void 0 : _g.y) !== null && _h !== void 0 ? _h : fallbackPercentY) - fallbackPercentY;
         const offsetX = (offsetPercentX / HUNDRED) * leftoverX;
         const offsetY = (offsetPercentY / HUNDRED) * leftoverY;
-        translateX = pivotX + offsetX;
-        translateY = pivotY + offsetY;
+        translateX = pivotX + offsetX + ((_k = (_j = normalized.offsetPx) === null || _j === void 0 ? void 0 : _j.x) !== null && _k !== void 0 ? _k : 0) * scaleX;
+        translateY = pivotY + offsetY + ((_m = (_l = normalized.offsetPx) === null || _l === void 0 ? void 0 : _l.y) !== null && _m !== void 0 ? _m : 0) * scaleY;
     }
     else {
         translateX = leftoverX * (percentX / HUNDRED);
@@ -186,7 +189,7 @@ export const computeLayerTransform = (document, viewport, alignment, _options = 
     };
 };
 export const computeLayerDestination = (input) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o;
     const safeDocument = resolveDocument(input.document);
     const safeViewport = resolveViewport(input.viewport);
     const normalized = normalizeAlignment(input.alignment);
@@ -250,17 +253,19 @@ export const computeLayerDestination = (input) => {
         const offsetPercentY = clampPercent((_e = offsetPercent === null || offsetPercent === void 0 ? void 0 : offsetPercent.y) !== null && _e !== void 0 ? _e : 0);
         const offsetX = (offsetPercentX / HUNDRED) * freeX;
         const offsetY = (offsetPercentY / HUNDRED) * freeY;
+        const pixelScaleX = normalized.fit === 'tile' ? 1 : width / basisWidth;
+        const pixelScaleY = normalized.fit === 'tile' ? 1 : height / basisHeight;
         return {
-            x: Math.round(x + offsetX),
-            y: Math.round(y + offsetY),
+            x: Math.round(x + offsetX + ((_g = (_f = normalized.offsetPx) === null || _f === void 0 ? void 0 : _f.x) !== null && _g !== void 0 ? _g : 0) * pixelScaleX),
+            y: Math.round(y + offsetY + ((_j = (_h = normalized.offsetPx) === null || _h === void 0 ? void 0 : _h.y) !== null && _j !== void 0 ? _j : 0) * pixelScaleY),
             width: Math.round(width),
             height: Math.round(height)
         };
     }
     const scaleX = width / basisWidth;
     const scaleY = height / basisHeight;
-    const percentX = ((_g = (_f = normalized.offsetPercent) === null || _f === void 0 ? void 0 : _f.x) !== null && _g !== void 0 ? _g : 0) / HUNDRED;
-    const percentY = ((_j = (_h = normalized.offsetPercent) === null || _h === void 0 ? void 0 : _h.y) !== null && _j !== void 0 ? _j : 0) / HUNDRED;
+    const percentX = ((_l = (_k = normalized.offsetPercent) === null || _k === void 0 ? void 0 : _k.x) !== null && _l !== void 0 ? _l : 0) / HUNDRED;
+    const percentY = ((_o = (_m = normalized.offsetPercent) === null || _m === void 0 ? void 0 : _m.y) !== null && _o !== void 0 ? _o : 0) / HUNDRED;
     const leftoverX = safeViewport.width - width;
     const leftoverY = safeViewport.height - height;
     const translateX = leftoverX * percentX;

@@ -22,6 +22,7 @@ export interface AlignInput {
   vertical?: 'top' | 'center' | 'bottom';
   anchor?: Anchor;
   offsetPercent?: { x: number; y: number };
+  offsetPx?: { x: number; y: number };
 }
 
 export interface BasisInput {
@@ -35,6 +36,8 @@ export interface BasisInput {
 
 export interface Placement {
   dest: Rect;
+  // Cover clips to dest; its artwork translation must not move that coverage frame.
+  coverOffset?: { x: number; y: number };
   tile?: { size: Size; phase: { x: number; y: number } };
 }
 
@@ -140,14 +143,21 @@ export function computePlacement(input: BasisInput, uniformK = 1): Placement {
     height: frameSize.height
   };
 
+  const offsetX = input.align.positioning === 'anchor' && Number.isFinite(input.align.offsetPx?.x)
+    ? input.align.offsetPx!.x : 0;
+  const offsetY = input.align.positioning === 'anchor' && Number.isFinite(input.align.offsetPx?.y)
+    ? input.align.offsetPx!.y : 0;
+
   if (input.align.fit === 'cover') {
+    const scale = Math.max(frameSize.width / painted.width, frameSize.height / painted.height);
     return {
       dest: {
         x: Math.round(frameRect.x),
         y: Math.round(frameRect.y),
         width: Math.max(1, Math.round(frameRect.width)),
         height: Math.max(1, Math.round(frameRect.height))
-      }
+      },
+      ...(offsetX || offsetY ? { coverOffset: { x: offsetX * scale, y: offsetY * scale } } : {}),
     };
   }
 
@@ -168,8 +178,8 @@ export function computePlacement(input: BasisInput, uniformK = 1): Placement {
       tile: {
         size: { width: painted.width, height: painted.height },
         phase: {
-          x: Math.floor(frameRect.x),
-          y: Math.floor(frameRect.y)
+          x: Math.floor(frameRect.x) - Math.round(offsetX),
+          y: Math.floor(frameRect.y) - Math.round(offsetY)
         }
       }
     };
@@ -199,8 +209,8 @@ export function computePlacement(input: BasisInput, uniformK = 1): Placement {
   }
 
   const dest = {
-    x: Math.round(origin.ox),
-    y: Math.round(origin.oy),
+    x: Math.round(origin.ox + offsetX * sx),
+    y: Math.round(origin.oy + offsetY * sy),
     width: Math.max(1, Math.round(destWidth)),
     height: Math.max(1, Math.round(destHeight))
   };

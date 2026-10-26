@@ -682,14 +682,19 @@ const computePlacement = (basis, uniformK = 1) => {
     height: fitPositive(basis?.frame?.height)
   };
 
+  const offsetX = basis?.align?.positioning === 'anchor' ? fitToNumber(basis.align.offsetPx?.x, 0) : 0;
+  const offsetY = basis?.align?.positioning === 'anchor' ? fitToNumber(basis.align.offsetPx?.y, 0) : 0;
+
   if (basis?.align?.fit === 'cover') {
+    const scale = Math.max(frame.width / painted.width, frame.height / painted.height);
     return {
       dest: {
         x: Math.round(frame.x),
         y: Math.round(frame.y),
         width: Math.max(1, Math.round(frame.width)),
         height: Math.max(1, Math.round(frame.height))
-      }
+      },
+      ...(offsetX || offsetY ? { coverOffset: { x: offsetX * scale, y: offsetY * scale } } : {})
     };
   }
 
@@ -712,8 +717,8 @@ const computePlacement = (basis, uniformK = 1) => {
           height: painted.height
         },
         phase: {
-          x: Math.floor(frame.x),
-          y: Math.floor(frame.y)
+          x: Math.floor(frame.x) - Math.round(offsetX),
+          y: Math.floor(frame.y) - Math.round(offsetY)
         }
       }
     };
@@ -746,8 +751,8 @@ const computePlacement = (basis, uniformK = 1) => {
   }
 
   const dest = {
-    x: Math.round(origin.ox),
-    y: Math.round(origin.oy),
+    x: Math.round(origin.ox + offsetX * sx),
+    y: Math.round(origin.oy + offsetY * sy),
     width: Math.max(1, Math.round(destWidth)),
     height: Math.max(1, Math.round(destHeight))
   };
@@ -792,6 +797,10 @@ const normalizeAlign = (raw, autoOffsetPercent) => {
     anchor
   };
 
+  if (positioning === 'anchor' && raw?.offsetPx) {
+    align.offsetPx = { x: fitToNumber(raw.offsetPx.x, 0), y: fitToNumber(raw.offsetPx.y, 0) };
+  }
+
   if (positioning === 'percent') {
     const offset = raw?.offsetPercent ?? {};
     align.offsetPercent = {
@@ -835,8 +844,8 @@ const fitComputeLayoutTransform = (alignment, viewport, paintedBounds) => {
     const offsetPercentY = (alignment.offsetPercent?.y ?? fallbackPercentY) - fallbackPercentY;
     const pivotX = horizontal === 'center' ? leftoverX / 2 : horizontal === 'right' ? leftoverX : 0;
     const pivotY = vertical === 'center' ? leftoverY / 2 : vertical === 'bottom' ? leftoverY : 0;
-    const translateX = pivotX + (offsetPercentX / 100) * leftoverX;
-    const translateY = pivotY + (offsetPercentY / 100) * leftoverY;
+    const translateX = pivotX + (offsetPercentX / 100) * leftoverX + fitToNumber(alignment.offsetPx?.x, 0) * sx;
+    const translateY = pivotY + (offsetPercentY / 100) * leftoverY + fitToNumber(alignment.offsetPx?.y, 0) * sy;
 
     return {
       scaleX: 1,
@@ -989,8 +998,8 @@ const drawLayerWithPlacement = (ctx, source, placement, { isFixed, dpr, paintedR
 
     const dw = Math.max(1, Math.round(s.width * k));
     const dh = Math.max(1, Math.round(s.height * k));
-    const dx = Math.round(fx + (fw - dw) / 2);
-    const dy = Math.round(fy + (fh - dh) / 2);
+    const dx = Math.round(fx + (fw - dw) / 2 + (placement.coverOffset?.x ?? 0) * scaleU);
+    const dy = Math.round(fy + (fh - dh) / 2 + (placement.coverOffset?.y ?? 0) * scaleU);
 
     ctx.save();
     ctx.beginPath();

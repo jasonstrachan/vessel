@@ -122,7 +122,9 @@ export const buildNextAlignment = (
   baseAlignment: LayerAlignmentSettings,
   partial: Partial<LayerAlignmentSettings>
 ): LayerAlignmentSettings => {
-  const baseOffset = baseAlignment.offsetPx ?? { x: 0, y: 0 };
+  const baseOffset = baseAlignment.positioning === 'auto' && partial.positioning === 'anchor'
+    ? { x: 0, y: 0 }
+    : baseAlignment.offsetPx ?? { x: 0, y: 0 };
   const basePercent = baseAlignment.offsetPercent ?? { x: 0, y: 0 };
   const nextFit = partial.fit ?? baseAlignment.fit;
   const nextPositioning = partial.positioning ?? baseAlignment.positioning;
@@ -259,20 +261,22 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ class
         return;
       }
 
-      const baseOffset = alignment.offsetPx ?? { x: 0, y: 0 };
       const value = Number.isFinite(raw) ? raw : 0;
       const targetLayerIds = selectedLayerIds.length > 1 && selectedLayerIds.includes(activeLayerId)
         ? selectedLayerIds
         : [activeLayerId];
 
       targetLayerIds.forEach(layerId => {
-        updateLayerAlignment(layerId, {
-          ...alignment,
-          offsetPx: { ...baseOffset, [axis]: value }
-        });
+        const targetAlignment = layers.find(layer => layer.id === layerId)?.alignment;
+        if (!targetAlignment) {
+          return;
+        }
+        updateLayerAlignment(layerId, buildNextAlignment(targetAlignment, {
+          offsetPx: { ...(targetAlignment.offsetPx ?? { x: 0, y: 0 }), [axis]: value }
+        }));
       });
     },
-    [alignment, activeLayerId, selectedLayerIds, updateLayerAlignment]
+    [alignment, activeLayerId, layers, selectedLayerIds, updateLayerAlignment]
   );
 
   return (
@@ -301,6 +305,8 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ class
                         key={key}
                         type="button"
                         className={buttonClass}
+                        aria-label={`Align ${ANCHOR_CONFIG[key].vertical === 'center' ? 'middle' : ANCHOR_CONFIG[key].vertical} ${ANCHOR_CONFIG[key].horizontal}`}
+                        aria-pressed={isSelected}
                         onClick={() => handleAnchorSelect(key)}
                         disabled={disabled}
                       >
@@ -329,6 +335,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ class
                 disabled ? 'cursor-not-allowed opacity-60' : ''
               ].filter(Boolean).join(' ')}
               onClick={() => handleAnchorSelect('auto')}
+              aria-pressed={selectedAnchor === 'auto'}
               disabled={disabled}
             >
               Auto
@@ -352,6 +359,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ class
                     type="button"
                     className={buttonClass}
                     onClick={() => handleFitSelect(option.value)}
+                    aria-pressed={isSelected}
                     disabled={disabled}
                   >
                     <span

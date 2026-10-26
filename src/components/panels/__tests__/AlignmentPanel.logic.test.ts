@@ -27,11 +27,19 @@ describe('buildNextAlignment', () => {
     expect(next.vertical).toBe('center');
   });
 
-  it('drops percent offsets in anchor mode', () => {
+  it('starts anchor nudges at zero when leaving Auto', () => {
     const next = buildNextAlignment(baseAlignment, { positioning: 'anchor' });
 
     expect(next.positioning).toBe('anchor');
     expect(next.offsetPercent).toBeUndefined();
-    expect(next.offsetPx).toEqual({ x: 40, y: 60 });
+    expect(next.offsetPx).toEqual({ x: 0, y: 0 });
+  });
+
+  it('retains each existing anchor nudge while resetting only Auto owners', () => {
+    const anchor = { ...baseAlignment, positioning: 'anchor' as const, offsetPx: { x: -7, y: 9 } };
+    const partial = { positioning: 'anchor' as const, horizontal: 'left' as const };
+    expect(buildNextAlignment(anchor, partial).offsetPx).toEqual({ x: -7, y: 9 });
+    expect(buildNextAlignment(baseAlignment, partial).offsetPx).toEqual({ x: 0, y: 0 });
+    expect(buildNextAlignment(baseAlignment, { ...partial, offsetPx: { x: 3, y: 4 } }).offsetPx).toEqual({ x: 3, y: 4 });
   });
 });

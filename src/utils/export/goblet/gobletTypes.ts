@@ -264,6 +264,7 @@ export interface AlignmentExportPayload {
   vertical: LayerAlignmentSettings['vertical'];
   positioning: LayerAlignmentSettings['positioning'];
   offsetPercent?: { x: number; y: number };
+  offsetPx?: { x: number; y: number };
 }
 
 export interface WebGLLayerMetadata {

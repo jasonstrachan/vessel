@@ -1483,6 +1483,124 @@ and staged3files7additions/raw patch remain exact (`df0184e4cfed84743065aaed4fda
 Unexposed hue-range controls, physical devices and subjective visual signoff are not
 inferred. Areas40–65 remain pending; Area40 requires a fresh baseline after commit.
 
+## Session39 — Area40 complete: alignment ownership and scaled anchor nudges
+
+Areas01–40 are software-verified: **40/65 (61.5%)**. Final production proof passes
+**10 native cases / 1581 checks across 7 suites** on artifact
+`a005772150b786f8816b9f22160fad0982fd387e254103a8126e7eb76ccdb24b`. The source-isolated committed-HEAD-plus18 gate passes diff-check,
+type-check, lint and full Jest: 1 skipped, 622 passed, 622 of 623 total;       1 skipped, 6375 passed, 6376 total;
+snapshots   2 passed, 2 total. The production preview build uses the preserved
+working original47 plus exact frozen18, isolates its output and preserves Studio;
+it is not described as source-isolated. The focused local commit includes exactly
+18 source/test/generated paths and these two ledgers; no push or deployment.
+
+All nine public anchor controls have exact accessible names and boolean pressed
+states, as do Auto and all five Fits. Metadata, signed X/Y, Auto and actual
+Save→New→Load preserve complete asymmetric non-square RGBA sources, framebuffer,
+other owners, groups and selection. Native selected-set X then Y retains each
+layer's own fit/anchor and other axis. Alignment action history remains observed
+at its real granularity; no synthetic alignment Undo command was introduced.
+
+The user chose anchor-relative nudges scaled with artwork and zero nudges on
+Auto→anchor. The owning normalized/exported field now survives to actual G1/G2
+responsive placement. None/Contain use their actual artwork scale; Fill uses its
+independent X/Y scale. Cover translates artwork inside the unchanged coverage
+clip, preserving cropped margins. Tile keeps coverage fixed and quantizes authored
+movement at the core boundary before subtracting it from pattern phase. Auto and
+zero-offset behavior remain compatible. Anchor→anchor retains that owner's nudge;
+each Auto→anchor starts0/0, with explicit requested offsets authoritative.
+
+Actual public Default exports exercise all nine zero-offset None anchors, Auto,
+five center fit modes and positive/negative nudge witnesses in both player versions.
+Cover/Tile and qualified Fill/Contain complete-frame models are independently
+frozen before export, using declared geometry and independently decoded literal
+codec inputs. Fixed/Embed direct-placement policy stays unchanged and has separate
+native controls. Whole source assets and whole rendered tensors remain exact;
+there is no per-pixel tolerance, private renderer call, forced clock or output-derived
+expected geometry. Native check counts above come from actual canonical receipts.
+
+The earlier metadata clobber, unnamed buttons and dropped nonzero placement field
+are repaired at their owners. Focused final regressions fail15/pass25 against
+isolated pre-geometry production and pass40 in six suites after. Actual typed
+artifact-builder tests verify metadata/layout/opx transport and clone ownership;
+actual public module math/draw tests verify all nine origins, fixed Cover clip,
+Tile phase and fractional rounding. Existing runtime mirrors are retained and only
+four existing generated assets are regenerated; protected HtmlBuilder,
+bundleContracts and global layer types remain untouched. Initial UI-only checks and
+all rejected/failed fixture premises remain historical evidence, not final acceptance.
+
+Evidence: `area40-source-freeze-v3-session39.json`, `area40-final-gate-v3-session39.json`,
+`area40-preview-after-v3-session39.json`, `area40-native-final-v3-session39.json`.
+The aggregate rehashes every prepared/compiled script, raw CLI log and parsed result
+against this exact artifact and frozen source. All six owned storage keys restore
+through two quiet fences, page errors are absent, and cleanup confirms the named
+browser session has no matching daemon. Original47 bytes and original staged
+three files/seven additions/raw patch `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2` remain exact.
+
+Area41 has preparation only and no native or app-source acceptance in this commit.
+Its earlier49-file baseline is historical because it included the then-uncommitted
+UI2; root must capture a fresh versioned bridge after this completed40 commit while
+preserving original47. Future areas, hardware behavior and subjective visual
+signoff remain unclaimed. Area40 completion does not activate another area.
+
+## Session39 — Area41 preparation: Color Cycle layer lifecycle
+
+The activation below preceded the explicit alignment answer. Area41 execution is
+now deferred to finish40; its source boundary remains empty and no native41 ran.
+
+The continuing goal remains all65 audit areas, focused review and local commits as
+fully verified areas finish. Areas01–39 remain verified/committed (39/65,60%).
+Area40 stays partial:its UI subset passes226 checks, but nonzero exported X/Y
+needs the required placement answer. A fresh question was sent; no answer or
+geometry-policy authorization is inferred from elapsed time. Continue independent
+Area41 using default Auto alignment while that choice is pending. This changes the
+execution order, not the full audit scope or Area40 completion criteria.
+
+Fresh exclusive Area41 baseline capture completed before this activation on main
+HEAD632197cb8. It preserves49 non-document working paths:the original47 and both
+frozen uncommitted Area40 UI files, plus separate initial copies of these two
+ledgers. The original staged3files7additions/raw df0184 patch is exact. Inherited
+production artifact450c6243 is bound to the actual UI2 source-isolated checks,
+production build and two-case226-check raw native proof, while the committed
+Area39 parent chain remains verified. The capture helper is one-shot historical
+evidence and must not be rerun after ledger activation.
+
+Goal:verify public CC creation/conversion, occupied slot/palette ownership,
+visibility/lock/playback, duplicate/delete, clear, resize and complete replay.
+Trace page→HomeClient→LayersPanel/AnimationControlsPanel and DocumentModal through
+layerCollectionActions/layerColorCycleLifecycleActions/layerColorCycleEditActions,
+ColorCycleLayerDocument, history replay and project resize. The app-source boundary
+starts empty; only ignored fixtures/evidence and these two audit ledgers may change
+until a native failure justifies the smallest owning source/test expansion.
+
+Start with actual Add CC Layer, its current-preset/gradient/selection and empty
+runtime dimensions, immediate Undo/Redo, genuine public CC ink and paint replay.
+Then convert the paused published frame through the actual context menu and
+exercise two complete Undo/Redo cycles. Preserve every outside owner and authored
+support/planes/definitions/masks. Follow with two distinct palettes/layers and
+occupied duplicate/delete, natural Play/Pause/Hide/Show/Lock, actual keyboard clear
+and Document Resize Canvas. No private painter, initializer, conversion, renderer
+or clock forcing may serve as the tested action or expected output. Derived caches
+and unused leases must be characterized from their owner; do not normalize away
+occupied data loss. Keep hardware/focus/performance limits explicit.
+
+Non-goals:do not implement disputed alignment placement, repeat every already
+verified brush setting, or add unavailable controls. Source-isolated future Area41
+checks use HEAD plus only admitted41 source copies. Production builds use the full
+protected49 working baseline plus41 changes and preserve Studio. Commit only fully
+verified41 source and these ledgers, leaving both uncommitted40 UI files and the
+original47/index exact. Root owns browser/build/Git; GPT-6.1 Sol subagents prepare
+and independently review bounded cases and repairs. One managed headless tab, exact
+owned storage restoration and closed/no-daemon cleanup remain mandatory.
+
+Exit:all exposed41 lifecycle/ownership/replay cases pass actual production proof,
+qualified fixes have causal regressions and independent focused review, final
+source-isolated type/lint/full Jest and sole production build pass, then a focused
+local commit. If41 completes first, report40 verified areas with a gap at40; never
+claim Areas01–41 all verified. After any41 commit, explicitly bridge the new HEAD
+and unchanged40 source/proof before resuming40; its old HEAD-bound helpers remain
+historical. No push, deployment, branch/worktree change or new chat is authorized.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final
