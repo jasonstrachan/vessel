@@ -2330,7 +2330,8 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       (brushShape === BrushShape.CUSTOM && tools.brushSettings.customBrushColorCycle === true);
 
     // Mismatch if CC brush on normal layer OR regular brush/tool on CC layer
-    const mismatch = (isColorCycleLayer && !isCCBrush) || (!isColorCycleLayer && isCCBrush);
+    const mismatch = (isColorCycleLayer && !isCCBrush) ||
+      (!isColorCycleLayer && activeLayer?.layerType !== 'sequential' && isCCBrush);
     if (!mismatch) return { ok: true } as const;
 
     // Compose a clear message

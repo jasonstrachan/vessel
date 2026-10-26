@@ -1565,6 +1565,18 @@ All nine raw CLI results/logs/exits and prepared/compiled scripts bind to the ac
 
 Evidence: `area42-source-freeze-v3-session39.json`, `area42-final-gate-v3-session39.json`, `area42-preview-after-v3-session39.json`, `area42-native-final-v2-session39.json`.
 
+## Session39 — Area43 complete: Sequence layer lifecycle
+
+Areas01–43 are software-verified: **43/65 (66.2%)**. Actual final production proof passes **7 native cases / 508 checks across 7 suites** on artifact `2761f66b3a94feb0e00096015d380e97c285e1e425ccfe5c2b5186c1b5c6b9e0`. Source-isolated HEAD plus six owned source/test files passes diff/type/full lint/full Jest: Test Suites: 1 skipped, 623 passed, 623 of 624 total; Tests:       1 skipped, 6436 passed, 6437 total; Snapshots:   2 passed, 2 total. Full preserved working-tree production preview build preserves Studio and all fifteen public runtime assets.
+
+The seven mandatory public fixtures cover initial Sequence creation/recording, full Fill/Erase, CC blue Square capture, rectangle clipping, selection Delete/deselect/recovery, clipped Fill/Erase and natural multiframe recording/playback/history. Whole-frame independently declared source/material models, canonical event payloads, actual history commands and real Undo/Redo remain strict. All seven raw CLI outputs/exits/prepared+compiled scripts bind to this artifact and source freeze; all eight-key quiet-fence restorations pass, errors are absent and named cleanup confirms no matching daemon.
+
+A43-01 permits CC brushes on Sequential targets in the existing local pointer compatibility authority while retaining normal/CC mismatch and eraser behavior. A43-02 permits canonical Sequence event-log finalization after the transient overlay is cleared between frames, retaining existing no-op guards. A43-03 records the actual CC stamp tip with existing dither precedence instead of defaulting Square to round. Qualified native BEFORE and intermediate failure evidence remains retained; causal candidate tests fail before and pass after. The first pointer-only interim preview was admission qualification and is superseded by the final six-source/full-gate/native proof above.
+
+Original47 worktree bytes and raw staged three files/seven additions/patch `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2` remain exact. Completed Area42 and prior sections remain unchanged. Focused local commit owns only six source/test paths plus these two ledgers; no push is claimed. CC gradient-phase fidelity and 96MB event-budget exhaustion were not established by these bounded fixtures. Detailed Sequence settings (Area44), global transport (Area45), history stress coverage (Area51), Save/Load (Area52) and Goblet export (Area58) remain deferred to their named areas; subjective visual signoff remains separate.
+
+Evidence: `area43-source-freeze-v1-session39.json`, `area43-final-gate-v1-session39.json`, `area43-preview-after-v1-session39.json`, `area43-native-final-v1-session39.json`.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

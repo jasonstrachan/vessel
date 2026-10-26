@@ -447,6 +447,9 @@ const buildBrushSnapshot = ({
         return 'round';
       }
     }
+    if (brushShape === BrushShape.COLOR_CYCLE) {
+      return settings.colorCycleStampShape ?? 'square';
+    }
     switch (brushShape) {
       case BrushShape.SQUARE:
       case BrushShape.MOSAIC:

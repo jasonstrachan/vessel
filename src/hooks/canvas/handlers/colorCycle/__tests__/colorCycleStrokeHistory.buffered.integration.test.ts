@@ -1,3 +1,7 @@
+import { renderHook } from '@testing-library/react';
+
+import { resolveFinalizeEntryContext } from '@/hooks/canvas/handlers/finalizeEntryContext';
+import { useDrawingPlaybackOverlayEffects } from '@/hooks/canvas/useDrawingPlaybackOverlayEffects';
 import { setFeatureFlag } from '@/config/featureFlags';
 import historyManager from '@/history/historyService';
 import { commitStrokeHistoryIfNeeded } from '@/hooks/canvas/handlers/colorCycle/colorCycleStrokeHistory';
@@ -142,4 +146,73 @@ describe('Sequence stroke history with the real capture queue', () => {
     expect(clone()).toEqual(after);
     expect(render(data())).toEqual(render(after));
   });
+
+  const finalizeAfterOverlayClear = () => {
+    const canvas = document.createElement('canvas');
+    const content = { current: true };
+    const hook = renderHook(() => useDrawingPlaybackOverlayEffects({
+      drawingCtxRef: { current: canvas.getContext('2d') },
+      drawingCanvasRef: { current: canvas },
+      drawingCanvasHasContent: content,
+      initDrawingCanvas: () => {},
+      shapeMode: false,
+    }));
+    window.dispatchEvent(new CustomEvent('cc:clear-overlay'));
+    expect(content.current).toBe(false);
+    hook.unmount();
+    return resolveFinalizeEntryContext({
+      snapshot: useAppStore.getState(), hasCanvas: true, busy: false,
+      project: { width: 64, height: 32 }, isEraserV2: false,
+      drawingCanvasHasContent: content.current, eraserToolRef: { current: null },
+      endMaskHealingStroke: jest.fn(),
+    });
+  };
+
+  it('finalizes the canonical multiframe stroke after playback clears its disposable overlay', async () => {
+    const before = clone();
+    const outside = { ...useAppStore.getState().layers[0], id: 'outside-sequence', alignment: { ...createDefaultLayerAlignment(), offsetPercent: { x: 0, y: 0 } } };
+    useAppStore.setState(state => ({ layers: [...state.layers, outside] }));
+    capture(16, 2001);
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+    setSequentialFrameCursor({ nextFrame: 7, nextFrameCount: 8, nextFps: 1 });
+    capture(28, 2002);
+    const entry = finalizeAfterOverlayClear();
+    expect(entry).not.toBeNull();
+    if (!entry) return;
+    expect(entry.overlayHasContent).toBe(false);
+    expect(await commit()).toBe(true);
+    const after = clone();
+    expect(after.events).toHaveLength(3);
+    expect([...new Set(after.events.slice(1).map(event => event.frameIndex))].sort()).toEqual([0, 7]);
+    expect(historyManager.entries()).toHaveLength(1);
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      await historyManager.undo();
+      expect(clone()).toEqual(before);
+      for (const frame of [0, 7]) expect(render(data(), frame)).toEqual(render(before, frame));
+      expect(useAppStore.getState().layers[1]).toEqual(outside);
+      await historyManager.redo();
+      expect(clone()).toEqual(after);
+      for (const frame of [0, 7]) expect(render(data(), frame)).toEqual(render(after, frame));
+      expect(useAppStore.getState().layers[1]).toEqual(outside);
+    }
+  });
+
+  it.each([null, 3000])('does not create an entry without current-session events (%s)', async sessionStartMs => {
+    useAppStore.setState(state => ({ sequentialRecord: { ...state.sequentialRecord, sessionStartMs } }));
+    expect(finalizeAfterOverlayClear()).not.toBeNull();
+    expect(await commit()).toBe(false);
+    expect(historyManager.entries()).toHaveLength(0);
+  });
+
+  it.each(['busy', 'canvas', 'project', 'bitmap'])('preserves the %s finalization exclusion', reason => {
+    const snapshot = useAppStore.getState();
+    const normalSnapshot = reason === 'bitmap' ? { ...snapshot, layers: snapshot.layers.map(layer => ({ ...layer, layerType: 'normal' as const })) } : snapshot;
+    expect(resolveFinalizeEntryContext({
+      snapshot: normalSnapshot, hasCanvas: reason !== 'canvas', busy: reason === 'busy',
+      project: reason === 'project' ? null : { width: 64, height: 32 },
+      isEraserV2: false, drawingCanvasHasContent: false,
+      eraserToolRef: { current: null }, endMaskHealingStroke: jest.fn(),
+    })).toBeNull();
+  });
+
 });

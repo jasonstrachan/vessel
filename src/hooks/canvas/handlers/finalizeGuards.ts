@@ -23,6 +23,7 @@ export const evaluateFinalizeGuards = ({
   project,
   isCCLayerSnapshot,
   isCCBrushSnapshot,
+  isSequentialLayerSnapshot = false,
   isEraserV2,
   isEraserTool,
   drawingCanvasHasContent,
@@ -32,12 +33,14 @@ export const evaluateFinalizeGuards = ({
   project: { width: number; height: number } | null;
   isCCLayerSnapshot: boolean;
   isCCBrushSnapshot: boolean;
+  isSequentialLayerSnapshot?: boolean;
   isEraserV2: boolean;
   isEraserTool: boolean;
   drawingCanvasHasContent: boolean;
 }): FinalizeGuardResult => {
   const overlayHasContent = drawingCanvasHasContent;
-  const overlayOptional = isCCLayerSnapshot && isCCBrushSnapshot;
+  // Sequence events remain authoritative when playback clears the temporary overlay.
+  const overlayOptional = (isCCLayerSnapshot && isCCBrushSnapshot) || isSequentialLayerSnapshot;
   const allowEmptyOverlay = isEraserV2 && isEraserTool;
   const shouldProceed =
     !busy &&
@@ -77,6 +80,7 @@ export const resolveFinalizeGuardContext = ({
     project,
     isCCLayerSnapshot,
     isCCBrushSnapshot,
+    isSequentialLayerSnapshot: activeLayerSnapshot?.layerType === 'sequential',
     isEraserV2,
     isEraserTool: snapshot.tools.currentTool === 'eraser',
     drawingCanvasHasContent,

@@ -421,6 +421,53 @@ describe('pointerHandlers main flows', () => {
     });
   });
 
+
+  describe.each(['pointerdown', 'bootstrap'] as const)('Sequence CC admission through %s', (route) => {
+    it.each([
+      { layerType: 'sequential', shape: BrushShape.COLOR_CYCLE, tool: 'brush', allowed: true },
+      { layerType: 'sequential', shape: BrushShape.COLOR_CYCLE_TRIANGLE, tool: 'brush', allowed: true },
+      { layerType: 'sequential', shape: BrushShape.SQUARE, tool: 'brush', allowed: true },
+      { layerType: 'normal', shape: BrushShape.SQUARE, tool: 'brush', allowed: true },
+      { layerType: 'color-cycle', shape: BrushShape.COLOR_CYCLE, tool: 'brush', allowed: true },
+      { layerType: 'normal', shape: BrushShape.COLOR_CYCLE, tool: 'brush', allowed: false },
+      { layerType: 'color-cycle', shape: BrushShape.SQUARE, tool: 'brush', allowed: false },
+      { layerType: 'normal', shape: BrushShape.COLOR_CYCLE, tool: 'eraser', allowed: true },
+      { layerType: 'sequential', shape: BrushShape.COLOR_CYCLE, tool: 'eraser', allowed: true },
+      { layerType: 'color-cycle', shape: BrushShape.SQUARE, tool: 'eraser', allowed: true },
+    ] as const)('preserves $tool/$shape admission on $layerType (allowed=$allowed)', ({ layerType, shape, tool, allowed }) => {
+      const layer = { id: 'admission-owner', layerType, visible: true, locked: false } as EventHandlerDynamicDeps['layers'][number];
+      const feedback = jest.fn();
+      const { deps } = createDeps({
+        layers: [layer], activeLayerId: layer.id,
+        tools: { ...baseDynamic.tools, currentTool: tool, shapeMode: false,
+          brushSettings: { ...baseDynamic.tools.brushSettings, brushShape: shape } },
+      }, { feedback });
+      deps.stateMachine.state.mode = 'IDLE';
+      const handlers = createPointerHandlers(deps);
+      const event = makePointerEvent({ clientX: 21, clientY: 22, buttons: 1 });
+
+      if (route === 'pointerdown') handlers.handlePointerDown(event);
+      else handlers.handlePointerMove(event);
+
+      if (allowed) {
+        expect(feedback).not.toHaveBeenCalled();
+        expect(deps.drawingHandlers.beginStrokeSession).toHaveBeenCalledTimes(1);
+        expect(deps.drawingHandlers.beginStrokeSession).toHaveBeenCalledWith(expect.objectContaining({ layerId: layer.id, tool }));
+        expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledTimes(1);
+        expect(deps.drawingHandlers.startDrawing).toHaveBeenCalledWith({ x: 21, y: 22 }, expect.any(Number));
+        expect(deps.interaction.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'DRAWING_START' }));
+        expect(deps.compositeCanvasDirtyRef.current).toBe(true);
+      } else {
+        expect(deps.drawingHandlers.beginStrokeSession).not.toHaveBeenCalled();
+        expect(deps.drawingHandlers.startDrawing).not.toHaveBeenCalled();
+        expect(deps.interaction.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'DRAWING_START' }));
+        expect(feedback).toHaveBeenCalledWith(layerType === 'color-cycle'
+          ? "Can't use regular brushes on a Color Cycle layer. Switch layers or select a Color Cycle brush."
+          : "Can't use Color Cycle brushes on a normal layer. Create/select a Color Cycle layer.");
+      }
+    });
+  });
+
   it('skips pointer down when busy and not adjusting', () => {
     const { deps } = createDeps();
     deps.isBusyRef.current = true;

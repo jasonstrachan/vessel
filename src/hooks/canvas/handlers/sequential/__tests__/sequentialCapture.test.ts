@@ -413,6 +413,52 @@ describe('sequentialCapture', () => {
     expect(event?.brush.pressureLinkedFillMaxResolution).toBe(28);
   });
 
+  it.each([
+    ['square', false, 'round', 'square'],
+    ['round', false, 'square', 'round'],
+    ['diamond', false, 'round', 'diamond'],
+    ['diamond5', false, 'round', 'diamond5'],
+    ['diamond7', false, 'round', 'diamond7'],
+    ['diamond9', false, 'round', 'diamond9'],
+    ['checkered', false, 'round', 'checkered'],
+    ['triangle', false, 'round', 'triangle'],
+    [undefined, false, 'round', 'square'],
+    ['square', true, 'diamond', 'diamond'],
+    ['diamond', true, 'round', 'round'],
+  ] as const)('captures public CC stamp %s with dither=%s and effective tip %s→%s', (shape, ditherEnabled, ditherTip, expected) => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState(state => ({ tools: { ...state.tools, brushSettings: {
+      ...state.tools.brushSettings, brushShape: BrushShape.COLOR_CYCLE,
+      colorCycleStampShape: shape, colorCycleStampDitherEnabled: false,
+      ditherEnabled, ditherStrokeTipShape: ditherTip,
+    } } }));
+    const settings = { ...useAppStore.getState().tools.brushSettings };
+    expect(captureSequentialStampsForActiveLayer({ state: useAppStore.getState(), nowMs: 1250,
+      stamps: [{ x: 66, y: 66, pressure: 1, rotation: 0, size: 8, alpha: 1 }],
+    })).toBe(1);
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+    const events = useAppStore.getState().layers[0].sequentialData!.events;
+    expect(events).toHaveLength(1);
+    expect(events[0].brush.brushShape).toBe(BrushShape.COLOR_CYCLE);
+    expect(events[0].brush.tipShape).toBe(expected);
+    expect(events[0].stamps[0]).toMatchObject({ x: 66, y: 66, size: 8, alpha: 1 });
+    expect(useAppStore.getState().tools.brushSettings).toEqual(settings);
+  });
+
+  it.each([BrushShape.ROUND, BrushShape.TRIANGLE, BrushShape.COLOR_CYCLE_TRIANGLE])('retains non-stamp brush %s tip ownership', brushShape => {
+    setFeatureFlag('enableSequentialRecordMode', true);
+    useAppStore.setState(state => ({ tools: { ...state.tools, brushSettings: {
+      ...state.tools.brushSettings, brushShape, colorCycleStampShape: 'diamond',
+      colorCycleStampDitherEnabled: false, ditherEnabled: false,
+    } } }));
+    captureSequentialStampsForActiveLayer({ state: useAppStore.getState(), nowMs: 1250,
+      stamps: [{ x: 66, y: 66, pressure: 1, rotation: 0, size: 8, alpha: 1 }],
+    });
+    flushBufferedSequentialEvents({ state: useAppStore.getState() });
+    expect(useAppStore.getState().layers[0].sequentialData!.events[0].brush.tipShape)
+      .toBe(brushShape === BrushShape.ROUND ? 'round' : 'triangle');
+  });
+
   it('exposes buffered frame events before flush and clears them after flush', () => {
     setFeatureFlag('enableSequentialRecordMode', true);
     const runtime = createSequentialEventBufferRuntime();
