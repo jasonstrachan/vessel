@@ -10,6 +10,7 @@ describe('ui slice', () => {
   };
 
   beforeEach(() => {
+    localStorage.clear();
     resetUI();
   });
 
@@ -62,4 +63,41 @@ describe('ui slice', () => {
     store.removeNotification(notificationId);
     expect(useAppStore.getState().ui.notifications).toHaveLength(0);
   });
+  it('remembers normalized guide edits without replacing unrelated settings or brush state', () => {
+    const payload = { unknown: { keep: 7 }, autosave: { isEnabled: false, unknown: 9 }, history: { maxHistorySize: 50, unknown: 'history' }, canvas: { showRulers: true, guideGrid: { unknown: 'keep', enabled: false, rows: 8, columns: 8 } } };
+    localStorage.setItem('vessel-settings', JSON.stringify(payload));
+    localStorage.setItem('vessel:brush-settings', 'unchanged-brush');
+    const before = useAppStore.getState();
+    const layers = before.layers;
+    const history = before.history;
+    const brush = before.tools.brushSettings;
+    before.setGridDimensions({ rows: 4, columns: 5 });
+    before.toggleGrid();
+    expect(JSON.parse(localStorage.getItem('vessel-settings')!)).toEqual({ ...payload, canvas: { ...payload.canvas, guideGrid: { unknown: 'keep', enabled: true, rows: 4, columns: 5 } } });
+    before.setGridDimensions({ rows: 2.6, columns: 129 });
+    before.setGridEnabled(false);
+    expect(JSON.parse(localStorage.getItem('vessel-settings')!).canvas.guideGrid).toEqual({ unknown: 'keep', enabled: false, rows: 3, columns: 128 });
+    expect(useAppStore.getState().ui.grid).toEqual({ enabled: false, rows: 3, columns: 128 });
+    expect(useAppStore.getState().layers).toBe(layers);
+    expect(useAppStore.getState().history).toBe(history);
+    expect(useAppStore.getState().tools.brushSettings).toBe(brush);
+    expect(localStorage.getItem('vessel:brush-settings')).toBe('unchanged-brush');
+  });
+
+  it('skips unchanged guide writes and keeps actions usable when storage fails', () => {
+    const write = jest.spyOn(Storage.prototype, 'setItem');
+    try {
+      const before = useAppStore.getState().ui;
+      useAppStore.getState().setGridDimensions({ rows: 8, columns: 8 });
+      useAppStore.getState().setGridEnabled(false);
+      expect(useAppStore.getState().ui).toBe(before);
+      expect(write).not.toHaveBeenCalled();
+      write.mockImplementation(() => { throw new Error('blocked storage'); });
+      expect(() => useAppStore.getState().setGridDimensions({ enabled: true, rows: 0, columns: 16 })).not.toThrow();
+      expect(useAppStore.getState().ui.grid).toEqual({ enabled: true, rows: 1, columns: 16 });
+    } finally {
+      write.mockRestore();
+    }
+  });
+
 });

@@ -1625,6 +1625,15 @@ The source boundary is eight files plus these two ledgers (ten commit paths), di
 
 Evidence: `area47-source-freeze-v2-session39.json`, `area47-final-gate-v2-session39.json`, `area47-preview-build-v2-session39.json`, `area47-preview-after-v2-session39.json`, `area47-native-final-v2-session39.json`. Qualified failed BEFORE receipts remain separate: captured context target `area47-navigation-before-v2-session39.json`, missing ruler renderer `area47-grid-settings-before-v2-session39.json`, and settled hydration rollback `area47-ruler-toggle-diagnostic-v1-session39.json`.
 
+
+## Session39 — Area48 complete: Grid controls and remembered guide settings
+
+Areas01–48 are complete: **48/65 (73.8%)**. Three final production cases passed 221 checks with no failures: toolbar/panel synchronization and exact SVG geometry; number boundaries, rounding, empty and invalid input; three exact pixel stamps proving guide dimensions/visibility remain independent of brush snapping; and header collapse/reopen plus real guide-settings reload. Seven owned storage keys were restored exactly and the named browser session closed with no daemon remaining.
+
+A48-01: reload discarded guide visibility and dimensions. Under the stated default to remember settings after an unanswered optional preference question, the existing vessel-settings.canvas.guideGrid now stores the normalized triplet. UI actions preserve unknown settings fields and runtime behavior on storage failure. Home hydrates once through the existing action, with stable dependencies and latest-state comparison so later edits survive. This default is a root assumption, not a human response. Header storage, brush snap settings, project archives and unsaved-document restoration retain their separate contracts.
+
+Source scope: five existing files (localSettings, UI slice, HomeClient and their two test files), plus these two audit records. Same regression tests: five failures before, all35 passing after. Final isolated gate: Test Suites: 1 skipped, 625 passed, 625 of 626 total; Tests:       1 skipped, 6535 passed, 6536 total; Snapshots:   2 passed, 2 total. Type checking, lint and diff checks passed. Final artifact: 12bfd66d42d6c7f884aa2b1d1845ffd09a91ea84a5a3c4176acf35e689922571. Evidence: area48-native-before-v3-session39.json; area48-final-gate-v1-session39.json; area48-preview-build-v1-session39.json; area48-native-final-v1-session39.json; area48-commit-receipt-session39.json. The original47 working paths and raw three-file/seven-addition staged patch remain exact. Local focused commit only; Areas49–65 remain pending.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1690,7 +1699,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 45 | Playback: play/pause/scrub, global rate incl zero, mixed layer types, editing while playing | AnimationControlsPanel, runtime/playback | verified (Session39; 8 native cases/746 checks; full gate/local receipt) |
 | 46 | Display filters: each exposed filter/control, order, enable/reset, viewport/export parity | DisplayFiltersSection, display filter runtime | verified (Session39;31 cases/4193 checks,24 HTML exports;A46-01/02 repaired) |
 | 47 | Viewport: pan/Space/middle drag, zoom wheel/reset/anchor, resize, pixel grid/rulers | canvas view/input/render hooks | verified (Session39;4 native cases/237 checks; viewport context, rulers and settings hydration repaired) |
-| 48 | Grid: toggle, rows/columns, snapping, invalid values, persistence | GridSettingsPanel, UI slice | pending |
+| 48 | Grid: toggle, rows/columns, snapping, invalid values, persistence | GridSettingsPanel, UI slice | verified (Session39;3 native cases/221 checks; guide settings remembered) |
 | 49 | Keyboard: tool shortcuts, temporary tools, undo/redo, text/modal focus, interrupted strokes | comprehensive keyboard, canvas keyboard handlers | pending |
 | 50 | Document: new/cancel, name/dimensions/background, validation, resize, unsaved work | DocumentModal, project slice | pending |
 | 51 | History: all edit operations, redo invalidation, limits/spill/recovery, layer/runtime rehydration | history manager/slice/deltas | pending |

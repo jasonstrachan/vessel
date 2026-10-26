@@ -15,6 +15,11 @@ export interface VesselLocalSettings {
     interval?: number;
   };
   canvas?: {
+    guideGrid?: {
+      enabled?: boolean;
+      rows?: number;
+      columns?: number;
+    };
     showRulers?: boolean;
     showFPSMeter?: boolean;
     showPixelGridAtMaxZoom?: boolean;

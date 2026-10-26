@@ -1,4 +1,6 @@
 import type { StateCreator } from 'zustand';
+
+import { mergeLocalSettings, readLocalSettings } from '@/utils/localSettings';
 import type {
   Notification,
   UIState,
@@ -43,6 +45,11 @@ const clampGridDivisions = (value: number): number => {
     return MIN_GRID_DIVISIONS;
   }
   return Math.max(MIN_GRID_DIVISIONS, Math.min(MAX_GRID_DIVISIONS, Math.round(value)));
+};
+
+const persistGuideGrid = (grid: UIState['grid']): void => {
+  const stored = readLocalSettings().canvas?.guideGrid;
+  mergeLocalSettings({ canvas: { guideGrid: { ...stored, ...grid } } });
 };
 
 export const createDefaultUIState = (): UIState => ({
@@ -143,39 +150,36 @@ export const createUiSlice = (): StateCreator<AppState, [], [], UISlice> => (set
     };
   }),
 
-  toggleGrid: () => set((state) => ({
-    ui: {
-      ...state.ui,
-      grid: {
-        ...state.ui.grid,
-        enabled: !state.ui.grid.enabled,
-      },
-    },
-  })),
+  toggleGrid: () => set((state) => {
+    const grid = { ...state.ui.grid, enabled: !state.ui.grid.enabled };
+    persistGuideGrid(grid);
+    return { ui: { ...state.ui, grid } };
+  }),
 
-  setGridEnabled: (enabled) => set((state) => ({
-    ui: {
-      ...state.ui,
-      grid: {
-        ...state.ui.grid,
-        enabled,
-      },
-    },
-  })),
+  setGridEnabled: (enabled) => set((state) => {
+    if (state.ui.grid.enabled === enabled) {
+      return state;
+    }
+    const grid = { ...state.ui.grid, enabled };
+    persistGuideGrid(grid);
+    return { ui: { ...state.ui, grid } };
+  }),
 
-  setGridDimensions: (dimensions) => set((state) => ({
-    ui: {
-      ...state.ui,
-      grid: {
-        ...state.ui.grid,
-        ...(typeof dimensions.enabled === 'boolean' ? { enabled: dimensions.enabled } : {}),
-        ...(dimensions.rows !== undefined ? { rows: clampGridDivisions(dimensions.rows) } : {}),
-        ...(dimensions.columns !== undefined
-          ? { columns: clampGridDivisions(dimensions.columns) }
-          : {}),
-      },
-    },
-  })),
+  setGridDimensions: (dimensions) => set((state) => {
+    const grid = {
+      ...state.ui.grid,
+      ...(typeof dimensions.enabled === 'boolean' ? { enabled: dimensions.enabled } : {}),
+      ...(dimensions.rows !== undefined ? { rows: clampGridDivisions(dimensions.rows) } : {}),
+      ...(dimensions.columns !== undefined
+        ? { columns: clampGridDivisions(dimensions.columns) }
+        : {}),
+    };
+    if (grid.enabled === state.ui.grid.enabled && grid.rows === state.ui.grid.rows && grid.columns === state.ui.grid.columns) {
+      return state;
+    }
+    persistGuideGrid(grid);
+    return { ui: { ...state.ui, grid } };
+  }),
 
   setTheme: (theme) => set((state) => ({
     ui: {

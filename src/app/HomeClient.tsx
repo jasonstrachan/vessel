@@ -58,6 +58,7 @@ export default function Home() {
   const setAutosaveEnabled = useAppStore((state) => state.setAutosaveEnabled);
   const setAutosaveInterval = useAppStore((state) => state.setAutosaveInterval);
   const toggleRulers = useAppStore((state) => state.toggleRulers);
+  const setGridDimensions = useAppStore((state) => state.setGridDimensions);
   const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
   const setShowPixelGridAtMaxZoom = useAppStore((state) => state.setShowPixelGridAtMaxZoom);
   const setHistorySize = useAppStore((state) => state.setHistorySize);
@@ -133,6 +134,22 @@ export default function Home() {
 
         // Load canvas settings
         if (settings.canvas) {
+          const storedGrid = settings.canvas.guideGrid;
+          if (storedGrid && typeof storedGrid === 'object') {
+            const dimensions = {
+              ...(typeof storedGrid.enabled === 'boolean' ? { enabled: storedGrid.enabled } : {}),
+              ...(typeof storedGrid.rows === 'number' && Number.isFinite(storedGrid.rows) ? { rows: storedGrid.rows } : {}),
+              ...(typeof storedGrid.columns === 'number' && Number.isFinite(storedGrid.columns) ? { columns: storedGrid.columns } : {}),
+            };
+            const current = getAppStoreState().ui.grid;
+            if (
+              (dimensions.enabled !== undefined && current.enabled !== dimensions.enabled) ||
+              (dimensions.rows !== undefined && current.rows !== dimensions.rows) ||
+              (dimensions.columns !== undefined && current.columns !== dimensions.columns)
+            ) {
+              setGridDimensions(dimensions);
+            }
+          }
           if (
             typeof settings.canvas.showRulers === 'boolean' &&
             settings.canvas.showRulers !== getAppStoreState().canvas.showRulers
@@ -166,7 +183,7 @@ export default function Home() {
     } finally {
       setIsSettingsHydrated(true);
     }
-  }, [setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setShowPixelGridAtMaxZoom, setTransparencyBackgroundMode, toggleRulers]);
+  }, [setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setShowPixelGridAtMaxZoom, setTransparencyBackgroundMode, setGridDimensions, toggleRulers]);
 
   useEffect(() => {
     if (!isAutosaveEnabled) {

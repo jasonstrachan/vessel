@@ -175,6 +175,9 @@ function createMockStore() {
     setTransparencyBackgroundMode: jest.fn((mode: 'checker' | 'gray') => {
       store.canvas.transparencyBackgroundMode = mode;
     }),
+    setGridDimensions: jest.fn((dimensions: Partial<{ enabled: boolean; rows: number; columns: number }>) => {
+      store.ui.grid = { ...store.ui.grid, ...dimensions };
+    }),
     setHistorySize: jest.fn(),
     newProject: jest.fn(),
     ensureCustomBrushHydrated: jest.fn().mockResolvedValue(undefined),
@@ -184,6 +187,7 @@ function createMockStore() {
       store.canvas.displayFilters = filters;
     }),
     ui: {
+      grid: { enabled: false, rows: 8, columns: 8 },
       modals: { document: false, settings: false, export: false, loadProject: false },
       brushPanelSection: 'tool',
       settingsSection: 'display',
@@ -444,6 +448,35 @@ describe('Home page client rendering', () => {
     expect(mockStore.canvas.showRulers).toBe(true);
     expect(mockStore.toggleRulers).not.toHaveBeenCalled();
     expect(mockStore.setShowFPSMeter).toHaveBeenCalledWith(false);
+  });
+
+  it.each([true, false])('hydrates remembered guide once and preserves later edits saved=%s', enabled => {
+    const payload = JSON.stringify({ canvas: { guideGrid: { enabled, rows: 4, columns: 5, unknown: 'keep' } }, unknown: 'keep' });
+    localStorage.setItem('vessel-settings', payload);
+    const { rerender } = render(<React.StrictMode><Home /></React.StrictMode>);
+    expect(mockStore.ui.grid).toEqual({ enabled, rows: 4, columns: 5 });
+    expect(mockStore.setGridDimensions).toHaveBeenCalledTimes(1);
+    expect(mockStore.setGridDimensions).toHaveBeenCalledWith({ enabled, rows: 4, columns: 5 });
+    act(() => { mockStore.setGridDimensions({ enabled: !enabled, rows: 7 }); });
+    mockStore.setGridDimensions.mockClear();
+    rerender(<React.StrictMode><Home /></React.StrictMode>);
+    expect(mockStore.ui.grid).toEqual({ enabled: !enabled, rows: 7, columns: 5 });
+    expect(mockStore.setGridDimensions).not.toHaveBeenCalled();
+    expect(localStorage.getItem('vessel-settings')).toBe(payload);
+  });
+
+  it('hydrates only valid guide fields without replacing current fields with malformed values', () => {
+    localStorage.setItem('vessel-settings', JSON.stringify({ canvas: { guideGrid: { enabled: 'yes', rows: null, columns: 5 } } }));
+    render(<Home />);
+    expect(mockStore.setGridDimensions).toHaveBeenCalledWith({ columns: 5 });
+    expect(mockStore.ui.grid).toEqual({ enabled: false, rows: 8, columns: 5 });
+  });
+
+  it.each([undefined, null, 'invalid', { enabled: 'yes', rows: null, columns: '5' }])('ignores absent or malformed guide values %p', guideGrid => {
+    localStorage.setItem('vessel-settings', JSON.stringify({ canvas: { guideGrid } }));
+    render(<Home />);
+    expect(mockStore.setGridDimensions).not.toHaveBeenCalled();
+    expect(mockStore.ui.grid).toEqual({ enabled: false, rows: 8, columns: 8 });
   });
 
 });
