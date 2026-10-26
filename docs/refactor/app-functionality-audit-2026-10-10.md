@@ -1612,6 +1612,19 @@ Settled HEAD+only8 source-isolated diff/type/full lint/full Jest passes: 624 sui
 
 Evidence: `area46-accepted-coverage-closeout39.json`, `area46-source-freeze-v2-session39.json`, `area46-final-gate-v2-session39.json`, `area46-preview-build-v3-session39.json`, `area46-preview-after-v3-session39.json`, `area46-native-final-v1-session39.json`.
 
+
+## Session39 — Area47 complete: Viewport controls
+
+Areas01–47 are software-verified: **47/65 (72.3%)**. The final production artifact `0eef3ac314ada510d574902775586da0d411572487c29394e9c1da305402d3e8` passes **four fresh native cases / 237 checks**, with raw CLI/process/prepared/compiled/result continuity, exact six-key quiet restoration, cleanup/no-daemon and source-preservation guards. Earlier failed V1 and diagnostic receipts remain historical; none are promoted into final acceptance or its counts.
+
+Three qualified defects are repaired at their owners. A47-01 moves context-menu prevention from the child canvas to the pointer-capture-owning workspace, covering the actual captured wrapper target while preserving child suppression and outside-page context menus. A47-02 connects the existing persisted Show Rulers flag to two pointer-transparent 20px viewport strips with bounded document-pixel ticks, adaptive integer 1/2/5 major steps, whole-pixel minor ticks, viewport/document clipping and a blank corner. A47-03 removes the live ruler dependency from initial settings hydration and compares the latest store flag during initialization, so an unsaved live OFF edit is not overwritten by stale saved ON settings; initialization and StrictMode idempotence remain tested.
+
+Actual final proof covers off-center wheel anchors, minimum/maximum clamps and already-clamped no-ops, horizontal-wheel no-op, single-click reset no-op and double-click zoom1 with unchanged pan; interrupted Space release during left-down followed by one genuine fresh red64-pixel command; pixel-grid thresholds19/20/40, off, Settings save/reload and same-project CSS wrapper resize; exact ruler tick labels/coordinates at zoom1/2, native Space pan and resized strips, transparent hit-testing and one genuine64-pixel command beneath the horizontal ruler. SavedON→OFF is accepted only with a real trusted native label click, expected DOM AND store state after normal settling while savedON is still observed, then exact Settings OFF persistence and both ruler axes removed. Full source/framebuffer/normal version/masks/unknown metadata/history/preferences remain exact except each declared paint or Settings change. Middle/right outside Space/direction drafts remain source-backed no-ops, not an invented middle-pan feature. Ruler geometry is software-verified; subjective visual signoff remains separate.
+
+The source boundary is eight files plus these two ledgers (ten commit paths), disjoint from the original47 and inherited46 owners. Isolated HEAD+only8 gate: Test Suites: 1 skipped, 625 passed, 625 of 626 total; Tests:       1 skipped, 6526 passed, 6527 total; Snapshots:   2 passed, 2 total. The actual sole production build preserves all15 public assets, Studio and the raw staged three-file/seven-addition patch. No unsaved-document restoration guarantee across reload, arbitrary DPR/navigation matrix, dormant Fit controls, general grid snapping or Area48 proof is claimed. Area48 remains pending.
+
+Evidence: `area47-source-freeze-v2-session39.json`, `area47-final-gate-v2-session39.json`, `area47-preview-build-v2-session39.json`, `area47-preview-after-v2-session39.json`, `area47-native-final-v2-session39.json`. Qualified failed BEFORE receipts remain separate: captured context target `area47-navigation-before-v2-session39.json`, missing ruler renderer `area47-grid-settings-before-v2-session39.json`, and settled hydration rollback `area47-ruler-toggle-diagnostic-v1-session39.json`.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1676,7 +1689,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 44 | Sequence settings: FPS/frames, preserve/trim/retime, spread/fade/burst/gap, playback | SequentialControlsModule | verified (Session39; 6 native cases/455 checks; full gate/local receipt) |
 | 45 | Playback: play/pause/scrub, global rate incl zero, mixed layer types, editing while playing | AnimationControlsPanel, runtime/playback | verified (Session39; 8 native cases/746 checks; full gate/local receipt) |
 | 46 | Display filters: each exposed filter/control, order, enable/reset, viewport/export parity | DisplayFiltersSection, display filter runtime | verified (Session39;31 cases/4193 checks,24 HTML exports;A46-01/02 repaired) |
-| 47 | Viewport: pan/Space/middle drag, zoom wheel/reset/anchor, resize, pixel grid/rulers | canvas view/input/render hooks | pending |
+| 47 | Viewport: pan/Space/middle drag, zoom wheel/reset/anchor, resize, pixel grid/rulers | canvas view/input/render hooks | verified (Session39;4 native cases/237 checks; viewport context, rulers and settings hydration repaired) |
 | 48 | Grid: toggle, rows/columns, snapping, invalid values, persistence | GridSettingsPanel, UI slice | pending |
 | 49 | Keyboard: tool shortcuts, temporary tools, undo/redo, text/modal focus, interrupted strokes | comprehensive keyboard, canvas keyboard handlers | pending |
 | 50 | Document: new/cancel, name/dimensions/background, validation, resize, unsaved work | DocumentModal, project slice | pending |

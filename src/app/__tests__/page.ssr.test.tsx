@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { autosaveService as mockAutosaveService } from '@/utils/autosave';
 import type { DisplayFilterConfig } from '@/types';
 import Home from '../HomeClient';
@@ -163,7 +163,9 @@ function createMockStore() {
     setAutosaveEnabled: jest.fn(),
     setAutosaveInterval: jest.fn(),
     clearSaveStatus: jest.fn(),
-    toggleRulers: jest.fn(),
+    toggleRulers: jest.fn(() => {
+      store.canvas.showRulers = !store.canvas.showRulers;
+    }),
     setShowFPSMeter: jest.fn((visible: boolean) => {
       store.canvas.showFPSMeter = visible;
     }),
@@ -381,6 +383,67 @@ describe('Home page client rendering', () => {
     render(<Home />);
 
     expect(mockStore.setHistorySize).not.toHaveBeenCalled();
+  });
+
+
+  it.each([true, false])('keeps a live ruler toggle after initial saved=%s hydration', saved => {
+    const payload = JSON.stringify({
+      canvas: {
+        showRulers: saved,
+        showFPSMeter: false,
+        showPixelGridAtMaxZoom: false,
+        transparencyBackgroundMode: 'gray',
+      },
+      autosave: { isEnabled: false, interval: 7 },
+      history: { maxHistorySize: 100 },
+      unknown: { preserve: 'exact' },
+    });
+    localStorage.setItem('vessel-settings', payload);
+    mockStore.canvas.showRulers = !saved;
+    const { rerender } = render(<Home />);
+    expect(mockStore.canvas.showRulers).toBe(saved);
+    expect(mockStore.toggleRulers).toHaveBeenCalledTimes(1);
+    expect(mockStore.setShowFPSMeter).toHaveBeenCalledWith(false);
+    expect(mockStore.setShowPixelGridAtMaxZoom).toHaveBeenCalledWith(false);
+    expect(mockStore.setTransparencyBackgroundMode).toHaveBeenCalledWith('gray');
+    expect(mockStore.setAutosaveEnabled).toHaveBeenCalledWith(false);
+    expect(mockStore.setAutosaveInterval).toHaveBeenCalledWith(7);
+    expect(mockStore.setHistorySize).toHaveBeenCalledWith(100);
+
+    act(() => { mockStore.toggleRulers(); });
+    const actions = [
+      mockStore.toggleRulers,
+      mockStore.setShowFPSMeter,
+      mockStore.setShowPixelGridAtMaxZoom,
+      mockStore.setTransparencyBackgroundMode,
+      mockStore.setAutosaveEnabled,
+      mockStore.setAutosaveInterval,
+      mockStore.setHistorySize,
+    ];
+    actions.forEach(action => action.mockClear());
+    rerender(<Home />);
+    expect(mockStore.canvas.showRulers).toBe(!saved);
+    actions.forEach(action => expect(action).not.toHaveBeenCalled());
+    expect(localStorage.getItem('vessel-settings')).toBe(payload);
+  });
+
+  it.each([true, false])('hydrates latest ruler state once through StrictMode replay saved=%s', saved => {
+    const payload = JSON.stringify({ canvas: { showRulers: saved } });
+    localStorage.setItem('vessel-settings', payload);
+    mockStore.canvas.showRulers = !saved;
+    render(<React.StrictMode><Home /></React.StrictMode>);
+    expect(mockStore.canvas.showRulers).toBe(saved);
+    expect(mockStore.toggleRulers).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('vessel-settings')).toBe(payload);
+  });
+
+  it.each([undefined, null, 'yes'])('does not invent ruler hydration for malformed/absent value %s', value => {
+    mockStore.canvas.showRulers = true;
+    localStorage.setItem('vessel-settings', JSON.stringify({ canvas: { showRulers: value, showFPSMeter: false } }));
+    render(<Home />);
+    expect(mockStore.canvas.showRulers).toBe(true);
+    expect(mockStore.toggleRulers).not.toHaveBeenCalled();
+    expect(mockStore.setShowFPSMeter).toHaveBeenCalledWith(false);
   });
 
 });

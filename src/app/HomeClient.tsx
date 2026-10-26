@@ -53,7 +53,6 @@ export default function Home() {
   const isExportModalOpen = modals.export;
   const isLoadModalOpen = modals.loadProject;
 
-  const canvasShowRulers = useAppStore((state) => state.canvas.showRulers);
   const showFPSMeter = useAppStore((state) => state.canvas.showFPSMeter);
   const setTransparencyBackgroundMode = useAppStore((state) => state.setTransparencyBackgroundMode);
   const setAutosaveEnabled = useAppStore((state) => state.setAutosaveEnabled);
@@ -134,7 +133,10 @@ export default function Home() {
 
         // Load canvas settings
         if (settings.canvas) {
-          if (typeof settings.canvas.showRulers === 'boolean' && settings.canvas.showRulers !== canvasShowRulers) {
+          if (
+            typeof settings.canvas.showRulers === 'boolean' &&
+            settings.canvas.showRulers !== getAppStoreState().canvas.showRulers
+          ) {
             toggleRulers();
           }
           if (typeof settings.canvas.showFPSMeter === 'boolean') {
@@ -164,7 +166,7 @@ export default function Home() {
     } finally {
       setIsSettingsHydrated(true);
     }
-  }, [canvasShowRulers, setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setShowPixelGridAtMaxZoom, setTransparencyBackgroundMode, toggleRulers]);
+  }, [setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setShowPixelGridAtMaxZoom, setTransparencyBackgroundMode, toggleRulers]);
 
   useEffect(() => {
     if (!isAutosaveEnabled) {

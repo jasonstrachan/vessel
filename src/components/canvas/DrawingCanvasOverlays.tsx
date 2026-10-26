@@ -12,6 +12,7 @@ import type { Tool } from '@/types';
 import CropOverlay from './CropOverlay';
 import FloatingPasteOverlay from './FloatingPasteOverlay';
 import GridOverlay from './GridOverlay';
+import { RulerOverlay } from './RulerOverlay';
 import SelectionMarqueeHandles from './SelectionMarqueeHandles';
 
 interface DrawingCanvasOverlaysProps {
@@ -42,6 +43,9 @@ export const DrawingCanvasOverlays = ({
   const StudioCanvasOverlay = studioExtension.CanvasOverlay;
   const grid = useAppStore(selectGridState);
   const showPixelGridAtMaxZoom = useAppStore((state) => state.canvas.showPixelGridAtMaxZoom);
+  const showRulers = useAppStore((state) => state.canvas.showRulers);
+  const viewportWidth = useAppStore((state) => state.canvas.canvasWidth);
+  const viewportHeight = useAppStore((state) => state.canvas.canvasHeight);
   const setZoom = useAppStore((state) => state.setZoom);
   const multiplayer = useVesselMultiplayerSnapshot();
   const aiCursor = multiplayer.aiCursor;
@@ -107,6 +111,19 @@ export const DrawingCanvasOverlays = ({
           rows={grid.rows}
           columns={grid.columns}
           showPixelGridAtMaxZoom={showPixelGridAtMaxZoom}
+        />
+      ) : null}
+
+      {project ? (
+        <RulerOverlay
+          enabled={showRulers}
+          projectWidth={project.width}
+          projectHeight={project.height}
+          viewportWidth={viewportWidth}
+          viewportHeight={viewportHeight}
+          zoom={canvasZoom}
+          offsetX={offsetX}
+          offsetY={offsetY}
         />
       ) : null}
 

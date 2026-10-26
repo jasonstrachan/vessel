@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import DrawingCanvas from '../DrawingCanvas';
 import type { AppState } from '@/stores/useAppStore';
 import type { Layer, BrushSettings } from '@/types';
@@ -389,6 +389,23 @@ describe('DrawingCanvas accessibility', () => {
 
     const canvasElement = screen.getByLabelText('Drawing surface');
     expect(canvasElement.tagName).toBe('CANVAS');
+  });
+
+  it.each(['workspace', 'surface', 'outside'] as const)('scopes native context-menu suppression to %s', (targetKind) => {
+    renderCanvas();
+
+    const target = targetKind === 'workspace'
+      ? screen.getByRole('region', { name: /drawing canvas workspace/i })
+      : targetKind === 'surface'
+        ? screen.getByLabelText('Drawing surface')
+        : document.body;
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+    const allowed = fireEvent(target, event);
+
+    expect(event.target).toBe(target);
+    expect(event.cancelable).toBe(true);
+    expect(event.defaultPrevented).toBe(targetKind !== 'outside');
+    expect(allowed).toBe(targetKind === 'outside');
   });
 
   it('clears recomposition flags via the store setter on mount', async () => {

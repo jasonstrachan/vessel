@@ -89,10 +89,10 @@ export const DrawingCanvasViewport = ({
     onPointerLeave={onPointerLeave}
     onPointerCancel={onPointerCancel}
     onDoubleClick={onDoubleClick}
+    onContextMenu={(event) => event.preventDefault()}
   >
     <canvas
       ref={canvasRef}
-      onContextMenu={(event) => event.preventDefault()}
       tabIndex={-1}
       aria-label="Drawing surface"
       style={canvasStyle}

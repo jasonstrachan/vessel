@@ -6,6 +6,8 @@ const setZoom = jest.fn();
 const canvasRef = React.createRef<HTMLCanvasElement>();
 const stopVesselMultiplayerSession = jest.fn();
 const sampleColorAtPosition = jest.fn(() => '#123456');
+let showRulers = false;
+let viewport = { width: 800, height: 600 };
 let multiplayer = {
   sessionId: null as string | null,
   projectId: null as string | null,
@@ -60,6 +62,9 @@ jest.mock('@/stores/useAppStore', () => ({
       setZoom,
       canvas: {
         showPixelGridAtMaxZoom: true,
+        showRulers,
+        canvasWidth: viewport.width,
+        canvasHeight: viewport.height,
       },
       ui: {
         grid: {
@@ -76,6 +81,8 @@ jest.mock('@/stores/useAppStore', () => ({
 
 describe('DrawingCanvasOverlays', () => {
   beforeEach(() => {
+    showRulers = false;
+    viewport = { width: 800, height: 600 };
     setZoom.mockClear();
     stopVesselMultiplayerSession.mockClear();
     sampleColorAtPosition.mockClear();
@@ -277,5 +284,54 @@ describe('DrawingCanvasOverlays', () => {
       name: 'Studio extension canvas control',
     })).toHaveAttribute('data-sample', '#123456');
     expect(sampleColorAtPosition).toHaveBeenCalledWith(4, 6);
+  });
+});
+
+
+describe('persisted ruler visibility mounted owner', () => {
+  const props = {
+    canvasRef,
+    project: { width: 256, height: 192 },
+    floatingPaste: null,
+    canvasZoom: 2,
+    offsetX: 30,
+    offsetY: 40,
+    currentTool: 'brush' as const,
+    isSpacePressed: false,
+    displayProjectName: 'Rulers',
+    sampleColorAtPosition,
+  };
+
+  afterEach(() => { showRulers = false; });
+
+  it('mounts persisted enabled rulers in CSS viewport coordinates, then removes them', () => {
+    showRulers = false;
+    const { rerender } = render(<DrawingCanvasOverlays {...props} />);
+    expect(screen.queryByRole('img', { name: 'Horizontal ruler' })).not.toBeInTheDocument();
+    showRulers = true;
+    rerender(<DrawingCanvasOverlays {...props} />);
+    const horizontal = screen.getByRole('img', { name: 'Horizontal ruler' });
+    const vertical = screen.getByRole('img', { name: 'Vertical ruler' });
+    expect(horizontal).toHaveAttribute('width', '800');
+    expect(vertical).toHaveAttribute('height', '600');
+    expect(horizontal.querySelector('[data-coordinate="50"]')).toHaveAttribute('x1', '130');
+    expect(vertical.querySelector('[data-coordinate="50"]')).toHaveAttribute('y1', '140');
+    showRulers = false;
+    rerender(<DrawingCanvasOverlays {...props} />);
+    expect(screen.queryByRole('img', { name: 'Horizontal ruler' })).not.toBeInTheDocument();
+  });
+
+  it('resizes CSS strips without changing camera/source props or invoking store actions', () => {
+    setZoom.mockClear();
+    showRulers = true;
+    viewport = { width: 320, height: 240 };
+    const { rerender } = render(<DrawingCanvasOverlays {...props} />);
+    expect(screen.getByRole('img', { name: 'Horizontal ruler' })).toHaveAttribute('width', '320');
+    viewport = { width: 640, height: 480 };
+    rerender(<DrawingCanvasOverlays {...props} />);
+    expect(screen.getByRole('img', { name: 'Horizontal ruler' })).toHaveAttribute('width', '640');
+    expect(screen.getByRole('img', { name: 'Vertical ruler' })).toHaveAttribute('height', '480');
+    expect(setZoom).not.toHaveBeenCalled();
+    expect(props).toMatchObject({ canvasZoom: 2, offsetX: 30, offsetY: 40 });
   });
 });
