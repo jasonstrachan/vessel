@@ -1655,6 +1655,18 @@ Source boundary stayed empty: no app-code change, unit/full-suite rerun or new b
 
 Shape-specific breadth remains Area65, project archive round trips Area52, and broader history coverage Area51. Areas51–65 remain pending. Evidence: `area50-native-before-v1-session39.json` (Draft/New); area50-native-before-v4-session39.json (Resize). Earlier resize fixture-premise failures remain historical and do not count as app defects or accepted checks.
 
+## Session39 — Area51 complete: History composition, limits and bounded recovery
+
+Areas01–51 are complete: **51/65 (78.5%)**. Area51 closed with an empty app-source boundary on the existing production artifact: 4 native cases/456 checks. Accepted evidence is exclusively real IndexedDB spill (before-v3), scoped read-failure/retry recovery (before-v8), public history-limit/ring/redo invalidation (before-v9), and the final accepted mixed normal/Color Cycle/Sequence three-command Undo-all/Redo-all chain (before-v10).
+
+The limit selection uses the actual mounted DOM SELECT input/change→React store/manager contract. Headless native keyboard menu behavior was independently characterized against a bare native SELECT and is not called a trusted keyboard-selection pass or an app defect. All paint contacts and Undo/Redo keystrokes in accepted functional cases are native. Real storage spill/readback and a single phase-scoped HistoryReplayPreparationError prove bounded preparation failure preserves source/stacks and the same native Undo succeeds after the I/O boundary is restored; this does not claim compensation-failure recovery, arbitrary fault safety or history persistence across reload. Per-edit CC material/cache, normal bitmap-version and Sequence chunk contracts reuse the named earlier authoritative proofs. Failed/diagnostic cohorts remain preserved and excluded from these totals.
+
+The four accepted cases passed29 spill,36 read-failure/retry,231 limit/ring/branch, and160 mixed-chain checks. The mixed case positively observes patch, bitmap-tile and Sequence append delta tags and completes two Undo-all/Redo-all cycles with the same real command IDs. Whole independent published pixels, all six CC canonical planes, raw ID/slot references, masks, non-targets and every declared metadata owner remain strict. PATCH history preserves the separate null imageData/transparent framebuffer representation; its store metadata is checked against canonical pre-action inputs and the final store-update owner. Normal bitmap replay keeps the latest capture version, and the initially absent Sequence chunk field follows its established empty-array contract.
+
+The unchanged production artifact is `beb134a2db32f33cc07e52687c9ba3b5dfa3149c6955bd8d9050add94cd8e80f`. Area49's625-suite/6545-test gate and build remain provenance; these are not new Area51 test or build runs.
+
+No source change, new full gate or production rebuild was needed for this source-empty qualification. All47 protected working paths,57 clean inherited owners, two separately modeled mixed keyboard owners, raw staged patch, public/served15 assets, Studio and loaded production artifact remain exact. Only these two audit records enter the focused local commit; no push. Area52 is next and remains pending until its fresh baseline and activation; later capability inventories are inactive preparations.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final
