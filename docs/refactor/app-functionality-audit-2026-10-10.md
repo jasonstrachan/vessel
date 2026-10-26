@@ -1642,6 +1642,18 @@ A49-01/02/03 share one owner: keyup returned at text/scope guards before releasi
 
 Source scope is two existing hook/test files plus these two audit records. Commit bytes are HEAD+task; working bytes retain the original +6/+15 hunks, proved by applying/reversing the original patches byte-exactly. The other45 original working paths and raw three-file/seven-addition staged patch remain exact. Final artifact: beb134a2db32f33cc07e52687c9ba3b5dfa3149c6955bd8d9050add94cd8e80f. Evidence: area49-native-before-v1-session39.json; area49-final-gate-v1-session39.json; area49-preview-build-v1-session39.json; area49-native-final-v1-session39.json; area49-commit-receipt-session39.json. Seven storage keys were restored and the named browser closed with no matching daemon. Local focused commit only; Areas50–65 remain pending.
 
+## Session39 — Area50 complete: Document creation, drafts and resizing
+
+Areas01–50 are software-verified: **50/65 (76.9%)**. Three native cases passed **151 checks**: Document draft/preset/validation/cancel (64); actual New replacement (22); and resize/no-op/history (65). All three completed with zero failures or errors and passed preservation and restoration checks.
+
+Draft edits, presets, validation, Escape and backdrop cancellation preserve the existing document and history. Public New replaces the occupied scene with independent transparent128×96 normal/CC material, new IDs, Untitled/default palette, clean history and intentional custom-library carryover. Name/background editing and unsaved-confirmation controls are absent; existing literal defaults were verified, no missing UI was invented. Numeric controls were addressed by source-qualified ordinal/adjacent text because their labels are unassociated; proper accessible labeling remains an Area60 follow-up.
+
+Public same-size Apply is an exact no-op. Resize320×192 and two real Undo/Redo cycles pass independent whole canonical/framebuffer/workspace pixel models, explicit normal versions, live versus legacy-project metadata ownership, document bounds/timestamps, history IDs and exact lastDocumentSize preference merges. All unknown source/settings fields and non-targets remain strict. Seven owned keys restore through both quiet fences; cleanup confirms no matching browser daemon.
+
+Source boundary stayed empty: no app-code change, unit/full-suite rerun or new build was needed. These cases use the unchanged production artifact `beb134a2db32f33cc07e52687c9ba3b5dfa3149c6955bd8d9050add94cd8e80f`; the prior Area49 passing625-suite/6545-test gate and build remain provenance, not newly run Area50 checks. Only these two audit ledgers enter the local focused commit. Current Area50 baseline’s47 working paths, mixed keyboard+6/test+15 hunks, and raw staged three-file/seven-addition patch remain exact; no push.
+
+Shape-specific breadth remains Area65, project archive round trips Area52, and broader history coverage Area51. Areas51–65 remain pending. Evidence: `area50-native-before-v1-session39.json` (Draft/New); area50-native-before-v4-session39.json (Resize). Earlier resize fixture-premise failures remain historical and do not count as app defects or accepted checks.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1709,7 +1721,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 47 | Viewport: pan/Space/middle drag, zoom wheel/reset/anchor, resize, pixel grid/rulers | canvas view/input/render hooks | verified (Session39;4 native cases/237 checks; viewport context, rulers and settings hydration repaired) |
 | 48 | Grid: toggle, rows/columns, snapping, invalid values, persistence | GridSettingsPanel, UI slice | verified (Session39;3 native cases/221 checks; guide settings remembered) |
 | 49 | Keyboard: tool shortcuts, temporary tools, undo/redo, text/modal focus, interrupted strokes | comprehensive keyboard, canvas keyboard handlers | verified (Session39;4 native cases/215 checks; owned key release across focus and scope repaired) |
-| 50 | Document: new/cancel, name/dimensions/background, validation, resize, unsaved work | DocumentModal, project slice | pending |
+| 50 | Document: new/cancel, name/dimensions/background, validation, resize, unsaved work | DocumentModal, project slice | verified (Session39;3 native cases/151 checks; source-empty document lifecycle closeout) |
 | 51 | History: all edit operations, redo invalidation, limits/spill/recovery, layer/runtime rehydration | history manager/slice/deltas | pending |
 | 52 | Save/load: .vs/archive round trip, raster/CC/sequence/custom brushes/filters/alignments, errors | projectIO, project slice | pending |
 | 53 | Load browser: file/folder/drop, preview/navigation/zoom, health/repair/export, cancellation | LoadProjectModal, directory/preview hooks | pending |
