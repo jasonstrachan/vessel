@@ -229,8 +229,21 @@ export const drawVisibleCompositeStack = ({
       (segment.kind === 'color-cycle' && segment.layerId === liveLayerOverlay.layerId)
       || (segment.kind === 'interlace' && segment.layerIds.includes(liveLayerOverlay.layerId)),
     );
+  let hasRuntimeBackdrop = false;
+  const needsOrderedBlendStack = sortedLayers.some((layer) => {
+    if (!layer.visible) return false;
+    if (layer.layerType === 'color-cycle' || layer.layerType === 'sequential') {
+      hasRuntimeBackdrop = true;
+      return false;
+    }
+    return hasRuntimeBackdrop && layer.layerType === 'normal' && layer.blendMode !== 'source-over';
+  });
   if (
-    (hasVisibleAdjustmentLayers(sortedLayers) || (liveLayerOverlay?.mode === 'replace' && !replaceInSegments))
+    (
+      (needsOrderedBlendStack && !isActivelyErasing && !(useSplitOverlay && underCompositeCanvas))
+      || hasVisibleAdjustmentLayers(sortedLayers)
+      || (liveLayerOverlay?.mode === 'replace' && !replaceInSegments)
+    )
     && drawAdjustmentCompositeStack({
       ctx,
       visibleRect,

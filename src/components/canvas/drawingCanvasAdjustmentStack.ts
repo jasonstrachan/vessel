@@ -1,3 +1,4 @@
+import { canvasPool } from '@/utils/canvasPool';
 import { getInterlaceElapsedSeconds } from '@/lib/interlace/interlaceClock';
 import {
   drawSierraLiteInterlace,
@@ -111,6 +112,7 @@ export const drawAdjustmentCompositeStack = ({
     target: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
     layer: Layer,
   ) => {
+    let transfer: HTMLCanvasElement | null = null;
     let source: CanvasImageSource | null = null;
     if (layer.layerType === 'color-cycle') {
       const presentation = resolveColorCyclePresentation({
@@ -131,47 +133,59 @@ export const drawAdjustmentCompositeStack = ({
     } else if (layer.framebuffer) {
       source = layer.framebuffer as CanvasImageSource;
     }
-    if (layer.layerType === 'normal') {
-      source = composeLayerOwnedProjectObjectsIntoLayerSource({
-        source,
-        project: project ?? {},
-        layerId: layer.id,
-        width: project?.width ?? renderRect.width,
-        height: project?.height ?? renderRect.height,
-      });
+    if (layer.layerType === 'normal' && !source && layer.imageData) {
+      transfer = canvasPool.acquire(layer.imageData.width, layer.imageData.height);
+      transfer.getContext('2d', { willReadFrequently: true })?.putImageData(layer.imageData, 0, 0);
+      source = transfer;
     }
-    const overlay = liveLayerOverlay?.layerId === layer.id ? liveLayerOverlay : null;
-    if (!source && !overlay) return;
-    target.save();
-    target.globalAlpha = layer.opacity;
-    target.globalCompositeOperation = layer.blendMode ?? 'source-over';
-    if (source && overlay?.mode !== 'replace') {
-      target.drawImage(
-        source,
-        renderRect.x,
-        renderRect.y,
-        renderRect.width,
-        renderRect.height,
-        0,
-        0,
-        surface.width,
-        surface.height,
-      );
+    try {
+      if (layer.layerType === 'normal') {
+        source = composeLayerOwnedProjectObjectsIntoLayerSource({
+          source,
+          project: project ?? {},
+          layerId: layer.id,
+          width: project?.width ?? renderRect.width,
+          height: project?.height ?? renderRect.height,
+        });
+      }
+      const overlay = liveLayerOverlay?.layerId === layer.id ? liveLayerOverlay : null;
+      if (!source && !overlay) return;
+      target.save();
+      try {
+        target.globalAlpha = layer.opacity;
+        target.globalCompositeOperation = layer.blendMode ?? 'source-over';
+        if (source && overlay?.mode !== 'replace') {
+          target.drawImage(
+            source,
+            renderRect.x,
+            renderRect.y,
+            renderRect.width,
+            renderRect.height,
+            0,
+            0,
+            surface.width,
+            surface.height,
+          );
+        }
+        if (overlay) {
+          target.drawImage(
+            overlay.canvas,
+            renderRect.x,
+            renderRect.y,
+            renderRect.width,
+            renderRect.height,
+            0,
+            0,
+            surface.width,
+            surface.height,
+          );
+        }
+      } finally {
+        target.restore();
+      }
+    } finally {
+      if (transfer) canvasPool.release(transfer);
     }
-    if (overlay) {
-      target.drawImage(
-        overlay.canvas,
-        renderRect.x,
-        renderRect.y,
-        renderRect.width,
-        renderRect.height,
-        0,
-        0,
-        surface.width,
-        surface.height,
-      );
-    }
-    target.restore();
   };
 
   renderAdjustmentAwareLayerStack({
@@ -228,16 +242,24 @@ export const drawAdjustmentCompositeStack = ({
 
   const sourceScaleX = surface.width / renderRect.width;
   const sourceScaleY = surface.height / renderRect.height;
-  ctx.drawImage(
-    surface,
-    (visibleRect.x - renderRect.x) * sourceScaleX,
-    (visibleRect.y - renderRect.y) * sourceScaleY,
-    visibleRect.width * sourceScaleX,
-    visibleRect.height * sourceScaleY,
-    destination.x,
-    destination.y,
-    destination.width,
-    destination.height,
-  );
+  ctx.save();
+  try {
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(
+      surface,
+      (visibleRect.x - renderRect.x) * sourceScaleX,
+      (visibleRect.y - renderRect.y) * sourceScaleY,
+      visibleRect.width * sourceScaleX,
+      visibleRect.height * sourceScaleY,
+      destination.x,
+      destination.y,
+      destination.width,
+      destination.height,
+    );
+  } finally {
+    ctx.restore();
+  }
+
   return true;
 };

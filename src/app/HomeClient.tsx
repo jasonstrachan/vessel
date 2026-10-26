@@ -13,6 +13,7 @@ import BrushSettingsPanel from '@/components/panels/BrushSettingsPanel';
 import DrawingCanvas from '@/components/canvas/DrawingCanvas';
 import ConsoleSilencer from '@/components/dev/ConsoleSilencer';
 import FeedbackStrip from '@/components/FeedbackStrip';
+import { AppNotifications } from '@/components/AppNotifications';
 import SaveStatusStrip from '@/components/SaveStatusStrip';
 import SelectionConstraintStrip from '@/components/SelectionConstraintStrip';
 import { ReferenceStudioBridge } from '@/components/reference/ReferenceStudioBridge';
@@ -68,10 +69,6 @@ export default function Home() {
   const autosaveIntervalMinutes = useAppStore((state) => state.autosave.interval);
   const saveStatus = useAppStore(selectAutosaveSaveStatus);
   const clearSaveStatus = useAppStore((state) => state.clearSaveStatus);
-  const notifications = useAppStore((state) => state.ui?.notifications ?? []);
-  const historyRecoveryNotification = notifications.find(
-    (notification) => notification.title === 'History recovery failed',
-  );
   
   // Feedback strip state
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
@@ -300,15 +297,7 @@ export default function Home() {
       {/* Simple FPS overlay */}
       {isSettingsHydrated && showFPSMeter && <FPSMeter />}
       {isDevBuild && <DevDebugOverlay />}
-      {historyRecoveryNotification && (
-        <div
-          role="alert"
-          className="fixed left-1/2 top-5 z-[100] w-[min(560px,calc(100vw-32px))] -translate-x-1/2 border border-red-400 bg-[#2a1111] px-4 py-3 text-sm text-[#ffe5e5] shadow-lg"
-        >
-          <div className="font-semibold">{historyRecoveryNotification.title}</div>
-          <div className="mt-1">{historyRecoveryNotification.message}</div>
-        </div>
-      )}
+      <AppNotifications />
 
 
     </main>

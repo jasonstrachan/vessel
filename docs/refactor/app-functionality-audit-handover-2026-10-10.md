@@ -1322,6 +1322,63 @@ and unrun; no fresh37 baseline or activation is implied. Reorder/multiselect/vis
 lock/opacity/blend/merge belong37, groups38 and specialized CC lifecycle41. Subjective visual
 signoff and physical pen/touch pressure are not supplied by this software-only proof.
 
+## Session39 — Area37 complete: layer controls, selection and ordering
+
+Areas01–37 are software-verified: **37/65 (about57%)**. Area37 passes **13 native
+cases / 917 checks across 9 suites** on production artifact `ef1618d96fd9db217030f86579a7f52797180d829845933b3c203d35d602b519`.
+Full isolated HEAD-plus-owned-source verification passes type-check, lint and Jest:
+1 skipped, 619 passed, 619 of 620 total;       1 skipped, 6341 passed, 6342 total; snapshots   2 passed, 2 total. Production build preserves Studio.
+The preview artifact retains the hash-bound working baseline47 plus owned source7;
+it is not a source-isolated preview. A focused nine-file commit includes source7
+and these two ledgers; its actual receipt is `area37-commit-receipt-session39.json`.
+
+Public plain selection, Shift add-only multiselect, singleton restoration, trusted
+HTML5 singleton/block reorder and selected-block same-boundary no-op pass. Actual
+command IDs and two Undo/Redo cycles retain source/material/order and ownership.
+Ordinary row drops use moveLayersToGroup with an undefined group; group-header and
+membership behavior belongs Area38. No synthetic drag or private reorder is used.
+Visibility Hide/Show covers singleton and selected sets with its existing no-history
+contract. Lock and transparency-lock reject forbidden genuine Pixel contacts and
+allow positive authoring/replay when admitted. Opacity100→50→100 covers singleton
+and selected sets with exact pre-action literal Canvas composition references.
+Lock/opacity history granularity and actual prior-command Undo/Redo are characterized;
+no new history policy is inferred from command absence. The current panel exposes
+no blend selector, so public blend-mode authoring is not claimed. Explicit existing
+blend-setting I/O supplies the supplemental presentation witnesses below.
+
+Normal selected merge passes literal source/composition and two replay cycles;
+singleton merge is disabled. Incompatible adjustment/normal merge preserves the
+document/history and publishes a warning. The qualified hidden-warning defect is
+repaired at its display owner: AppNotifications presents actionable warnings/errors
+and square accessible dismissal, while critical History recovery failed retains
+priority and cannot be dismissed. Info/success remain hidden. Native warning display
+and dismissal preserve the document/history and remove only the warning's ID.
+
+The deferred Area31 Screen lead is resolved at its compositor owner. Current BEFORE
+V8 (`area37-screen-cc-normal1-before-v8-session39.json`) retained genuine blue CC
+and red normal source/sixplanes/history but displayed source-over-like [128,0,127]
+instead of Screen [128,0,255]. The first direct-normal attempt was rejected because transparent artwork blended
+with presentation checker colors; its BEFORE/AFTER receipts remain preserved in
+`area37-screen-transparent-regression-qualified-after-v1-session39.json`. That attempt
+was removed before replacement. The existing isolated ordered artwork composition
+now retains normal blend relations across CC/sequence boundaries, and only then
+places the artwork over presentation background. Transparent Screen100 stays literal
+red and Screen50 matches independent artwork-alpha plus checker composition. Actual current
+CC and sequence fixtures require Screen50 and Screen100, source-over100/50 reset
+controls and repeated Screen50 with authored source/history unchanged. These are
+explicit blend-setting I/O presentation proofs; there is no current blend selector.
+No group/interlace or specialized CC ink acceptance is inferred.
+
+Evidence: `area37-source-freeze-v4-session39.json`, `area37-final-gate-v4-session39.json`,
+`area37-preview-after-v4-session39.json`, `area37-native-final-v3-session39.json`.
+The canonical receipt binds every suite to its prepared hash and the same built
+artifact; storage is restored, page errors are absent, and named-session cleanup
+confirms no matching daemon. Earlier fixture failures remain retained separately;
+no failed observer premise is promoted to a runtime defect. Software proof excludes
+physical stylus/device and subjective visual signoff. Original47 working files and
+staged three-file/seven-addition patch remain exact (`df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`).
+Areas38–65 remain pending; Area38 requires its own exclusive baseline after commit.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

@@ -104,6 +104,46 @@ describe('drawVisibleCompositeStack', () => {
     setSequentialFrameCursor({ nextFrame: 0, nextFrameCount: 1, nextFps: 12 });
   });
 
+  it.each(['color-cycle', 'sequential'] as const)('isolates backdrop-dependent normal blends above %s', (kind) => {
+    const lower = createLayer({ id: 'lower', layerType: kind, order: 0 });
+    const upper = createLayer({ id: 'upper', order: 1, blendMode: 'screen' });
+    const layers = [lower, upper];
+    mockGetState.mockReturnValue({ project: { width: 16, height: 16, backgroundColor: 'transparent' },
+      layers, layerGroups: [], activeLayerId: upper.id, sequentialRecord: {}, colorCyclePlayback: { desiredPlaying: false } });
+    const isolated = jest.spyOn(adjustmentStack, 'drawAdjustmentCompositeStack').mockReturnValue(true);
+    const { ctx, drawCalls } = createRecordingContext();
+    let erasing = false;
+    let under: HTMLCanvasElement | null = null;
+    const nonActive = jest.fn();
+    const draw = () => drawVisibleCompositeStack({ ctx, visibleRect: { x: 0, y: 0, width: 16, height: 16 },
+      useSplitOverlay: !!under, underCompositeCanvas: under, isActivelyErasing: erasing,
+      drawNonActiveVisibleLayers: nonActive, segments: [], layerMap: new Map(layers.map(l => [l.id, l])),
+      compositeBitmap: null, compositeCanvas: null });
+    try {
+      draw();
+      expect(isolated).toHaveBeenCalledWith(expect.objectContaining({ sortedLayers: layers }));
+      expect(drawCalls).toEqual([]);
+      isolated.mockClear();
+      upper.blendMode = 'source-over';
+      draw();
+      expect(isolated).not.toHaveBeenCalled();
+      upper.blendMode = 'screen'; lower.visible = false;
+      draw();
+      expect(isolated).not.toHaveBeenCalled();
+      lower.visible = true; lower.layerType = 'normal';
+      draw();
+      expect(isolated).not.toHaveBeenCalled();
+      lower.layerType = kind; erasing = true;
+      draw();
+      expect(isolated).not.toHaveBeenCalled();
+      expect(nonActive).toHaveBeenCalledTimes(1);
+      erasing = false; under = document.createElement('canvas');
+      draw();
+      expect(isolated).not.toHaveBeenCalled();
+      expect(drawCalls.at(-1)?.source).toBe(under);
+    } finally { isolated.mockRestore(); }
+  });
+
   it('draws static, color-cycle, and sequential segments in order with layer blend and opacity', () => {
     const staticCanvas = document.createElement('canvas');
     const ccCanvas = document.createElement('canvas');
