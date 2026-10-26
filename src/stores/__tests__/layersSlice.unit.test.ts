@@ -34,6 +34,14 @@ jest.mock('@/lib/colorCycle/document', () => ({
   readColorCycleBrushLayerSnapshotFromRuntime: jest.fn(() => null),
 }));
 
+// This suite owns composite surfaces; rename/history replay is covered by integration tests.
+jest.mock('@/history/deltas/layerStructureDelta', () => ({
+  __esModule: true,
+  createLayerNameDelta: jest.fn(() => {
+    throw new Error('Rename history must not run in the composite slice unit suite.');
+  }),
+}));
+
 import { createLayersSlice } from '@/stores/slices/layersSlice';
 import { createSliceTestStore } from '@/stores/__tests__/sliceTestUtils';
 

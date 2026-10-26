@@ -1,6 +1,8 @@
 import type { StateCreator } from 'zustand';
 
-import type { LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
+import { createLayerNameDelta, type LayerStructureSnapshot } from '@/history/deltas/layerStructureDelta';
+import historyManager from '@/history/historyService';
+import type { ScopedTxn } from '@/history/actionTypes';
 import { sanitizeAdjustmentLayerData } from '@/lib/adjustmentLayers';
 import {
   clearSequentialLayerRendererAll,
@@ -47,6 +49,7 @@ type LayerCollectionActions = Pick<
   LayersSlice,
   | 'setLayers'
   | 'addLayer'
+  | 'renameLayer'
   | 'removeLayer'
   | 'removeLayers'
   | 'appendSequentialLayerEvent'
@@ -175,6 +178,27 @@ export const createLayerCollectionActions = ({
         pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
         get().markAllCompositeSegmentsDirty();
       },
+  renameLayer: (layerId, requestedName) => {
+    const name = requestedName.trim();
+    const state = get();
+    const target = state.layers.find((layer) => layer.id === layerId);
+    if (!target || !name || target.name === name) return false;
+    const layers = state.layers.map((layer) => layer.id === layerId ? { ...layer, name } : layer);
+    let txn: ScopedTxn | undefined;
+    try {
+      txn = historyManager.begin('layer-structure', { layerId, operation: 'rename' });
+      txn.push(createLayerNameDelta({ layerId, before: target.name, after: name }));
+      // Commit admission can reject work; publish only after it accepts the command.
+      txn.commit('Rename layer');
+    } catch (error) {
+      txn?.cancel();
+      logError('[layers] Failed to record layer rename', error);
+      return false;
+    }
+    set({ layers });
+    return true;
+  },
+
   addLayer: (layer) => {
     if (__DEV__) {
       // quiet

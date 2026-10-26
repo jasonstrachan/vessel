@@ -17,7 +17,7 @@ import {
   type HistoryRehydrationTargets,
   type PreparedHistoryDelta,
 } from '@/history/actionTypes';
-import { restoreOwnedProperties } from '@/history/storeStateCompensation';
+import { prepareAppStoreHistoryDelta, restoreOwnedProperties } from '@/history/storeStateCompensation';
 import { cloneUiShapes } from '@/utils/uiShape';
 import { cloneRecolorSettings } from '@/history/deltas/recolorDelta';
 
@@ -317,3 +317,28 @@ export const createLayerStructureDelta = ({
   after,
   runtimeLayerIds,
 }: LayerStructureDeltaOptions): HistoryDelta => new LayerStructureDelta(before, after, runtimeLayerIds);
+
+/** Layer names do not own raster snapshots, selection, or runtime rehydration. */
+export const createLayerNameDelta = ({ layerId, before, after }: {
+  layerId: string;
+  before: string;
+  after: string;
+}): HistoryDelta => ({
+  _tag: 'layer-name',
+  approxBytes: 32 + (before.length + after.length) * 2,
+  prepare: (direction) => prepareAppStoreHistoryDelta(
+    'layer-name',
+    direction,
+    (nextDirection) => {
+      const state = useAppStore.getState();
+      if (!state.layers.some((layer) => layer.id === layerId)) {
+        throw new Error('Layer name history target is unavailable.');
+      }
+      const name = nextDirection === 'forward' ? after : before;
+      useAppStore.setState({
+        layers: state.layers.map((layer) => layer.id === layerId ? { ...layer, name } : layer),
+      });
+    },
+    ['layers'],
+  ),
+});

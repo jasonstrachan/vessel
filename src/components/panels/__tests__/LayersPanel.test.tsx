@@ -73,6 +73,7 @@ type StoreState = {
   duplicateLayers: jest.Mock;
   removeLayer: jest.Mock;
   removeLayers: jest.Mock;
+  renameLayer: jest.Mock;
   updateLayer: jest.Mock;
   setActiveLayer: jest.Mock;
   reorderLayers: jest.Mock;
@@ -138,6 +139,9 @@ const state: StoreState = {
   duplicateLayers: jest.fn(() => []),
   removeLayer: jest.fn(),
   removeLayers: jest.fn(),
+  renameLayer: jest.fn((layerId: string, name: string) => {
+    state.layers = state.layers.map((layer) => layer.id === layerId ? { ...layer, name } : layer);
+  }),
   updateLayer: jest.fn((layerId: string, updates: Partial<Layer>) => {
     state.layers = state.layers.map((layer) => (layer.id === layerId ? { ...layer, ...updates } : layer));
   }),
@@ -336,6 +340,7 @@ const setupLayers = () => {
   };
 
   state.updateLayer.mockClear();
+  state.renameLayer.mockClear();
   state.addLayer.mockClear();
   state.initColorCycleForLayer.mockClear();
   state.setBrushSettings.mockClear();
@@ -558,8 +563,8 @@ describe('LayersPanel interactions', () => {
     fireEvent.change(input, { target: { value: '  Sky highlights  ' } });
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(state.updateLayer).toHaveBeenCalledTimes(1);
-    expect(state.updateLayer).toHaveBeenCalledWith('layer-c', { name: 'Sky highlights' });
+    expect(state.renameLayer).toHaveBeenCalledTimes(1);
+    expect(state.renameLayer).toHaveBeenCalledWith('layer-c', 'Sky highlights');
     expect(screen.queryByRole('textbox', { name: 'Rename layer layer-c' })).not.toBeInTheDocument();
     expect(screen.getByText('Sky highlights')).toBeInTheDocument();
   });
@@ -572,14 +577,14 @@ describe('LayersPanel interactions', () => {
     fireEvent.change(input, { target: { value: 'Foreground ink' } });
     fireEvent.blur(input);
 
-    expect(state.updateLayer).toHaveBeenCalledWith('layer-c', { name: 'Foreground ink' });
+    expect(state.renameLayer).toHaveBeenCalledWith('layer-c', 'Foreground ink');
 
     fireEvent.doubleClick(screen.getByText('Foreground ink'));
     const emptyInput = screen.getByRole('textbox', { name: 'Rename layer Foreground ink' });
     fireEvent.change(emptyInput, { target: { value: '   ' } });
     fireEvent.blur(emptyInput);
 
-    expect(state.updateLayer).toHaveBeenCalledTimes(1);
+    expect(state.renameLayer).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Foreground ink')).toBeInTheDocument();
   });
 
@@ -591,7 +596,7 @@ describe('LayersPanel interactions', () => {
     fireEvent.change(input, { target: { value: 'Discard this' } });
     fireEvent.keyDown(input, { key: 'Escape' });
 
-    expect(state.updateLayer).not.toHaveBeenCalled();
+    expect(state.renameLayer).not.toHaveBeenCalled();
     expect(screen.getByText('layer-c')).toBeInTheDocument();
   });
 
@@ -607,7 +612,7 @@ describe('LayersPanel interactions', () => {
       fireEvent.change(input, { target: { value: 'Saved from shortcut' } });
       fireEvent.keyDown(input, { key: 's', metaKey: true });
 
-      expect(state.updateLayer).toHaveBeenCalledWith('layer-c', { name: 'Saved from shortcut' });
+      expect(state.renameLayer).toHaveBeenCalledWith('layer-c', 'Saved from shortcut');
       expect(saveShortcutListener).toHaveBeenCalledTimes(1);
     } finally {
       window.removeEventListener('keydown', saveShortcutListener);

@@ -113,6 +113,7 @@ const LayersPanel: React.FC = () => {
   const removeLayer = useAppStore((state) => state.removeLayer);
   const removeLayers = useAppStore((state) => state.removeLayers);
   const updateLayer = useAppStore((state) => state.updateLayer);
+  const renameLayer = useAppStore((state) => state.renameLayer);
   const setActiveLayer = useAppStore((state) => state.setActiveLayer);
   const reorderLayerBlock = useAppStore((state) => state.reorderLayerBlock);
   const setSelectedLayerIds = useAppStore((state) => state.setSelectedLayerIds);
@@ -230,11 +231,11 @@ const LayersPanel: React.FC = () => {
     const nextName = layerNameDraft.trim();
     const currentLayer = layers.find((layer) => layer.id === layerId);
     if (currentLayer && nextName && nextName !== currentLayer.name) {
-      updateLayer(layerId, { name: nextName });
+      renameLayer(layerId, nextName);
     }
     setRenamingLayerId(null);
     setLayerNameDraft('');
-  }, [layerNameDraft, layers, updateLayer]);
+  }, [layerNameDraft, layers, renameLayer]);
 
   React.useEffect(() => {
     if (renamingLayerId && !layers.some((layer) => layer.id === renamingLayerId)) {

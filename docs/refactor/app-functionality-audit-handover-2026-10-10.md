@@ -1261,6 +1261,67 @@ excludes physical stylus/device signoff and scheduler-specific wall-clock cadenc
 Areas36–65 remain pending. Area36 read-only preparation does not activate it or capture
 a baseline before this area's completed commit.
 
+## Session39 — Area36 complete: basic layer operations
+
+Areas01–36 are software-verified: **36/65 (about55%)**. Area36 passes **8 native
+cases /717 checks /4 suites** on rebuilt production artifact `2bce364d`, bundle
+`page-7671fbdb4fb2f5e1.js`, at `http://localhost:3001/vessel/`. Full isolated gateV3
+passes type-check, lint and **618 suites /6331 tests /two snapshots**, with the existing
+one skipped suite/test. Production build exits0; Studio output is preserved. The named
+headless browser is closed with no matching daemon; all owned storage bytes are restored.
+
+Qualified repair: native Enter/blur renamed the layer without adding a history command.
+Actual global Undo therefore removed the previous red64 brush stroke and retained the
+new name. The explicit `renameLayer` action now trims and validates against fresh state,
+deduplicates Enter/blur, records one command, and leaves empty/unchanged/missing targets
+alone. A small name-only delta changes only the target name through the existing exact
+compensation seam. It does not clone raster/runtime/selection state or collect rehydration
+targets. Generic `updateLayer` and full structural replay keep their existing contracts.
+
+The final eight existing files are LayersPanel and its test; layerCollectionActions;
+layersSliceTypes; layerStructureDelta; layersSlice.integration.test; one matching AppState
+action declaration in useAppStore; and the isolated composite layersSlice.unit.test boundary.
+The latter explicitly mocks the unused name-delta factory and throws if it is invoked;
+actual rename/history/compensation integration tests stay unmocked. Before full approval,
+the first type gate exposed the duplicated AppState declaration, and the next full suite
+exposed that isolated unit's new history import boundary. Both failed receipts remain
+retained; final V3 passes. All164 affected tests and scoped lint pass as well.
+
+Native coverage: actual regular Add above active, blank-layer semantics, plain singleton
+selection, and two exact Undo/Redo cycles (1/111); Enter trim and Tab blur each one command
+with two name-only replay cycles plus Escape/empty/unchanged no-op and actual prior-brush
+UndoBlank/RedoRed (3/195); Copy/Copy2 naming, copy-only blue64 over red64, independent
+original/other-copy material, and two full paint/duplicate Undo/Redo cycles (1/195);
+normal Delete middle/top, first surviving store-order fallback, exact source restoration,
+public reduction to one, disabled last-layer protection, and repeated replay (3/216).
+All commands use actual public controls/trusted input and real history IDs. Normal source
+RGBA/framebuffers, masks/alignment/selection/reference/groups and full workspace output
+are checked. Add/duplicate preserve the existing CC six canonical planes and source bindings.
+
+Fixture qualification remains explicit: OffscreenCanvas reads and optional undefined-key
+encoding were corrected; serialized brush caches retain raw evidence and validate five
+redundant fields against canonical/store authority, keeping pixelVersion and every paint
+plane strict while observing document revisions. Nine independent positive/negative controls
+prove cache validation. The old Delete fixture also observed intentional250ms GC reclaiming
+an unused numeric-definition slot lease: all paint/definition cells were zero and stops/
+hash/material unchanged. No application patch or comparator relaxation was made for that.
+Final ordinary-Delete cases publicly remove positively empty default CC setup layers before
+creating their normal sources; specialized CC lifecycle/lease flows remain Area41 scope.
+
+Final evidence: `area36-source-freeze-v3-session39.json`, `area36-final-gate-v3-session39.json`,
+`area36-preview-build-v3-session39.json`, `area36-preview-after-v3-session39.json`, and
+`area36-native-final-v1-session39.json` under ignored `output/playwright/`. The final native
+plan binds all4 prepared/executed scripts, raw process exits/logs/results and cleanup. The
+focused ten-file publication (eight source/tests plus these two ledgers) is recorded by
+`area36-commit-receipt-session39.json`. Original47 working paths and staged three-file/
+seven-addition patch `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`
+remain exact. Stay on `main`; no push, deployment, branch/worktree/new chat.
+
+Areas37–65 remain pending. Area37 ignored owner plans/selection-reorder fixture are prepared
+and unrun; no fresh37 baseline or activation is implied. Reorder/multiselect/visibility/
+lock/opacity/blend/merge belong37, groups38 and specialized CC lifecycle41. Subjective visual
+signoff and physical pen/touch pressure are not supplied by this software-only proof.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

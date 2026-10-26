@@ -11,6 +11,8 @@ import {
 import type { ColorCycleLayerDocumentState } from '@/lib/colorCycle/documentState';
 import { compositeBitmapManager } from '@/lib/performance/CompositeBitmapManager';
 import historyManager from '@/history/historyService';
+import HistoryManager from '@/history/historyManager';
+import type { HistoryRehydrationTargets } from '@/history/actionTypes';
 import { mergeColorCycleLayerPayloads } from '@/stores/layers/colorCycleLayerTransforms';
 
 const makeCanvas = () => {
@@ -412,6 +414,142 @@ beforeEach(() => {
         }
       : state.project,
   }));
+});
+
+describe('name-only layer rename history', () => {
+  const setupRename = () => {
+    const pixels = new ImageData(Uint8ClampedArray.from([255, 0, 0, 255, 0, 0, 0, 0]), 2, 1);
+    const framebuffer = { width: 2, height: 1, getContext: () => ({ getImageData: () => new ImageData(new Uint8ClampedArray(pixels.data), 2, 1) }) } as unknown as HTMLCanvasElement;
+    const normal: Layer = { ...createNormalLayerInput('Ink'), id: 'rename-target', order: 0, imageData: pixels, framebuffer };
+    const cc: Layer = { ...createColorCycleLayerInput('CC untouched'), id: 'rename-other-cc', order: 1,
+      colorCycleData: { mode: 'brush', isAnimating: true, hasContent: false,
+        gradient: [{ position: 0, color: '#123456' }],
+        slotPalettes: [{ slot: 0, stops: [{ position: 0, color: '#123456' }] }] } };
+    const mask = new ImageData(Uint8ClampedArray.from([0, 0, 0, 255]), 1, 1);
+    useAppStore.setState({ layers: [normal, cc], activeLayerId: normal.id, selectedLayerIds: [normal.id],
+      selectionMask: mask, selectionMaskBounds: { x: 0, y: 0, width: 1, height: 1 }, selectionMaskLayerId: normal.id });
+    return { normal, cc, pixels, mask, originalLayers: useAppStore.getState().layers };
+  };
+
+  it('records one trimmed name command; repeated real Undo/Redo preserves pixels, canvases, other CC and selection', async () => {
+    const { normal, cc, pixels, mask } = setupRename();
+    expect(useAppStore.getState().renameLayer(normal.id, '  Highlights  ')).toBe(true);
+    expect(historyManager.entries()).toHaveLength(1);
+    const entry = historyManager.entries()[0];
+    const targets: HistoryRehydrationTargets = { layerIds: new Set(), colorCycleLayerIds: new Set(), sequentialLayerIds: new Set(), workerScopes: new Set() };
+    entry.deltas.forEach(delta => delta.collectRehydrationTargets?.(targets));
+    expect(targets.layerIds.size + targets.colorCycleLayerIds.size + targets.sequentialLayerIds.size + targets.workerScopes.size).toBe(0);
+    const prepared = await entry.deltas[0].prepare('backward');
+    prepared.collectRehydrationTargets?.(targets);
+    expect(targets.layerIds.size + targets.colorCycleLayerIds.size + targets.sequentialLayerIds.size + targets.workerScopes.size).toBe(0);
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      expect(await historyManager.undo()).toBe(entry);
+      expect(useAppStore.getState().layers[0].name).toBe('Ink');
+      expect(useAppStore.getState().layers[0].imageData).toBe(pixels);
+      expect(useAppStore.getState().layers[0].framebuffer).toBe(normal.framebuffer);
+      expect(Array.from((normal.framebuffer.getContext('2d') as CanvasRenderingContext2D).getImageData(0, 0, 2, 1).data)).toEqual([255, 0, 0, 255, 0, 0, 0, 0]);
+      expect(useAppStore.getState().layers[1]).toBe(cc);
+      expect(cc.colorCycleData?.isAnimating).toBe(true);
+      expect(useAppStore.getState().selectionMask).toBe(mask);
+      expect(await historyManager.redo()).toBe(entry);
+      const state = useAppStore.getState();
+      expect(state.layers[0].name).toBe('Highlights');
+      expect(state.layers[0].imageData).toBe(pixels);
+      expect(Array.from(state.layers[0].imageData!.data)).toEqual([255, 0, 0, 255, 0, 0, 0, 0]);
+      expect(state.layers[0].framebuffer).toBe(normal.framebuffer);
+      expect(Array.from((state.layers[0].framebuffer.getContext('2d') as CanvasRenderingContext2D).getImageData(0, 0, 2, 1).data)).toEqual([255, 0, 0, 255, 0, 0, 0, 0]);
+      expect(state.layers[0].alignment).toBe(normal.alignment);
+      expect(state.layers[1]).toBe(cc);
+      expect(cc.colorCycleData).toEqual({ mode: 'brush', isAnimating: true, hasContent: false,
+        gradient: [{ position: 0, color: '#123456' }], slotPalettes: [{ slot: 0, stops: [{ position: 0, color: '#123456' }] }] });
+      expect(state.selectionMask).toBe(mask);
+      expect(state.selectionMaskLayerId).toBe(normal.id);
+      expect(state.activeLayerId).toBe(normal.id);
+      expect(state.selectedLayerIds).toEqual([normal.id]);
+      expect(historyManager.entries()).toHaveLength(1);
+    }
+  });
+
+  it('compensates the emitted name-only delta exactly when real-manager runtime completion rejects after name application', async () => {
+    const { normal, cc, pixels, mask } = setupRename();
+    useAppStore.getState().renameLayer(normal.id, 'Highlights');
+    const accepted = useAppStore.getState().layers;
+    const emitted = historyManager.entries()[0].deltas[0];
+    const failure = new Error('Runtime completion rejected');
+    const rehydrate = jest.fn().mockImplementationOnce(async () => {
+      expect(useAppStore.getState().layers[0].name).toBe('Ink');
+      throw failure;
+    }).mockResolvedValue(undefined);
+    const createTargets = (): HistoryRehydrationTargets => ({ layerIds: new Set(), colorCycleLayerIds: new Set(), sequentialLayerIds: new Set(), workerScopes: new Set() });
+    const manager = new HistoryManager({ runtimeRehydration: { createTargets, rehydrate } });
+    const txn = manager.begin('layer-structure');
+    txn.push(emitted); txn.commit('Rename layer');
+    await expect(manager.undo()).rejects.toMatchObject({ cause: failure, compensationSucceeded: true, phase: 'rehydrate' });
+    expect(rehydrate).toHaveBeenCalledTimes(2);
+    expect(useAppStore.getState().layers).toBe(accepted);
+    expect(useAppStore.getState().layers[0].name).toBe('Highlights');
+    expect(useAppStore.getState().layers[0].imageData).toBe(pixels);
+    expect(useAppStore.getState().layers[0].framebuffer).toBe(normal.framebuffer);
+    expect(useAppStore.getState().layers[1]).toBe(cc);
+    expect(useAppStore.getState().selectionMask).toBe(mask);
+    expect(manager.entries()).toHaveLength(1);
+    expect(manager.redoEntries()).toHaveLength(0);
+    for (const call of rehydrate.mock.calls) {
+      const targets = call[2] as HistoryRehydrationTargets;
+      expect(targets.layerIds.size + targets.colorCycleLayerIds.size + targets.sequentialLayerIds.size + targets.workerScopes.size).toBe(0);
+    }
+  });
+
+  it('deduplicates repeated Enter/blur submission against the fresh store name and clears existing redo on a new rename', async () => {
+    const { normal } = setupRename();
+    expect(useAppStore.getState().renameLayer(normal.id, 'First')).toBe(true);
+    expect(useAppStore.getState().renameLayer(normal.id, ' First ')).toBe(false);
+    expect(historyManager.entries()).toHaveLength(1);
+    await historyManager.undo();
+    expect(historyManager.redoEntries()).toHaveLength(1);
+    expect(useAppStore.getState().renameLayer(normal.id, 'Second')).toBe(true);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(historyManager.redoEntries()).toHaveLength(0);
+  });
+
+  it('leaves empty, unchanged and missing names as exact array/history no-ops', () => {
+    const { normal, originalLayers } = setupRename();
+    for (const [id, name] of [[normal.id, '  '], [normal.id, ' Ink '], ['missing-layer', 'Other']]) {
+      expect(useAppStore.getState().renameLayer(id, name)).toBe(false);
+      expect(useAppStore.getState().layers).toBe(originalLayers);
+      expect(historyManager.entries()).toHaveLength(0);
+    }
+  });
+
+  it('keeps the original array when a real active transaction rejects begin', () => {
+    const { normal, originalLayers } = setupRename();
+    const active = historyManager.begin('layer-structure');
+    try {
+      expect(useAppStore.getState().renameLayer(normal.id, 'Rejected')).toBe(false);
+      expect(useAppStore.getState().layers).toBe(originalLayers);
+      expect(historyManager.entries()).toHaveLength(0);
+    } finally { active.cancel(); }
+  });
+
+  it.each(['push', 'commit'] as const)('cancels a real transaction and preserves the exact array when %s rejects before acceptance', (stage) => {
+    const { normal, originalLayers } = setupRename();
+    const originalBegin = historyManager.begin.bind(historyManager);
+    let cancel: jest.SpyInstance | undefined;
+    const begin = jest.spyOn(historyManager, 'begin').mockImplementation((...args) => {
+      const txn = originalBegin(...args);
+      cancel = jest.spyOn(txn, 'cancel');
+      jest.spyOn(txn, stage).mockImplementation(() => { throw new Error('Rejected before ' + stage); });
+      return txn;
+    });
+    try {
+      expect(useAppStore.getState().renameLayer(normal.id, 'Rejected')).toBe(false);
+      expect(useAppStore.getState().layers).toBe(originalLayers);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(cancel).toHaveBeenCalledTimes(1);
+    } finally { begin.mockRestore(); }
+    const next = historyManager.begin('layer-structure');
+    next.cancel();
+  });
 });
 
 describe('layers slice integration', () => {

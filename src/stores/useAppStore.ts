@@ -621,6 +621,7 @@ export interface AppState {
   referenceLayerId: string | null;
   currentLayer: number;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
+  renameLayer: (id: string, name: string) => boolean;
   duplicateLayer: (id: string) => string | null;
   duplicateLayers: (layerIds: string[]) => string[];
   removeLayer: (id: string) => void;

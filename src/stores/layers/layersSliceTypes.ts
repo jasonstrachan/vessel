@@ -92,6 +92,7 @@ export interface LayersSlice {
   setCurrentCompositeBitmap: (bitmap: ImageBitmap | null) => void;
   setLayers: (layers: Layer[]) => void;
   addLayer: (layer: Omit<Layer, 'id' | 'order'>) => string;
+  renameLayer: (id: string, name: string) => boolean;
   duplicateLayer: (layerId: string) => string | null;
   duplicateLayers: (layerIds: string[]) => string[];
   removeLayer: (id: string) => void;
