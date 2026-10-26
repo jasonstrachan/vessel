@@ -1,6 +1,8 @@
 import { debugWarn } from '@/utils/debug';
 import historyManager from '@/history/historyService';
 import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDelta';
+import { createColorCycleEraseMaskDelta } from '@/history/deltas/colorCycleEraseMaskDelta';
+import { createColorCycleSoftEdgeMaskDelta } from '@/history/deltas/colorCycleSoftEdgeMaskDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
 import {
   captureColorCycleBrushState,
@@ -193,6 +195,8 @@ export const recordResizeHistory = async ({
         colorState: null,
       };
       let colorDelta: HistoryDelta | null = null;
+      let eraseMaskDelta: HistoryDelta | null = null;
+      let softEdgeMaskDelta: HistoryDelta | null = null;
       if (baseline.colorState) {
         const afterColor = captureColorCycleBrushState(layer.id);
         colorDelta = await createColorCycleStrokeDelta({
@@ -205,6 +209,18 @@ export const recordResizeHistory = async ({
           afterPixelVersion: afterColor?.pixelVersion,
           beforeDimensions: beforeProject ?? undefined,
           afterDimensions: afterProject ?? undefined,
+        });
+        eraseMaskDelta = createColorCycleEraseMaskDelta({
+          layerId: layer.id,
+          forwardState: afterColor,
+          backwardState: baseline.colorState,
+        });
+        softEdgeMaskDelta = createColorCycleSoftEdgeMaskDelta({
+          layerId: layer.id,
+          forwardState: afterColor,
+          backwardState: baseline.colorState,
+          beforeVersion: baseline.colorState.documentVersion,
+          afterVersion: afterColor?.documentVersion,
         });
       }
 
@@ -221,6 +237,12 @@ export const recordResizeHistory = async ({
       if (colorDelta) {
         txn.push(colorDelta);
         deltaCount += 1;
+      }
+      for (const maskDelta of [eraseMaskDelta, softEdgeMaskDelta]) {
+        if (maskDelta) {
+          txn.push(maskDelta);
+          deltaCount += 1;
+        }
       }
     }
 

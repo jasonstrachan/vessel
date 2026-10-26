@@ -1543,63 +1543,15 @@ UI2; root must capture a fresh versioned bridge after this completed40 commit wh
 preserving original47. Future areas, hardware behavior and subjective visual
 signoff remain unclaimed. Area40 completion does not activate another area.
 
-## Session39 — Area41 preparation: Color Cycle layer lifecycle
+## Session39 — Area41 complete: Color Cycle layer lifecycle
 
-The activation below preceded the explicit alignment answer. Area41 execution is
-now deferred to finish40; its source boundary remains empty and no native41 ran.
+Areas01–41 are software-verified: **41/65 (63.1%)**. Actual final production proof passes **14 native cases / 855 checks across 14 suites** on artifact `b9f1f90a52c591506121628265bf3057ef7386790fe3f5dcf1bc6b8597de42a2`. Source-isolated HEAD plus only two resize-history files passes diff/type/lint/full Jest: 1 skipped, 623 passed, 623 of 624 total;       1 skipped, 6381 passed, 6382 total; snapshots   2 passed, 2 total. The full preserved working-tree preview build isolates its artifact and preserves Studio.
 
-The continuing goal remains all65 audit areas, focused review and local commits as
-fully verified areas finish. Areas01–39 remain verified/committed (39/65,60%).
-Area40 stays partial:its UI subset passes226 checks, but nonzero exported X/Y
-needs the required placement answer. A fresh question was sent; no answer or
-geometry-policy authorization is inferred from elapsed time. Continue independent
-Area41 using default Auto alignment while that choice is pending. This changes the
-execution order, not the full audit scope or Area40 completion criteria.
+Public lifecycle coverage includes immediate empty Add, genuine occupied painting and replay, conversion, clear/repaint recovery, independent owners, visibility/lock/playback, identity and positive-mask resizing, and occupied duplicate/delete. Masks now join the original resize history transaction through existing erase/soft-edge mask delta owners, retaining dimensions, full alpha, enable/version and compensation. The causal final six tests fail three mask-dimension restoration cases before and pass after; final native checks above come from actual receipts. No private painting, rendering or history invocation substitutes for native input.
 
-Fresh exclusive Area41 baseline capture completed before this activation on main
-HEAD632197cb8. It preserves49 non-document working paths:the original47 and both
-frozen uncommitted Area40 UI files, plus separate initial copies of these two
-ledgers. The original staged3files7additions/raw df0184 patch is exact. Inherited
-production artifact450c6243 is bound to the actual UI2 source-isolated checks,
-production build and two-case226-check raw native proof, while the committed
-Area39 parent chain remains verified. The capture helper is one-shot historical
-evidence and must not be rerun after ledger activation.
+All final prepared/executed scripts, raw logs/results, actual command IDs, complete material/source/metadata and six-key restoration are bound to this artifact. Named session cleanup confirms no matching daemon; original47 and the staged three files/seven additions/raw patch `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2` remain exact. Raw cache checkpoint/default-seam representation classifications remain explicit and narrowly source-qualified. Area40 and its committed placement policy remain unchanged. The focused local commit owns exactly two source/test paths and these two ledgers, with no push. Future areas and subjective visual signoff remain unclaimed.
 
-Goal:verify public CC creation/conversion, occupied slot/palette ownership,
-visibility/lock/playback, duplicate/delete, clear, resize and complete replay.
-Trace page→HomeClient→LayersPanel/AnimationControlsPanel and DocumentModal through
-layerCollectionActions/layerColorCycleLifecycleActions/layerColorCycleEditActions,
-ColorCycleLayerDocument, history replay and project resize. The app-source boundary
-starts empty; only ignored fixtures/evidence and these two audit ledgers may change
-until a native failure justifies the smallest owning source/test expansion.
-
-Start with actual Add CC Layer, its current-preset/gradient/selection and empty
-runtime dimensions, immediate Undo/Redo, genuine public CC ink and paint replay.
-Then convert the paused published frame through the actual context menu and
-exercise two complete Undo/Redo cycles. Preserve every outside owner and authored
-support/planes/definitions/masks. Follow with two distinct palettes/layers and
-occupied duplicate/delete, natural Play/Pause/Hide/Show/Lock, actual keyboard clear
-and Document Resize Canvas. No private painter, initializer, conversion, renderer
-or clock forcing may serve as the tested action or expected output. Derived caches
-and unused leases must be characterized from their owner; do not normalize away
-occupied data loss. Keep hardware/focus/performance limits explicit.
-
-Non-goals:do not implement disputed alignment placement, repeat every already
-verified brush setting, or add unavailable controls. Source-isolated future Area41
-checks use HEAD plus only admitted41 source copies. Production builds use the full
-protected49 working baseline plus41 changes and preserve Studio. Commit only fully
-verified41 source and these ledgers, leaving both uncommitted40 UI files and the
-original47/index exact. Root owns browser/build/Git; GPT-6.1 Sol subagents prepare
-and independently review bounded cases and repairs. One managed headless tab, exact
-owned storage restoration and closed/no-daemon cleanup remain mandatory.
-
-Exit:all exposed41 lifecycle/ownership/replay cases pass actual production proof,
-qualified fixes have causal regressions and independent focused review, final
-source-isolated type/lint/full Jest and sole production build pass, then a focused
-local commit. If41 completes first, report40 verified areas with a gap at40; never
-claim Areas01–41 all verified. After any41 commit, explicitly bridge the new HEAD
-and unchanged40 source/proof before resuming40; its old HEAD-bound helpers remain
-historical. No push, deployment, branch/worktree change or new chat is authorized.
+Evidence: `area41-source-freeze-v2-session39.json`, `area41-final-gate-v2-session39.json`, `area41-preview-after-v2-session39.json`, `area41-native-final-v1-session39.json`.
 
 ## Current continuation — Session38, Area19 complete
 
