@@ -249,6 +249,7 @@ jest.mock('@/utils/projectIO', () => {
 
 // Import store after mocks are registered.
 import { useAppStore } from '@/stores/useAppStore';
+import { captureLayerStructureSnapshot } from '@/stores/helpers/layerStructureHistory';
 import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 
 const { restoreColorCycleBrushes } = jest.requireMock('@/utils/projectIO') as {
@@ -414,6 +415,109 @@ beforeEach(() => {
         }
       : state.project,
   }));
+});
+
+describe('group history selection and hidden visibility intent', () => {
+  const setup = () => {
+    const layers = ['a', 'b', 'c'].map((id, order): Layer => {
+      const imageData = new ImageData(new Uint8ClampedArray([order * 60 + 20, 40, 80, 255]), 1, 1);
+      const framebuffer = document.createElement('canvas'); framebuffer.width = framebuffer.height = 1;
+      framebuffer.getContext('2d')!.putImageData(imageData, 0, 0);
+      return { ...createNormalLayerInput(id), id, order, imageData, framebuffer };
+    });
+    useAppStore.setState({ layers, layerGroups: [], hiddenLayerGroupIds: [], activeLayerId: 'c', selectedLayerIds: ['a', 'c'] });
+    return layers;
+  };
+  const pixels = () => useAppStore.getState().layers.map(l => ({ id: l.id, rgba: [...l.imageData!.data],
+    framebuffer: [...l.framebuffer!.getContext('2d')!.getImageData(0, 0, 1, 1).data] }));
+
+  it('keeps two duplicate commands and restores the cumulative public copied selection through two real replay cycles', async () => {
+    setup(); const original = pixels();
+    const ids = useAppStore.getState().duplicateLayers(['a', 'c']);
+    const entries = historyManager.entries(); expect(entries).toHaveLength(2);
+    expect(useAppStore.getState().selectedLayerIds).toEqual(ids);
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      await historyManager.undo(); expect(useAppStore.getState().selectedLayerIds).toEqual([ids[0]]);
+      await historyManager.undo(); expect(useAppStore.getState().selectedLayerIds).toEqual(['a', 'c']);
+      expect(pixels()).toEqual(original);
+      await historyManager.redo(); expect(useAppStore.getState().selectedLayerIds).toEqual([ids[0]]);
+      await historyManager.redo(); expect(useAppStore.getState().selectedLayerIds).toEqual(ids);
+      expect(useAppStore.getState().activeLayerId).toBe(ids[1]);
+      expect(pixels().filter(l => ['a', 'b', 'c'].includes(l.id))).toEqual(original);
+      expect(historyManager.entries().map(e => e.id)).toEqual(entries.map(e => e.id));
+    }
+    const count = historyManager.entries().length;
+    expect(useAppStore.getState().duplicateLayers(['missing'])).toEqual([]);
+    expect(historyManager.entries()).toHaveLength(count);
+    const single = useAppStore.getState().duplicateLayer('b');
+    expect(useAppStore.getState().selectedLayerIds).toEqual([single]);
+    await historyManager.undo(); await historyManager.redo();
+    expect(useAppStore.getState().selectedLayerIds).toEqual([single]);
+  });
+
+  const hiddenSetup = () => {
+    setup();
+    const group = useAppStore.getState().createLayerGroupFromSelection(['a', 'c'])!;
+    useAppStore.getState().setLayersVisibility(['c'], false);
+    useAppStore.getState().setLayerGroupVisibility(group, false);
+    historyManager.clear();
+    return group;
+  };
+  it('restores hidden group IDs and mixed visibility intent across two real Delete Undo/Redo cycles', async () => {
+    const group = hiddenSetup(); const original = pixels();
+    useAppStore.getState().removeLayer('a'); useAppStore.getState().removeLayer('c');
+    const entries = historyManager.entries(); expect(entries).toHaveLength(2);
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      await historyManager.undo(); await historyManager.undo();
+      expect(useAppStore.getState().hiddenLayerGroupIds).toEqual([group]);
+      expect(pixels()).toEqual(original);
+      useAppStore.getState().setLayerGroupVisibility(group, true);
+      expect(useAppStore.getState().layers.filter(l => l.groupId === group).map(l => [l.id, l.visible])).toEqual([['a', true], ['c', false]]);
+      useAppStore.getState().setLayerGroupVisibility(group, false);
+      await historyManager.redo(); await historyManager.redo();
+      expect(useAppStore.getState().hiddenLayerGroupIds).toEqual([]);
+      expect(useAppStore.getState().layers.map(l => l.id)).toEqual(['b']);
+    }
+  });
+
+  it('clones remembered false/true values for getter, capture and restoration without exposing the owned map', () => {
+    const group = hiddenSetup();
+    const state = useAppStore.getState();
+    const value = state.getLayerGroupVisibilitySnapshots();
+    expect(value[group]).toEqual({ a: true, c: false });
+    const snapshot = captureLayerStructureSnapshot(state, { actionType: 'layers', description: 'Owned hidden intent' });
+    value[group].a = false; delete value[group].c;
+    expect(state.getLayerGroupVisibilitySnapshots()[group]).toEqual({ a: true, c: false });
+    expect(snapshot.groupVisibilitySnapshots?.[group]).toEqual({ a: true, c: false });
+    const restored = { [group]: { a: false, c: true } };
+    state.restoreLayerGroupVisibilitySnapshots(restored); restored[group].c = false;
+    expect(state.getLayerGroupVisibilitySnapshots()[group]).toEqual({ a: false, c: true });
+  });
+
+  it('compensates closure-only visibility mutation and real runtime failure after structure replay', async () => {
+    const group = hiddenSetup();
+    useAppStore.getState().removeLayer('a');
+    const emitted = historyManager.entries()[0].deltas[0];
+    const accepted = useAppStore.getState(); const expectedIntent = accepted.getLayerGroupVisibilitySnapshots();
+    const prepared = await emitted.prepare('backward');
+    accepted.restoreLayerGroupVisibilitySnapshots({ [group]: { c: true } });
+    expect(prepared.requiresCompensation()).toBe(true);
+    await prepared.compensate();
+    expect(useAppStore.getState().getLayerGroupVisibilitySnapshots()).toEqual(expectedIntent);
+    const failure = new Error('Runtime failed after group restore');
+    const rehydrate = jest.fn().mockImplementationOnce(async () => {
+      expect(useAppStore.getState().getLayerGroupVisibilitySnapshots()[group]).toEqual({ a: true, c: false });
+      throw failure;
+    }).mockResolvedValue(undefined);
+    const createTargets = (): HistoryRehydrationTargets => ({ layerIds: new Set(), colorCycleLayerIds: new Set(), sequentialLayerIds: new Set(), workerScopes: new Set() });
+    const manager = new HistoryManager({ runtimeRehydration: { createTargets, rehydrate } });
+    const txn = manager.begin('layer-structure'); txn.push(emitted); txn.commit('Delete group member');
+    await expect(manager.undo()).rejects.toMatchObject({ cause: failure, compensationSucceeded: true });
+    expect(useAppStore.getState().layers).toBe(accepted.layers);
+    expect(useAppStore.getState().hiddenLayerGroupIds).toBe(accepted.hiddenLayerGroupIds);
+    expect(useAppStore.getState().getLayerGroupVisibilitySnapshots()).toEqual(expectedIntent);
+    expect(manager.entries()).toHaveLength(1);
+  });
 });
 
 describe('name-only layer rename history', () => {

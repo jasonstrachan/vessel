@@ -615,6 +615,8 @@ export interface AppState {
   layers: Layer[];
   layerGroups: LayerGroup[];
   hiddenLayerGroupIds: string[];
+  getLayerGroupVisibilitySnapshots: () => Record<string, Record<string, boolean>>;
+  restoreLayerGroupVisibilitySnapshots: (snapshots: Record<string, Record<string, boolean>>) => void;
   activeLayerId: string | null;
   selectedLayerIds: string[];
   warmingColorCycleLayerIds: string[];

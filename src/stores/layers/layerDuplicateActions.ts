@@ -78,8 +78,8 @@ export const createLayerDuplicateActions = ({
   commitLayerStructureHistory,
   syncPercentOffsetsFromPixels,
   trackLayerChanges,
-}: LayerDuplicateActionDeps): LayerDuplicateActions => ({
-  duplicateLayer: (layerId) => {
+}: LayerDuplicateActionDeps): LayerDuplicateActions => {
+  const duplicateOne = (layerId: string, priorCopiedIds: readonly string[] = []): string | null => {
     const stateBeforeDuplicate = get();
     const targetLayer = stateBeforeDuplicate.layers.find((layer) => layer.id === layerId);
     if (!targetLayer) {
@@ -183,7 +183,7 @@ export const createLayerDuplicateActions = ({
       return {
         layers: syncedLayers,
         activeLayerId: newLayerId,
-        selectedLayerIds: [newLayerId],
+        selectedLayerIds: [...priorCopiedIds.filter(id => state.layers.some(layer => layer.id === id)), newLayerId],
         project: state.project
           ? {
               ...state.project,
@@ -292,34 +292,32 @@ export const createLayerDuplicateActions = ({
     get().markAllCompositeSegmentsDirty();
 
     return newLayerId;
-  },
-  duplicateLayers: (layerIds) => {
-    const state = get();
-    const validIds = layerIds.filter((layerId, index) => (
-      layerId &&
-      layerIds.indexOf(layerId) === index &&
-      state.layers.some((layer) => layer.id === layerId)
-    ));
+  };
+  return {
+    duplicateLayer: (layerId) => duplicateOne(layerId),
+    duplicateLayers: (layerIds) => {
+      const state = get();
+      const validIds = layerIds.filter((layerId, index) => (
+        layerId &&
+        layerIds.indexOf(layerId) === index &&
+        state.layers.some((layer) => layer.id === layerId)
+      ));
 
-    if (validIds.length === 0) {
-      return [];
-    }
+      if (validIds.length === 0) {
+        return [];
+      }
 
-    const orderedIds = state.layers
-      .filter((layer) => validIds.includes(layer.id))
-      .map((layer) => layer.id);
+      const orderedIds = state.layers
+        .filter((layer) => validIds.includes(layer.id))
+        .map((layer) => layer.id);
 
-    const duplicatedIds = orderedIds
-      .map((layerId) => get().duplicateLayer(layerId))
-      .filter((layerId): layerId is string => Boolean(layerId));
+      const duplicatedIds: string[] = [];
+      for (const layerId of orderedIds) {
+        const id = duplicateOne(layerId, duplicatedIds);
+        if (id) duplicatedIds.push(id);
+      }
 
-    if (duplicatedIds.length > 1) {
-      set({
-        activeLayerId: duplicatedIds[duplicatedIds.length - 1] ?? null,
-        selectedLayerIds: duplicatedIds,
-      });
-    }
-
-    return duplicatedIds;
-  },
-});
+      return duplicatedIds;
+    },
+  };
+};

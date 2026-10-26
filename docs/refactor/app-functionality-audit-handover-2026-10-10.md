@@ -1379,6 +1379,50 @@ physical stylus/device and subjective visual signoff. Original47 working files a
 staged three-file/seven-addition patch remain exact (`df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`).
 Areas38–65 remain pending; Area38 requires its own exclusive baseline after commit.
 
+## Session39 — Area38 complete: layer groups
+
+Areas01–38 are software-verified: **38/65 (about58%)**. Area38 passes **12 native cases / 1016 checks across 7 suites** on production artifact `daa67a4923f595865989c50460b7bdfcd0a9a33b61aaa47e8d61152e57e46ef8`.
+Full isolated HEAD-plus-owned-source verification passes type-check, lint and Jest:
+1 skipped, 619 passed, 619 of 620 total;       1 skipped, 6345 passed, 6346 total; snapshots   2 passed, 2 total. Production build preserves Studio.
+The preview retains hash-bound original47 plus owned source7; the focused nine-path
+commit contains source7 and these two ledgers. Actual receipt: `area38-commit-receipt-session39.json`.
+
+Public group creation covers noncontiguous selection, literal default Group 1,
+contiguous membership/order, header selection, collapse/expand and source preservation.
+Trusted native whole-group/member drag covers membership and order with real history
+replay. Actual mixed-member Hide/Show restores prior individual visibility; Add from
+a singleton grouped member inherits membership while Add from the full selected group
+stays outside. Header context opacity100→50→100 changes selected member opacity only,
+with exact pre-action literal CPU Canvas references; no separate group-alpha field.
+Flat regroup creates Group 2, replaces old memberships and prunes empty Group 1;
+this characterizes flat replacement, not nested group support. Actual Ungroup retains
+all sources and real command replay; grouped Delete prunes an empty group naturally.
+
+Two qualified history-owner defects are repaired. Grouped duplication retains its
+existing per-copy two-command granularity and single-duplicate contract, but captures
+the cumulative selected-copy set inside each command snapshot so complete Redo matches
+the public result. Hidden group Delete/Undo restores hidden identities plus the
+factory-owned per-member visibility memory; actual direct Show after Undo restores
+the original mixed state without a recovery toggle. Full canonical/framebuffer,
+selection, source, group/membership/order and actual command IDs are verified.
+
+Earlier fixture-only failures remain preserved: outer ID-dictionary insertion order,
+source-owned projectGroups replay projection, exact new blank canonical1px-zero
+materialization, and unavailable diagnostic metadata were classified from full raw
+receipts and source contracts. No broad material normalization or private state write
+was used. Public group rename and explicit isolation controls are absent in the
+inspected panel; generated names and flat behavior are characterized without inventing
+those UI routes. Specialized interlace/adjustment/CC ink semantics are not inferred.
+
+Evidence: `area38-source-freeze-v1-session39.json`, `area38-final-gate-v1-session39.json`,
+`area38-preview-after-v1-session39.json`, `area38-native-final-v1-session39.json`.
+Canonical native receipt binds all prepared scripts/raw logs/results to the same
+artifact. All five owned storage keys restore exactly including collapsed groups;
+page errors are absent and named-session cleanup confirms no daemon. Original47
+working bytes and staged3files7additions remain exact (`df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`).
+Software proof does not claim physical input devices or subjective visual signoff.
+Areas39–65 remain pending; Area39 needs a fresh exclusive baseline after commit.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

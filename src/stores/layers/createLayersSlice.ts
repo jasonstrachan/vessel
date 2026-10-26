@@ -236,6 +236,22 @@ export const createLayersSlice = (
       layers: [],
       layerGroups: [],
       hiddenLayerGroupIds: [],
+      getLayerGroupVisibilitySnapshots: () => {
+        const validGroups = new Set(get().layerGroups.map(group => group.id));
+        return Object.fromEntries([...groupVisibilitySnapshotByGroupId]
+          .filter(([groupId]) => validGroups.has(groupId))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([groupId, members]) => [groupId, Object.fromEntries([...members].sort(([a], [b]) => a.localeCompare(b)))]));
+      },
+      restoreLayerGroupVisibilitySnapshots: (snapshots) => {
+        const validGroups = new Set(get().layerGroups.map(group => group.id));
+        groupVisibilitySnapshotByGroupId.clear();
+        for (const [groupId, members] of Object.entries(snapshots)) {
+          if (validGroups.has(groupId)) {
+            groupVisibilitySnapshotByGroupId.set(groupId, new Map(Object.entries(members)));
+          }
+        }
+      },
       layersNeedRecomposition: false,
       staticCompositeVersion: 0,
       compositeSegmentsVersion: 0,

@@ -75,6 +75,8 @@ export interface LayersSlice {
   layers: Layer[];
   layerGroups: LayerGroup[];
   hiddenLayerGroupIds: string[];
+  getLayerGroupVisibilitySnapshots: () => Record<string, Record<string, boolean>>;
+  restoreLayerGroupVisibilitySnapshots: (snapshots: Record<string, Record<string, boolean>>) => void;
   layersNeedRecomposition: boolean;
   staticCompositeVersion: number;
   compositeSegmentsVersion: number;

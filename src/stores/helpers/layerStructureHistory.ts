@@ -34,6 +34,8 @@ export const captureLayerStructureSnapshot = (
   return {
     snapshot,
     selectedLayerIds: [...state.selectedLayerIds],
+    hiddenLayerGroupIds: [...state.hiddenLayerGroupIds],
+    groupVisibilitySnapshots: state.getLayerGroupVisibilitySnapshots(),
     referenceLayerId: state.referenceLayerId ?? null,
     referenceSamplingSource: state.project?.referenceSamplingSource,
     layerGroups: state.layerGroups.map((group) => ({

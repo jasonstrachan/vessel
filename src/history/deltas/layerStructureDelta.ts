@@ -24,6 +24,8 @@ import { cloneRecolorSettings } from '@/history/deltas/recolorDelta';
 export interface LayerStructureSnapshot {
   snapshot: CanvasSnapshot;
   selectedLayerIds: string[];
+  hiddenLayerGroupIds?: string[];
+  groupVisibilitySnapshots?: Record<string, Record<string, boolean>>;
   referenceLayerId: string | null;
   referenceSamplingSource?: ReferenceSamplingSource;
   layerGroups: LayerGroup[];
@@ -161,7 +163,9 @@ class LayerStructureDelta implements HistoryDelta {
     this.runtimeLayerIds = runtimeLayerIds ? new Set(runtimeLayerIds) : undefined;
     const layerCount =
       (beforeSnapshot.snapshot.layers?.length ?? 0) + (afterSnapshot.snapshot.layers?.length ?? 0);
-    this.approxBytes = Math.max(1024, layerCount * 512);
+    const visibilityBytes = [beforeSnapshot, afterSnapshot].reduce((bytes, snapshot) => bytes
+      + JSON.stringify([snapshot.hiddenLayerGroupIds, snapshot.groupVisibilitySnapshots]).length * 2, 0);
+    this.approxBytes = Math.max(1024, layerCount * 512) + visibilityBytes;
   }
 
   prepare(direction: HistoryDirection): PreparedHistoryDelta {
@@ -180,6 +184,7 @@ class LayerStructureDelta implements HistoryDelta {
       pendingCompositeDirtyBatches: state.pendingCompositeDirtyBatches,
       tools: state.tools,
     };
+    const visibilitySnapshot = state.getLayerGroupVisibilitySnapshots();
     const projectSnapshot = state.project;
     const isCurrentProject = (): boolean =>
       (useAppStore.getState().project?.id ?? null) === projectId;
@@ -187,6 +192,7 @@ class LayerStructureDelta implements HistoryDelta {
       if (!isCurrentProject()) return false;
       const current = useAppStore.getState();
       return (
+        JSON.stringify(current.getLayerGroupVisibilitySnapshots()) !== JSON.stringify(visibilitySnapshot) ||
         Object.entries(ownedState).some(([key, value]) => (
           !Object.is(current[key as keyof typeof ownedState], value)
         )) ||
@@ -212,20 +218,23 @@ class LayerStructureDelta implements HistoryDelta {
         const previousActiveLayer = useAppStore.getState().layers.find(
           (layer) => layer.id === useAppStore.getState().activeLayerId,
         ) ?? null;
-        const restoreSnapshot = () => useAppStore.setState((current) => ({
-          ...ownedState,
-          project: current.project && projectSnapshot
-            ? restoreOwnedProperties(current.project, projectSnapshot, [
-                'layers',
-                'layerGroups',
-                'txtShapes',
-                'uiShapes',
-                'referenceLayerId',
-                'referenceSamplingSource',
-                'updatedAt',
-              ])
-            : current.project,
-        }));
+        const restoreSnapshot = () => {
+          useAppStore.setState((current) => ({
+            ...ownedState,
+            project: current.project && projectSnapshot
+              ? restoreOwnedProperties(current.project, projectSnapshot, [
+                  'layers',
+                  'layerGroups',
+                  'txtShapes',
+                  'uiShapes',
+                  'referenceLayerId',
+                  'referenceSamplingSource',
+                  'updatedAt',
+                ])
+              : current.project,
+          }));
+          useAppStore.getState().restoreLayerGroupVisibilitySnapshots(visibilitySnapshot);
+        };
         restoreSnapshot();
         useAppStore.getState().setActiveLayer(ownedState.activeLayerId, {
           previousActiveLayer,
@@ -252,6 +261,12 @@ class LayerStructureDelta implements HistoryDelta {
 
     useAppStore.setState({ layerGroups: cloneLayerGroups(target.layerGroups) });
     store.setLayers(restoredLayers);
+    if (target.hiddenLayerGroupIds) {
+      useAppStore.setState({ hiddenLayerGroupIds: target.hiddenLayerGroupIds.filter(id => target.layerGroups.some(group => group.id === id)) });
+    }
+    if (target.groupVisibilitySnapshots) {
+      useAppStore.getState().restoreLayerGroupVisibilitySnapshots(target.groupVisibilitySnapshots);
+    }
     const restoredLayerState = useAppStore.getState().layers;
     const resolvedActiveLayerId =
       targetSnapshot.activeLayerId && validLayerIds.has(targetSnapshot.activeLayerId)
