@@ -3796,3 +3796,116 @@ describe('layers slice integration', () => {
     isSupportedSpy.mockRestore();
   });
 });
+
+describe('Recolor activation preserves its published owner independently of the current tool', () => {
+  const setupActivation = (active = 'normal') => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 2;
+    const original = new ImageData(new Uint8ClampedArray([
+      255, 0, 0, 255, 0, 0, 255, 128, 0, 255, 0, 255, 0, 0, 0, 0,
+    ]), 2, 2);
+    canvas.getContext('2d')!.putImageData(original, 0, 0);
+    const normal = { ...createNormalLayerInput('normal'), id: 'normal', order: 0 } as Layer;
+    const recolor = { ...createColorCycleLayerInput('recolor'), id: 'recolor', order: 1,
+      colorCycleData: { mode: 'recolor' as const, canvas, isAnimating: true,
+        runtimeHydrationState: 'active' as const, deferredRuntimeRestore: false,
+        recolorSettings: {
+          quantizationMode: 'rgb332' as const, ditherMode: 'off' as const, cycleColors: 16,
+          currentLOD: 'full' as const, mappingMode: 'continuous' as const,
+          gradient: [{ position: 0, color: '#ff0000', opacity: 1 }, { position: 1, color: '#0000ff', opacity: 0.5 }],
+          indexBuffer: new Uint8Array([224, 3, 28, 0]), palette: new Uint32Array([0xff0000ff, 0x80ff0000]),
+          originalImageData: original,
+          animation: { speed: 0.7, fps: 15, ticksPerFrame: 0.7, currentTick: 5.3,
+            isPlaying: true, flowDirection: 'reverse' as const },
+        },
+      },
+    } as Layer;
+    const seq = { ...createNormalLayerInput('sequence'), id: 'sequence', order: 2,
+      layerType: 'sequential', sequentialData: { fps: 2, frameCount: 4, durationMs: 2000, events: [] },
+    } as Layer;
+    const indexed = { ...createColorCycleLayerInput('indexed'), id: 'indexed', order: 3 } as Layer;
+    useAppStore.setState(state => ({ layers: [normal, recolor, seq, indexed], activeLayerId: active,
+      selectedLayerIds: [active], tools: { ...state.tools, currentTool: 'brush',
+        brushSettings: { ...state.tools.brushSettings, customBrushColorCycle: false } },
+      colorCyclePlayback: { ...state.colorCyclePlayback, desiredPlaying: true, suspendDepth: 0 },
+    }));
+    return { normal, recolor, seq, indexed, canvas, original };
+  };
+
+  it.each([false, true])('does not admit missing/stale indexed resources for a Recolor target (registered %s)', registered => {
+    const own = setupActivation();
+    if (registered) brushRegistry.set('recolor', mockBrush);
+    mockManager.validateColorCycleBrush.mockReturnValue(registered);
+    mockManager.initColorCycleForLayer.mockImplementation(() => {
+      own.canvas.getContext('2d')!.clearRect(0, 0, 2, 2);
+      return true;
+    });
+    const before = useAppStore.getState();
+    const history = historyManager.entries();
+    mockManager.setActiveState.mockImplementation((id: string) => {
+      if (id === 'recolor') own.canvas.getContext('2d')!.clearRect(0, 0, 2, 2);
+    });
+    before.setActiveLayer('recolor');
+    const after = useAppStore.getState();
+    expect(after.activeLayerId).toBe('recolor'); expect(after.selectedLayerIds).toEqual(['recolor']);
+    expect(Array.from(own.canvas.getContext('2d')!.getImageData(0, 0, 2, 2).data)).toEqual(Array.from(own.original.data));
+    expect(after.layers.find(l => l.id === 'recolor')).toBe(own.recolor);
+    expect(own.recolor.colorCycleData!.recolorSettings!.animation).toEqual({ speed: 0.7, fps: 15,
+      ticksPerFrame: 0.7, currentTick: 5.3, isPlaying: true, flowDirection: 'reverse' });
+    expect(after.colorCyclePlayback).toBe(before.colorCyclePlayback);
+    expect(after.tools.currentTool).toBe('brush'); expect(after.tools.brushSettings.customBrushColorCycle).toBe(false);
+    expect(after.history).toBe(before.history); expect(historyManager.entries()).toEqual(history);
+    for (const fn of [mockManager.validateColorCycleBrush, mockManager.initColorCycleForLayer,
+      mockManager.setActiveState, mockManager.getLayerActivationBrush]) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('preserves multiselection and Recolor identity for forced activation', () => {
+    const own = setupActivation();
+    useAppStore.setState({ selectedLayerIds: ['normal', 'recolor'] });
+    useAppStore.getState().setActiveLayer('recolor', { preserveSelection: true, forceLifecycle: true });
+    expect(useAppStore.getState().selectedLayerIds).toEqual(['normal', 'recolor']);
+    expect(useAppStore.getState().layers.find(l => l.id === 'recolor')).toBe(own.recolor);
+    expect(mockManager.getLayerActivationBrush).not.toHaveBeenCalled();
+    expect(mockManager.setActiveState).not.toHaveBeenCalled();
+  });
+
+  it.each(['normal', 'sequence', 'indexed'])('leaves Recolor without indexed cleanup when selecting %s', target => {
+    const own = setupActivation('recolor');
+    const finalizeCurrentStroke = jest.fn();
+    const staleBrush = { ...mockBrush, finalizeCurrentStroke };
+    mockManager.getLayerActivationBrush.mockReturnValue(staleBrush);
+    mockManager.validateColorCycleBrush.mockReturnValue(true);
+    useAppStore.getState().setActiveLayer(target);
+    const after = useAppStore.getState();
+    expect(after.activeLayerId).toBe(target); expect(after.selectedLayerIds).toEqual([target]);
+    expect(after.layers.find(l => l.id === 'recolor')).toBe(own.recolor);
+    expect(mockManager.setActiveState).not.toHaveBeenCalledWith('recolor', false);
+    expect(mockManager.getLayerActivationBrush).not.toHaveBeenCalledWith('recolor');
+    expect(finalizeCurrentStroke).not.toHaveBeenCalled();
+    if (target === 'indexed') {
+      expect(mockManager.setActiveState).toHaveBeenCalledWith('indexed', true);
+      expect(mockManager.getLayerActivationBrush).toHaveBeenCalledWith('indexed');
+    }
+    if (target === 'sequence') expect(after.sequentialRecord).toMatchObject({ fps: 2, frameCount: 4 });
+  });
+
+  it('honors explicit previous Recolor owner without indexed cleanup on forced lifecycle', () => {
+    const own = setupActivation('normal');
+    const before = useAppStore.getState();
+    before.setActiveLayer('normal', { forceLifecycle: true, previousActiveLayer: own.recolor });
+    expect(useAppStore.getState().layers.find(layer => layer.id === 'recolor')).toBe(own.recolor);
+    expect(mockManager.getLayerActivationBrush).not.toHaveBeenCalledWith('recolor');
+    expect(mockManager.setActiveState).not.toHaveBeenCalledWith('recolor', false);
+    expect(useAppStore.getState().activeLayerId).toBe('normal');
+  });
+
+  it('still deactivates the old indexed runtime when entering Recolor', () => {
+    setupActivation('indexed');
+    const finalizeCurrentStroke = jest.fn();
+    const indexedBrush = { ...mockBrush, finalizeCurrentStroke };
+    mockManager.getLayerActivationBrush.mockReturnValue(indexedBrush);
+    useAppStore.getState().setActiveLayer('recolor');
+    expect(mockManager.setActiveState).toHaveBeenCalledWith('indexed', false);
+    expect(finalizeCurrentStroke).toHaveBeenCalledWith('indexed');
+    expect(mockManager.setActiveState).not.toHaveBeenCalledWith('recolor', true);
+  });
+});

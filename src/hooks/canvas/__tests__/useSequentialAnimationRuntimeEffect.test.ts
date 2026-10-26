@@ -1,4 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
+
+import { getSequentialFrameCursor, getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import { setFeatureFlag } from '@/config/featureFlags';
 import { useSequentialAnimationRuntimeEffect } from '@/hooks/canvas/useSequentialAnimationRuntimeEffect';
 import { useAppStore, type AppState } from '@/stores/useAppStore';
@@ -99,6 +101,237 @@ describe('useSequentialAnimationRuntimeEffect', () => {
     setFeatureFlag('enableSequentialRecordMode', false);
     requestAnimationFrameSpy.mockRestore();
     cancelAnimationFrameSpy.mockRestore();
+  });
+
+  it('freezes the authored live frame when Pause follows a throttled UI publication', () => {
+    const seq = createSequentialLayer();
+    seq.sequentialData = {
+      ...seq.sequentialData!,
+      fps: 6,
+      durationMs: 667,
+      events: [0, 3].map(frameIndex => ({
+        ...seq.sequentialData!.events[0],
+        id: `authored-${frameIndex}`,
+        frameIndex
+      }))
+    };
+    useAppStore.setState(state => ({
+      layers: [seq],
+      activeLayerId: seq.id,
+      selectedLayerIds: [seq.id],
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        fps: 6,
+        frameCount: 4,
+        durationMs: 667,
+        currentFrame: 0,
+        recordArmed: false,
+        isPointerDown: false
+      }
+    }));
+    const storeRef = {
+      current: useAppStore.getState() as AppState
+    };
+    const {
+      unmount
+    } = renderHook(() => useSequentialAnimationRuntimeEffect({
+      storeRef
+    }));
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1400);
+    });
+    act(() => {
+      rafCallback?.(1550);
+    });
+    const before = useAppStore.getState();
+    const cursor = getSequentialFrameCursor();
+    expect(before.sequentialRecord.currentFrame).toBe(2);
+    expect(getSequentialLayerRenderFrame(before, before.layers[0])).toBe(3);
+    const observed: Array<{
+      desired: boolean;
+      frame: number;
+    }> = [];
+    const unsubscribe = useAppStore.subscribe(state => observed.push({
+      desired: state.colorCyclePlayback.desiredPlaying,
+      frame: state.sequentialRecord.currentFrame
+    }));
+    try {
+      act(() => {
+        before.pauseColorCycle('toolbar');
+      });
+      const paused = useAppStore.getState();
+      expect(paused.sequentialRecord.currentFrame).toBe(3);
+      expect(getSequentialLayerRenderFrame(paused, paused.layers[0])).toBe(3);
+      expect(observed.every(state => state.desired || state.frame === 3)).toBe(true);
+      expect(getSequentialFrameCursor()).toEqual(cursor);
+      expect(paused.layers).toBe(before.layers);
+      expect(paused.selectedLayerIds).toBe(before.selectedLayerIds);
+      expect(paused.history).toBe(before.history);
+      expect(paused.sequentialRecord).toEqual({
+        ...before.sequentialRecord,
+        currentFrame: 3
+      });
+      expect(paused.colorCyclePlayback).toMatchObject({
+        ...before.colorCyclePlayback,
+        desiredPlaying: false,
+        lastReason: 'toolbar',
+        recentReasons: paused.colorCyclePlayback.recentReasons
+      });
+      const record = paused.sequentialRecord;
+      act(() => {
+        paused.pauseColorCycle('toolbar');
+      });
+      expect(useAppStore.getState().sequentialRecord).toBe(record);
+      expect(getSequentialFrameCursor()).toEqual(cursor);
+    } finally {
+      unsubscribe();
+      unmount();
+    }
+  });
+  it('projects pause time using the active clip instead of dormant cursor frame metadata', () => {
+    const seq = createSequentialLayer();
+    seq.sequentialData = {
+      ...seq.sequentialData!,
+      fps: 6,
+      frameCount: 4,
+      durationMs: 667
+    };
+    const normal = {
+      ...createSequentialLayer(),
+      id: 'normal-clock-owner',
+      layerType: 'normal' as const,
+      sequentialData: undefined
+    };
+    useAppStore.setState(state => ({
+      layers: [normal, seq],
+      activeLayerId: normal.id,
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        fps: 12,
+        frameCount: 24,
+        durationMs: 2000,
+        currentFrame: 0,
+        recordArmed: false,
+        isPointerDown: false
+      }
+    }));
+    const storeRef = {
+      current: useAppStore.getState() as AppState
+    };
+    const {
+      unmount
+    } = renderHook(() => useSequentialAnimationRuntimeEffect({
+      storeRef
+    }));
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1550);
+    });
+    act(() => {
+      useAppStore.setState({
+        activeLayerId: seq.id
+      });
+    });
+    const before = useAppStore.getState();
+    const cursor = getSequentialFrameCursor();
+    expect(cursor.frameCount).toBe(24);
+    expect(cursor.fps).toBe(12);
+    expect(cursor.frame).toBe(6);
+    expect(getSequentialLayerRenderFrame(before, before.layers[1])).toBe(3);
+    act(() => {
+      before.pauseColorCycle('toolbar');
+    });
+    expect(useAppStore.getState().sequentialRecord.currentFrame).toBe(3);
+    expect(useAppStore.getState().sequentialRecord).toMatchObject({
+      fps: 12,
+      frameCount: 24
+    });
+    expect(getSequentialFrameCursor()).toEqual(cursor);
+    expect(useAppStore.getState().layers).toBe(before.layers);
+    unmount();
+  });
+  it.each(['normal', 'color-cycle'] as const)('leaves store frame untouched when %s is active', layerType => {
+    const seq = createSequentialLayer();
+    const active = {
+      ...createSequentialLayer(),
+      id: 'non-sequence-active',
+      layerType,
+      sequentialData: undefined
+    };
+    useAppStore.setState(state => ({
+      layers: [active, seq],
+      activeLayerId: active.id,
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        currentFrame: 1,
+        recordArmed: false,
+        isPointerDown: false
+      }
+    }));
+    const storeRef = {
+      current: useAppStore.getState() as AppState
+    };
+    const {
+      unmount
+    } = renderHook(() => useSequentialAnimationRuntimeEffect({
+      storeRef
+    }));
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1250);
+    });
+    const before = useAppStore.getState();
+    const cursor = getSequentialFrameCursor();
+    act(() => {
+      before.pauseColorCycle('toolbar');
+    });
+    expect(useAppStore.getState().sequentialRecord).toBe(before.sequentialRecord);
+    expect(useAppStore.getState().layers).toBe(before.layers);
+    expect(getSequentialFrameCursor()).toEqual(cursor);
+    unmount();
+  });
+  it('preserves record capture ownership and keeps capture ticking after playback Pause', () => {
+    const storeRef = {
+      current: useAppStore.getState() as AppState
+    };
+    const {
+      unmount
+    } = renderHook(() => useSequentialAnimationRuntimeEffect({
+      storeRef
+    }));
+    act(() => {
+      rafCallback?.(1000);
+    });
+    act(() => {
+      rafCallback?.(1250);
+    });
+    const before = useAppStore.getState();
+    const cursor = getSequentialFrameCursor();
+    act(() => {
+      before.pauseColorCycle('toolbar');
+    });
+    const paused = useAppStore.getState();
+    expect(paused.sequentialRecord).toMatchObject({
+      recordArmed: true,
+      isPointerDown: true,
+      isCaptureActive: true,
+      sessionStartMs: before.sequentialRecord.sessionStartMs
+    });
+    expect(paused.layers).toBe(before.layers);
+    expect(getSequentialFrameCursor()).toEqual(cursor);
+    act(() => {
+      rafCallback?.(1350);
+    });
+    expect(getSequentialFrameCursor().timeMs).toBeGreaterThan(cursor.timeMs);
+    expect(useAppStore.getState().colorCyclePlayback.desiredPlaying).toBe(false);
+    unmount();
   });
 
   it('advances frames and keeps runtime ticking during sequential capture with no CC layers', () => {

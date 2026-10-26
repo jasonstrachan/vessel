@@ -1,9 +1,11 @@
 import type { StateCreator } from 'zustand';
+
 import {
   MAX_CC_LAYER_SPEED_SCALE,
   MIN_CC_LAYER_SPEED_SCALE,
 } from '@/constants/colorCycle';
 import { BrushShape } from '@/types';
+import { frameAtSequentialTime, getSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 
 type AppState = import('../useAppStore').AppState;
 
@@ -139,14 +141,32 @@ export const createColorCycleSlice: StateCreator<AppState, [], [], ColorCycleSli
   };
 
   const pauseColorCycle = (reason: CCReason) => {
-    set((state) => ({
-      colorCyclePlayback: {
-        ...state.colorCyclePlayback,
-        desiredPlaying: false,
-        lastReason: reason,
-        recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason),
-      },
-    }));
+    set((state) => {
+      const clip = state.colorCyclePlayback.desiredPlaying
+        ? state.layers.find(layer => (
+            layer.id === state.activeLayerId && layer.layerType === 'sequential'
+          ))?.sequentialData
+        : undefined;
+      // Paused editing reads the store frame, while playback reads the live cursor time.
+      const pausedFrame = clip
+        ? frameAtSequentialTime({
+            clipTimeMs: getSequentialFrameCursor().timeMs,
+            clipFps: clip.fps,
+            clipFrameCount: clip.frameCount,
+          })
+        : undefined;
+      return {
+        ...(pausedFrame !== undefined && pausedFrame !== state.sequentialRecord.currentFrame ? {
+          sequentialRecord: { ...state.sequentialRecord, currentFrame: pausedFrame },
+        } : {}),
+        colorCyclePlayback: {
+          ...state.colorCyclePlayback,
+          desiredPlaying: false,
+          lastReason: reason,
+          recentReasons: appendColorCycleReason(state.colorCyclePlayback, reason),
+        },
+      };
+    });
   };
 
   const setPlaybackSpeedScale = (scale: number) => {

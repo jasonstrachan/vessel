@@ -126,7 +126,8 @@ export const createLayerActivationActions = ({
     const currentActiveLayer = opts?.previousActiveLayer !== undefined
       ? opts.previousActiveLayer
       : state.layers.find(l => l.id === state.activeLayerId);
-    if (currentActiveLayer?.layerType === 'color-cycle' && currentActiveLayer.id !== id) {
+    if (currentActiveLayer?.layerType === 'color-cycle'
+      && currentActiveLayer.colorCycleData?.mode !== 'recolor' && currentActiveLayer.id !== id) {
       try {
         // Mark the old layer's brush as inactive
         if (colorCycleBrushManager) {
@@ -161,7 +162,7 @@ export const createLayerActivationActions = ({
     }
 
     // If switching to a color-cycle layer in BRUSH context, validate/reinit brush resources.
-    // Skip entirely when the Recolor tool is active so we don't override recolor mode.
+    // Recolor owns its published surface independently of the selected tool.
     const baseSelection = (() => {
       if (!id) {
         return [];
@@ -174,7 +175,8 @@ export const createLayerActivationActions = ({
       return [id];
     })();
 
-    if (id && layer?.layerType === 'color-cycle' && state.tools.currentTool !== 'recolor') {
+    if (id && layer?.layerType === 'color-cycle'
+      && layer.colorCycleData?.mode !== 'recolor' && state.tools.currentTool !== 'recolor') {
       const isColdRuntimeLayer = isDocumentColdColorCycleLayer(layer);
       const shouldRestoreDeferredRuntime = Boolean(
         isColdRuntimeLayer && (
@@ -296,6 +298,7 @@ export const createLayerActivationActions = ({
             candidate.id === state.activeLayerId &&
             candidate.id !== id &&
             candidate.layerType === 'color-cycle' &&
+            candidate.colorCycleData?.mode !== 'recolor' &&
             getColorCycleHydrationState(candidate.colorCycleData) === 'active'
           ) {
             return updateLayerColorCycleHydrationState(candidate, 'warm');
@@ -384,6 +387,7 @@ export const createLayerActivationActions = ({
         candidate.id === state.activeLayerId &&
         candidate.id !== id &&
         candidate.layerType === 'color-cycle' &&
+        candidate.colorCycleData?.mode !== 'recolor' &&
         getColorCycleHydrationState(candidate.colorCycleData) === 'active'
           ? updateLayerColorCycleHydrationState(candidate, 'warm')
           : candidate

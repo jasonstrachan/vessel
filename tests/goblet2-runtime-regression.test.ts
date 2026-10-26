@@ -23,6 +23,86 @@ const loadRuntimeSeamProfileHelper = (runtime: string): ApplyGradientSeamProfile
 };
 
 describe('Goblet 2 runtime export regression guard', () => {
+  it.each(['public/goblet/goblet.js', 'public/goblet2/goblet2.js'])('keeps the current Sequence source and clock when %s stops', relativePath => {
+    const source = read(relativePath);
+    const match = source.match(/class SequentialLayerPlayer \{[\s\S]*?\n\}/);
+    if (!match) throw new Error('Actual Sequential player class missing');
+    type FrameSource = {
+      id: string;
+    };
+    type Player = {
+      currentFrame: number;
+      frameAccumulatorSeconds: number;
+      advance: (seconds: number) => boolean;
+      getSource: () => FrameSource;
+      setTime?: (seconds: number) => boolean;
+    };
+    const PlayerClass = new Function('posInt', 'toNum', `${match[0]}; return SequentialLayerPlayer;`)((value: number, fallback: number) => Number.isFinite(value) && value > 0 ? Math.round(value) : fallback, (value: number, fallback: number) => Number.isFinite(value) ? value : fallback) as new (layer: unknown, frames: FrameSource[], fps: number) => Player;
+    const frames = [0, 1, 2, 3].map(id => ({
+      id: `literal-frame-${id}`
+    }));
+    const layer = {
+      id: 'sequence',
+      sequential: {
+        totalFrames: 4,
+        fps: 6
+      }
+    };
+    const player = new PlayerClass(layer, frames, 12);
+    expect(player.advance(0.53)).toBe(true);
+    expect(player.currentFrame).toBe(3);
+    expect(player.getSource()).toBe(frames[3]);
+    const viewerStart = source.indexOf('class VesselGoblet {');
+    const stopStart = source.indexOf('  stop() {', viewerStart);
+    const stopEnd = source.indexOf('\n  destroy() {', stopStart);
+    if (viewerStart < 0 || stopStart < 0 || stopEnd < 0) throw new Error('Actual viewer stop method missing');
+    const callbacks = new Map<number, () => void>([[7, () => {
+      player.advance(0.5);
+    }]]);
+    const cancel = jest.fn((id: number) => {
+      callbacks.delete(id);
+    });
+    const stop = new Function('cancelAnimationFrame', `return ({${source.slice(stopStart, stopEnd)}}).stop;`)(cancel) as (this: {
+      rafId: number | null;
+    }) => void;
+    const viewer = {
+      rafId: 7 as number | null,
+      playbackTimeSeconds: 0.53,
+      dynamicPlayers: [player]
+    };
+    const before = {
+      frame: player.currentFrame,
+      accumulator: player.frameAccumulatorSeconds,
+      source: player.getSource(),
+      time: viewer.playbackTimeSeconds
+    };
+    stop.call(viewer);
+    for (const callback of callbacks.values()) callback();
+    expect(cancel).toHaveBeenCalledWith(7);
+    expect(viewer.rafId).toBeNull();
+    expect(player.currentFrame).toBe(before.frame);
+    expect(player.frameAccumulatorSeconds).toBe(before.accumulator);
+    expect(player.getSource()).toBe(before.source);
+    expect(viewer.playbackTimeSeconds).toBe(before.time);
+    stop.call(viewer);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    if (player.setTime) {
+      player.setTime(1.2);
+      expect(player.currentFrame).toBe(3);
+      expect(player.getSource()).toBe(frames[3]);
+      stop.call(viewer);
+      expect(player.currentFrame).toBe(3);
+      expect(player.getSource()).toBe(frames[3]);
+    }
+    expect(layer).toEqual({
+      id: 'sequence',
+      sequential: {
+        totalFrames: 4,
+        fps: 6
+      }
+    });
+  });
+
   it('uses the same presentation opacity in both exports, including saved offset and export speed', () => {
     for (const path of ['public/goblet/goblet.js', 'public/goblet2/goblet2.js']) {
       const source = read(path);

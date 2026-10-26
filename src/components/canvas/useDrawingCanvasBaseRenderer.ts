@@ -208,7 +208,7 @@ export const useDrawingCanvasBaseRenderer = ({
   selectionMaskBounds,
   selectionVectorPath,
 }: UseDrawingCanvasBaseRendererOptions) => {
-  const lastSplitCompositeSequentialFrameRef = useRef<number | null>(null);
+  const lastSplitCompositeSequentialFramesRef = useRef(new Map<string, number>());
   const displayFilterStateRef = useRef(createDisplayFilterPipelineState());
   const lastInvalidCompositeBitmapRef = useRef<ImageBitmap | null>(null);
   const lastCcDirectionRenderDebugAtRef = useRef(0);
@@ -430,12 +430,20 @@ export const useDrawingCanvasBaseRenderer = ({
         && !adjustmentsVisible && !floatingPasteIntegrated;
 
       if (splitCompositeRequested) {
-        const sequentialFrame = activeLayer?.layerType === 'sequential'
-          ? getSequentialLayerRenderFrame(runtimeState, activeLayer)
-          : 0;
-        const sequentialFrameChanged =
-          activeLayer?.layerType === 'sequential' &&
-          sequentialFrame !== lastSplitCompositeSequentialFrameRef.current;
+        const sequentialFrames = lastSplitCompositeSequentialFramesRef.current;
+        let sequentialFrameChanged = false;
+        let sequentialLayerCount = 0;
+        for (const layer of layers) {
+          if (
+            layer.layerType !== 'sequential' || !layer.sequentialData
+            || (!layer.visible && layer.id !== activeLayerId)
+          ) continue;
+          sequentialLayerCount += 1;
+          if (sequentialFrames.get(layer.id) !== getSequentialLayerRenderFrame(runtimeState, layer)) {
+            sequentialFrameChanged = true;
+          }
+        }
+        sequentialFrameChanged ||= sequentialLayerCount !== sequentialFrames.size;
         const anyAnimatingColorCycle = layers.some(
           (layer) =>
             layer.visible &&
@@ -456,10 +464,17 @@ export const useDrawingCanvasBaseRenderer = ({
           renderSplitComposites();
           strokeFinalizeProbeMark('baseRenderer:renderSplitComposites', 'end', probeMeta);
           compositeCanvasDirtyRef.current = false;
-          lastSplitCompositeSequentialFrameRef.current = sequentialFrame;
+          sequentialFrames.clear();
+          for (const layer of layers) {
+            if (
+              layer.layerType !== 'sequential' || !layer.sequentialData
+              || (!layer.visible && layer.id !== activeLayerId)
+            ) continue;
+            sequentialFrames.set(layer.id, getSequentialLayerRenderFrame(runtimeState, layer));
+          }
         }
       } else {
-        lastSplitCompositeSequentialFrameRef.current = null;
+        lastSplitCompositeSequentialFramesRef.current.clear();
       }
 
       const useSplitOverlay = Boolean(splitCompositeRequested && underCompositeCanvasRef.current);
