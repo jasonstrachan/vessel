@@ -1577,6 +1577,18 @@ Original47 worktree bytes and raw staged three files/seven additions/patch `df01
 
 Evidence: `area43-source-freeze-v1-session39.json`, `area43-final-gate-v1-session39.json`, `area43-preview-after-v1-session39.json`, `area43-native-final-v1-session39.json`.
 
+## Session39 — Area44 complete: Sequence controls
+
+Areas01–44 are software-verified: **44/65 (67.7%)**. Actual production proof passes **6 native cases / 455 checks across 6 suites** on artifact `0971d6b2fa0033b57ec639a934ee2bc3c37e070d1b655bfb371a9681fada9fc8`. Source-isolated current HEAD plus four owned source/test files passes diff/type/full lint/full Jest: Test Suites: 1 skipped, 623 passed, 623 of 624 total; Tests:       1 skipped, 6450 passed, 6451 total; Snapshots:   2 passed, 2 total. The full preserved working-tree production preview build preserves Studio and all fifteen public runtime assets.
+
+The six mandatory public fixtures prove FPS and Frames Preserve/Trim/Retime with independently authored frame0/frame3 data, hidden-mark retention/removal/retiming, exact immediate pixels and one real command per edit, then two complete settings Undo-all/Redo-all cycles preserving original paint. Capture/control limits, local preferences after reload and declared temporal spread/fade/burst/gap material are independently checked. Whole-frame/canonical event/chunk/metadata/source and unrelated-owner contracts remain strict; replay store currentFrame follows captured frame-policy normalization without private cursor seek/reset or transport mutation.
+
+A44-01 repairs missing active-Sequence settings history at the record-slice/existing delta owners. FPS and Preserve store bounded scalar metadata and retain event/chunk identities; destructive Trim/Retime capture immutable event/typed nested brush/chunk data and clone each replay. Existing paint delta behavior, clamps, global-only preference behavior and raw chunk semantics remain unchanged. Qualified BEFORE Preserve/Trim/Retime evidence, initial draft candidates and nested-alias regression evidence remain retained. Native runtime AFTER above is required in addition to causal candidate tests and final full gate.
+
+All six raw CLI logs/results/exits and prepared/compiled scripts bind to this artifact/source freeze. Every eight-key applied/consumed/restored quiet-fence receipt passes, errors are absent and exact named cleanup confirms no matching daemon. Original47 worktree bytes and raw staged three files/seven additions/patch `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2` remain exact. Completed Area43 and prior sections remain unchanged. Focused local commit owns four source/test paths plus these two ledgers; no push is claimed. Global transport Area45, history stress Area51, project Save/Load Area52 and Goblet export Area58 remain separately scoped; 96MB exhaustion and subjective visual signoff are not claimed.
+
+Evidence: `area44-source-freeze-v1-session39.json`, `area44-final-gate-v1-session39.json`, `area44-preview-after-v1-session39.json`, `area44-native-final-v1-session39.json`.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

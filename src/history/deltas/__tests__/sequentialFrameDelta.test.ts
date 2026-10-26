@@ -1,6 +1,8 @@
+import { getSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 import {
   createSequentialAppendFrameDelta,
   createSequentialFrameDelta,
+  createSequentialSettingsDelta,
 } from '@/history/deltas/sequentialFrameDelta';
 import { replayDeltaForTest } from '@/history/__tests__/replayTestUtils';
 import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
@@ -173,6 +175,183 @@ describe('SequentialFrameDelta', () => {
     await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
     const layer = useAppStore.getState().layers.find((entry) => entry.id === 'layer-seq');
     expect(layer?.sequentialData?.events.map((event) => event.id)).toEqual(['event-a', 'event-b']);
+    expect(manager.entries()).toHaveLength(1);
+    expect(manager.redoEntries()).toHaveLength(0);
+  });
+});
+
+describe('SequentialSettingsDelta', () => {
+  const setup = () => {
+    const before = createSequentialData(['settings-a', 'settings-b']);
+    const after = {
+      ...before,
+      fps: 24,
+      durationMs: 500
+    };
+    useAppStore.setState(state => ({
+      layers: [createSequentialLayer('layer-seq', after)],
+      activeLayerId: 'layer-seq',
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        fps: 24,
+        durationMs: 500,
+        currentFrame: 7,
+        trailFalloff: 0.3,
+        recordArmed: false
+      },
+      layersNeedRecomposition: false,
+      pendingCompositeDirtyBatches: []
+    }));
+    return {
+      before,
+      after
+    };
+  };
+  it('has a bounded scalar payload and preserves event/chunk identities on both directions', async () => {
+    const {
+      before,
+      after
+    } = setup();
+    const delta = createSequentialSettingsDelta({
+      layerId: 'layer-seq',
+      before,
+      after,
+      recordBefore: {
+        fps: 12,
+        durationMs: 1000
+      },
+      recordAfter: {
+        fps: 24,
+        durationMs: 500
+      }
+    });
+    expect(delta.approxBytes).toBeLessThan(1024);
+    await replayDeltaForTest(delta, 'backward');
+    expect(useAppStore.getState().layers[0].sequentialData!.events).toBe(before.events);
+    expect(useAppStore.getState().sequentialRecord).toMatchObject({
+      fps: 12,
+      durationMs: 1000,
+      currentFrame: 7,
+      trailFalloff: 0.3
+    });
+    await replayDeltaForTest(delta, 'forward');
+    expect(useAppStore.getState().layers[0].sequentialData!.events).toBe(before.events);
+    expect(useAppStore.getState().sequentialRecord).toMatchObject({
+      fps: 24,
+      durationMs: 500,
+      currentFrame: 7,
+      trailFalloff: 0.3
+    });
+  });
+  it('deeply isolates destructive event snapshots from subsequent source mutation', async () => {
+    const {
+      before
+    } = setup();
+    before.eventChunks = [{
+      id: 'chunk',
+      startEventIndex: 0,
+      eventCount: 2,
+      frameIndexes: [0, 1]
+    }];
+    const after = {
+      ...before,
+      frameCount: 1,
+      events: [before.events[0]]
+    };
+    const delta = createSequentialSettingsDelta({
+      layerId: 'layer-seq',
+      before,
+      after,
+      recordBefore: {
+        frameCount: 12
+      },
+      recordAfter: {
+        frameCount: 1
+      }
+    });
+    before.events[1].stamps[0].x = 999;
+    before.eventChunks[0].frameIndexes[0] = 999;
+    await replayDeltaForTest(delta, 'backward');
+    const data = useAppStore.getState().layers[0].sequentialData!;
+    expect(data.events[1].stamps[0].x).toBe(2);
+    expect(data.eventChunks![0].frameIndexes).toEqual([0, 1]);
+  });
+  it.each(['backward', 'forward'] as const)('isolates nested brush snapshots and replay data in %s history', async direction => {
+    const { before } = setup();
+    const gradient = [{ position: 0, color: '#ff0000', opacity: 0.5 }];
+    const pluginConfig = { spamCustomText: 'original' };
+    const customStamp = { width: 1, height: 1, rgbaBase64: 'original', isColorizable: true };
+    const selectionClip = { kind: 'rect' as const, minX: 1, minY: 2, maxX: 3, maxY: 4 };
+    before.events[0].brush = {
+      ...before.events[0].brush,
+      colorCycleGradient: gradient,
+      pluginConfig,
+      customStamp,
+      selectionClip,
+    };
+    const after = { ...before, frameCount: 1, events: [before.events[0]] };
+    const delta = createSequentialSettingsDelta({
+      layerId: 'layer-seq', before, after,
+      recordBefore: { frameCount: 12 }, recordAfter: { frameCount: 1 },
+    });
+    gradient[0].color = '#000000';
+    gradient[0].opacity = 0;
+    pluginConfig.spamCustomText = 'poison';
+    customStamp.rgbaBase64 = 'poison';
+    selectionClip.minX = 999;
+    for (let cycle = 0; cycle < 2; cycle += 1) {
+      await replayDeltaForTest(delta, direction);
+      const brush = useAppStore.getState().layers[0].sequentialData!.events[0].brush;
+      expect(brush.colorCycleGradient).toEqual([{ position: 0, color: '#ff0000', opacity: 0.5 }]);
+      expect(brush.pluginConfig).toEqual({ spamCustomText: 'original' });
+      expect(brush.customStamp).toEqual({ width: 1, height: 1, rgbaBase64: 'original', isColorizable: true });
+      expect(brush.selectionClip).toEqual({ kind: 'rect', minX: 1, minY: 2, maxX: 3, maxY: 4 });
+      brush.colorCycleGradient![0].color = '#ffffff';
+      brush.pluginConfig!.spamCustomText = 'replay poison';
+      brush.customStamp!.rgbaBase64 = 'replay poison';
+      Object.assign(brush.selectionClip!, { minX: 777 });
+      await replayDeltaForTest(delta, direction === 'backward' ? 'forward' : 'backward');
+    }
+  });
+
+  it('compensates exact metadata and global preferences after a later real replay failure', async () => {
+    const {
+      before,
+      after
+    } = setup();
+    const snapshot = useAppStore.getState();
+    const cursor = getSequentialFrameCursor();
+    const manager = new HistoryManager({
+      runtimeRehydration: {
+        createTargets: () => ({
+          layerIds: new Set(),
+          colorCycleLayerIds: new Set(),
+          sequentialLayerIds: new Set(),
+          workerScopes: new Set()
+        }),
+        rehydrate: async () => undefined
+      }
+    });
+    const txn = manager.begin('settings-change');
+    txn.push(new LateFailureDelta());
+    txn.push(createSequentialSettingsDelta({
+      layerId: 'layer-seq',
+      before,
+      after,
+      recordBefore: {
+        fps: 12,
+        durationMs: 1000
+      },
+      recordAfter: {
+        fps: 24,
+        durationMs: 500
+      }
+    }));
+    txn.commit('FPS');
+    await expect(manager.undo()).rejects.toBeInstanceOf(HistoryReplayApplyError);
+    expect(useAppStore.getState().layers).toBe(snapshot.layers);
+    expect(useAppStore.getState().sequentialRecord).toBe(snapshot.sequentialRecord);
+    expect(getSequentialFrameCursor()).toEqual(cursor);
     expect(manager.entries()).toHaveLength(1);
     expect(manager.redoEntries()).toHaveLength(0);
   });

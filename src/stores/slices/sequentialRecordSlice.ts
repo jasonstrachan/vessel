@@ -1,4 +1,9 @@
 import type { StateCreator } from 'zustand';
+
+import historyManager from '@/history/historyService';
+import { createSequentialSettingsDelta } from '@/history/deltas/sequentialFrameDelta';
+import { appendPendingCompositeDirtyBatches } from '@/stores/layers/layerCompositeDirtyBatches';
+import { markCompositeSegmentsDirtyByLayerIds } from '@/stores/layers/layerCompositeInvalidation';
 import { setSequentialFrameCursor } from '@/runtime/playback/sequentialFrameCursor';
 
 type AppState = import('../useAppStore').AppState;
@@ -137,11 +142,45 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
             },
           };
           nextLayers = [...state.layers];
+          const txn = historyManager.begin('settings-change', {
+            layerId: activeLayer.id,
+            setting: 'sequential-fps',
+          });
+          try {
+            txn.push(createSequentialSettingsDelta({
+              layerId: activeLayer.id,
+              before: layerSequential,
+              after: updatedLayer.sequentialData,
+              recordBefore: {
+                fps: state.sequentialRecord.fps,
+                durationMs: state.sequentialRecord.durationMs,
+              },
+              recordAfter: {
+                fps: nextFps,
+                durationMs: nextDurationMs,
+              },
+            }));
+            txn.commit('Change sequence FPS');
+          } catch (error) {
+            txn.cancel();
+            throw error;
+          }
           nextLayers[activeSequentialLayerIndex] = updatedLayer;
         }
       }
+      if (nextLayers === state.layers && nextFps === state.sequentialRecord.fps) {
+        return state;
+      }
       return {
         layers: nextLayers,
+        ...(nextLayers !== state.layers && state.activeLayerId ? {
+          layersNeedRecomposition: true,
+          compositeSegments: markCompositeSegmentsDirtyByLayerIds(
+            state.compositeSegments,
+            [state.activeLayerId],
+          ),
+          pendingCompositeDirtyBatches: appendPendingCompositeDirtyBatches(state, [state.activeLayerId]),
+        } : {}),
         sequentialRecord: {
           ...state.sequentialRecord,
           fps: nextFps,
@@ -173,7 +212,7 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
           MIN_RECORD_FRAME_COUNT,
           Math.round(layerSequential.frameCount),
         );
-        const nextEvents = mode === 'trim'
+        const mappedEvents = mode === 'trim'
           ? layerSequential.events.filter((event) => event.frameIndex < nextFrameCount)
           : mode === 'retime'
             ? layerSequential.events.map((event) => {
@@ -186,6 +225,9 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
                 return frameIndex === event.frameIndex ? event : { ...event, frameIndex };
               })
             : layerSequential.events;
+        const nextEvents = mappedEvents.length === layerSequential.events.length &&
+          mappedEvents.every((event, index) => event === layerSequential.events[index])
+          ? layerSequential.events : mappedEvents;
         const updatedLayer = {
           ...activeLayer,
           sequentialData: {
@@ -195,11 +237,52 @@ export const createSequentialRecordSlice: StateCreator<AppState, [], [], Sequent
             events: nextEvents,
           },
         };
-        nextLayers = [...state.layers];
-        nextLayers[activeSequentialLayerIndex] = updatedLayer;
+        if (nextFrameCount !== layerSequential.frameCount || nextEvents !== layerSequential.events) {
+          const txn = historyManager.begin('settings-change', {
+            layerId: activeLayer.id,
+            setting: 'sequential-frames',
+            mode,
+          });
+          try {
+            txn.push(createSequentialSettingsDelta({
+              layerId: activeLayer.id,
+              before: layerSequential,
+              after: updatedLayer.sequentialData,
+              recordBefore: {
+                frameCount: state.sequentialRecord.frameCount,
+                durationMs: state.sequentialRecord.durationMs,
+                currentFrame: state.sequentialRecord.currentFrame,
+              },
+              recordAfter: {
+                frameCount: nextFrameCount,
+                durationMs: nextDurationMs,
+                currentFrame: nextCurrentFrame,
+              },
+            }));
+            txn.commit('Change sequence frames');
+          } catch (error) {
+            txn.cancel();
+            throw error;
+          }
+          nextLayers = [...state.layers];
+          nextLayers[activeSequentialLayerIndex] = updatedLayer;
+        }
+      }
+      if (nextLayers === state.layers &&
+        nextFrameCount === state.sequentialRecord.frameCount &&
+        nextCurrentFrame === state.sequentialRecord.currentFrame) {
+        return state;
       }
       return {
         layers: nextLayers,
+        ...(nextLayers !== state.layers && state.activeLayerId ? {
+          layersNeedRecomposition: true,
+          compositeSegments: markCompositeSegmentsDirtyByLayerIds(
+            state.compositeSegments,
+            [state.activeLayerId],
+          ),
+          pendingCompositeDirtyBatches: appendPendingCompositeDirtyBatches(state, [state.activeLayerId]),
+        } : {}),
         sequentialRecord: {
           ...state.sequentialRecord,
           frameCount: nextFrameCount,

@@ -1,3 +1,4 @@
+import historyManager from '@/history/historyService';
 import {
   selectGlobalAnimationActive,
   selectSequentialCaptureActive,
@@ -378,5 +379,258 @@ describe('sequentialRecordSlice', () => {
     expect(selectSequentialPlaybackActive(state)).toBe(false);
     expect(selectSequentialCaptureActive(state)).toBe(true);
     expect(selectGlobalAnimationActive(state)).toBe(true);
+  });
+});
+
+describe('sequential settings real history', () => {
+  const setup = () => {
+    historyManager.clear();
+    const target = createLayer('settings-target', 'sequential');
+    target.sequentialData = {
+      ...target.sequentialData!,
+      frameCount: 4,
+      fps: 1,
+      durationMs: 4000,
+      events: [0, 3].map(frameIndex => ({
+        ...target.sequentialData!.events[0],
+        id: `settings-${frameIndex}`,
+        frameIndex
+      })),
+      eventChunks: [{
+        id: 'settings-chunk',
+        startEventIndex: 0,
+        eventCount: 2,
+        frameIndexes: [0, 3]
+      }]
+    };
+    const other = createLayer('settings-other', 'normal');
+    useAppStore.setState(state => ({
+      layers: [target, other],
+      activeLayerId: target.id,
+      selectedLayerIds: [target.id],
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        fps: 1,
+        frameCount: 4,
+        currentFrame: 3,
+        durationMs: 4000,
+        recordArmed: false
+      }
+    }));
+    return {
+      target: useAppStore.getState().layers[0],
+      other: useAppStore.getState().layers[1],
+      data: useAppStore.getState().layers[0].sequentialData!
+    };
+  };
+  it('records FPS as one bounded metadata command and replays twice without event copies', async () => {
+    const {
+      data,
+      other
+    } = setup();
+    const canvas = document.createElement('canvas');
+    useAppStore.setState({
+      layersNeedRecomposition: false,
+      pendingCompositeDirtyBatches: [],
+      compositeSegments: [{
+        kind: 'static',
+        id: 'owned',
+        layerIds: ['settings-target'],
+        includeBackground: false,
+        orderRange: {
+          start: 0,
+          end: 0
+        },
+        canvas,
+        bitmap: null,
+        dirty: false
+      }, {
+        kind: 'static',
+        id: 'foreign',
+        layerIds: ['settings-other'],
+        includeBackground: false,
+        orderRange: {
+          start: 1,
+          end: 1
+        },
+        canvas,
+        bitmap: null,
+        dirty: false
+      }]
+    });
+    useAppStore.getState().setRecordFPS(2);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
+    expect(useAppStore.getState().compositeSegments.map(segment => segment.kind === 'static' && segment.dirty)).toEqual([true, false]);
+    expect(historyManager.entries()).toHaveLength(1);
+    expect(useAppStore.getState().layers[0].sequentialData).toMatchObject({
+      fps: 2,
+      durationMs: 2000
+    });
+    expect(useAppStore.getState().layers[0].sequentialData!.events).toBe(data.events);
+    useAppStore.setState(state => ({
+      colorCyclePlayback: {
+        ...state.colorCyclePlayback,
+        desiredPlaying: true
+      },
+      sequentialRecord: {
+        ...state.sequentialRecord,
+        trailFalloff: 0.45
+      }
+    }));
+    for (let i = 0; i < 2; i += 1) {
+      await historyManager.undo();
+      expect(useAppStore.getState().layers[0].sequentialData).toMatchObject({
+        fps: 1,
+        durationMs: 4000
+      });
+      expect(useAppStore.getState().sequentialRecord).toMatchObject({
+        fps: 1,
+        durationMs: 4000,
+        currentFrame: 3
+      });
+      await historyManager.redo();
+      expect(useAppStore.getState().layers[0].sequentialData).toMatchObject({
+        fps: 2,
+        durationMs: 2000
+      });
+      expect(useAppStore.getState().sequentialRecord).toMatchObject({
+        fps: 2,
+        durationMs: 2000,
+        currentFrame: 3
+      });
+      expect(useAppStore.getState().layers[0].sequentialData!.events).toBe(data.events);
+      expect(useAppStore.getState().layers[0].sequentialData!.eventChunks).toBe(data.eventChunks);
+      expect(useAppStore.getState().layers[1]).toBe(other);
+      expect(useAppStore.getState().selectedLayerIds).toEqual(['settings-target']);
+      expect(useAppStore.getState().colorCyclePlayback.desiredPlaying).toBe(true);
+      expect(useAppStore.getState().sequentialRecord.trailFalloff).toBe(0.45);
+    }
+  });
+  it.each(['preserve', 'trim', 'retime'] as const)('owns %s frame policy and its global settings through real replay', async mode => {
+    const {
+      data,
+      other
+    } = setup();
+    useAppStore.getState().setRecordFrameCount(2, mode);
+    expect(historyManager.entries()).toHaveLength(1);
+    const expectedFrames = mode === 'trim' ? [0] : mode === 'retime' ? [0, 1] : [0, 3];
+    const after = useAppStore.getState().layers[0].sequentialData!;
+    expect(after.events.map(e => e.frameIndex)).toEqual(expectedFrames);
+    expect(after.eventChunks).toEqual(data.eventChunks);
+    for (let i = 0; i < 2; i += 1) {
+      await historyManager.undo();
+      expect(useAppStore.getState().layers[0].sequentialData).toEqual(data);
+      expect(useAppStore.getState().sequentialRecord).toMatchObject({
+        frameCount: 4,
+        durationMs: 4000,
+        currentFrame: 3
+      });
+      await historyManager.redo();
+      expect(useAppStore.getState().layers[0].sequentialData).toEqual(after);
+      expect(useAppStore.getState().sequentialRecord).toMatchObject({
+        frameCount: 2,
+        durationMs: 2000,
+        currentFrame: 1
+      });
+      expect(useAppStore.getState().layers[1]).toBe(other);
+    }
+  });
+  it('replays the native FPS/Preserve2/Preserve4 command sequence without reverting paint', async () => {
+    const {
+      data
+    } = setup();
+    useAppStore.getState().setRecordFPS(2);
+    useAppStore.getState().setRecordFrameCount(2, 'preserve');
+    useAppStore.getState().setRecordFrameCount(4, 'preserve');
+    expect(historyManager.entries()).toHaveLength(3);
+    for (const expected of [{
+      fps: 2,
+      frameCount: 2
+    }, {
+      fps: 2,
+      frameCount: 4
+    }, {
+      fps: 1,
+      frameCount: 4
+    }]) {
+      await historyManager.undo();
+      expect(useAppStore.getState().layers[0].sequentialData).toMatchObject(expected);
+      expect(useAppStore.getState().layers[0].sequentialData!.events).toBe(data.events);
+    }
+    for (const expected of [{
+      fps: 2,
+      frameCount: 4
+    }, {
+      fps: 2,
+      frameCount: 2
+    }, {
+      fps: 2,
+      frameCount: 4
+    }]) {
+      await historyManager.redo();
+      expect(useAppStore.getState().layers[0].sequentialData).toMatchObject(expected);
+      expect(useAppStore.getState().layers[0].sequentialData!.events).toBe(data.events);
+    }
+  });
+  it('keeps normalized noops and global-only configuration out of history', () => {
+    const {
+      data
+    } = setup();
+    useAppStore.getState().setRecordFPS(0);
+    useAppStore.getState().setRecordFrameCount(4, 'retime');
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(useAppStore.getState().layers[0].sequentialData).toBe(data);
+    useAppStore.setState({
+      activeLayerId: 'settings-other'
+    });
+    useAppStore.getState().setRecordFPS(60);
+    useAppStore.getState().setRecordFrameCount(512);
+    expect(historyManager.entries()).toHaveLength(0);
+    expect(useAppStore.getState().sequentialRecord).toMatchObject({
+      fps: 60,
+      frameCount: 512
+    });
+  });
+  it.each(['push', 'commit'] as const)('cancels a transaction rejected during %s before publishing', phase => {
+    setup();
+    const before = useAppStore.getState();
+    const begin = historyManager.begin.bind(historyManager);
+    let cancelled = false;
+    const spy = jest.spyOn(historyManager, 'begin').mockImplementation((...args) => {
+      const txn = begin(...args);
+      const cancel = txn.cancel.bind(txn);
+      txn.cancel = () => {
+        cancelled = true;
+        cancel();
+      };
+      jest.spyOn(txn, phase).mockImplementation(() => {
+        throw new Error('preaccept settings rejection');
+      });
+      return txn;
+    });
+    try {
+      expect(() => before.setRecordFPS(2)).toThrow('preaccept settings rejection');
+      expect(cancelled).toBe(true);
+      expect(historyManager.entries()).toHaveLength(0);
+      expect(useAppStore.getState().layers).toBe(before.layers);
+      expect(useAppStore.getState().sequentialRecord).toBe(before.sequentialRecord);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not publish a settings change rejected before history acceptance', () => {
+    setup();
+    const before = useAppStore.getState();
+    const spy = jest.spyOn(historyManager, 'begin').mockImplementation(() => {
+      throw new Error('settings admission rejected');
+    });
+    try {
+      expect(() => before.setRecordFPS(2)).toThrow('settings admission rejected');
+      expect(useAppStore.getState().layers).toBe(before.layers);
+      expect(useAppStore.getState().sequentialRecord).toBe(before.sequentialRecord);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

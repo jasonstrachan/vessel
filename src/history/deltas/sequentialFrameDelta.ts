@@ -253,3 +253,101 @@ export const createSequentialAppendFrameDelta = ({
   before: SequentialLayerData;
   after: SequentialLayerData;
 }): HistoryDelta => new SequentialAppendFrameDelta({ layerId, before, after });
+
+export type SequentialSettingsRecord = Partial<Pick<
+  ReturnType<typeof useAppStore.getState>['sequentialRecord'],
+  'fps' | 'frameCount' | 'durationMs' | 'currentFrame'
+>>;
+
+/** Timing-only edits retain event ownership; destructive frame policies capture immutable data. */
+export const createSequentialSettingsDelta = ({
+  layerId,
+  before,
+  after,
+  recordBefore,
+  recordAfter,
+}: {
+  layerId: string;
+  before: SequentialLayerData;
+  after: SequentialLayerData;
+  recordBefore: SequentialSettingsRecord;
+  recordAfter: SequentialSettingsRecord;
+}): HistoryDelta => {
+  const cloneSettingsEvents = (events: SequentialLayerData['events']): SequentialLayerData['events'] =>
+    events.map(event => ({
+      ...event,
+      stamps: event.stamps.map(stamp => ({ ...stamp })),
+      brush: {
+        ...event.brush,
+        ...(event.brush.pluginConfig ? { pluginConfig: { ...event.brush.pluginConfig } } : {}),
+        ...(event.brush.customStamp ? { customStamp: { ...event.brush.customStamp } } : {}),
+        ...(event.brush.selectionClip ? { selectionClip: { ...event.brush.selectionClip } } : {}),
+        ...(event.brush.colorCycleGradient ? {
+          colorCycleGradient: event.brush.colorCycleGradient.map(stop => ({ ...stop })),
+        } : {}),
+      },
+    }));
+  const changesEvents = before.events !== after.events || before.eventChunks !== after.eventChunks;
+  const capture = (data: SequentialLayerData) => ({
+    frameCount: data.frameCount,
+    fps: data.fps,
+    durationMs: data.durationMs,
+    ...(changesEvents ? {
+      events: cloneSettingsEvents(data.events),
+      eventChunks: data.eventChunks?.map(chunk => ({
+        ...chunk,
+        frameIndexes: [...chunk.frameIndexes],
+      })),
+    } : {}),
+  });
+  const oldData = capture(before);
+  const newData = capture(after);
+  const oldRecord = { ...recordBefore };
+  const newRecord = { ...recordAfter };
+  const collect = (targets: HistoryRehydrationTargets) => {
+    targets.layerIds.add(layerId);
+    targets.sequentialLayerIds.add(layerId);
+  };
+  const eventBytes = changesEvents ? [before, after].reduce((bytes, data) => (
+    bytes + data.events.reduce((size, event) => size + 64 + event.stamps.length * 40, 0) +
+    (data.eventChunks ?? []).reduce((size, chunk) => size + 32 + chunk.frameIndexes.length * 8, 0)
+  ), 0) : 0;
+
+  return {
+    _tag: 'sequential-settings',
+    approxBytes: 256 + eventBytes,
+    collectRehydrationTargets: collect,
+    prepare: direction => prepareAppStoreHistoryDelta(
+      'sequential-settings',
+      direction,
+      nextDirection => {
+        const state = useAppStore.getState();
+        const layer = state.layers.find(entry => entry.id === layerId);
+        if (layer?.layerType !== 'sequential' || !layer.sequentialData) return;
+        const data = nextDirection === 'forward' ? newData : oldData;
+        const record = nextDirection === 'forward' ? newRecord : oldRecord;
+        useAppStore.setState(current => ({
+          layers: current.layers.map(entry => entry.id === layerId ? {
+            ...entry,
+            sequentialData: {
+              ...layer.sequentialData!,
+              ...data,
+              ...(changesEvents ? {
+                events: cloneSettingsEvents(data.events!),
+                eventChunks: data.eventChunks?.map(chunk => ({
+                  ...chunk,
+                  frameIndexes: [...chunk.frameIndexes],
+                })),
+              } : {}),
+            },
+          } : entry),
+          sequentialRecord: { ...current.sequentialRecord, ...record },
+          layersNeedRecomposition: true,
+        }));
+        useAppStore.getState().markCompositeSegmentsDirtyByLayerIds([layerId]);
+      },
+      ['layers', 'sequentialRecord', 'layersNeedRecomposition', 'compositeSegments', 'pendingCompositeDirtyBatches'],
+      collect,
+    ),
+  };
+};
