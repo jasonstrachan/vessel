@@ -1600,6 +1600,18 @@ All actual raw CLI exits/logs/results and prepared/compiled scripts match the sa
 
 Evidence: `area45-source-freeze-v3-session39.json`, `area45-final-gate-v3-session39.json`, `area45-preview-after-v3-session39.json`, `area45-native-final-v2-session39.json`.
 
+## Session39 — Area46 complete: Display filters
+
+Areas01–46 are software-verified: **46/65 (70.8%)**. Bounded production evidence totals **31 accepted cases / 4193 checks**, including **24 accepted HTML exports**. The 28 cases/3904 checks accepted on the initial and intermediate previews remain separately bound to those artifacts; the final source8 production artifact `843ea0e31ae40e9df682e0fd61f023672d241cf21dd5865e339e1f719ffc3427` passes three fresh cases/289 checks: live CC masked G1/G2 export, strict Grid depth and G1 Grid export. No claim moves earlier evidence onto the final artifact.
+
+A46-01 repaired the dead CRT Grid scanline-depth formula in the display-filter owner and synchronized both Goblet pipeline/inline mirrors. A46-02 repaired missing positive soft-edge keep-alpha application in Goblet1 before first indexed-player render: the genuine live CC source keeps50/64 cells; BEFORE G1 restored14 holes (42 wrong RGB bytes) while G2 matched, and final G1/G2 now match the independently frozen red×mask compositor. Actual-player regressions cover binary/partial masks, erase×keep, absent/empty/short inputs and nearest full/half resize. The focused source boundary is eight files plus these two ledgers.
+
+All eleven display filters have bounded public-control/enable/header and representative optical/backend evidence; declared order, viewport/crop, held normal-stroke bypass, local reload/VS SaveLoad, CC hard/soft mask and public G1/G2 transport/parity paths pass their named contracts. CRT/NTSE optical claims require positively consumed GPU4/GPU5 lineage. Noise/Film and Bloom use declared functional contracts rather than copied shader/Gaussian or arbitrary-seed RGBA oracles; source-qualified native Canvas/codec references retain their I/O boundary. No standalone Reset/reorder control, every-combination matrix, continuous RAF latency/visual-signoff claim, broad partial-alpha photometry or extra export-format coverage is invented. Area47 viewport breadth and Areas52/58 persistence/export breadth retain their separate scopes.
+
+Settled HEAD+only8 source-isolated diff/type/full lint/full Jest passes: 624 suites,6495 tests,2 snapshots (one skipped suite/test). Production Build3 preserves Studio, original47, raw staged three files/seven additions and all15 public assets at their declared five-owned/ten-protected hashes. Final native raw CLI/process/script/result/quiet six-key restoration/cleanup/no-daemon/source continuity checks all pass. Earlier qualified failures and fixture-premise corrections remain preserved. Area47 is next and remains pending; subjective visual signoff is separate.
+
+Evidence: `area46-accepted-coverage-closeout39.json`, `area46-source-freeze-v2-session39.json`, `area46-final-gate-v2-session39.json`, `area46-preview-build-v3-session39.json`, `area46-preview-after-v3-session39.json`, `area46-native-final-v1-session39.json`.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1663,7 +1675,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 43 | Sequence layers: create, record strokes/fill/erase/selection, frame bounds, history | sequential slice/runtime | verified (Session39;7 native cases/508 checks; full gate/local receipt) |
 | 44 | Sequence settings: FPS/frames, preserve/trim/retime, spread/fade/burst/gap, playback | SequentialControlsModule | verified (Session39; 6 native cases/455 checks; full gate/local receipt) |
 | 45 | Playback: play/pause/scrub, global rate incl zero, mixed layer types, editing while playing | AnimationControlsPanel, runtime/playback | verified (Session39; 8 native cases/746 checks; full gate/local receipt) |
-| 46 | Display filters: each exposed filter/control, order, enable/reset, viewport/export parity | DisplayFiltersSection, display filter runtime | pending |
+| 46 | Display filters: each exposed filter/control, order, enable/reset, viewport/export parity | DisplayFiltersSection, display filter runtime | verified (Session39;31 cases/4193 checks,24 HTML exports;A46-01/02 repaired) |
 | 47 | Viewport: pan/Space/middle drag, zoom wheel/reset/anchor, resize, pixel grid/rulers | canvas view/input/render hooks | pending |
 | 48 | Grid: toggle, rows/columns, snapping, invalid values, persistence | GridSettingsPanel, UI slice | pending |
 | 49 | Keyboard: tool shortcuts, temporary tools, undo/redo, text/modal focus, interrupted strokes | comprehensive keyboard, canvas keyboard handlers | pending |

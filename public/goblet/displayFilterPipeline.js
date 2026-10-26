@@ -2931,7 +2931,7 @@ export const applyDisplayFilterStack = ({
         const lineOpacity = getNumeric(crtGridFilter.settings.lineOpacity, 0);
         const scanlineHeight = 1;
         const maskTop = patternCanvas.height - scanlineHeight;
-        const separatorOpacity = Math.min(1, lineOpacity * 0.72);
+        const separatorOpacity = Math.min(1, lineOpacity * scanlineOpacity);
         const apertureOpacity = Math.min(1, lineOpacity * 0.5);
 
         if (patternCanvas.width > 1) {

@@ -758,3 +758,125 @@ describe('Goblet 2 runtime export regression guard', () => {
     expect(runtime).not.toContain('const lutsBySlot = new Map();');
   });
 });
+
+type SoftMaskPlayer = {
+  initialize: () => Promise<void>;
+  renderFrame: () => void;
+  canvas: HTMLCanvasElement;
+  alpha: Uint8ClampedArray;
+  width: number;
+  height: number;
+};
+
+const loadActualGoblet1ColorCyclePlayer = (): new (layer: unknown, image: null) => SoftMaskPlayer => {
+  const loadExports = (relativePath: string): Record<string, unknown> => {
+    const source = read(relativePath);
+    const names = [...source.matchAll(/export (?:const|function) (\w+)/g)].map(match => match[1]);
+    return new Function(`${source.replace(/\bexport /g, '')}\nreturn {${names.join(',')}};`)() as Record<string, unknown>;
+  };
+  const dependencies = {
+    ...loadExports('public/goblet/num.js'),
+    ...loadExports('public/goblet/gobletPlaybackMath.js'),
+  };
+  const runtime = read('public/goblet/goblet.js')
+    .replace(/^import\s*\{([\s\S]*?)\}\s*from\s*'[^']+';\s*/gm, (_statement, names: string) => `const {${names}} = dependencies;\n`)
+    .replace(/\bexport /g, '');
+  return new Function('dependencies', `${runtime}\nreturn ColorCycleLayerPlayer;`)(dependencies) as new (layer: unknown, image: null) => SoftMaskPlayer;
+};
+
+// Only browser Canvas I/O is doubled; player initialization, mask decode/resize,
+// palette fill and first render execute the actual published module.
+const installSoftMaskCanvasIo = (): (() => void) => {
+  const buffers = new WeakMap<HTMLCanvasElement, Uint8ClampedArray>();
+  const bytes = (canvas: HTMLCanvasElement): Uint8ClampedArray => {
+    let data = buffers.get(canvas);
+    if (!data || data.length !== canvas.width * canvas.height * 4) {
+      data = new Uint8ClampedArray(canvas.width * canvas.height * 4);
+      buffers.set(canvas, data);
+    }
+    return data;
+  };
+  const contexts = new WeakMap<HTMLCanvasElement, CanvasRenderingContext2D>();
+  const createContext = (canvas: HTMLCanvasElement): CanvasRenderingContext2D => ({
+        canvas,
+        imageSmoothingEnabled: false,
+        createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+        putImageData: (image: ImageData) => { bytes(canvas).set(image.data); },
+        getImageData: () => ({ width: canvas.width, height: canvas.height, data: new Uint8ClampedArray(bytes(canvas)) }),
+        clearRect: () => { bytes(canvas).fill(0); },
+        drawImage: (source: HTMLCanvasElement, _x: number, _y: number, width = source.width, height = source.height) => {
+          const input = bytes(source), output = bytes(canvas);
+          for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+            const from = (Math.floor(y * source.height / height) * source.width + Math.floor(x * source.width / width)) * 4;
+            output.set(input.subarray(from, from + 4), (y * canvas.width + x) * 4);
+          }
+        },
+      } as unknown as CanvasRenderingContext2D);
+  const spy = jest.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+    let context = contexts.get(this);
+    if (!context) {
+      context = createContext(this);
+      contexts.set(this, context);
+    }
+    return context;
+  } as typeof HTMLCanvasElement.prototype.getContext);
+  return () => spy.mockRestore();
+};
+
+describe('Goblet 1 actual indexed-player soft-mask initialization', () => {
+  let restoreCanvas: () => void;
+  let log: jest.SpyInstance;
+  beforeEach(() => {
+    restoreCanvas = installSoftMaskCanvasIo();
+    log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    localStorage.removeItem('vesselGobletHalfRes');
+    localStorage.removeItem('ccDebug');
+  });
+  afterEach(() => {
+    restoreCanvas();
+    log.mockRestore();
+    localStorage.removeItem('vesselGobletHalfRes');
+  });
+
+  it.each([
+    { name: 'absent soft mask', mask: undefined, erase: undefined, expected: [255, 255, 255, 255] },
+    { name: 'positive binary keep holes', mask: [255, 0, 0, 255], erase: undefined, expected: [255, 0, 0, 255] },
+    { name: 'partial keep alpha', mask: [255, 0, 128, 64], erase: undefined, expected: [255, 0, 128, 64] },
+    { name: 'erase followed by keep multiplication', mask: [128, 255, 128, 255], erase: [0, 255, 128, 0], expected: [128, 0, 64, 255] },
+    { name: 'existing empty-soft-mask policy', mask: [0, 0, 0, 0], erase: undefined, expected: [255, 255, 255, 255] },
+    { name: 'short positive payload zero padding', mask: [255], erase: undefined, expected: [255, 0, 0, 0] },
+  ])('initializes and renders $name without changing source inputs', async ({ mask, erase, expected }) => {
+    const layer = {
+      id: 'literal-indexed-red', source: { width: 2, height: 2 },
+      colorCycle: {
+        mode: 'brush', isAnimating: false,
+        brushState: { width: 2, height: 2, indexBuffer: [1, 1, 1, 1], alphaMode: 'opaque-indices', gradientStops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#ff0000' }], animationSpeed: 0 },
+        ...(mask ? { softEdgeMask: { width: 2, height: 2, data: mask } } : {}),
+        ...(erase ? { alphaMask: { width: 2, height: 2, data: erase } } : {}),
+      },
+    };
+    const before = JSON.stringify(layer), Player = loadActualGoblet1ColorCyclePlayer(), player = new Player(layer, null);
+    await player.initialize();
+    expect(Array.from(player.alpha).filter((_value, index) => index % 4 === 3)).toEqual(expected);
+    const pixels = player.canvas.getContext('2d')!.getImageData(0, 0, 2, 2).data;
+    expect(Array.from(pixels)).toEqual(expected.flatMap(alpha => [255, 0, 0, alpha]));
+    expect(JSON.stringify(layer)).toBe(before);
+    player.renderFrame();
+    expect(Array.from(player.alpha).filter((_value, index) => index % 4 === 3)).toEqual(expected);
+  });
+
+  it.each([false, true])('nearest-resizes positive keep input through actual renderScale half=%s', async half => {
+    if (half) localStorage.setItem('vesselGobletHalfRes', 'true');
+    const layer = { id: 'resized-red', source: { width: 4, height: 4 }, colorCycle: {
+      mode: 'brush', isAnimating: false,
+      brushState: { width: 4, height: 4, indexBuffer: Array(16).fill(1), alphaMode: 'opaque-indices', gradientStops: [{ position: 0, color: '#ff0000' }, { position: 1, color: '#ff0000' }], animationSpeed: 0 },
+      softEdgeMask: { width: 2, height: 2, data: [255, 0, 128, 64] },
+    } };
+    const before = JSON.stringify(layer), Player = loadActualGoblet1ColorCyclePlayer(), player = new Player(layer, null);
+    await player.initialize();
+    expect([player.width, player.height]).toEqual(half ? [2, 2] : [4, 4]);
+    const expected = [255, 255, 0, 0, 255, 255, 0, 0, 128, 128, 64, 64, 128, 128, 64, 64];
+    expect(Array.from(player.canvas.getContext('2d')!.getImageData(0, 0, 4, 4).data)).toEqual(expected.flatMap(alpha => [255, 0, 0, alpha]));
+    expect(JSON.stringify(layer)).toBe(before);
+  });
+});

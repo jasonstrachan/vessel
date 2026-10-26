@@ -18,6 +18,8 @@ import {
   clampGobletSlotId,
   resizeGobletAlphaMaskBuffer,
   applyGobletEraseMaskToAlphaChannel,
+  applyGobletSoftEdgeMaskToAlphaChannel,
+  hasAnyGobletMaskValue,
   resolveGobletFlowMode,
   resolveGobletAlphaByte,
   resolveGobletIndexedAlphaByte,
@@ -34,6 +36,8 @@ import {
 
 const resizeAlphaMaskBuffer = resizeGobletAlphaMaskBuffer;
 const applyMaskToAlphaChannel = applyGobletEraseMaskToAlphaChannel;
+const applySoftEdgeMaskToAlphaChannel = applyGobletSoftEdgeMaskToAlphaChannel;
+const hasAnyMaskValue = hasAnyGobletMaskValue;
 const hasVisibleAlpha = hasVisibleGobletAlpha;
 
 const __DEV__ = typeof process !== 'undefined' && process.env && process.env.NODE_ENV
@@ -2739,6 +2743,11 @@ class ColorCycleLayerPlayer {
       probeAlphaMask();
     }
 
+    if (colorCycle.softEdgeMask) {
+      await this.applySoftEdgeMask(colorCycle.softEdgeMask);
+      probeAlphaMask();
+    }
+
     this._hasVisibleAlpha = hasVisibleAlpha(this.alpha);
     this.resetShiftKeyTracking();
 
@@ -2788,6 +2797,54 @@ class ColorCycleLayerPlayer {
 
     applyMaskToAlphaChannel(this.alpha, resized);
   }
+
+  async applySoftEdgeMask(maskConfig) {
+    if (!maskConfig || !maskConfig.data) {
+      return;
+    }
+    const width = Number.isFinite(maskConfig.width) ? Math.max(1, Math.round(maskConfig.width)) : this.width;
+    const height = Number.isFinite(maskConfig.height) ? Math.max(1, Math.round(maskConfig.height)) : this.height;
+    const payload = await resolveNumericBuffer(maskConfig.data);
+    if (!payload || !payload.length) {
+      return;
+    }
+
+    const expected = width * height;
+    let working = payload;
+    if (working.length !== expected) {
+      diagnostics.warn('[goblet] Soft-edge mask payload length mismatch', {
+        layerId: this.layer?.id ?? null,
+        expected,
+        actual: working.length
+      });
+      const normalized = new Uint8Array(expected);
+      normalized.set(working.subarray(0, Math.min(working.length, normalized.length)));
+      working = normalized;
+    }
+
+    const resized = resizeAlphaMaskBuffer(working, width, height, this.width, this.height);
+    if (!resized || !resized.length) {
+      return;
+    }
+    if (!hasAnyMaskValue(resized)) {
+      diagnostics.warn('[goblet] Ignoring empty soft-edge mask', {
+        layerId: this.layer?.id ?? null,
+      });
+      return;
+    }
+
+    const alphaSize = this.width * this.height * 4;
+    if (!this.alpha || this.alpha.length < alphaSize) {
+      const buffer = new Uint8ClampedArray(alphaSize);
+      for (let i = 3; i < buffer.length; i += 4) {
+        buffer[i] = 255;
+      }
+      this.alpha = buffer;
+    }
+
+    applySoftEdgeMaskToAlphaChannel(this.alpha, resized);
+  }
+
 
   async initializeBrushMode(colorCycle, brushState) {
     this.mode = 'brush';
