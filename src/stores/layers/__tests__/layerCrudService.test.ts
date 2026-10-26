@@ -95,4 +95,38 @@ describe('layerCrudService', () => {
     expect(result.didReorder).toBe(false);
     expect(result.layers).toBe(layers);
   });
+  it.each([
+    { ids: ['a', 'c', 'b'], initial: ['a', 'b', 'c'], destination: 0, expected: ['a', 'c', 'b'] },
+    { ids: ['a', 'b', 'c'], initial: ['a', 'c', 'b'], destination: 0, expected: ['a', 'b', 'c'] },
+    { ids: ['c', 'b'], initial: ['left', 'b', 'c', 'right'], destination: 1, expected: ['left', 'c', 'b', 'right'] },
+    { ids: ['a', 'c', 'c', 'missing', 'b'], initial: ['a', 'b', 'c'], destination: 0, expected: ['a', 'c', 'b'] },
+  ])('honors requested internal block order at the same insertion origin: $ids', ({ ids, initial, destination, expected }) => {
+    const layers = initial.map((id, order) => Object.freeze(layer(id, order)));
+    const original = [...layers];
+    const result = reorderLayerBlock(layers, ids, destination);
+
+    expect(result.didReorder).toBe(true);
+    expect(result.layers.map((entry) => entry.id)).toEqual(expected);
+    expect(layers).toEqual(original);
+    expected.forEach((id, index) => {
+      expect(result.layers[index]).toBe(original.find((entry) => entry.id === id));
+    });
+  });
+
+  it('preserves the original array for a whole-stack identical requested order', () => {
+    const layers = [layer('a'), layer('b'), layer('c')];
+    const result = reorderLayerBlock(layers, ['a', 'b', 'c'], 0);
+
+    expect(result.didReorder).toBe(false);
+    expect(result.layers).toBe(layers);
+  });
+
+  it('preserves the original array when no requested IDs exist', () => {
+    const layers = [layer('a'), layer('b'), layer('c')];
+    const result = reorderLayerBlock(layers, ['missing'], 0);
+
+    expect(result.didReorder).toBe(false);
+    expect(result.layers).toBe(layers);
+  });
+
 });

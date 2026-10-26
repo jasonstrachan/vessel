@@ -71,15 +71,15 @@ export const InterlaceSettingsPanel: React.FC = () => {
   const group = layerGroups.find((candidate) => candidate.id === selectedGroupId);
   const interlaceGroup = isInterlaceGroup(group) ? group : null;
   const members = interlaceGroup
-    ? layers.filter((layer) => layer.groupId === interlaceGroup.id && layer.layerType !== 'sequential')
+    ? layers.filter((layer) => layer.groupId === interlaceGroup.id && layer.layerType !== 'sequential' && layer.layerType !== 'adjustment')
     : [];
   const eligibleSelection = layers.filter((layer) => (
-    selectedSet.has(layer.id) && layer.layerType !== 'sequential'
+    selectedSet.has(layer.id) && layer.layerType !== 'sequential' && layer.layerType !== 'adjustment'
   ));
   const addableLayers = React.useMemo(() => (
     interlaceGroup
       ? layers.filter((layer) => (
-          layer.layerType !== 'sequential' && layer.groupId !== interlaceGroup.id
+          layer.layerType !== 'sequential' && layer.layerType !== 'adjustment' && layer.groupId !== interlaceGroup.id
         ))
       : []
   ), [interlaceGroup, layers]);

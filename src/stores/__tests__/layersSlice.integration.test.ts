@@ -1798,6 +1798,67 @@ describe('layers slice integration', () => {
     expect(useAppStore.getState().layers.map((layer) => layer.id)).toEqual(beforeIds);
   });
 
+
+  it.each(['normal', 'color-cycle'] as const)('invalidates all clean segments when releasing an Interlace group with a %s pose', async (kind) => {
+    const a = useAppStore.getState().addLayer(createNormalLayerInput('Release A'));
+    const b = useAppStore.getState().addLayer(kind === 'normal' ? createNormalLayerInput('Release B') : createColorCycleLayerInput('Release B'));
+    const outside = useAppStore.getState().addLayer(createNormalLayerInput('Outside group'));
+    const groupId = useAppStore.getState().createInterlaceGroupFromSelection([a, b]) as string;
+    const grouped = useAppStore.getState();
+    const groups = grouped.layerGroups;
+    const sources = grouped.layers.map(layer => ({ id: layer.id, imageData: layer.imageData }));
+    const segments: CompositeSegment[] = [a, b, outside].map((id, index) => ({
+      kind: 'static', id: `release-${id}`, layerIds: [id], includeBackground: false,
+      orderRange: { start: index, end: index }, canvas: makeCanvas(), bitmap: null, dirty: false,
+    }));
+    useAppStore.setState({ compositeSegments: segments, layersNeedRecomposition: false, activeLayerId: b, selectedLayerIds: [a, b] });
+    historyManager.clear();
+
+    useAppStore.getState().removeLayerGroup(groupId);
+
+    const released = useAppStore.getState();
+    expect(released.layersNeedRecomposition).toBe(true);
+    expect(released.compositeSegments).toHaveLength(segments.length);
+    expect(released.compositeSegments.every(segment => segment.kind === 'static' && segment.dirty)).toBe(true);
+    expect(released.layerGroups).toEqual([]);
+    expect(released.layers.find(layer => layer.id === outside)).toBe(grouped.layers.find(layer => layer.id === outside));
+    expect(released.layers.map(layer => layer.groupId)).toEqual([undefined, undefined, undefined]);
+    expect(released.layers.map(layer => ({ id: layer.id, imageData: layer.imageData }))).toEqual(sources);
+    expect(released.activeLayerId).toBe(b);
+    expect(released.selectedLayerIds).toEqual([a, b]);
+    expect(historyManager.entries()).toHaveLength(1);
+    const entry = historyManager.entries()[0];
+    for (let cycle = 0; cycle < 2; cycle++) {
+      expect(await historyManager.undo()).toBe(entry);
+      expect(useAppStore.getState().layerGroups).toEqual(groups);
+      expect(useAppStore.getState().layers.map(layer => layer.groupId)).toEqual([groupId, groupId, undefined]);
+      expect(useAppStore.getState().selectedLayerIds).toEqual([a, b]);
+      expect(await historyManager.redo()).toBe(entry);
+      expect(useAppStore.getState().layerGroups).toEqual([]);
+      expect(useAppStore.getState().layers.map(layer => layer.groupId)).toEqual([undefined, undefined, undefined]);
+      expect(useAppStore.getState().layers.map(layer => ({ id: layer.id, imageData: layer.imageData }))).toEqual(sources);
+      expect(useAppStore.getState().selectedLayerIds).toEqual([a, b]);
+      expect(historyManager.entries()).toHaveLength(1);
+      expect(historyManager.entries()[0].id).toBe(entry.id);
+    }
+  });
+
+  it('does not invalidate or create history when releasing a missing group', () => {
+    const a = useAppStore.getState().addLayer(createNormalLayerInput('Keep A'));
+    const segments: CompositeSegment[] = [{ kind: 'static', id: 'keep-clean', layerIds: [a], includeBackground: false,
+      orderRange: { start: 0, end: 0 }, canvas: makeCanvas(), bitmap: null, dirty: false }];
+    useAppStore.setState({ compositeSegments: segments, layersNeedRecomposition: false });
+    historyManager.clear();
+    const before = useAppStore.getState();
+
+    useAppStore.getState().removeLayerGroup('missing-interlace');
+
+    expect(useAppStore.getState()).toBe(before);
+    expect(useAppStore.getState().layersNeedRecomposition).toBe(false);
+    expect(useAppStore.getState().compositeSegments).toBe(segments);
+    expect(historyManager.entries()).toHaveLength(0);
+  });
+
   it('creates and updates an ordered Interlace group with undoable settings', async () => {
     const store = useAppStore.getState();
     const layerA = store.addLayer(createNormalLayerInput('Pose A'));

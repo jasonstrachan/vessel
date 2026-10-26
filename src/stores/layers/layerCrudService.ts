@@ -117,14 +117,6 @@ export const reorderLayerBlock = <TLayer extends IdentifiedLayer>(
     0,
     Math.min(remainingLayers.length, destinationIndex - removedBeforeDestination)
   );
-  const currentBlockStartIndex = blockEntries[0]?.index ?? -1;
-  const isContiguousBlock = blockEntries.every(
-    ({ index }, entryIndex) => index === currentBlockStartIndex + entryIndex
-  );
-  if (isContiguousBlock && adjustedDestination === currentBlockStartIndex) {
-    return { didReorder: false, layers };
-  }
-
   const nextLayers = [...remainingLayers];
   nextLayers.splice(adjustedDestination, 0, ...orderedBlock);
 

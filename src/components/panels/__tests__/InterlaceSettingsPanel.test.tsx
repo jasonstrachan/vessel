@@ -33,6 +33,10 @@ const mockStore = {
   reorderLayerBlock: jest.fn(),
 };
 
+const initialStoreData = JSON.stringify({
+  layers: mockStore.layers, layerGroups: mockStore.layerGroups, activeLayerId: mockStore.activeLayerId, selectedLayerIds: mockStore.selectedLayerIds,
+});
+
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: (selector: (state: typeof mockStore) => unknown) => selector(mockStore),
 }));
@@ -40,7 +44,7 @@ jest.mock('@/stores/useAppStore', () => ({
 describe('InterlaceSettingsPanel', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockStore.layerGroups[0].interlace.patternPreset = 'classic';
+    Object.assign(mockStore, JSON.parse(initialStoreData));
   });
 
   it('offers distinct animation sets and updates the selected Interlace group', () => {
@@ -73,4 +77,82 @@ describe('InterlaceSettingsPanel', () => {
     expect(screen.queryByLabelText('Interlace pose dominance')).not.toBeInTheDocument();
 
   });
+  it('offers only normal and Color Cycle layers in the public Add selector', () => {
+    mockStore.layers.push(
+      { id: 'normal', name: 'Outside normal', layerType: 'normal', groupId: '', order: 2 },
+      { id: 'cc', name: 'Outside CC', layerType: 'color-cycle', groupId: '', order: 3 },
+      { id: 'adjustment', name: 'Outside adjustment', layerType: 'adjustment', groupId: '', order: 4 },
+      { id: 'sequence', name: 'Outside sequence', layerType: 'sequential', groupId: '', order: 5 },
+    );
+    render(<InterlaceSettingsPanel />);
+
+    const select = screen.getByRole('combobox', { name: 'Layer to add to interlace' });
+    expect(Array.from((select as HTMLSelectElement).options).map(option => option.value)).toEqual(['normal', 'cc']);
+    fireEvent.change(select, { target: { value: 'cc' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(mockStore.moveLayersToGroup).toHaveBeenCalledWith(['cc'], 'interlace-1', 2);
+  });
+
+  it('disables Add when only unsupported outside layers are available', () => {
+    mockStore.layers.push(
+      { id: 'adjustment', name: 'Outside adjustment', layerType: 'adjustment', groupId: '', order: 2 },
+      { id: 'sequence', name: 'Outside sequence', layerType: 'sequential', groupId: '', order: 3 },
+    );
+    render(<InterlaceSettingsPanel />);
+
+    expect(screen.getByRole('option', { name: 'No available layers' })).toHaveValue('');
+    const add = screen.getByRole('button', { name: 'Add' });
+    expect(add).toBeDisabled();
+    fireEvent.click(add);
+    expect(mockStore.moveLayersToGroup).not.toHaveBeenCalled();
+  });
+
+  it('disables Create when the selected set has only one eligible source', () => {
+    mockStore.layerGroups = [];
+    mockStore.layers = [
+      { id: 'normal', name: 'Normal', layerType: 'normal', groupId: '', order: 0 },
+      { id: 'adjustment', name: 'Adjustment', layerType: 'adjustment', groupId: '', order: 1 },
+      { id: 'sequence', name: 'Sequence', layerType: 'sequential', groupId: '', order: 2 },
+    ];
+    mockStore.activeLayerId = 'normal';
+    mockStore.selectedLayerIds = mockStore.layers.map(layer => layer.id);
+    render(<InterlaceSettingsPanel />);
+
+    const create = screen.getByRole('button', { name: 'Create from selection' });
+    expect(create).toBeDisabled();
+    fireEvent.click(create);
+    expect(mockStore.createInterlaceGroupFromSelection).not.toHaveBeenCalled();
+  });
+
+  it('passes only the two eligible selected IDs to Create', () => {
+    mockStore.layerGroups = [];
+    mockStore.layers = [
+      { id: 'normal', name: 'Normal', layerType: 'normal', groupId: '', order: 0 },
+      { id: 'adjustment', name: 'Adjustment', layerType: 'adjustment', groupId: '', order: 1 },
+      { id: 'cc', name: 'CC', layerType: 'color-cycle', groupId: '', order: 2 },
+      { id: 'sequence', name: 'Sequence', layerType: 'sequential', groupId: '', order: 3 },
+    ];
+    mockStore.activeLayerId = 'normal';
+    mockStore.selectedLayerIds = mockStore.layers.map(layer => layer.id);
+    render(<InterlaceSettingsPanel />);
+
+    const create = screen.getByRole('button', { name: 'Create from selection' });
+    expect(create).toBeEnabled();
+    fireEvent.click(create);
+    expect(mockStore.createInterlaceGroupFromSelection).toHaveBeenCalledWith(['normal', 'cc']);
+  });
+
+  it('does not expose unsupported stale group members as pose controls', () => {
+    mockStore.layers.push(
+      { id: 'adjustment', name: 'Adjustment', layerType: 'adjustment', groupId: 'interlace-1', order: 2 },
+      { id: 'sequence', name: 'Sequence', layerType: 'sequential', groupId: 'interlace-1', order: 3 },
+    );
+    render(<InterlaceSettingsPanel />);
+
+    expect(screen.getByRole('button', { name: 'Remove Pose A from interlace' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Remove Pose B from interlace' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Adjustment from interlace' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove Sequence from interlace' })).not.toBeInTheDocument();
+  });
+
 });

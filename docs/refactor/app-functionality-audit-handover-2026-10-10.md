@@ -1553,6 +1553,18 @@ All final prepared/executed scripts, raw logs/results, actual command IDs, compl
 
 Evidence: `area41-source-freeze-v2-session39.json`, `area41-final-gate-v2-session39.json`, `area41-preview-after-v2-session39.json`, `area41-native-final-v1-session39.json`.
 
+## Session39 — Area42 complete: Interlace lifecycle
+
+Areas01–42 are software-verified: **42/65 (64.6%)**. Actual final production proof passes **9 native cases / 838 checks across 9 suites** on artifact `876ce71d62e306f0fcf93280895aee1240e91acff2453fe0fdaf67fe5e38728f`. Source-isolated current HEAD plus six owned source/test files passes diff/type/lint/full Jest: 1 skipped, 623 passed, 623 of 624 total;       1 skipped, 6395 passed, 6396 total; snapshots   2 passed, 2 total. Full preserved working-tree preview build isolates the artifact and preserves Studio/public runtime assets.
+
+Actual public creation/replay, settings with keyboard/pointer previews and one-command commits, membership Add/earlier/later/pose drag/remove/Release, unsupported layer eligibility, mixed normal/native-CC transparency, natural patterns/directions/rate/Pause, Save→New→Load and initial-frame Goblet1/2 parity with hidden-member omission all pass their bounded final fixtures. Full independently declared source/material/metadata/frame models and actual history IDs remain checked; motion timing limitations and supported I/O premises remain those explicitly declared in each final owner contract. No private clock advance, renderer or history action substitutes for native input.
+
+A42-01 removes the incorrect contiguous-block early return so requested internal order is honored. A42-02 aligns Panel eligibility with existing action guards excluding adjustment/sequential. A42-03 invalidates recomposition and cached static segments after successful group Release. Native BEFORE findings and rejected fixture premises remain retained. Causal candidate regressions fail4/pass11, fail5/pass2 and fail2/pass1 before; combined126 tests pass after. The first full gate's test-only TypeScript union narrowing failure is retained, corrected without production change and superseded by the actual final gate above.
+
+All nine raw CLI results/logs/exits and prepared/compiled scripts bind to the actual artifact/source freeze; every six- or seven-key quiet-fence restoration passes, errors are absent and named cleanup confirms no matching daemon. Original47 and raw staged three files/seven additions/patch `df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2` remain exact. Completed Area41 and prior sections remain unchanged. Focused local commit owns only six source/test paths plus these two ledgers, with no push. Future areas and subjective visual signoff remain unclaimed.
+
+Evidence: `area42-source-freeze-v3-session39.json`, `area42-final-gate-v3-session39.json`, `area42-preview-after-v3-session39.json`, `area42-native-final-v2-session39.json`.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

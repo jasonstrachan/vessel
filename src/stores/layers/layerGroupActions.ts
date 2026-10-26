@@ -292,6 +292,7 @@ export const removeLayerGroupAction = (
       layers: nextLayers,
       layerGroups: sanitizeLayerGroups(nextLayers, nextGroups),
       hiddenLayerGroupIds: state.hiddenLayerGroupIds.filter((id) => id !== groupId),
+      layersNeedRecomposition: true,
     };
   });
 
@@ -317,6 +318,7 @@ export const removeLayerGroupAction = (
     },
   });
   pruneGroupVisibilitySnapshots(new Set(get().layerGroups.map((group) => group.id)));
+  get().markAllCompositeSegmentsDirty();
 };
 
 export const renameLayerGroupAction = (
