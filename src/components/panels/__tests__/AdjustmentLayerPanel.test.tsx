@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import type { Layer } from '@/types';
 
@@ -118,7 +118,7 @@ describe('AdjustmentLayerPanel hue control', () => {
     jest.clearAllMocks();
   });
 
-  it('uses one colour-strip slider for hue preview and commit', () => {
+  it('uses one colour-strip slider for hue preview and commit', async () => {
     render(<AdjustmentLayerPanel />);
 
     expect(screen.queryByText('Hue Range')).not.toBeInTheDocument();
@@ -142,6 +142,7 @@ describe('AdjustmentLayerPanel hue control', () => {
     );
 
     fireEvent.pointerUp(hueSlider);
+    await act(async () => { await Promise.resolve(); });
     expect(store.commitAdjustmentLayerEdit).toHaveBeenCalledWith(adjustmentLayer.id);
     expect(hueSliderProps).toHaveBeenCalledWith(expect.objectContaining({
       value: [0],

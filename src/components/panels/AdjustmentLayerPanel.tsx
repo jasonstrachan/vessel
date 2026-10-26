@@ -257,7 +257,11 @@ export const AdjustmentLayerPanel = () => {
                 ...effect,
                 settings: { ...effect.settings, hue },
               })}
-              onValueCommit={commit}
+              onValueCommit={() => {
+                // Controlled Radix keyboard commits precede its value-change callback.
+                const editedLayerId = activeLayer.id;
+                queueMicrotask(() => commitEdit(editedLayerId));
+              }}
               aria-label="Hue adjustment"
             />
           </div>

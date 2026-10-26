@@ -3187,7 +3187,7 @@ const applyHueSatAdjustment = ({ sourceCanvas, targetCanvas, settings }) => {
     if (!isHueInRange(sourceHue)) continue;
     const nextHue = (sourceHue + hueShift + 360) % 360;
     let nextSaturation = Math.max(0, Math.min(100, sourceSaturation * saturationFactor));
-    if (vibrance > 0) {
+    if (vibrance > 0 && nextSaturation > 0) {
       nextSaturation += (100 - nextSaturation) * (vibrance / 100);
     } else if (vibrance < 0) {
       nextSaturation += nextSaturation * (vibrance / 100);

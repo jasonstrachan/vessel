@@ -1423,6 +1423,66 @@ working bytes and staged3files7additions remain exact (`df0184e4cfed84743065aaed
 Software proof does not claim physical input devices or subjective visual signoff.
 Areas39–65 remain pending; Area39 needs a fresh exclusive baseline after commit.
 
+## Session39 — Area39 complete: adjustment layers
+
+Areas01–39 are software-verified: **39/65 (60%)**. Area39 passes
+**16 native cases / 2710 checks across 9 suites**
+on rebuilt production artifact `08e7cb855c06b091af568059bbf1e200458c629152b456bb42fdb312bbf6fda4`. The source-isolated HEAD-plus-nine-file
+gate passes type-check, lint and Jest: 1 skipped, 621 passed, 621 of 622 total;       1 skipped, 6356 passed, 6357 total; snapshots   2 passed, 2 total.
+The production build retains hash-bound original47 plus owned source9, isolates its
+artifact output and preserves Studio. The focused eleven-path commit contains these
+nine source/test/generated files and both ledgers; receipt `area39-commit-receipt-session39.json`.
+
+Actual public Add Adjustment/defaults and all four effects are exercised. Hue/Sat
+covers Hue pointer120 and keyboard Home/End boundaries, both Saturation/Vibrance,
+Lightness/Contrast and RGB channel directions with exact settings, Reset and real
+Undo/Redo. Colour Grade covers brightness/contrast/saturation endpoints with
+independent native CSS references. Pixelate Cell1/4/64 uses a nonuniform multiscale
+source and complete independent backend tensors. Bloom Radius0/12 and Intensity0/2,
+Reset defaults and history prove source identity versus spread above the intended
+warm low-field floor; no exact vendor Gaussian/kernel claim is made.
+
+Affects All/single/No layers, Strength50, lower-source Hide/Show, adjustment visibility,
+trusted native reorder, group scope and eligible target options use spatially
+observable sources. Pending Strength followed by a real layer switch commits exactly
+once through the actual blur/cleanup route. Source canonical/framebuffer/masks,
+owner metadata, membership/order, selection and actual command IDs remain strict.
+Actual Save→New→Load restores durable adjustment/group/target/strength and sources;
+public Goblet2 download and its existing preview iframe verify grouped Hue/Strength
+and the changed Vibrance guard against complete independent input/output tensors.
+Partial-alpha neutral and transparent pixels retain their pre-action display and
+source bytes, alongside an independent opaque chromatic positive control.
+
+Two qualified owner defects are repaired. Positive adjustment Vibrance previously
+turned exact gray128 into255/1/1, including both Redos; the shared Hue/Sat pipeline
+now raises saturation only when adjusted saturation is nonzero. Both Goblet module
+copies and inline runtimes are regenerated from that owner. The actual exported
+Vibrance100 runtime preserves achromatic codec inputs and applies full saturation
+to chromatic inputs. Real Radix keyboard Hue changes previously updated live pixels
+without an Undo command because onValueCommit precedes controlled onValueChange.
+The panel now queues the commit in the same event turn for the captured edited ID,
+after preview publication. Real Radix/store/history regressions fail before and
+pass after, including old-owner cleanup deduplication and source preservation.
+
+Preserved fixture-only findings: active-owner Add insertion, semantic dictionary
+key order, duplicate trigger/option names, native CSS contrast rounding, Pixelate
+CPU/GPU averaging and Bloom's source-defined warm floor. Finite whole-frame backend
+references preserve exact spatial tensors; no per-pixel tolerance or private repair
+is used. Actual Goblet texture encoding intentionally negotiates AVIF .6/WebP .75
+before PNG. Independent native codec qualification proves actual decoded inputs
+exactly match pre-action literal encoded references. Export expectations derive only
+from those independent decoded inputs and declared effect/compositing math, preserving
+the existing codec policy. Editor source bytes and editor view remain exact literals.
+
+Evidence: `area39-source-freeze-v2-session39.json`, `area39-final-gate-v2-session39.json`,
+`area39-preview-after-v2-session39.json`, `area39-native-final-v1-session39.json`.
+Canonical receipt rehashes all raw CLI logs/results/prepared scripts against the same
+artifact and frozen source. All five owned storage keys restore exactly; page errors
+are absent and named-session cleanup confirms no daemon. Original47 working bytes
+and staged3files7additions/raw patch remain exact (`df0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2`).
+Unexposed hue-range controls, physical devices and subjective visual signoff are not
+inferred. Areas40–65 remain pending; Area40 requires a fresh baseline after commit.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final
