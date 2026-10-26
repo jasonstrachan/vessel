@@ -858,9 +858,19 @@ export function useComprehensiveKeyboard({
   const handleKeyUp = useCallback(async (event: KeyboardEvent) => {
     if (!enabled) return;
 
-    // Respect keyboard scope
+    // Release owned key bookkeeping even if focus or scope changed after keydown.
+    const pressedKeyId = getPressedKeyId(event);
+    pressedKeysRef.current.delete(pressedKeyId);
+    if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+      stopBracketHold();
+    }
+    const ownsTemporaryRelease = !event.ctrlKey && !event.metaKey && (
+      ((event.key === 'p' || event.key === 'P') && isColorPickerHeldRef.current) ||
+      ((event.key === 'e' || event.key === 'E') && isTemporaryEraserRef.current)
+    );
+
     const currentScope: KeyboardScope = keyboardScopeRef.current ?? 'canvas';
-    if (!allowedScopes.includes(currentScope) && event.code !== 'Space') {
+    if (!allowedScopes.includes(currentScope) && event.code !== 'Space' && !ownsTemporaryRelease) {
       return;
     }
 
@@ -888,19 +898,11 @@ export function useComprehensiveKeyboard({
       return;
     }
 
-    if (targetIsTextEntry) {
+    if (targetIsTextEntry && !ownsTemporaryRelease) {
       return;
     }
     // Allow non-text form controls to release keys normally so pressedKeys bookkeeping stays in sync.
     
-    // Always clear pressed map on keyup (even if text field prevented us earlier)
-    const pressedKeyId = getPressedKeyId(event);
-    pressedKeysRef.current.delete(pressedKeyId);
-
-    if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
-      stopBracketHold();
-    }
-
     // Handle P key release (temporary color picker)
     if ((event.key === 'p' || event.key === 'P') && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();

@@ -1023,3 +1023,137 @@ describe('useComprehensiveKeyboard – space safety release', () => {
     keyboard.unmount();
   });
 });
+
+
+describe('useComprehensiveKeyboard – owned key release across focus and scope', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    act(() => {
+      resetStore();
+      useAppStore.setState(state => ({
+        ui: { ...state.ui, keyboardScope: { active: 'canvas', stack: [] } },
+        selectionStart: null,
+        selectionEnd: null,
+      }));
+      useAppStore.getState().setGlobalBrushSize(16);
+    });
+  });
+
+  afterEach(() => {
+    act(() => { useAppStore.getState().popKeyboardScope('release-test'); });
+    jest.useRealTimers();
+  });
+
+  const mount = (props: Partial<KeyboardProps> = {}, type = 'number') => {
+    const view = render(<><KeyboardHarness {...props} /><input type={type} /><button>Focus target</button></>);
+    return { ...view, input: view.container.querySelector('input')!, button: view.getByRole('button') };
+  };
+
+  it.each(['number', 'text'])('stops bracket repeat and clears the pressed key on %s input release', async type => {
+    const view = mount({}, type);
+    view.input.focus();
+    await act(async () => { fireEvent.keyDown(view.input, { key: '[', code: 'BracketLeft' }); });
+    expect(useAppStore.getState().globalBrushSize).toBe(15);
+    await act(async () => {
+      fireEvent.keyUp(view.input, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(700);
+    });
+    expect(useAppStore.getState().globalBrushSize).toBe(15);
+    await act(async () => { fireEvent.keyDown(view.input, { key: '[', code: 'BracketLeft' }); });
+    expect(useAppStore.getState().globalBrushSize).toBe(14);
+    await act(async () => {
+      fireEvent.keyUp(view.input, { key: '[', code: 'BracketLeft' });
+      jest.advanceTimersByTime(700);
+    });
+    expect(useAppStore.getState().globalBrushSize).toBe(14);
+    view.unmount();
+  });
+
+  it.each(['input', 'modal'])('restores an already-held picker across %s focus and admits a fresh P pair', async boundary => {
+    const view = mount();
+    const layers = useAppStore.getState().layers;
+    const palette = useAppStore.getState().palette;
+    await act(async () => { fireEvent.keyDown(window, { key: 'p', code: 'KeyP' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('color-picker');
+    if (boundary === 'modal') {
+      act(() => { useAppStore.getState().pushKeyboardScope('release-test', 'modal'); });
+      view.button.focus();
+    } else {
+      view.input.focus();
+    }
+    await act(async () => { fireEvent.keyUp(boundary === 'modal' ? view.button : view.input, { key: 'p', code: 'KeyP' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('brush');
+    act(() => { useAppStore.getState().popKeyboardScope('release-test'); });
+    view.button.focus();
+    await act(async () => { fireEvent.keyDown(view.button, { key: 'p', code: 'KeyP' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('color-picker');
+    await act(async () => { fireEvent.keyUp(view.button, { key: 'p', code: 'KeyP' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('brush');
+    expect(useAppStore.getState().layers).toBe(layers);
+    expect(useAppStore.getState().palette).toBe(palette);
+    view.unmount();
+  });
+
+  it.each(['input', 'modal'])('releases owned held E across %s without duplicate finalization', async boundary => {
+    const released = jest.fn();
+    const view = mount({ onEraserReleased: released });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'e', code: 'KeyE' });
+      jest.advanceTimersByTime(250);
+    });
+    expect(useAppStore.getState().tools.currentTool).toBe('eraser');
+    if (boundary === 'modal') {
+      act(() => { useAppStore.getState().pushKeyboardScope('release-test', 'modal'); });
+      view.button.focus();
+    } else {
+      view.input.focus();
+    }
+    await act(async () => { fireEvent.keyUp(boundary === 'modal' ? view.button : view.input, { key: 'e', code: 'KeyE' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('brush');
+    expect(released).toHaveBeenCalledTimes(1);
+    await act(async () => { fireEvent.keyUp(boundary === 'modal' ? view.button : view.input, { key: 'e', code: 'KeyE' }); });
+    expect(released).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it('keeps the deliberate short E tap persistent after an owned input release', async () => {
+    const released = jest.fn();
+    const view = mount({ onEraserReleased: released });
+    await act(async () => { fireEvent.keyDown(window, { key: 'e', code: 'KeyE' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('eraser');
+    view.input.focus();
+    await act(async () => { fireEvent.keyUp(view.input, { key: 'e', code: 'KeyE' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('eraser');
+    expect(released).toHaveBeenCalledTimes(1);
+    view.unmount();
+  });
+
+  it.each(['p', 'e'])('leaves unowned text/modal %s key releases native', async key => {
+    const released = jest.fn();
+    const view = mount({ onEraserReleased: released }, 'text');
+    act(() => { useAppStore.getState().pushKeyboardScope('release-test', 'modal'); });
+    view.input.focus();
+    await act(async () => {
+      expect(fireEvent.keyDown(view.input, { key, code: key === 'p' ? 'KeyP' : 'KeyE' })).toBe(true);
+      expect(fireEvent.keyUp(view.input, { key, code: key === 'p' ? 'KeyP' : 'KeyE' })).toBe(true);
+    });
+    expect(useAppStore.getState().tools.currentTool).toBe('brush');
+    expect(released).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it('retains explicit tool-selection epoch cancellation before an E release in a modal', async () => {
+    const released = jest.fn();
+    const view = mount({ onEraserReleased: released });
+    await act(async () => { fireEvent.keyDown(window, { key: 'e', code: 'KeyE' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('eraser');
+    await act(async () => { fireEvent.keyDown(window, { key: 'm', code: 'KeyM' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('selection');
+    act(() => { useAppStore.getState().pushKeyboardScope('release-test', 'modal'); });
+    view.input.focus();
+    await act(async () => { fireEvent.keyUp(view.input, { key: 'e', code: 'KeyE' }); });
+    expect(useAppStore.getState().tools.currentTool).toBe('selection');
+    expect(released).not.toHaveBeenCalled();
+    view.unmount();
+  });
+});
