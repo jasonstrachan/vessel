@@ -409,7 +409,13 @@ const BrushLibrary = () => {
               { label: 'Effects', value: 'effects' },
             ]}
             value={libraryFilter}
-            onChange={setLibraryFilter}
+            onChange={(filter) => {
+              setLibraryFilter(filter);
+              if (filter === 'all') {
+                setBrushPanelSection('tool');
+                if (currentTool !== 'brush') void switchTool('brush');
+              }
+            }}
             size="xs"
             wrap={false}
             className="w-full [&>button]:flex-1 [&>button]:basis-0 [&>button]:min-w-0"
@@ -428,225 +434,242 @@ const BrushLibrary = () => {
       </div>
       <div className="flex-1 py-1 space-y-0 overflow-y-auto">
         <div hidden={libraryFilter === 'effects'}>
-        {(['custom', 'fill'] as const).map((tool) => (
-          <button key={tool} type="button" aria-pressed={currentTool === tool && brushPanelSection === 'tool'}
-            className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${currentTool === tool && brushPanelSection === 'tool' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
-            onClick={() => { setBrushPanelSection('tool'); void switchTool(tool); }}>
-            <span aria-hidden="true" className="w-[26px] shrink-0 text-center">{tool === 'custom' ? 'Cb' : 'Fi'}</span>
-            {tool === 'custom' ? 'Custom Brush' : 'Fill'}
-          </button>
-        ))}
-        {allBrushes.map((preset) => {
-          const isSpamBrush = preset.id === 'spam-text';
-          const iconSizePx = BRUSH_ICON_SIZE;
-          const textStyle = {
-            fontSize: isSpamBrush ? '13px' : '12px',
-            lineHeight: `${BRUSH_TEXT_LINE_HEIGHT}px`
-          };
-          const renderFallbackIcon = (shape: 'square' | 'circle' | 'text', highlight: boolean) => {
-            if (shape === 'text') {
+          {(['custom', 'fill'] as const).map((tool) => (
+            <button key={tool} type="button" aria-pressed={currentTool === tool && brushPanelSection === 'tool'}
+              className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${currentTool === tool && brushPanelSection === 'tool' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+              onClick={() => { setBrushPanelSection('tool'); void switchTool(tool); }}>
+              <span aria-hidden="true" className="w-[26px] shrink-0 text-center">{tool === 'custom' ? 'Cb' : 'Fi'}</span>
+              {tool === 'custom' ? 'Custom Brush' : 'Fill'}
+            </button>
+          ))}
+          {allBrushes.map((preset) => {
+            const isSpamBrush = preset.id === 'spam-text';
+            const iconSizePx = BRUSH_ICON_SIZE;
+            const textStyle = {
+              fontSize: isSpamBrush ? '13px' : '12px',
+              lineHeight: `${BRUSH_TEXT_LINE_HEIGHT}px`
+            };
+            const renderFallbackIcon = (shape: 'square' | 'circle' | 'text', highlight: boolean) => {
+              if (shape === 'text') {
+                return (
+                  <div
+                    className="flex items-center"
+                    style={{
+                      color: highlight ? '#1A1A1A' : '#D9D9D9',
+                      fontSize: isSpamBrush ? '13px' : '11px',
+                      fontFamily: 'IBM Plex Mono, "Courier New", monospace',
+                      paddingLeft: isSpamBrush ? '4px' : '3px',
+                      width: `${iconSizePx}px`,
+                      height: `${iconSizePx}px`,
+                      flexShrink: 0
+                    }}
+                  >
+                    a
+                  </div>
+                );
+              }
+
+              const borderRadius = shape === 'circle' ? '50%' : '2px';
+
               return (
                 <div
-                  className="flex items-center"
-                  style={{
-                    color: highlight ? '#1A1A1A' : '#D9D9D9',
-                    fontSize: isSpamBrush ? '13px' : '11px',
-                    fontFamily: 'IBM Plex Mono, "Courier New", monospace',
-                    paddingLeft: isSpamBrush ? '4px' : '3px',
-                    width: `${iconSizePx}px`,
-                    height: `${iconSizePx}px`,
-                    flexShrink: 0
-                  }}
+                  className="flex items-center justify-center"
+                  style={{ width: `${iconSizePx}px`, height: `${iconSizePx}px`, flexShrink: 0 }}
                 >
-                  a
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      border: highlight ? '2px solid #1A1A1A' : '2px solid #D9D9D9',
+                      borderRadius,
+                      boxSizing: 'border-box'
+                    }}
+                  />
                 </div>
               );
-            }
+            };
 
-            const borderRadius = shape === 'circle' ? '50%' : '2px';
+            const isActive = activeBrushId === preset.id;
+            const rowClass = isActive ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]';
+            const nameStyle = {
+              ...textStyle,
+              color: isActive ? '#1A1A1A' : '#D9D9D9'
+            };
+            const nameClass = isActive ? '' : 'transition-colors group-hover:text-[#F3F3F7]';
 
             return (
-              <div
-                className="flex items-center justify-center"
-                style={{ width: `${iconSizePx}px`, height: `${iconSizePx}px`, flexShrink: 0 }}
-              >
-                <div
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    border: highlight ? '2px solid #1A1A1A' : '2px solid #D9D9D9',
-                    borderRadius,
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-            );
-          };
-
-          const isActive = activeBrushId === preset.id;
-          const rowClass = isActive ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]';
-          const nameStyle = {
-            ...textStyle,
-            color: isActive ? '#1A1A1A' : '#D9D9D9'
-          };
-          const nameClass = isActive ? '' : 'transition-colors group-hover:text-[#F3F3F7]';
-
-          return (
-          <React.Fragment key={preset.id}>
-            {/* Skip the separate Color Cycle Shape row to consolidate */}
-            {preset.id !== 'color-cycle-shape' && (
-              <div
-                onClick={() => handlePresetClick(preset)}
-                onContextMenu={(event) => {
-                  if (!preset.isCustomBrush) {
-                    return;
-                  }
-                  event.preventDefault();
-                  event.stopPropagation();
-                  toggleDefaultForPreset(preset);
-                }}
-                className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${rowClass}`}
-              >
-                <div className="flex items-center gap-0.5">
-                  {preset.isCustomBrush ? (
-                    <div
-                      style={{
-                        width: `${iconSizePx}px`,
-                        height: `${iconSizePx}px`,
-                        flexShrink: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: '4px',
-                        border: isActive ? '1px solid #1A1A1A' : '1px solid #3D3D3D',
-                        padding: '2px',
-                        boxSizing: 'border-box'
-                      }}
+              <React.Fragment key={preset.id}>
+                {/* Skip the separate Color Cycle Shape row to consolidate */}
+                {preset.id !== 'color-cycle-shape' && (
+                  <div
+                    onContextMenu={(event) => {
+                      if (!preset.isCustomBrush) {
+                        return;
+                      }
+                      event.preventDefault();
+                      event.stopPropagation();
+                      toggleDefaultForPreset(preset);
+                    }}
+                    className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${rowClass}`}
+                  >
+                    <button
+                      type="button"
+                      aria-label={preset.id === 'color-cycle-stroke' ? 'Color Cycle Stroke' : preset.name}
+                      aria-pressed={isActive}
+                      onClick={() => { void handlePresetClick(preset); }}
+                      className="flex min-w-0 flex-1 items-center gap-0.5 text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-1px]"
                     >
-                      {preset.thumbnail ? (
+                      {preset.isCustomBrush ? (
+                        <div
+                          style={{
+                            width: `${iconSizePx}px`,
+                            height: `${iconSizePx}px`,
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: '#FFFFFF',
+                            borderRadius: '4px',
+                            border: isActive ? '1px solid #1A1A1A' : '1px solid #3D3D3D',
+                            padding: '2px',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          {preset.thumbnail ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={preset.thumbnail}
+                              alt={`${preset.name} thumbnail`}
+                              width={iconSizePx - 4}
+                              height={iconSizePx - 4}
+                              style={{
+                                imageRendering: 'pixelated',
+                                width: '100%',
+                                height: '100%',
+                                display: 'block'
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                backgroundImage:
+                                  'linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%), linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%)',
+                                backgroundSize: '6px 6px',
+                                backgroundPosition: '0 0, 3px 3px'
+                              }}
+                            />
+                          )}
+                        </div>
+                      ) : brushThumbnails[preset.id] ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={preset.thumbnail}
+                          src={brushThumbnails[preset.id]}
                           alt={`${preset.name} thumbnail`}
-                          width={iconSizePx - 4}
-                          height={iconSizePx - 4}
+                          width={iconSizePx}
+                          height={iconSizePx}
                           style={{
-                            imageRendering: 'pixelated',
-                            width: '100%',
-                            height: '100%',
-                            display: 'block'
+                            imageRendering: 'auto',
+                            width: `${iconSizePx}px`,
+                            height: `${iconSizePx}px`,
+                            display: 'block',
+                            flexShrink: 0,
+                            filter: isActive ? 'invert(1)' : 'none'
                           }}
                         />
                       ) : (
-                        <div
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            backgroundImage:
-                              'linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%), linear-gradient(45deg, rgba(0,0,0,0.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,0.08) 75%)',
-                            backgroundSize: '6px 6px',
-                            backgroundPosition: '0 0, 3px 3px'
-                          }}
-                        />
+                        renderFallbackIcon(isSpamBrush ? 'text' : preset.category === 'Pixel Art' ? 'square' : 'circle', isActive)
                       )}
-                    </div>
-                  ) : brushThumbnails[preset.id] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={brushThumbnails[preset.id]}
-                      alt={`${preset.name} thumbnail`}
-                      width={iconSizePx}
-                      height={iconSizePx}
-                      style={{
-                        imageRendering: 'auto',
-                        width: `${iconSizePx}px`,
-                        height: `${iconSizePx}px`,
-                        display: 'block',
-                        flexShrink: 0,
-                        filter: isActive ? 'invert(1)' : 'none'
-                      }}
-                    />
-                  ) : (
-                    renderFallbackIcon(isSpamBrush ? 'text' : preset.category === 'Pixel Art' ? 'square' : 'circle', isActive)
-                  )}
-                  <span style={nameStyle} className={nameClass}>
-                    {preset.id === 'color-cycle-stroke' ? 'Color Cycle Stroke' : preset.name}
-                  </span>
-                </div>
-                {preset.isCustomBrush && (
-                  <div className="flex items-center space-x-0.5">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleDefaultForPreset(preset);
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        toggleDefaultForPreset(preset);
-                      }}
-                      className={`w-3 h-3 text-center flex items-center justify-center transition-colors ${
-                        isActive ? 'text-[#5A5A5A]' : 'text-[#D9D9D9]'
-                      } ${preset.isDefault ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
-                      style={{ fontSize: '12px' }}
-                      title={preset.isDefault ? 'Unset as default brush' : 'Set as default brush'}
-                      aria-pressed={preset.isDefault}
-                    >
-                      {preset.isDefault ? '★' : '☆'}
+                      <span style={nameStyle} className={nameClass}>
+                        {preset.id === 'color-cycle-stroke' ? 'Color Cycle Stroke' : preset.name}
+                      </span>
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeletePreset(preset.id);
-                      }}
-                      className={`w-3 h-3 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center ${
-                        isActive ? 'text-[#5A5A5A] hover:text-red-600' : 'text-[#D9D9D9] hover:text-red-400'
-                      }`}
-                      title={`Delete ${preset.name}`}
-                      style={{ fontSize: '14px' }}
-                    >
-                      ×
-                    </button>
+                    {preset.isCustomBrush && (
+                      <div className="flex items-center space-x-0.5">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleDefaultForPreset(preset);
+                          }}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            toggleDefaultForPreset(preset);
+                          }}
+                          className={`w-3 h-3 text-center flex items-center justify-center transition-colors ${
+                            isActive ? 'text-[#5A5A5A]' : 'text-[#D9D9D9]'
+                          } ${preset.isDefault ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
+                          style={{ fontSize: '12px' }}
+                          title={preset.isDefault ? 'Unset as default brush' : 'Set as default brush'}
+                          aria-pressed={preset.isDefault}
+                        >
+                          {preset.isDefault ? '★' : '☆'}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeletePreset(preset.id);
+                          }}
+                          className={`w-3 h-3 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center ${
+                            isActive ? 'text-[#5A5A5A] hover:text-red-600' : 'text-[#D9D9D9] hover:text-red-400'
+                          }`}
+                          title={`Delete ${preset.name}`}
+                          style={{ fontSize: '14px' }}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-          </React.Fragment>
-        );
-        })}
+              </React.Fragment>
+            );
+          })}
         </div>
         <div hidden={libraryFilter === 'brushes'}>
-          {(['color-adjust', 'recolor', 'filters', 'interlace'] as const).map((effect) => {
-            const active = effect === 'interlace' || effect === 'filters' ? brushPanelSection === effect : brushPanelSection === 'tool' && currentTool === effect;
-            return <button key={effect} type="button" aria-pressed={active}
-              className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${active ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
-              onClick={() => {
-                if (effect === 'filters') {
-                  setBrushPanelSection('filters');
-                } else if (effect === 'interlace') {
-                  const activeLayer = layers.find((layer) => layer.id === activeLayerId);
-                  const selectedLayers = layers.filter((layer) => selectedLayerIds.includes(layer.id));
-                  const existingGroup = layerGroups.find((group) => isInterlaceGroup(group)
-                    && (activeLayer?.groupId === group.id || selectedLayers.some((layer) => layer.groupId === group.id)));
-                  if (!existingGroup) {
-                    const eligibleIds = selectedLayers.filter((layer) => layer.layerType !== 'sequential').map((layer) => layer.id);
-                    if (eligibleIds.length < 2 || !createInterlaceGroupFromSelection(eligibleIds)) {
-                      showAppFeedback('Select at least two regular or Color Cycle layers');
-                      return;
+          {([
+            { id: 'color-adjust', label: 'Colour Adjust', abbr: 'Hs' },
+            { id: 'recolor', label: 'Color cycle + recolor', abbr: 'Cc' },
+            { id: 'filters', label: 'Filters', abbr: 'Fl' },
+            { id: 'interlace', label: 'Interlace', abbr: 'In' },
+          ] as const).map(({ id: effect, label, abbr }) => {
+            const active = effect === 'interlace' || effect === 'filters'
+              ? brushPanelSection === effect
+              : brushPanelSection === 'tool' && currentTool === effect;
+            return (
+              <button
+                key={effect}
+                type="button"
+                aria-pressed={active}
+                className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${active ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+                onClick={() => {
+                  if (effect === 'filters') {
+                    setBrushPanelSection('filters');
+                  } else if (effect === 'interlace') {
+                    const activeLayer = layers.find((layer) => layer.id === activeLayerId);
+                    const selectedLayers = layers.filter((layer) => selectedLayerIds.includes(layer.id));
+                    const existingGroup = layerGroups.find((group) => isInterlaceGroup(group)
+                      && (activeLayer?.groupId === group.id || selectedLayers.some((layer) => layer.groupId === group.id)));
+                    if (!existingGroup) {
+                      const eligibleIds = selectedLayers.filter((layer) => layer.layerType !== 'sequential').map((layer) => layer.id);
+                      if (eligibleIds.length < 2 || !createInterlaceGroupFromSelection(eligibleIds)) {
+                        showAppFeedback('Select at least two regular or Color Cycle layers');
+                        return;
+                      }
                     }
+                    setBrushPanelSection('interlace');
+                  } else {
+                    setBrushPanelSection('tool');
+                    void switchTool(effect);
                   }
-                  setBrushPanelSection('interlace');
-                } else {
-                  setBrushPanelSection('tool');
-                  void switchTool(effect);
-                }
-              }}>
-              <span aria-hidden="true" className="w-[26px] shrink-0 text-center">{effect === 'filters' ? 'Fl' : effect === 'interlace' ? 'In' : effect === 'recolor' ? 'Cc' : 'Hs'}</span>
-              {effect === 'filters' ? 'Filters' : effect === 'interlace' ? 'Interlace' : effect === 'recolor' ? 'Color cycle + recolor' : 'Colour Adjust'}
-            </button>;
+                }}>
+                <span aria-hidden="true" className="w-[26px] shrink-0 text-center">{abbr}</span>
+                {label}
+              </button>
+            );
           })}
           {studioExtension.UnresolveSettings && (
             <button
@@ -659,9 +682,17 @@ const BrushLibrary = () => {
               Unresolve
             </button>
           )}
-          <div className="px-2.5">
-            {StudioPlaybackSettings && <StudioPlaybackSettings />}
-          </div>
+          {StudioPlaybackSettings && (
+            <button
+              type="button"
+              aria-pressed={brushPanelSection === 'replay'}
+              onClick={() => setBrushPanelSection('replay')}
+              className={`flex h-[26px] w-full items-center gap-0.5 px-2.5 text-left text-xs ${brushPanelSection === 'replay' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+            >
+              <span aria-hidden="true" className="w-[26px] shrink-0 text-center">Rp</span>
+              Replay
+            </button>
+          )}
         </div>
       </div>
     </div>

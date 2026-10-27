@@ -43,7 +43,7 @@ export interface VesselStudioExtension {
   preserveSampledStrokePalette?: boolean;
   sampledStrokeAlignment?: (layerId: string) => { speedCps: number } | undefined;
   ToolbarItems?: React.ComponentType;
-  PlaybackSettings?: React.ComponentType;
+  PlaybackSettings?: React.ComponentType<{ active?: boolean }>;
   UnresolveSettings?: React.ComponentType;
   ColorCycleSourceControls?: React.ComponentType<{
     value: string;

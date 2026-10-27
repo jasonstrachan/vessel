@@ -20,11 +20,9 @@ export const TOOLBAR_TOOLTIP_DELAY_MS = 750;
 
 const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
-  custom: { aria: 'KeyC', display: 'C' },
   eraser: { aria: 'KeyE', display: 'E (tap/hold)' },
   selection: { aria: 'KeyM', display: 'M' },
   'color-picker': { aria: 'KeyP', display: 'Hold P' },
-  fill: { aria: 'KeyF', display: 'F' },
   'magic-wand': { aria: 'KeyW', display: 'W' },
   save: { aria: 'Control+KeyS Meta+KeyS', display: 'Ctrl/Cmd+S' },
   load: { aria: 'Control+KeyO Meta+KeyO', display: 'Ctrl/Cmd+O' },

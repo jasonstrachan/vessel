@@ -257,7 +257,7 @@ describe('LeftToolbar accessibility', () => {
     }
   });
 
-  it('treats filters as the only active toolbar state while the filters section is open', () => {
+  it('clears canvas-tool highlights while the Filters options are open', () => {
     mockStore.ui.brushPanelSection = 'filters';
 
     render(<LeftToolbar />);

@@ -93,16 +93,12 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
           />
         </div>
       </div>
-      {/* Value display with mix-blend-mode for visibility on any background */}
       <div
         className="absolute inset-0 flex items-center justify-center text-xs font-medium z-20 pointer-events-none"
-        style={{
-          color: disabled ? '#888' : 'white',
-          mixBlendMode: 'difference',
-          opacity: disabled ? 0.6 : 1
-        }}
       >
-        {displayValue}
+        <span className={`bg-black px-1 tabular-nums ${disabled ? 'text-[#aaa]' : 'text-white'}`}>
+          {displayValue}
+        </span>
       </div>
       <input
         type="range"

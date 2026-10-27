@@ -509,6 +509,9 @@ export function useComprehensiveKeyboard({
     const palette = paletteRef.current;
 
     const target = event.target as HTMLElement | null;
+    if (target?.closest?.('button') && (event.code === 'Space' || event.key === 'Enter')) {
+      return;
+    }
     const targetIsTextEntry = isTextEntryTarget(target);
     const targetBlocksSpacePan = isSpacePanTextEntryTarget(target);
     const allowBracketInTextEntry = targetIsTextEntry && isBracketShortcut;
@@ -885,6 +888,9 @@ export function useComprehensiveKeyboard({
 
     // Handle Space release
     if (event.code === 'Space' && onSpaceReleasedRef.current) {
+      if (target?.closest?.('button') && !keyboardStateRef.current.isSpacePressed) {
+        return;
+      }
       if (!targetIsTextEntry) {
         event.preventDefault();
       }

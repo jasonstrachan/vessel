@@ -33,6 +33,21 @@ const resetStore = (): void => {
   }));
 };
 
+describe('useComprehensiveKeyboard – native button activation', () => {
+  it.each([['Enter', 'Enter'], [' ', 'Space']])('does not consume %s on a focused button', async (key, code) => {
+    const onSpacePressed = jest.fn();
+    const onSpaceReleased = jest.fn();
+    const view = render(<><KeyboardHarness onSpacePressed={onSpacePressed} onSpaceReleased={onSpaceReleased} /><button>Brush</button></>);
+    const button = view.getByRole('button', { name: 'Brush' });
+    await act(async () => {
+      expect(fireEvent.keyDown(button, { key, code })).toBe(true);
+      expect(fireEvent.keyUp(button, { key, code })).toBe(true);
+    });
+    expect(onSpacePressed).not.toHaveBeenCalled();
+    expect(onSpaceReleased).not.toHaveBeenCalled();
+  });
+});
+
 describe('useComprehensiveKeyboard – Studio clipboard shortcuts', () => {
   afterEach(() => {
     studioExtension.handleClipboardAction = undefined;

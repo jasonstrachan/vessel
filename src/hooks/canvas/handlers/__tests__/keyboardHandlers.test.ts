@@ -138,6 +138,53 @@ describe('createKeyboardHandlers', () => {
     });
   });
 
+  it('leaves Space on a focused button to native activation', () => {
+    const deps = createDeps();
+    const handlers = createKeyboardHandlers(deps);
+    const button = document.createElement('button');
+    const event = createKeyboardEventWithTarget('Space', button);
+    const preventDefault = jest.spyOn(event, 'preventDefault');
+    handlers.handleKeyDown(event);
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(deps.isSpacePressedRef.current).toBe(false);
+    expect(deps.stateMachine.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('pans over the workspace after a toolbar button retains focus', () => {
+    const deps = createDeps();
+    const wrapper = document.createElement('div');
+    jest.spyOn(wrapper, 'matches').mockReturnValue(true);
+    deps.wrapperRef = { current: wrapper };
+    const handlers = createKeyboardHandlers(deps);
+    const button = document.createElement('button');
+    const event = createKeyboardEventWithTarget('Space', button);
+    const preventDefault = jest.spyOn(event, 'preventDefault');
+
+    handlers.handleKeyDown(event);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(deps.isSpacePressedRef.current).toBe(true);
+    expect(deps.stateMachine.dispatch).toHaveBeenCalledWith({ type: 'SPACE_DOWN' });
+    expect(deps.setCursorStyle).toHaveBeenCalledWith('grab');
+
+    handlers.handleKeyUp(createKeyboardEventWithTarget('Space', button));
+    expect(deps.isSpacePressedRef.current).toBe(false);
+  });
+
+  it('preserves Space activation for buttons within the workspace', () => {
+    const deps = createDeps();
+    const wrapper = document.createElement('div');
+    const button = document.createElement('button');
+    wrapper.append(button);
+    jest.spyOn(wrapper, 'matches').mockReturnValue(true);
+    deps.wrapperRef = { current: wrapper };
+    const handlers = createKeyboardHandlers(deps);
+
+    handlers.handleKeyDown(createKeyboardEventWithTarget('Space', button));
+
+    expect(deps.isSpacePressedRef.current).toBe(false);
+  });
+
   it('sets space state on keydown and dispatches SPACE_DOWN', () => {
     const deps = createDeps();
     const handlers = createKeyboardHandlers(deps);

@@ -26,6 +26,7 @@ import {
 } from '@/stores/selectors/toolsSelectors';
 
 const BrushSettingsPanel: React.FC = () => {
+  const StudioPlaybackSettings = studioExtension.PlaybackSettings;
   const StudioUnresolveSettings = studioExtension.UnresolveSettings;
   const currentTool = useAppStore(selectCurrentTool);
   const brushEditorStatus = useAppStore(selectBrushEditor).status;
@@ -84,14 +85,20 @@ const BrushSettingsPanel: React.FC = () => {
   const shouldShowBrushEditor =
     brushSettings.brushShape === BrushShape.CUSTOM || brushEditorStatus === 'EDITING';
 
-  const isUnresolveSection = brushPanelSection === 'unresolve' && Boolean(StudioUnresolveSettings);
+  const isReplaySection = brushPanelSection === 'replay' && Boolean(StudioPlaybackSettings);
   const isFiltersSection = brushPanelSection === 'filters';
   const isInterlaceSection = brushPanelSection === 'interlace';
+  const isUnresolveSection = brushPanelSection === 'unresolve' && Boolean(StudioUnresolveSettings);
 
   return (
     <div className="bg-[#1A1A1A] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
-        {isUnresolveSection && StudioUnresolveSettings ? (
+        {StudioPlaybackSettings && (
+          <div hidden={!isReplaySection} className="px-4 py-4">
+            <StudioPlaybackSettings active={isReplaySection} />
+          </div>
+        )}
+        {isReplaySection ? null : isUnresolveSection && StudioUnresolveSettings ? (
           <div className="px-4 py-4">
             <StudioUnresolveSettings />
           </div>

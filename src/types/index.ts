@@ -293,7 +293,7 @@ export interface AdjustmentLayerData {
   targetLayerIds?: string[];
 }
 
-export type BrushPanelSectionId = 'tool' | 'filters' | 'interlace' | 'unresolve';
+export type BrushPanelSectionId = 'tool' | 'filters' | 'interlace' | 'replay' | 'unresolve';
 
 export type SettingsSectionId =
   | 'display'

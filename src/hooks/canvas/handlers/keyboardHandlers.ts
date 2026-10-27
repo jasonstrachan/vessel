@@ -154,6 +154,16 @@ export const createKeyboardHandlers = (
   const handleKeyDown = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
 
+    const button = target?.closest?.('button');
+    if (button && (event.code === 'Space' || event.key === 'Enter')) {
+      // Toolbar clicks retain focus after the pointer returns to the canvas.
+      const wrapper = deps.wrapperRef?.current;
+      const shouldPan = event.code === 'Space' && wrapper?.matches(':hover') && !wrapper.contains(button);
+      if (!shouldPan) {
+        return;
+      }
+    }
+
     if (event.code === 'Space' && !deps.isSpacePressedRef.current) {
       if (!scopeAllowsSpace() || isSpacePanTextEntryTarget(target)) {
         return;

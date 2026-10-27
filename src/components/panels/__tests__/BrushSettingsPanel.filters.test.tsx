@@ -82,11 +82,41 @@ describe('BrushSettingsPanel filters section', () => {
       expect(options.getByText('Set resolved frame')).toBeVisible();
       expect(useAppStore.getState().currentBrushPreset).toBe(brush);
       expect(useAppStore.getState().tools.currentTool).toBe(tool);
-      fireEvent.click(library.getByRole('button', { name: 'Filters' }));
+      fireEvent.click(library.getByRole('button', { name: 'All' }));
       expect(options.queryByText('Set resolved frame')).not.toBeInTheDocument();
       expect(disposed).toHaveBeenCalledTimes(1);
+      expect(useAppStore.getState().ui.brushPanelSection).toBe('tool');
+      expect(useAppStore.getState().currentBrushPreset).toBe(brush);
+      expect(useAppStore.getState().tools.currentTool).toBe('brush');
     } finally {
       studioExtension.UnresolveSettings = previous;
+    }
+  });
+
+  it('keeps Replay mounted in options while switching tools and library filters', () => {
+    const previous = studioExtension.PlaybackSettings;
+    const unmount = jest.fn();
+    const ReplayOptions = ({ active }: { active?: boolean }) => {
+      React.useEffect(() => unmount, []);
+      return <section aria-label="Replay controls" data-active={active}>Record painting</section>;
+    };
+    studioExtension.PlaybackSettings = ReplayOptions;
+    try {
+      render(<><div data-testid="library"><BrushLibrary /></div><div data-testid="options"><BrushSettingsPanel /></div></>);
+      const library = within(screen.getByTestId('library'));
+      const options = within(screen.getByTestId('options'));
+      fireEvent.click(library.getByRole('button', { name: 'Effects' }));
+      fireEvent.click(library.getByRole('button', { name: 'Replay' }));
+      expect(options.getByRole('region', { name: 'Replay controls' })).toBeVisible();
+      expect(library.queryByText('Record painting')).not.toBeInTheDocument();
+      fireEvent.click(library.getByRole('button', { name: 'Brushes' }));
+      expect(options.getByRole('region', { name: 'Replay controls' })).toBeVisible();
+      act(() => { useAppStore.getState().setBrushPanelSection('tool'); });
+      expect(options.queryByRole('region', { name: 'Replay controls' })).not.toBeInTheDocument();
+      expect(options.getByText('Record painting')).not.toBeVisible();
+      expect(unmount).not.toHaveBeenCalled();
+    } finally {
+      studioExtension.PlaybackSettings = previous;
     }
   });
 

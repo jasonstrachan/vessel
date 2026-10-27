@@ -1,7 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import BrushLibrary from '@/components/BrushLibrary';
+import BrushSettingsPanel from '@/components/panels/BrushSettingsPanel';
+import studioExtension from '@/extensions/studioExtension';
 import {
   colorCycleFlatDitherBrushPreset,
   colorCycleGradientBrushPreset,
@@ -13,7 +15,7 @@ jest.mock('@/extensions/studioExtension', () => ({
   __esModule: true,
   default: { brushPresets: [], PlaybackSettings: function Replay() {
     React.useEffect(() => () => mockReplayUnmount(), []);
-    return <button>Replay</button>;
+    return <section aria-label="Replay options">Record</section>;
   } },
 }));
 const mockSwitchTool = jest.fn().mockResolvedValue(undefined);
@@ -120,8 +122,15 @@ jest.mock('@/stores/useAppStore', () => {
     }),
     markAutosaveDirty: jest.fn(),
   };
-  const useAppStore = ((selector?: (s: MockState) => unknown) =>
-    selector ? selector(state) : state) as any;
+  const useAppStore = ((selector?: (s: MockState) => unknown) => {
+    const [, publish] = React.useReducer((revision: number) => revision + 1, 0);
+    React.useEffect(() => {
+      const listener = () => publish();
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    }, []);
+    return selector ? selector(state) : state;
+  }) as any;
   useAppStore.getState = () => state;
   useAppStore.setState = (updater: Partial<MockState> | ((s: MockState) => Partial<MockState>)) => {
     const next = typeof updater === 'function' ? updater(state) : updater;
@@ -249,7 +258,7 @@ const shapeGradientPreset = {
   };
 
 describe('BrushLibrary', () => {
-  it('filters brushes and effects without unmounting Replay', () => {
+  it('filters the Replay entry with the other effects', () => {
     render(<BrushLibrary />);
     mockReplayUnmount.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Effects' }));
@@ -261,8 +270,64 @@ describe('BrushLibrary', () => {
     expect(screen.getByRole('button', { name: 'Fill' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Replay' })).not.toBeInTheDocument();
     expect(mockReplayUnmount).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Replay options' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'All' }));
     expect(screen.getByRole('button', { name: 'Replay' })).toBeVisible();
+  });
+
+  it('opens Replay in the options panel', () => {
+    render(<BrushLibrary />);
+    fireEvent.click(screen.getByRole('button', { name: 'Replay' }));
+    expect(useAppStore.getState().setBrushPanelSection).toHaveBeenCalledWith('replay');
+    expect(screen.queryByText('Record')).not.toBeInTheDocument();
+  });
+
+  it('preserves Replay drafts and activation across options section changes', () => {
+    const previousReplay = studioExtension.PlaybackSettings;
+    const previousTools = useAppStore.getState().tools;
+    const unmount = jest.fn();
+    const ReplayOptions = ({ active }: { active?: boolean }) => {
+      const [draft, setDraft] = React.useState('');
+      React.useEffect(() => () => unmount(), []);
+      return (
+        <section aria-label="Persistent Replay options" data-active={active}>
+          <label>
+            Replay draft
+            <input value={draft} onChange={(event) => setDraft(event.target.value)} />
+          </label>
+        </section>
+      );
+    };
+    studioExtension.PlaybackSettings = ReplayOptions;
+    useAppStore.setState({ layers: [], tools: { ...previousTools, currentTool: 'zoom' } });
+    try {
+      const { unmount: unmountWorkspace } = render(<><BrushLibrary /><BrushSettingsPanel /></>);
+      const replay = screen.getByRole('region', { name: 'Persistent Replay options', hidden: true });
+      expect(replay).not.toBeVisible();
+      expect(replay).toHaveAttribute('data-active', 'false');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Replay' }));
+      expect(screen.getByRole('region', { name: 'Persistent Replay options' })).toBe(replay);
+      expect(replay).toHaveAttribute('data-active', 'true');
+      fireEvent.change(screen.getByLabelText('Replay draft'), { target: { value: 'Unfinished recording' } });
+
+      fireEvent.click(screen.getByRole('button', { name: 'All' }));
+      expect(replay).not.toBeVisible();
+      expect(replay).toHaveAttribute('data-active', 'false');
+      expect(screen.getByLabelText('Replay draft')).toHaveValue('Unfinished recording');
+      expect(unmount).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Replay' }));
+      expect(screen.getByRole('region', { name: 'Persistent Replay options' })).toBe(replay);
+      expect(replay).toHaveAttribute('data-active', 'true');
+      expect(screen.getByLabelText('Replay draft')).toHaveValue('Unfinished recording');
+      expect(unmount).not.toHaveBeenCalled();
+      unmountWorkspace();
+      expect(unmount).toHaveBeenCalledTimes(1);
+    } finally {
+      studioExtension.PlaybackSettings = previousReplay;
+      useAppStore.setState({ tools: previousTools });
+    }
   });
 
   it('opens Filters in the options panel without rendering individual filters in the library', () => {
@@ -337,14 +402,31 @@ describe('BrushLibrary', () => {
     }
   });
 
-  it('renders presets and selects a brush on click', () => {
+  it('renders accessible preset buttons and selects a brush on click', async () => {
     render(<BrushLibrary />);
 
-    const brushButton = screen.getByText('Pixel Square');
+    const brushButton = screen.getByRole('button', { name: 'Pixel Square' });
+    expect(brushButton).toHaveAttribute('type', 'button');
+    expect(brushButton).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Round' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(brushButton);
 
-    // Smoke: ensure click succeeded and store still has a preset selected
-    expect(useAppStore.getState().currentBrushPreset?.id).toBeTruthy();
+    await waitFor(() => expect(useAppStore.getState().currentBrushPreset?.id).toBe('pixel-square'));
+  });
+
+  it('keeps custom-brush actions separate from the selection button', () => {
+    useAppStore.setState({ brushPresets: [{ ...otherPreset, id: 'custom_sample', name: 'Captured', isCustomBrush: true } as any] });
+    render(<BrushLibrary />);
+    const select = screen.getByRole('button', { name: 'Captured' });
+    const favorite = screen.getByTitle('Set as default brush');
+    const remove = screen.getByTitle('Delete Captured');
+    expect(select.contains(favorite)).toBe(false);
+    expect(select.contains(remove)).toBe(false);
+    fireEvent.click(favorite);
+    expect(useAppStore.getState().setDefaultCustomBrush).toHaveBeenCalledWith('sample');
+    fireEvent.click(remove);
+    expect(useAppStore.getState().removeCustomBrush).toHaveBeenCalledWith('sample');
+    expect(mockSwitchTool).not.toHaveBeenCalled();
   });
 
   it('switches back to the brush tool section when selecting a library brush from filters', () => {
@@ -432,7 +514,7 @@ describe('BrushLibrary', () => {
     expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('orders CC Fixed Dither above Recolor', () => {
+  it('lists brush presets before effects in All', () => {
     useAppStore.setState({
       ...useAppStore.getState(),
       currentBrushPreset: ccFlatDitherPreset as any,
