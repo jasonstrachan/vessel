@@ -59,8 +59,9 @@ CC Shape also uses Band px. Linear fills measure along their direction; concentr
 fills measure inward from the polygon edge. Larger shapes add repeated bands.
 The dedicated Gradient tool retains its authored gradient range and ink controls.
 
-In Studio, new sampled stamp-dither strokes drawn with Unresolve enabled and
-Bristles off sample the source at fixed Band px intervals along the path. Resolve
+In Studio, new sampled strokes drawn with Unresolve enabled, including
+Bristles, Pencil, and their combined mode, sample the source at fixed Band px
+intervals along the path. Resolve
 restores those source colours in order. Long strokes retain the full sequence in
 palette sections, so bands do not stretch or repeat prematurely. Playback moves
 the sequence across section boundaries. Each stamp keeps its shape and both
@@ -85,9 +86,13 @@ uses the shared clock speed from the first finished stroke, before Apply.
 The selected loop seam is applied to the target gradient before the inks are
 split, so a soft join preserves the same colour match throughout playback.
 
-This mapping applies to native stamp-dither strokes, including Bristles with
-background fill enabled; Pickup, Pencil and shape fills retain their own paths.
-Bristles retain their configured strand width and transverse colour phase.
+This ink-pair mapping applies to native stamp-dither strokes, including Bristles with
+background fill enabled. Pencil retains its pressure mask and uses a single source ink;
+Pickup and shape fills retain their own paths.
+Bristles retain their configured strand width and transverse colour phase. In
+Unresolve, that phase uses the same Band px and gradient-band units as the native
+brush. Its displacement stays constant as the stroke grows and through Resolve;
+it does not fade away at the turning points.
 Strength controls strand colour variation independently of width: 25% is the
 gentler default, 0% removes the colour offset, and 100% restores the original
 variation. It affects new marks; existing strokes retain their stored phases. Both
@@ -112,6 +117,9 @@ Length sets a complete cycle from 1–60 seconds
 in 0.5-second steps, including the full out-and-back for Pendulum and Breathe.
 Pendulum and Breathe travel a full colour cycle in each direction: both eased turning points
 are resolved positions.
+Motion, Ease and Length are remembered for new projects and app restarts. Saved
+projects keep their own settings and take precedence over these defaults.
+
 Effects → Unresolve starts with **One state / Two states**. One state uses the
 existing resolve/unresolve cycle. Two states adds **State A / State B**: select
 a state to pause at its resolved position and paint that drawing. B starts blank;

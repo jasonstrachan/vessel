@@ -751,7 +751,7 @@ export const commitColorCycleLayerStroke = async (
       const sampledSession = getActiveMarkGradientSession(targetLayerId);
       if (sampledSession && (sampledSession.sampledPairedInks || sampledSession.sampledAlignment?.bandPx)) {
         const ownership = brush.getSampledStrokePositions?.(targetLayerId);
-        if (sampledSession.sampledAlignment?.bandPx && !sampledSession.sampledBristles && ownership?.points?.length) {
+        if (sampledSession.sampledAlignment?.bandPx && ownership?.points?.length) {
           // Distances belong to pixel-snapped stamps. Sampling the unsnapped
           // pointer path accumulates a different length at diagonals and turns.
           sampledSession.sampledStrokePoints = ownership.points;
@@ -788,6 +788,7 @@ export const commitColorCycleLayerStroke = async (
         const current = getAppStoreState().layers.find(entry => entry.id === targetLayerId)?.colorCycleData;
         if (!ownership || !snapshot?.gradientIdBuffer || !current) throw new Error('The sampled stroke source is unavailable.');
         const result = buildSampledPathStroke({ snapshot, ownership,
+          bristleBands: committedSession.sampledBristles ? committedSession.sampledAlignment.gradientBands ?? 12 : undefined,
           bandPx: committedSession.sampledAlignment.bandPx, primary: committedSession.sampledPathStops,
           secondary: committedSession.sampledPathSecondaryStops, definitions: current.gradientDefStore ?? [],
           speedByte: encodeColorCycleSpeedByte(committedSession.sampledAlignment.speedCps) });

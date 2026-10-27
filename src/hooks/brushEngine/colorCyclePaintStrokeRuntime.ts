@@ -1,4 +1,6 @@
 import { captureColorCycleStrokeLostEdge } from './colorCycleStrokeLostEdge';
+import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
+import { recordSampledStampPosition } from './strokeStampDither/state';
 import { createColorCycleStrokePaintMask, createColorCycleStampPaintMask, prepareColorCycleStrokePaintMask } from './colorCycleStrokePaintMask';
 import { getCcPencilMask, resolveCcPencilSize, type CcPencilMask } from './ccPencilPressure';
 import { createCcBristleWriter, getCcBristleBaseIndex } from './ccBristles';
@@ -275,6 +277,23 @@ export function runColorCyclePaintStroke(
     });
   }
 
+  const sampledNative = (pencilEnabled || bristlesEnabled) && !useStampDither && activeSlot === TEMP_SAMPLE_SLOT
+    ? context.ensureStampDitherState(strokeData) : undefined;
+  let sampledNativeTag = 0;
+  if (sampledNative) {
+    const length = canvasWidth * canvasHeight;
+    if (sampledNative.stampDitherTag?.length !== length) sampledNative.stampDitherTag = new Uint32Array(length);
+    if (sampledNative.stampDitherPrimaryBuffer?.length !== length) sampledNative.stampDitherPrimaryBuffer = new Uint8Array(length);
+    if (!last) {
+      sampledNative.stampDitherStampSeq = 0;
+      sampledNative.stampDitherTag.fill(0);
+    }
+    const seq = recordSampledStampPosition(sampledNative, x, y);
+    sampledNativeTag = (((sampledNative.stampDitherStrokeEpoch ?? 1) & 65535) << 16) | seq;
+  }
+  const writeBristle = bristlesEnabled && !useStampDither
+    ? createCcBristleWriter(strokeData.buffers.phase, { x, y }, last, pencilSettings.colorCycleBristleWidth, pencilSettings.colorCycleBristleStrength)
+    : undefined;
   if (!useStampDither) {
     clearStrokeDefIdsForStamp({
       buffers: strokeData.buffers,
@@ -288,9 +307,11 @@ export function runColorCyclePaintStroke(
       rotation,
       clearDefIds: !useStampDither,
       isPaintPixel: useStampDither ? strokeData.paintMask?.acceptsPixel : writeMask?.accepts,
-      onPaintPixel: bristlesEnabled
-        ? createCcBristleWriter(strokeData.buffers.phase, { x, y }, last, pencilSettings.colorCycleBristleWidth, pencilSettings.colorCycleBristleStrength)
-        : undefined,
+      onPaintPixel: sampledNative ? (index, px, py) => {
+        sampledNative.stampDitherTag![index] = sampledNativeTag;
+        sampledNative.stampDitherPrimaryBuffer![index] = strokeData.buffers.paint[index];
+        writeBristle?.(index, px, py);
+      } : writeBristle,
     });
   }
 

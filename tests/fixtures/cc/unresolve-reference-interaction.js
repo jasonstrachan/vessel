@@ -1,10 +1,24 @@
 // Run against production Studio. The expected colours come from a reference
 // image, never from the sampled palettes or the animation implementation.
-async function verifyUnresolveReference(page, bandPx = 1, zoom = 1, turningMode = null) {
+async function verifyUnresolveReference(page, bandPx = 1, zoom = 1, turningMode = null, brushMode = 'standard', exactColours = false) {
   await page.reload();
   await page.setViewportSize({ width: 1280, height: 900 });
+  // Each case owns its canvas size; reload can restore a smaller prior document.
+  await page.getByRole('toolbar', { name: 'Primary tool selection', exact: true })
+    .getByRole('button', { name: /^New Document(?: \(|$)/ }).click();
+  const newDocument = page.getByRole('heading', { name: 'New Document', exact: true }).locator('..');
+  await newDocument.getByRole('spinbutton', { name: 'New document width', exact: true }).fill('1500');
+  await newDocument.getByRole('spinbutton', { name: 'New document height', exact: true }).fill('1000');
+  await newDocument.getByRole('button', { name: 'New Document', exact: true }).click();
+  await page.getByRole('heading', { name: 'Document', exact: true }).waitFor({ state: 'detached' });
+  await page.waitForFunction(() => {
+    const state = window.__vesselStore?.getState();
+    return state?.project?.width === 1500 && state.project.height === 1000 &&
+      state.layers.some(layer => layer.layerType === 'normal') &&
+      state.layers.some(layer => layer.layerType === 'color-cycle');
+  });
   await page.getByRole('button', { name: 'Color Cycle Stroke', exact: true }).click();
-  await page.evaluate(({ spacing, scale }) => {
+  await page.evaluate(({ spacing, scale, brushMode, exactColours }) => {
     const state = window.__vesselStore.getState();
     const reference = state.layers.find(layer => layer.layerType === 'normal');
     const canvas = document.createElement('canvas');
@@ -17,17 +31,22 @@ async function verifyUnresolveReference(page, bandPx = 1, zoom = 1, turningMode 
       ctx.fillRect(0, y, canvas.width, 1);
     }
     state.updateLayer(reference.id, { imageData: ctx.getImageData(0, 0, canvas.width, canvas.height), framebuffer: canvas, visible: true });
+    state.setReferenceSamplingSource({ kind: 'layer', layerId: reference.id });
+    const source = window.__vesselStore.getState().project.referenceSamplingSource;
+    if (source?.kind !== 'layer' || source.layerId !== reference.id) throw new Error('The authored reference layer must own sampling.');
     state.setActiveLayer(state.layers.find(layer => layer.layerType === 'color-cycle').id);
     state.setBrushSettings({ size: 24, spacing: 1, pressureEnabled: false,
       colorCycleStampDitherEnabled: true, ditherEnabled: false, colorCycleStampDitherPixelSize: 1,
       colorCycleStampDitherBgFill: true, colorCycleStampDitherPressureLinked: false,
       colorCycleStampShape: 'diamond', ditherAlgorithm: 'sierra-lite', ditherPatternDiversity: 0,
-      colorCycleBandSpacingPx: spacing, colorCyclePencilEnabled: false, colorCycleBristlesEnabled: false,
-      colorCycleSpeed: 0.1, ccGradientRangeContrast: 100, ditherPaletteSpread: 57,
+      colorCycleBandSpacingPx: spacing, colorCyclePencilEnabled: brushMode === 'pencil' || brushMode === 'both',
+      colorCycleBristlesEnabled: brushMode === 'bristles' || brushMode === 'both' || brushMode === 'mixed',
+      colorCycleBristleWidth: 0.5, colorCycleBristleStrength: 100, gradientBands: 12,
+      colorCycleSpeed: 0.1, ccGradientRangeContrast: exactColours ? 70 : 100, ditherPaletteSpread: exactColours ? 0 : 57,
       colorCycleGradientSeamProfile: 'hard' });
     state.pauseColorCycle();
     state.setZoom(scale);
-  }, { spacing: bandPx, scale: zoom });
+  }, { spacing: bandPx, scale: zoom, brushMode, exactColours });
   const sourceToggle = page.getByRole('group', { name: 'Colour source and effects' })
     .getByRole('button', { name: 'Unresolve', exact: true });
   if (await sourceToggle.count()) {
@@ -67,10 +86,15 @@ async function verifyUnresolveReference(page, bandPx = 1, zoom = 1, turningMode 
     state.updateProject({ extensionData: { ...state.project.extensionData,
       unresolveClock: { version: 1, timeSeconds: 2.35, mode: 'forward', easeStrength: 0 } } });
   });
+  if (brushMode === 'mixed') {
+    await page.evaluate(() => window.__vesselStore.getState().setBrushSettings({
+      colorCycleBristlesEnabled: false, colorCyclePencilEnabled: true,
+    }));
+  }
   await stroke(650, 760, 4);
   await page.getByRole('button', { name: 'Effects', exact: true }).click();
   await page.getByRole('button', { name: 'Unresolve', exact: true }).and(page.locator('button.w-full')).click();
-  const measure = () => page.evaluate(() => {
+  const measure = () => page.evaluate((exactColours) => {
     const state = window.__vesselStore.getState();
     const layer = state.layers.find(layer => layer.layerType === 'color-cycle');
     const buffers = layer.colorCycleData.colorCycleBrush.layerDocumentApi.getStrokeState(layer.id).buffers;
@@ -83,10 +107,11 @@ async function verifyUnresolveReference(page, bandPx = 1, zoom = 1, turningMode 
       // Exclude the tip radius and a whole wide band at stripe boundaries.
       if (!buffers.paint[i] || y % 80 < 32 || y % 80 > 48) continue;
       checked++;
-      if ((pixels[i * 4] > 128) !== (reference[i * 4] > 128)) wrong++;
+      if (exactColours ? [0, 1, 2, 3].some(c => Math.abs(pixels[i * 4 + c] - reference[i * 4 + c]) > 1)
+        : (pixels[i * 4] > 128) !== (reference[i * 4] > 128)) wrong++;
     }
     return { checked, wrong, clock: state.project.extensionData.unresolveClock.timeSeconds };
-  });
+  }, exactColours);
   const results = [];
   for (const cycle of [0, 37, 81]) {
     await page.getByRole('slider', { name: 'Unresolve cycle', exact: true }).fill(String(cycle));
@@ -135,5 +160,34 @@ async function verifyUnresolveReference(page, bandPx = 1, zoom = 1, turningMode 
       throw new Error(`${turningMode} did not move away from the reference between turns`);
     }
   }
-  return { bandPx, zoom, strokes: 2, results, afterPlayback, turns };
+  let strandPixels = 0;
+  if (brushMode === 'bristles' || brushMode === 'both') {
+    strandPixels = await page.evaluate(() => {
+      const state = window.__vesselStore.getState();
+      const layer = state.layers.find(layer => layer.layerType === 'color-cycle');
+      const buffers = layer.colorCycleData.colorCycleBrush.layerDocumentApi.getStrokeState(layer.id).buffers;
+      const canvas = layer.colorCycleData.canvas;
+      const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+      const definitions = new Map(layer.colorCycleData.gradientDefStore.map(def => [def.id, def]));
+      const sources = new Map();
+      let changed = 0;
+      for (let i = 0; i < buffers.paint.length; i++) {
+        if (!buffers.paint[i] || !buffers.phase[i]) continue;
+        const definition = definitions.get(buffers.def[i]);
+        if (!definition?.sampledPath) continue;
+        const path = definition.sampledPath;
+        if (!sources.has(path.rgba)) sources.set(path.rgba, Uint8Array.from(atob(path.rgba), c => c.charCodeAt(0)));
+        const source = sources.get(path.rgba), count = source.length / 4;
+        const strand = buffers.phase[i] > 127 ? buffers.phase[i] - 256 : buffers.phase[i];
+        // Compare the rendered strand against this same ink with the native
+        // displacement removed. Resolve must retain visible strand variation.
+        const plain = Math.round(path.offset + strand * 12 / 255) + buffers.paint[i] - 1;
+        const index = ((plain % count) + count) % count;
+        if ([0, 1, 2].some(c => Math.abs(pixels[i * 4 + c] - source[index * 4 + c]) > 2)) changed++;
+      }
+      return changed;
+    });
+    if (strandPixels < 20) throw new Error(`Bristles disappeared at Resolve: ${strandPixels} visibly different pixels`);
+  }
+  return { bandPx, zoom, strokes: 2, results, afterPlayback, turns, strandPixels };
 }

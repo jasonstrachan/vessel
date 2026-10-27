@@ -3,14 +3,15 @@ import { decodeSampledPathColors, renderSampledPathPalette } from '@/lib/colorCy
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
 
 const sourceAt = (x: number) => `rgb(${Math.floor(x) % 251},${Math.floor(x / 3) % 241},${Math.floor(x / 7) % 239})`;
-const build = (length: number, spacing: number) => {
+const build = (length: number, spacing: number, bristleBands?: number) => {
   const stops = sampleFixedPathBands([{ x: 0, y: 0 }, { x: length - 1, y: 0 }], spacing, sourceAt);
   const result = buildSampledPathStroke({
     snapshot: { paintBuffer: new Uint8Array(length).fill(1).buffer,
-      gradientIdBuffer: new Uint8Array(length).fill(254).buffer },
+      gradientIdBuffer: new Uint8Array(length).fill(254).buffer,
+      phaseBuffer: Uint8Array.from({ length }, (_, i) => i % 2 ? 32 : 224).buffer },
     ownership: { epoch: 1, tags: Uint32Array.from({ length }, (_, i) => 65537 + i),
       primary: new Uint8Array(length).fill(1), distances: [0, ...Array.from({ length }, (_, i) => i)] },
-    bandPx: spacing, primary: stops, definitions: [], speedByte: 17,
+    bandPx: spacing, primary: stops, definitions: [], speedByte: 17, bristleBands,
   });
   return { ...result, stops };
 };
@@ -91,11 +92,11 @@ it('renders section indices through the native CPU renderer without cycling each
   } finally { renderer.cleanup(); }
 });
 
-it('animates the stored source through the native palette cache and returns to the resolved reference', async () => {
+it.each([undefined, 12])('animates native sampled palettes with bristle bands %s and retains the same resolved marks', async bristleBands => {
   const { ColorCycleAnimator } = await import('@/lib/ColorCycleAnimator');
   const { createDefPaletteCache } = await import('@/hooks/brushEngine/colorCycleDefPaletteCache');
   const { decodeColorCycleSpeedByte } = await import('@/utils/colorCycleSpeed');
-  const stroke = build(1024, 1);
+  const stroke = build(1024, 1, bristleBands);
   const animator = new ColorCycleAnimator({ width: 1024, height: 1, forceCanvas2D: true });
   try {
     const snapshot = stroke.snapshot;
@@ -151,4 +152,66 @@ it.each([1, 4, 20])('samples the actual pixel-snapped turning path at %s px with
     checked++;
   }
   expect(checked).toBeGreaterThan(500);
+});
+
+
+it.each([1, 4, 20])('retains fixed native bristle displacement at Resolve and throughout playback at %s px', spacing => {
+  const make = (length: number) => {
+    const count = Math.floor((length - 1) / spacing) + 1;
+    const phase = Uint8Array.from({ length }, (_, i) => i % 2 ? 32 : 224);
+    const stops = sampleFixedPathBands([{ x: 0, y: 0 }, { x: length - 1, y: 0 }], spacing, sourceAt);
+    const options = { bristleBands: 12 };
+    const result = buildSampledPathStroke({ ...options,
+      snapshot: { paintBuffer: new Uint8Array(length).fill(1).buffer,
+        gradientIdBuffer: new Uint8Array(length).fill(254).buffer, phaseBuffer: phase.buffer },
+      ownership: { epoch: 1, tags: Uint32Array.from({ length }, (_, i) => 65537 + i),
+        primary: new Uint8Array(length).fill(1), distances: [0, ...Array.from({ length }, (_, i) => i)] },
+      bandPx: spacing, primary: stops, definitions: [], speedByte: 17,
+    });
+    expect(new Uint8Array(result.snapshot.phaseBuffer!)).toEqual(phase);
+    for (const turn of [0, 0.125, 0.5, 1]) {
+      const pixels = render({ ...result, stops }, turn);
+      for (let x = spacing * 3; x < length - spacing * 3; x++) {
+        // Ordinary CC advances 255/12 palette entries per spatial band.
+        // The strand's signed 32-entry displacement must therefore stay 32*12/255 bands.
+        const offset = (x % 2 ? 32 : -32) * 12 / 255;
+        const position = ((Math.floor(x / spacing) - offset - (turn % 1) * count) % count + count) % count;
+        const lower = Math.floor(position), fraction = position - lower;
+        const a = parseCssColorToRgba(stops[lower].color);
+        const b = parseCssColorToRgba(stops[(lower + 1) % count].color);
+        expect(pixels[x]).toEqual(a.map((value, channel) => Math.round(value * (1 - fraction) + b[channel] * fraction)));
+      }
+    }
+    return render({ ...result, stops }, 0);
+  };
+  const short = make(1024), long = make(2048);
+  expect(long.slice(spacing * 3, 1024 - spacing * 3)).toEqual(short.slice(spacing * 3, 1024 - spacing * 3));
+  expect(short[400]).not.toEqual(short[401]);
+});
+
+
+it('exports permanent fractional strand offsets through the actual Goblet palette animation', () => {
+  const fs = jest.requireActual<typeof import('fs')>('fs');
+  const source = fs.readFileSync(`${process.cwd()}/public/goblet2/goblet2.js`, 'utf8');
+  const start = source.indexOf('  renderFrame() {', source.indexOf('class ColorCycleLayerPlayer'));
+  expect(start).toBeGreaterThan(0);
+  const body = source.slice(start, source.indexOf('\n  }', start) + 4);
+  const renderFrame = new Function(`return function ${body.trim()}`)() as (this: object) => void;
+  const stroke = build(1024, 1, 12);
+  let time = 0;
+  const paths = new Map(stroke.definitions.map(def => {
+    const rgba = new Uint8ClampedArray(1024);
+    return [def.id, { source: decodeSampledPathColors(def.sampledPath!.rgba),
+      offset: def.sampledPath!.offset, speed: 1, rgba, packed: new Uint32Array(rgba.buffer) }];
+  }));
+  const player = { indexBuffer: new Uint8Array(stroke.snapshot.paintBuffer),
+    sampledPathPalettes: paths, sampledPathPaletteTable: null,
+    _basePalette32ByDefId: new Map<number, Uint32Array>(), getRenderTimeSeconds: () => time,
+    useWebGL: true, webglRenderer: { render: jest.fn() }, legacyOffset01: 0 };
+  for (time of [0, 0.125, 0.5, 1]) {
+    renderFrame.call(player);
+    const defs = new Uint16Array(stroke.snapshot.gradientDefIdBuffer!);
+    const actual = Array.from(player.indexBuffer, (index, i) => [...paths.get(defs[i])!.rgba.slice((index - 1) * 4, index * 4)]);
+    expect(actual).toEqual(render(stroke, time));
+  }
 });

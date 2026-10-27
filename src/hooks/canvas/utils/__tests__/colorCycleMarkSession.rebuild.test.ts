@@ -139,7 +139,7 @@ describe('colorCycleMarkSession rebuild', () => {
     }
   });
 
-  it('freezes shared cycle speed only for enabled sampled dither strokes', () => {
+  it.each(['standard', 'bristles', 'pencil', 'both'])('freezes shared cycle speed for enabled sampled $mode strokes (%s)', (mode) => {
     const previous = studioExtension.sampledStrokeAlignment;
     const previousPalette = studioExtension.preserveSampledStrokePalette;
     studioExtension.preserveSampledStrokePalette = true;
@@ -149,9 +149,9 @@ describe('colorCycleMarkSession rebuild', () => {
       useAppStore.setState((state) => ({ layers: [layer], activeLayerId: layer.id, tools: { ...state.tools,
         brushSettings: { ...state.tools.brushSettings, colorCyclePickupEnabled: false,
           colorCycleStampDitherEnabled: true, colorCycleStampDitherBgFill: true,
-          colorCyclePencilEnabled: false, colorCycleBristlesEnabled: false, colorCycleBandSpacingPx: 4 } } }));
+          colorCyclePencilEnabled: mode === 'pencil' || mode === 'both', colorCycleBristlesEnabled: mode === 'bristles' || mode === 'both', colorCycleBandSpacingPx: 4 } } }));
       const session = beginMarkGradientSession({ layerId: layer.id, markKind: 'stroke', gradientKind: 'linear', source: 'sampled', stops });
-      expect(session?.sampledAlignment).toEqual({ speedCps: 0.063, bandPx: 4 });
+      expect(session?.sampledAlignment).toEqual({ speedCps: 0.063, bandPx: 4, gradientBands: 12 });
       expect(session?.speedCps).toBe(0.063);
       studioExtension.sampledStrokeAlignment = () => undefined;
       expect(session?.sampledAlignment?.speedCps).toBe(0.063);
@@ -298,14 +298,14 @@ describe('colorCycleMarkSession rebuild', () => {
     expect(committed?.sampledStrokeColorAt).toBeUndefined();
   });
 
-  it.each([1, 4, 20].flatMap(bandPx => (['hard', 'soft'] as const).map(seam => ({ bandPx, seam }))))('finalizes every $bandPx px source band with a $seam seam without capping at 256', ({ bandPx, seam }) => {
+  it.each([1, 4, 20].flatMap(bandPx => (['hard', 'soft'] as const).flatMap(seam => ['standard', 'bristles', 'pencil', 'both'].map(mode => ({ bandPx, seam, mode })))))('finalizes every $bandPx px source band with a $seam seam without capping at 256 in $mode mode', ({ bandPx, seam, mode }) => {
     const previous = studioExtension.sampledStrokeAlignment;
     studioExtension.sampledStrokeAlignment = () => ({ speedCps: 0.063 });
     const layer = createLayer();
     useAppStore.setState((state) => ({ layers: [layer], activeLayerId: layer.id,
       tools: { ...state.tools, brushSettings: { ...state.tools.brushSettings,
         colorCycleStampDitherEnabled: true, colorCycleStampDitherBgFill: true,
-        colorCyclePencilEnabled: false, colorCycleBristlesEnabled: false,
+        colorCyclePencilEnabled: mode === 'pencil' || mode === 'both', colorCycleBristlesEnabled: mode === 'bristles' || mode === 'both',
         colorCyclePickupEnabled: false, colorCycleBandSpacingPx: bandPx, colorCycleGradientSeamProfile: seam,
       } },
     }));

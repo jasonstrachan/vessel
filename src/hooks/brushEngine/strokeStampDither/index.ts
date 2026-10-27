@@ -26,6 +26,7 @@ import {
   ensureStampDitherBaseBuffers,
   resolveStampDitherFlowBits,
   restoreStampDitherBasePixel,
+  recordSampledStampPosition,
   type StampDitherShape,
   type StampDitherStrokeData,
 } from './state';
@@ -359,19 +360,7 @@ export const applyStampDitherStamp = (args: {
     diversity,
   );
 
-  const nextSeq = (state.stampDitherStampSeq ?? 0) + 1;
-  state.stampDitherStampSeq = nextSeq > 0xffff ? 0xffff : nextSeq;
-  const stampSeq = state.stampDitherStampSeq ?? 1;
-  if (stampSeq === 1) {
-    state.stampSourceDistances = [0, 0];
-    state.stampSourcePoints = [];
-  } else {
-    const last = state.stampSourceLast;
-    const distances = state.stampSourceDistances ?? (state.stampSourceDistances = [0]);
-    distances[stampSeq] = (distances[stampSeq - 1] ?? 0) + (last ? Math.hypot(x - last.x, y - last.y) : 0);
-  }
-  (state.stampSourcePoints ??= [])[stampSeq - 1] = { x, y };
-  state.stampSourceLast = { x, y };
+  const stampSeq = recordSampledStampPosition(state, x, y);
   const coverage = resolveStampDitherBucketCoverage(bucket);
   const fusedBgFill = config.bgFill;
   const fusedHandle = fusedBgFill ? (state.stampDitherFillHandle ?? animator.beginDirectFill()) : undefined;

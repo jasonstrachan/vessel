@@ -51,7 +51,7 @@ export type MarkGradientSession = {
   // Fresh samples skip ink generation, but still need Contrast applied once.
   preserveSourcePalette?: boolean;
   sampledMotion?: ColorCycleSampledMotion;
-  sampledAlignment?: { speedCps: number; bandPx?: number };
+  sampledAlignment?: { speedCps: number; bandPx?: number; gradientBands?: number };
   sampledPathStops?: StoredStop[];
   sampledPathSecondaryStops?: StoredStop[];
   sampledPairedInks?: boolean;
@@ -172,7 +172,7 @@ const finalizeSampledSession = (session: MarkGradientSession): void => {
       session.previewHash = hashStops(sampled.stops, session.gradientKind);
       session.samples = sampled.samples;
     }
-    if (session.sampledAlignment?.bandPx && !session.sampledBristles) {
+    if (session.sampledAlignment?.bandPx) {
       const source = withCanvasSamplingBatch(() => sampleFixedPathBands(session.sampledStrokePoints!, session.sampledAlignment!.bandPx!, session.sampledStrokeColorAt!));
       const inks = resolveSampledStrokeInkPalettes(session, source, getAppStoreState().tools.brushSettings.ccGradientRangeContrast, true);
       session.sampledPathStops = inks.primary;
@@ -384,8 +384,9 @@ export const beginMarkGradientSession = (params: {
         state.tools.brushSettings.colorCycleStampDitherEnabled &&
         !state.tools.brushSettings.colorCyclePencilEnabled;
   const sampledPairedInks = Boolean(sampledDitherStroke && state.tools.brushSettings.colorCycleStampDitherBgFill !== false);
-  const sampledAlignment = params.source === 'sampled' && sampledDitherStroke && alignment
-        ? { speedCps: alignment.speedCps, bandPx: state.tools.brushSettings.colorCycleBandSpacingPx ?? 20 } : undefined;
+  const sampledAlignment = params.source === 'sampled' && !colourPickup && params.markKind === 'stroke' &&
+        (sampledDitherStroke || state.tools.brushSettings.colorCyclePencilEnabled || state.tools.brushSettings.colorCycleBristlesEnabled) && alignment
+        ? { speedCps: alignment.speedCps, bandPx: state.tools.brushSettings.colorCycleBandSpacingPx ?? 20, gradientBands: state.tools.brushSettings.gradientBands ?? 12 } : undefined;
   if (params.source === 'sampled' || colourPickup || sampledPairedInks) {
     const session: MarkGradientSession = {
       markId: nextMarkId(),
@@ -395,14 +396,14 @@ export const beginMarkGradientSession = (params: {
       gradientKind: params.gradientKind,
       source: colourPickup ? 'sampled' : params.source,
       seamProfile: sampledPairedInks ? 'hard' : seamProfile,
-      sampledSourceSeamProfile: sampledPairedInks ? seamProfile : undefined,
+      sampledSourceSeamProfile: sampledPairedInks || sampledAlignment ? seamProfile : undefined,
       isRuntimePalette: isRuntimePalette || sampledPairedInks,
       preserveSourcePalette: !colourPickup && params.markKind === 'stroke' &&
         studioExtension.preserveSampledStrokePalette === true,
       sampledMotion,
       sampledAlignment,
       sampledPairedInks,
-      sampledBristles: Boolean(sampledDitherStroke && state.tools.brushSettings.colorCycleBristlesEnabled),
+      sampledBristles: Boolean((sampledDitherStroke || sampledAlignment) && state.tools.brushSettings.colorCycleBristlesEnabled),
       rawStopsStored: cloneStops(frozenStops),
       frozenStopsStored: frozenStops,
       frozenHash: '',

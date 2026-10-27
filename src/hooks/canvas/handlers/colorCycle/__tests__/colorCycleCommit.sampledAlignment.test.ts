@@ -81,7 +81,7 @@ it.each((['sampled', 'manual', 'fg'] as const).flatMap(source => [false, true].f
       endFinalizeVisibleTimer: jest.fn(), dispatchFrameUpdate: jest.fn(),
     });
     expect(activeSession.sampledPrimaryCoverage).toBe(1);
-    expect(activeSession.sampledStrokePoints).toEqual(unresolve && !bristles
+    expect(activeSession.sampledStrokePoints).toEqual(unresolve
       ? [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 2, y: 3 }]
       : [{ x: 1.1, y: 1.2 }, { x: 2.3, y: 3.4 }]);
     expect(allocatorSpy).toHaveBeenCalledWith(expect.objectContaining({ source }));

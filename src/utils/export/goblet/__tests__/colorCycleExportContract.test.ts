@@ -352,7 +352,7 @@ describe('Goblet color-cycle export contract boundaries', () => {
     const stops = [{ position: 0, color: '#000000' }, { position: 1, color: '#ffffff' }];
     const definitions = Array.from({ length: sections }, (_, i) => ({
       id: i + 1, kind: 'linear' as const, stops, hash: `path:${i}`, source: 'sampled' as const,
-      seamProfile: 'hard' as const, createdAtMs: 1, sampledPath: { rgba, offset: i * 255 },
+      seamProfile: 'hard' as const, createdAtMs: 1, sampledPath: { rgba, offset: i * 255 - 32 * 12 / 255 },
     }));
     const layer = createLayer({ gradientDefStore: definitions, brushState: {
       canonicalPaint: true, schemaVersion: 1, layers: [{ layerId: 'cc-layer', strokeData: {

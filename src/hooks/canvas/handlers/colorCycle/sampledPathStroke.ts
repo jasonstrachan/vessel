@@ -1,6 +1,6 @@
 import { TEMP_SAMPLE_SLOT } from '@/constants/colorCycle';
 import type { ColorCyclePaintSnapshot } from '@/lib/colorCycle/document';
-import { encodeSampledPathColors, SAMPLED_PATH_FLOW, SAMPLED_PATH_SECTION_SIZE } from '@/lib/colorCycle/sampledPathPalette';
+import { encodeSampledPathColors, renderSampledPathPalette, SAMPLED_PATH_FLOW, SAMPLED_PATH_SECTION_SIZE } from '@/lib/colorCycle/sampledPathPalette';
 import type { ColorCycleGradientDefStoreEntry } from '@/types';
 import { allocateNextColorCycleDefId } from '@/utils/colorCycleDefIds';
 import { parseCssColorToRgba } from '@/hooks/canvas/utils/colorCycleHelpers';
@@ -45,34 +45,45 @@ export const buildSampledPathStroke = (args: {
   secondary?: StoredStop[];
   definitions: ColorCycleGradientDefStoreEntry[];
   speedByte: number;
+  bristleBands?: number;
 }): { snapshot: ColorCyclePaintSnapshot; definitions: ColorCycleGradientDefStoreEntry[] } => {
   const { snapshot, ownership, primary, secondary, speedByte } = args;
   const spacing = Number.isFinite(args.bandPx) ? Math.max(1, Math.min(256, Math.round(args.bandPx))) : 20;
   if (!ownership.distances || !primary.length) throw new Error('The sampled stroke source positions are missing.');
   const definitions = [...args.definitions];
-  const ids: number[][] = [];
-  for (const stops of secondary ? [primary, secondary] : [primary]) {
+  const sources = (secondary ? [primary, secondary] : [primary]).map(stops => {
     const rgba = new Uint8Array(stops.length * 4);
     stops.forEach((stop, i) => {
       const color = parseCssColorToRgba(stop.color);
       color[3] = Math.round(color[3] * (stop.opacity ?? 1));
       rgba.set(color, i * 4);
     });
-    const encoded = encodeSampledPathColors(rgba);
-    const inkIds: number[] = [];
-    for (let offset = 0; offset < stops.length; offset += SAMPLED_PATH_SECTION_SIZE) {
-      const { id } = allocateNextColorCycleDefId({ ids: definitions.map(def => def.id) });
-      if (id === null) throw new Error('No palette definitions remain for this sampled stroke.');
-      const section = Array.from({ length: 256 }, (_, index) => ({
-        ...stops[(offset + index) % stops.length], position: index / 255,
-      }));
-      definitions.push({ id, kind: 'linear', stops: section, source: 'sampled',
-        sampledPath: { rgba: encoded, offset }, hash: `path:${id}:${offset}`,
-        seamProfile: 'hard', createdAtMs: Date.now() });
-      inkIds.push(id);
-    }
-    ids.push(inkIds);
-  }
+    return { rgba, encoded: encodeSampledPathColors(rgba) };
+  });
+  const ids = new Map<string, number>();
+  const bands = args.bristleBands === undefined ? 0 : Math.max(2, Math.min(254, Math.floor(args.bristleBands || 12)));
+  const definitionFor = (ink: number, section: number, strand: number): number => {
+    const key = `${ink}:${section}:${strand}`;
+    const existing = ids.get(key);
+    if (existing !== undefined) return existing;
+    const { id } = allocateNextColorCycleDefId({ ids: definitions.map(def => def.id) });
+    if (id === null) throw new Error('No palette definitions remain for this sampled stroke.');
+    // Native Band px advances 255/bands palette entries per band. Keep the
+    // signed strand displacement in those same units, independent of path length.
+    const offset = section * SAMPLED_PATH_SECTION_SIZE - strand * bands / 255;
+    const rgba = new Uint8ClampedArray(1024);
+    renderSampledPathPalette(sources[ink].rgba, offset, 0, rgba);
+    const stops = Array.from({ length: 256 }, (_, index) => ({
+      position: index / 255,
+      color: `rgb(${rgba[index * 4]},${rgba[index * 4 + 1]},${rgba[index * 4 + 2]})`,
+      opacity: rgba[index * 4 + 3] / 255,
+    }));
+    definitions.push({ id, kind: 'linear', stops, source: 'sampled',
+      sampledPath: { rgba: sources[ink].encoded, offset }, hash: `path:${id}:${offset}`,
+      seamProfile: 'hard', createdAtMs: Date.now() });
+    ids.set(key, id);
+    return id;
+  };
   const paint = new Uint8Array(snapshot.paintBuffer.slice(0));
   const gid = new Uint8Array(snapshot.gradientIdBuffer!.slice(0));
   const def = new Uint16Array(snapshot.gradientDefIdBuffer?.slice(0) ?? new ArrayBuffer(paint.length * 2));
@@ -86,10 +97,11 @@ export const buildSampledPathStroke = (args: {
     const band = Math.min(primary.length - 1, Math.floor(distance / spacing));
     const ink = secondary && paint[i] !== ownership.primary[i] ? 1 : 0;
     paint[i] = 1 + band % SAMPLED_PATH_SECTION_SIZE;
-    def[i] = ids[ink][Math.floor(band / SAMPLED_PATH_SECTION_SIZE)];
+    const strand = bands ? (phase[i] > 127 ? phase[i] - 256 : phase[i]) : 0;
+    def[i] = definitionFor(ink, Math.floor(band / SAMPLED_PATH_SECTION_SIZE), strand);
     gid[i] = 0;
     flow[i] = SAMPLED_PATH_FLOW;
-    phase[i] = 0;
+    if (!bands) phase[i] = 0;
     speed[i] = speedByte;
   }
   return { definitions, snapshot: { ...snapshot, paintBuffer: paint.buffer,

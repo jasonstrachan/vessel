@@ -30,6 +30,17 @@ for (const mode of ['Pendulum', 'Breathe']) {
 }
 
 
+for (const brushMode of ['bristles', 'pencil', 'both', 'mixed']) {
+  test(`${brushMode} preserves the resolved source through motion changes`, async ({ page }) => {
+    test.skip(!studioUrl, 'Set VESSEL_STUDIO_TEST_URL to the running production Studio.');
+    test.setTimeout(180_000);
+    await page.goto(studioUrl!);
+    const verify = new Function(`return (${fixture})`)() as (page: unknown, bandPx: number, zoom: number, turningMode: string, brushMode: string, exactColours: boolean) => Promise<unknown>;
+    await verify(page, brushMode === 'mixed' ? 4 : 1, 1, brushMode === 'both' ? 'Breathe' : 'Pendulum', brushMode, true);
+  });
+}
+
+
 test('holds playback during painting and cancellation and reuses unchanged palettes', async ({ page }) => {
   test.skip(!studioUrl, 'Set VESSEL_STUDIO_TEST_URL to the running production Studio.');
   test.setTimeout(180_000);
