@@ -158,8 +158,20 @@ export const scheduleLiveStrokeRender = ({
     return;
   }
   liveRenderScheduledRef.current = true;
+  const composite = visibleCtx.globalCompositeOperation;
+  const alpha = visibleCtx.globalAlpha;
   const cb = () => {
-    renderLiveStrokePreview(visibleCtx);
+    const previousComposite = visibleCtx.globalCompositeOperation;
+    const previousAlpha = visibleCtx.globalAlpha;
+    try {
+      // Mask healing can restore its context before this scheduled draw runs.
+      visibleCtx.globalCompositeOperation = composite;
+      visibleCtx.globalAlpha = alpha;
+      renderLiveStrokePreview(visibleCtx);
+    } finally {
+      visibleCtx.globalCompositeOperation = previousComposite;
+      visibleCtx.globalAlpha = previousAlpha;
+    }
     dispatchCanvasFrameUpdate();
   };
   if (typeof requestAnimationFrame !== 'undefined') {

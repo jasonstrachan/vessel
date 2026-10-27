@@ -53,6 +53,36 @@ describe('liveStrokePreviewController', () => {
     expect(util).toHaveBeenCalled();
   });
 
+  it('preserves mask healing composition after the stroke restores its context', () => {
+    let scheduled: FrameRequestCallback | undefined;
+    const frame = jest.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
+      scheduled = callback;
+      return 1;
+    });
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.globalAlpha = 0.75;
+    const render = jest.fn((target: CanvasRenderingContext2D) => {
+      expect(target.globalCompositeOperation).toBe('destination-out');
+      expect(target.globalAlpha).toBe(0.75);
+    });
+    try {
+      scheduleLiveStrokeRender({
+        visibleCtx: ctx,
+        liveRenderScheduledRef: { current: false },
+        renderLiveStrokePreview: render,
+      });
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      scheduled?.(0);
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(ctx.globalCompositeOperation).toBe('source-over');
+      expect(ctx.globalAlpha).toBe(1);
+    } finally {
+      frame.mockRestore();
+    }
+  });
+
   it('publishes before notifying the drawing surface with its context restored', () => {
     let scheduled: FrameRequestCallback | undefined;
     const frame = jest.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((callback) => {
