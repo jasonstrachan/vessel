@@ -23,6 +23,7 @@ import type {
 } from '@/types';
 import JSZip from 'jszip';
 import { gunzipSync } from 'fflate';
+import { encodeJsonArchive, decodeJsonArchive, type JsonArchiveDescriptor } from '@/utils/jsonArchive';
 import { cloneExportLayout, cloneLayerAlignment, normalizePalette } from '@/utils/layoutDefaults';
 import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
 import {
@@ -464,6 +465,7 @@ export interface VesselProject {
   };
   project: {
     extensionData?: Project['extensionData'];
+    extensionDataArchive?: JsonArchiveDescriptor;
     id: string;
     name: string;
     width: number;
@@ -4663,6 +4665,12 @@ const buildSerializedProjectArtifacts = async (
   };
 
   const archiveBinaryEntries: ArchiveBinaryEntry[] = [];
+  if (project.extensionData && Object.keys(project.extensionData).length > 0) {
+    const extensionArchive = encodeJsonArchive(project.extensionData);
+    vesselProject.project.extensionDataArchive = extensionArchive.descriptor;
+    delete vesselProject.project.extensionData;
+    archiveBinaryEntries.push(...extensionArchive.entries);
+  }
   for (const layer of vesselProject.project.layers) {
     collectLayerArchiveBinaryEntries(layer, archiveBinaryEntries, project.width, project.height);
     await copyDeferredArchiveBinaryRefs(layer, archiveBinaryEntries);
@@ -4857,6 +4865,7 @@ const validateLayerEnvelope = (layer: SerializedLayer, binaryPaths: Set<string>)
 const validateSerializedProjectEnvelope = (vesselProject: VesselProject): void => {
   const archive = vesselProject as VesselProjectArchive;
   const serializedProject = vesselProject.project;
+
   validateProjectDimensions(serializedProject.width, serializedProject.height, 'project dimensions');
 
   if (!Array.isArray(serializedProject.layers)) {
@@ -5798,6 +5807,21 @@ export async function deserializeProjectWithReport(
   }
   const vesselProject = await parseVesselProjectJson(projectJson, { archiveZip });
   const serializedProject = vesselProject.project;
+  if (Object.hasOwn(serializedProject, 'extensionDataArchive')) {
+    if (!archiveZip || serializedProject.extensionData !== undefined) {
+      throw new Error('Project extension data requires its archive and a single storage authority.');
+    }
+    if (!serializedProject.extensionDataArchive) {
+      throw new Error('Invalid project extension archive descriptor.');
+    }
+    const extensionManifest = new Map(
+      (vesselProject.binaries?.entries ?? []).map(entry => [entry.path, entry] as const),
+    );
+    serializedProject.extensionData = await decodeJsonArchive(
+      serializedProject.extensionDataArchive,
+      path => readRawVerifiedArchiveEntryBytes(path, archiveZip!, extensionManifest),
+    );
+  }
   const migration = migrateLegacyProjectLayers(serializedProject.layers, {
     projectWidth: serializedProject.width,
     projectHeight: serializedProject.height,

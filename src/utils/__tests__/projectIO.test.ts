@@ -468,6 +468,52 @@ describe('projectIO readProjectManifest', () => {
     } finally { unregister(); }
   });
 
+  it('saves and reloads extension recordings through checksummed archive entries', async () => {
+    const project = await deserializeProject(asJson);
+    project.extensionData = { replay: { events: Array.from({ length: 30 }, (_, i) => ({ i, palette: ['red', 'blue'] })) }, unresolve: { anchor: 'original' } };
+    const archive = await serializeProject(project);
+    const manifest = await readProjectManifest(archive);
+    expect(manifest.project.extensionData).toBeUndefined();
+    expect(manifest.project.extensionDataArchive?.version).toBe(1);
+    const restored = await deserializeProject(archive);
+    expect(restored.extensionData).toEqual(project.extensionData);
+    const zip = await JSZip.loadAsync(archive);
+    zip.file(manifest.project.extensionDataArchive!.entries[0], '["v",null]\n');
+    await expect(deserializeProject(await zip.generateAsync({ type: 'uint8array' }))).rejects.toThrow();
+  });
+
+  it.each([null, false, 0])('rejects a present malformed extension archive descriptor %s', async descriptor => {
+    const project = await deserializeProject(asJson);
+    const extensionData = { replay: { events: [{ id: 'retained' }] } };
+    project.extensionData = extensionData;
+    const archive = await serializeProject(project);
+    const zip = await JSZip.loadAsync(archive);
+    const manifest = JSON.parse(await zip.file('project.json')!.async('string')) as { project: Record<string, unknown> };
+    expect(manifest.project.extensionDataArchive).toEqual(expect.objectContaining({ version: 1 }));
+    expect(manifest.project.extensionData).toBeUndefined();
+    manifest.project.extensionDataArchive = descriptor;
+    zip.file('project.json', JSON.stringify(manifest));
+    await expect(deserializeProject(await zip.generateAsync({ type: 'uint8array' }))).rejects.toThrow('descriptor');
+    expect(project.extensionData).toEqual(extensionData);
+  });
+
+  it('rejects competing inline and archived extension authorities', async () => {
+    const project = await deserializeProject(asJson);
+    const extensionData = { replay: { events: [{ id: 'retained' }] } };
+    project.extensionData = extensionData;
+    const zip = await JSZip.loadAsync(await serializeProject(project));
+    const manifest = JSON.parse(await zip.file('project.json')!.async('string')) as { project: Record<string, unknown> };
+    manifest.project.extensionData = extensionData;
+    zip.file('project.json', JSON.stringify(manifest));
+    await expect(deserializeProject(await zip.generateAsync({ type: 'uint8array' }))).rejects.toThrow('single storage authority');
+    expect(project.extensionData).toEqual(extensionData);
+  });
+
+  it('continues to load legacy inline extension recordings', async () => {
+    const extensionData = { replay: { events: [1, 2, 3] } };
+    const restored = await deserializeProject(JSON.stringify({ ...minimalVesselProject, project: { ...minimalVesselProject.project, extensionData } }));
+    expect(restored.extensionData).toEqual(extensionData);
+  });
   let errorSpy: jest.SpyInstance;
 
   beforeEach(() => {
