@@ -1873,6 +1873,20 @@ The case preserves complete source, project and autosave state; history counts, 
 
 The unchanged artifact is `a98a04a8651356e016f0b33eeee927501fb9ca6b04ff883b9b45163a8cce7195`, from the completed Area62 production build. Its settled full gate remains629 passing suites/6609 passing tests, one suite/test skipped and two passing snapshots, with type-check and lint passed. No fixture/docs-only rebuild or repeated full suite was needed. Original47/raw staged patch,83 clean source owners, three mixed owners, public15 and Studio remain unchanged. Only the two audit records enter the focused local commit; no push, deployment, branch or worktree change.
 
+## Session39 — Area64 complete: Public Triangle, legacy reachability and auxiliary UI
+
+Areas01–64 are complete: **64/65 (98.5%)**. The accepted production cohort passed **2 native cases/55 checks**: auxiliary UI19 and public Triangle36. Both use the unchanged main artifact `a98a04a8651356e016f0b33eeee927501fb9ca6b04ff883b9b45163a8cce7195`. Area65 is next and remains pending. No application-source fix was needed.
+
+Triangle is hidden in Library but publicly reachable through the Color Cycle controls. Native Stroke→Triangle→Square→Gradient selection works; returning through Library Stroke admits Triangle painting. Legacy Shape Gradient is defined but absent from the default preset catalog, with no alternative native selector established. That is a capability classification, not a compatibility pass or a claim that every programmatic route is unreachable. Earlier archive/player proofs do not establish legacy-preset semantics.
+
+The Triangle case establishes explicit public Play→Pause intent, then a native size8 stroke. Positive paused global and brush state, the actual shared finalization barrier and adjacent stable live/phase samples qualify the checkpoints. Forty-one occupied canonical pixels stay inside a fixed conservative32-pixel support envelope. Native Undo restores all six full empty planes and live CC-canvas RGBA; Redo restores all six painted planes and the exact painted live hash using the same history command ID. Non-target source, project fields and seven raw preferences remain exact. History diagnostics and IDs are checked, without claiming opaque history-payload or all target-cache metadata identity. This is a control/commit/replay test, not an independent exact Triangle raster or gradient-color oracle; an elapsed animation-clock getter was unavailable.
+
+The auxiliary route opens directly in a separate isolated primary context. All four themes—System1, System7, Windows3.1 and Windows95—pass bounded independent board/background/cell/material checks. Each real728×880 PNG download decodes to the complete PRE canvas RGBA exactly. This proves export fidelity and those layout/material premises, not an independent whole-glyph renderer or artistic antialiasing signoff.
+
+Earlier Triangle failures remain excluded. Initial startup pause is intentionally eligible for first-stroke autoplay, so comparing its changing live image with Redo did not qualify a replay defect. The final case uses explicit toolbar pause and retains the original strict replay oracle. The palette difference was addition of an explicit hard default, not loss of seam metadata; no speculative palette or clock patch was made.
+
+The auxiliary case preserves raw preferences and typed database presence or absence without writes or store creation. The Triangle case restores the original seven raw values and both typed stores through the owned same-page lifecycle. Quiet fences1088.3ms and357ms record no post-restoration writes or transactions; unused packets and native descriptors remain exact. Both named contexts close with no matching daemon. Original47/raw staged patch,83 clean source owners, three mixed owners, public15, Studio and both auxiliary route authorities remain unchanged. The settled Area62 gate/build is reused; no fixture/docs-only build or repeated full suite was run. Only these two audit records enter a focused local commit, with no push, deployment, branch or worktree change.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1954,7 +1968,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 61 | Reference Studio: open/blocked popup, import/reference manipulation, lifecycle | referenceStudio, toolbar | verified (Session39; 3 native cases/187 checks; source-empty Reference Studio closeout) |
 | 62 | Multiplayer: start/stop/failure, shared canvas/input/permissions, session lifecycle | collaboration runtime, toolbar | verified (Session39; 2 native cases/100 checks; source4 protocol-only client closeout) |
 | 63 | Conditional Studio extension: enumerate visible controls only if build enables it | extensions/studioExtension | verified (Session39; 1 native case/15 checks; source-empty BASE capability classification) |
-| 64 | Hidden/legacy entrypoints: CC triangle/shape-gradient, auxiliary pages; establish reachability before scope | presets, pages, extension entrypoints | pending |
+| 64 | Public CC Triangle, legacy Shape Gradient reachability and auxiliary UI Shape reference | presets, pages, extension entrypoints | verified (Session39; 2 native cases/55 checks; source-empty public Triangle and auxiliary route) |
 | 65 | Canvas shape: rectangular/circle/freehand document bounds, Enter/Escape, clipping, persistence/export/history | DocumentModal, canvasShape slice/handlers | pending |
 
 ## Issue and evidence log — session 1 (historical; superseded below)
