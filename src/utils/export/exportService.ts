@@ -411,77 +411,78 @@ const runVideoExport = async (
 
   const stream = typeof targets.scaled.captureStream === 'function' ? targets.scaled.captureStream(options.fps) : null;
   if (!stream) throw new Error('Canvas captureStream not supported');
-  const stopCaptureTracks = () => {
-    if (!stream || typeof stream.getTracks !== 'function') {
-      return;
-    }
-    for (const track of stream.getTracks()) {
-      if (track && typeof track.stop === 'function') {
-        track.stop();
-      }
-    }
-  };
-
   const chunks: BlobPart[] = [];
-  let recorder: MediaRecorder;
-  try {
-    recorder = new MediaRecorder(stream, {
-      mimeType: supportedMime,
-      videoBitsPerSecond: Math.max(1000, options.bitrateKbps * 1000),
-    } as MediaRecorderOptions);
-  } catch {
-    // Last-resort fallback for engines that misreport support.
-    recorder = new MediaRecorder(stream, {
-      mimeType: 'video/webm;codecs=vp8',
-      videoBitsPerSecond: Math.max(1000, options.bitrateKbps * 1000),
-    } as MediaRecorderOptions);
-  }
-
-  recorder.ondataavailable = (e) => {
-    if (e.data && e.data.size > 0) chunks.push(e.data);
-  };
-
-  const totalFrames = Math.max(1, Math.round(options.durationSeconds * options.fps));
-  const animationSession = frameProvider.beginAnimationSession?.({
-    fps: options.fps,
-    totalFrames,
-    kind: 'video',
-    useAbsolutePhase: false
-  });
+  let recorder: MediaRecorder | undefined;
+  let animationSession: AnimationSession | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let exportFailed = false;
 
   try {
+    try {
+      recorder = new MediaRecorder(stream, {
+        mimeType: supportedMime,
+        videoBitsPerSecond: Math.max(1000, options.bitrateKbps * 1000),
+      } as MediaRecorderOptions);
+    } catch {
+      // Last-resort fallback for engines that misreport support.
+      recorder = new MediaRecorder(stream, {
+        mimeType: 'video/webm;codecs=vp8',
+        videoBitsPerSecond: Math.max(1000, options.bitrateKbps * 1000),
+      } as MediaRecorderOptions);
+    }
+
+    const activeRecorder = recorder;
+    activeRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) chunks.push(event.data);
+    };
+
+    const totalFrames = Math.max(1, Math.round(options.durationSeconds * options.fps));
+    animationSession = frameProvider.beginAnimationSession?.({
+      fps: options.fps,
+      totalFrames,
+      kind: 'video',
+      useAbsolutePhase: false,
+    });
+
     await new Promise<void>((resolve, reject) => {
-      recorder.onstop = () => resolve();
-      recorder.onerror = () => reject(new Error('Video export failed: recorder error'));
-      recorder.start();
+      activeRecorder.onstop = () => resolve();
+      activeRecorder.onerror = () => reject(new Error('Video export failed: recorder error'));
+      activeRecorder.start();
       let frame = 0;
       const interval = Math.max(0, Math.floor(1000 / options.fps));
       const tick = () => {
-        if (signal.aborted || frame >= totalFrames) {
-          recorder.stop();
-          return;
+        timer = undefined;
+        try {
+          if (signal.aborted) throw new DOMException('Export cancelled', 'AbortError');
+          if (frame >= totalFrames) {
+            activeRecorder.stop();
+            return;
+          }
+
+          animationSession?.stepFrame({
+            frameIndex: frame,
+            totalFrames,
+            useAbsolutePhase: false,
+          });
+          frameProvider.compositeToCanvas(targets.base);
+          drawScaledFrame(targets, true);
+
+          frame += 1;
+          onProgress({ phase: 'encode', percent: Math.round((frame / totalFrames) * 100) });
+          timer = setTimeout(tick, interval);
+        } catch (error) {
+          reject(error);
         }
-
-        animationSession?.stepFrame({
-          frameIndex: frame,
-          totalFrames,
-          useAbsolutePhase: false
-        });
-        frameProvider.compositeToCanvas(targets.base);
-        drawScaledFrame(targets, true);
-
-        frame += 1;
-        onProgress({ phase: 'encode', percent: Math.round((frame / totalFrames) * 100) });
-        setTimeout(tick, interval);
       };
-      setTimeout(tick, 0);
+      timer = setTimeout(tick, 0);
     });
 
+    if (signal.aborted) throw new DOMException('Export cancelled', 'AbortError');
     if (chunks.length === 0) {
       throw new Error('Video export failed: recorder produced no frames');
     }
 
-    const outputMime = recorder.mimeType || supportedMime || 'video/webm';
+    const outputMime = activeRecorder.mimeType || supportedMime || 'video/webm';
     const blob = new Blob(chunks, { type: outputMime });
     if (blob.size === 0) {
       throw new Error('Video export failed: empty output file');
@@ -494,9 +495,30 @@ const runVideoExport = async (
       blob,
       mimeType: outputMime,
     };
+  } catch (error) {
+    exportFailed = true;
+    throw error;
   } finally {
-    animationSession?.finish?.();
-    stopCaptureTracks();
+    if (timer !== undefined) clearTimeout(timer);
+    const cleanupErrors: unknown[] = [];
+    try {
+      if (recorder && recorder.state !== 'inactive') recorder.stop();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
+      animationSession?.finish?.();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    for (const track of stream.getTracks()) {
+      try {
+        track.stop();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (!exportFailed && cleanupErrors.length > 0) throw cleanupErrors[0];
   }
 };
 
