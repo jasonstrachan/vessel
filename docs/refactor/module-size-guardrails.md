@@ -177,3 +177,24 @@ Magic Wand selection uses the established selection/history and image-source own
 - Composition shells remain 79/44/70 lines and pointer runtime remains 5,086 under
   its existing exception. No orchestration boundary or new workflow was added.
   Exact production and regression evidence is in the functionality-audit ledger.
+
+## Temporary Sequential Baseline Exceptions — 2026-10-28
+
+The audited sequential runtime currently exceeds its existing owner budgets by
+24, 4, and 7 lines. To keep those verified runtime bytes unchanged during the
+dependency security update, the blocking checker temporarily uses these exact
+baseline ceilings, with zero headroom:
+
+| Owner | Normal target | Temporary blocking ceiling | Overage |
+| --- | ---: | ---: | ---: |
+| `sequentialCapture.ts` | 1250 | 1274 | 24 |
+| `SequentialLayerRenderer.ts` | 1100 | 1104 | 4 |
+| `SequentialCpuMaterializer.ts` | 2600 | 2607 | 7 |
+
+These are narrow baseline exceptions, not additional growth allowances. All
+three entries remain blocking; the checker logic and other limits are unchanged.
+On the next implementation change to each owner, perform its planned extraction
+and restore its normal target in the same change. The concrete split and
+verification exit criteria are tracked in
+[Sequential Record and Playback Architecture](plan-sequential-record-mode.md#temporary-size-exception-exit).
+No runtime extraction is part of this dependency update.

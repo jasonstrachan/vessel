@@ -112,3 +112,30 @@ raster-patch migration described in
 `plan-sequential-dither-canonical-kernel-2026-02-10.md`. Existing sequence dither
 replay shares the stamp-dither kernel, but regular region-postprocess dither and
 sequence vector replay do not yet share the same intermediate raster.
+
+## Temporary Size Exception Exit
+
+The 2026-10-28 dependency update preserves the audited runtime bytes and records
+exact temporary blocking ceilings of 1274 lines for capture, 1104 for the
+renderer, and 2607 for the CPU materializer. Each ceiling has zero headroom.
+The next implementation change to each owner must include its extraction and
+restore its former blocking target in `scripts/check-file-budgets.mjs`:
+
+- Capture: move existing capture-runtime contracts and stamp-budget/payload
+  buffering helpers into adjacent sequential handler modules. Keep capture
+  orchestration in `sequentialCapture.ts` and pure temporal placement in the
+  existing temporal-distribution utility. Restore the 1250-line target.
+- Renderer: separate the existing diagnostics contract and diagnostic assembly
+  from materialization/cache orchestration, without creating a second cache or
+  playback authority. Restore the 1100-line target.
+- CPU materializer: extract existing pure brush-shape masks, brush configuration
+  and palette helpers into adjacent materializer modules. Preserve replay order,
+  pixel output, and dirty-region behavior. Restore the 2600-line target.
+
+For each split, preserve the public contract and canonical/runtime boundary;
+run the affected capture, renderer, or CPU materializer tests plus type-check
+and lint. CPU/renderer extraction must retain the existing deterministic replay
+oracles and `perf:sequential` budget. Complete the production-preview verification
+above when the touched path requires it. The exception exits only when the owner
+is within its original target and that target is restored in the blocking
+checker. This plan authorizes no runtime refactor in the dependency update.
