@@ -4,9 +4,31 @@ const fs = require('fs');
 const path = require('path');
 
 const LOG_DIR = path.resolve(process.cwd(), 'logs/runtime');
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+const streamWriters = new WeakMap();
 
-function ensureLogDir() {
-  fs.mkdirSync(LOG_DIR, { recursive: true });
+function getStreamWriter(stream) {
+  if (streamWriters.has(stream)) {
+    return streamWriters.get(stream);
+  }
+
+  let failed = false;
+  // A disconnected terminal must never report its failure through itself.
+  stream.on('error', () => { failed = true; });
+  const write = (text) => {
+    if (failed || stream.destroyed || stream.writableEnded || stream.writableNeedDrain) {
+      return;
+    }
+    try {
+      stream.write(text, (error) => {
+        if (error) failed = true;
+      });
+    } catch {
+      failed = true;
+    }
+  };
+  streamWriters.set(stream, write);
+  return write;
 }
 
 function formatLine(level, message) {
@@ -31,12 +53,48 @@ function serializeError(error) {
 }
 
 function createRuntimeLogger(name) {
-  ensureLogDir();
   const filePath = path.join(LOG_DIR, `${name}.log`);
+  const writeStdout = getStreamWriter(process.stdout);
+  const writeStderr = getStreamWriter(process.stderr);
+  let fileLoggingFailed = false;
+
+  const logSize = () => {
+    try {
+      return fs.statSync(filePath).size;
+    } catch (error) {
+      if (error.code === 'ENOENT') return 0;
+      throw error;
+    }
+  };
+
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    if (logSize() > MAX_LOG_BYTES) fs.truncateSync(filePath, 0);
+  } catch {
+    fileLoggingFailed = true;
+  }
+
+  const appendRaw = (text) => {
+    if (fileLoggingFailed) return;
+    try {
+      let data = Buffer.from(text, 'utf8');
+      if (data.length > MAX_LOG_BYTES) {
+        let start = data.length - MAX_LOG_BYTES;
+        // Keep the newest complete UTF-8 characters, even for a single huge entry.
+        while ((data[start] & 0xc0) === 0x80) start += 1;
+        data = data.subarray(start);
+      }
+      if (logSize() + data.length > MAX_LOG_BYTES) fs.truncateSync(filePath, 0);
+      fs.appendFileSync(filePath, data);
+    } catch {
+      // Disk errors must not turn diagnostic logging into another exception loop.
+      fileLoggingFailed = true;
+    }
+  };
 
   const append = (level, message) => {
     const line = formatLine(level, message);
-    fs.appendFileSync(filePath, line, 'utf8');
+    appendRaw(line);
     return line;
   };
 
@@ -44,16 +102,16 @@ function createRuntimeLogger(name) {
     filePath,
     log(message) {
       const line = append('INFO', message);
-      process.stdout.write(line);
+      writeStdout(line);
     },
     warn(message) {
       const line = append('WARN', message);
-      process.stderr.write(line);
+      writeStderr(line);
     },
     error(message, error) {
       const rendered = error ? `${message}\n${serializeError(error)}` : message;
       const line = append('ERROR', rendered);
-      process.stderr.write(line);
+      writeStderr(line);
     },
     writeRaw(prefix, chunk, isError = false) {
       const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
@@ -62,11 +120,11 @@ function createRuntimeLogger(name) {
       }
 
       const normalized = text.endsWith('\n') ? text : `${text}\n`;
-      fs.appendFileSync(filePath, `${prefix}${normalized}`, 'utf8');
+      appendRaw(`${prefix}${normalized}`);
       if (isError) {
-        process.stderr.write(text);
+        writeStderr(text);
       } else {
-        process.stdout.write(text);
+        writeStdout(text);
       }
     },
     attachChild(child, nameOverride) {
@@ -81,12 +139,9 @@ function createRuntimeLogger(name) {
       });
     },
     installProcessHandlers(processName) {
-      process.on('uncaughtException', (error) => {
-        this.error(`${processName} uncaught exception`, error);
-      });
-
-      process.on('unhandledRejection', (reason) => {
-        this.error(`${processName} unhandled rejection`, reason);
+      // Observe fatal errors without suppressing Node's normal nonzero exit.
+      process.on('uncaughtExceptionMonitor', (error, origin) => {
+        append('ERROR', `${processName} ${origin}\n${serializeError(error)}`);
       });
 
       process.on('warning', (warning) => {

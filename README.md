@@ -92,6 +92,10 @@ npm run preview
 
 `preview:prod` builds into `.next-preview` and serves on `http://localhost:3001/vessel/`, separate from the dev server's `.next` state.
 
+Local server and build diagnostics in `logs/runtime/` are capped at 5 MiB per log. Old entries are cleared when the cap is reached; these files are disposable. Disconnected terminal output does not stop the server or generate repeated errors. Genuine uncaught errors still terminate the process.
+
+Run the logger regression checks with `node --test tests/scripts/runtime-logger.test.mjs`.
+
 ## Build And Deploy
 
 The public static export is wrapper-owned by `scripts/github-pages-build.mjs` and `scripts/prepare-github-pages.mjs`.
