@@ -14,6 +14,7 @@ import {
   useAppStore,
 } from '@/stores/useAppStore';
 import { selectLayers } from '@/stores/selectors/layersSelectors';
+import { getAppStoreState } from '@/stores/appStoreAccess';
 import {
   MAX_RECOLOR_COLOR_CYCLE_SPEED,
   MIN_RECOLOR_COLOR_CYCLE_SPEED,
@@ -213,7 +214,7 @@ export function useRecolorState(
 
   // Settings management
   const applyControl = useCallback(async (layerId: string, values: Partial<RecolorControlValues>, record = true) => {
-    const state = useAppStore.getState();
+    const state = getAppStoreState();
     const target = state.layers.find((layer) => layer.id === layerId);
     const settings = target?.colorCycleData?.recolorSettings;
     if (!target || target.locked || !isRecolorLayer(target) || !settings) return;
@@ -229,14 +230,14 @@ export function useRecolorState(
     useAppStore.setState({ layers: state.layers.map((layer) => layer === target ? next : layer), layersNeedRecomposition: true });
     try {
       if (!await recolorManager.restoreLayer(next)) throw new Error('Failed to initialize recolor animation');
-      const current = useAppStore.getState();
+      const current = getAppStoreState();
       if (current.project?.id !== state.project?.id || current.layers.find((layer) => layer.id === layerId) !== next) return;
       if (record) {
         const txn = historyManager.begin('settings-change', { layerId, tool: 'recolor' });
         txn.push(delta); txn.commit('Recolor control');
       }
     } catch (error) {
-      const current = useAppStore.getState();
+      const current = getAppStoreState();
       if (current.project?.id === state.project?.id && current.layers.find((layer) => layer.id === layerId) === next) {
         useAppStore.setState({ layers: current.layers.map((layer) => layer === next ? target : layer), layersNeedRecomposition: state.layersNeedRecomposition });
         await recolorManager.restoreLayer(target);
@@ -263,13 +264,13 @@ export function useRecolorState(
 
   const updateGradient = useCallback((layer: Layer, gradient: Array<{ position: number; color: string; opacity?: number }>) => {
     try {
-      const state = useAppStore.getState();
+      const state = getAppStoreState();
       const target = state.layers.find((entry) => entry.id === layer.id);
       const settings = target?.colorCycleData?.recolorSettings;
       if (!target || target.locked || !isRecolorLayer(target) || !settings) return;
       const before = settings.gradient.map((stop) => ({ ...stop }));
       if (!recolorManager.updateGradient(target, gradient)) return;
-      const current = useAppStore.getState();
+      const current = getAppStoreState();
       if (current.project?.id !== state.project?.id) return;
       const after = current.layers.find((entry) => entry.id === target.id)?.colorCycleData?.recolorSettings?.gradient;
       if (!after) return;
@@ -286,7 +287,7 @@ export function useRecolorState(
   }, [recolorManager, actions]);
 
   const applyGlobalFPS = useCallback(async (fps: number, record = true) => {
-    const state = useAppStore.getState(), before = readRecolorFPSState(recolorManager.getConfiguredFPS());
+    const state = getAppStoreState(), before = readRecolorFPSState(recolorManager.getConfiguredFPS());
     const targetFPS = Math.max(15, Math.min(60, fps));
     const nextLayers = state.layers.map((layer) => {
       const settings = layer.colorCycleData?.mode === 'recolor' ? layer.colorCycleData.recolorSettings : undefined;
@@ -301,11 +302,11 @@ export function useRecolorState(
     useAppStore.setState({ layers: nextLayers, layersNeedRecomposition: true });
     try {
       for (const layer of nextLayers) if (layer.colorCycleData?.mode === 'recolor' && !await recolorManager.restoreLayer(layer)) throw new Error('Failed to initialize recolor animation');
-      if (useAppStore.getState().project?.id !== state.project?.id) return;
+      if (getAppStoreState().project?.id !== state.project?.id) return;
       recolorManager.setFPS(targetFPS);
       if (record) { const txn = historyManager.begin('settings-change', { tool: 'recolor' }); txn.push(delta); txn.commit('Recolor FPS'); }
     } catch (error) {
-      if (useAppStore.getState().project?.id === state.project?.id) {
+      if (getAppStoreState().project?.id === state.project?.id) {
         if (recolorManager.getConfiguredFPS() !== before.fps) recolorManager.setFPS(before.fps);
         useAppStore.setState({ layers: state.layers, layersNeedRecomposition: state.layersNeedRecomposition });
         for (const layer of state.layers) if (layer.colorCycleData?.mode === 'recolor') await recolorManager.restoreLayer(layer);
@@ -323,7 +324,7 @@ export function useRecolorState(
     actions.setProcessing(true);
     actions.clearError();
     try {
-      const state = useAppStore.getState();
+      const state = getAppStoreState();
       const target = state.layers.find((entry) => entry.id === layer.id);
       if (!target || target.locked) return false;
       const beforeFPS = readRecolorFPSState(recolorManager.getConfiguredFPS());
@@ -334,7 +335,7 @@ export function useRecolorState(
         return false;
       }
       const isCurrentTarget = () => {
-        const current = useAppStore.getState();
+        const current = getAppStoreState();
         return current.project?.id === state.project?.id && current.layers.some((entry) => entry.id === target.id);
       };
       if (!isCurrentTarget()) return false;
@@ -346,7 +347,7 @@ export function useRecolorState(
         await toggleAnimation();
       }
       if (!isCurrentTarget()) return false;
-      const after = captureLayerStructureSnapshot(useAppStore.getState(), {
+      const after = captureLayerStructureSnapshot(getAppStoreState(), {
         actionType: 'layer', description: 'Recolor conversion', previousSnapshot: before,
       });
       const txn = historyManager.begin('layer-structure', { layerId: target.id, tool: 'recolor' });
