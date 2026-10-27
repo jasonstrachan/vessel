@@ -6,7 +6,7 @@ import {
   createColorCyclePixelPerfectStrokeState,
   flushColorCyclePixelPerfectStroke,
 } from '../colorCycleStrokeRouting';
-import { registerColorCycleBrushLayerSnapshotRuntime } from '@/lib/colorCycle/document';
+import { registerColorCycleBrushLayerSnapshotRuntime, type ColorCyclePaintMask } from '@/lib/colorCycle/document';
 import { BrushShape } from '@/types';
 import type { ColorCycleDrawBrush } from '../colorCycleDrawController';
 
@@ -463,6 +463,64 @@ describe('colorCycleDrawController', () => {
     const paintMask = healColorCycleEraseMask.mock.calls[0][1];
     expect(Array.from(paintMask.data).filter((value) => value === 255)).toHaveLength(1);
     expect(paintMask.data[0]).toBe(255);
+  });
+
+  it.each(['standard', 'custom'] as const)('heals only canonical cells admitted by the post-paint %s stroke mask', kind => {
+    const ctx = createCtx();
+    const brush = createBrush();
+    const canonical = new Uint8Array(64 * 64);
+    const healed = new Uint8Array(64 * 64);
+    const admitted = [12 * 64 + 10, 12 * 64 + 11];
+    const trace: string[] = [];
+    const paint = () => {
+      trace.push('paint');
+      for (const index of admitted) canonical[index] = 7;
+    };
+    brush.paint.mockImplementation(paint);
+    brush.paintCustomStamp.mockImplementation(paint);
+    const getStrokePaintMask = jest.fn((layerId: string) => {
+      expect(layerId).toBe('layer-1');
+      trace.push('read-mask');
+      return { acceptsPixel: (x: number, y: number) => canonical[y * 64 + x] !== 0 };
+    });
+    const maskedBrush = { ...brush, getStrokePaintMask };
+    const stampImage = new ImageData(8, 8);
+    for (let index = 3; index < stampImage.data.length; index += 4) stampImage.data[index] = 255;
+    const healColorCycleEraseMask = jest.fn((_id: string, mask: ColorCyclePaintMask) => {
+      trace.push('heal');
+      for (let y = 0; y < mask.height; y += 1) for (let x = 0; x < mask.width; x += 1) {
+        healed[(mask.bounds.y + y) * 64 + mask.bounds.x + x] = mask.data[y * mask.width + x];
+      }
+    });
+    drawColorCycleStroke({
+      ctx, x: 10, y: 12, pressure: 1, rotation: 0,
+      brushSettings: {
+        size: 8, brushShape: kind === 'custom' ? BrushShape.CUSTOM : BrushShape.COLOR_CYCLE,
+        colorCycleStampShape: 'square', color: '#ff0000', colorCycleGradient: previewGradient,
+        gridSnapEnabled: false, gridSnapSize: 8, pressureEnabled: false, minPressure: 0, maxPressure: 100,
+      },
+      activeLayerId: 'layer-1', activeLayerTransparencyLock: false,
+      getActiveLayerColorCycleBrush: () => maskedBrush as unknown as ColorCycleDrawBrush,
+      getActiveLayerBitmapCanvas: () => null, maskHasAlphaNear: jest.fn(() => true),
+      resolveBrushPressureRange: () => ({ enabled: false, minPercent: 100, maxPercent: 100 }),
+      requestGradientApply: jest.fn(), flushGradientApply: jest.fn(),
+      renderColorCycle: jest.fn(() => { trace.push('render'); }), healColorCycleEraseMask,
+      firstStampImmediateRef: { current: true }, mirrorScheduledRef: { current: false },
+      gridSnapStrokePointRef: { current: null }, pixelPerfectStrokeStateRef: { current: createColorCyclePixelPerfectStrokeState() },
+      roundedCornerAnchorsRef: { current: [] }, roundedCornerBaselineSnapshotRef: { current: null },
+      options: kind === 'custom' ? { customStamp: { imageData: stampImage, width: 8, height: 8 } } : undefined,
+    });
+    const expectedCanonical = new Uint8Array(64 * 64), expectedHealed = new Uint8Array(64 * 64);
+    for (const index of admitted) { expectedCanonical[index] = 7; expectedHealed[index] = 255; }
+    expect(canonical).toEqual(expectedCanonical);
+    expect(healed).toEqual(expectedHealed);
+    expect(getStrokePaintMask).toHaveBeenCalled();
+    expect(healColorCycleEraseMask).toHaveBeenCalledTimes(1);
+    expect(trace[0]).toBe('paint');
+    expect(trace.indexOf('read-mask')).toBeGreaterThan(trace.indexOf('paint'));
+    expect(trace.indexOf('heal')).toBeGreaterThan(trace.indexOf('read-mask'));
+    expect(trace.indexOf('render')).toBeGreaterThan(trace.indexOf('heal'));
+    expect(kind === 'custom' ? brush.paintCustomStamp : brush.paint).toHaveBeenCalledTimes(1);
   });
 
   it('quantizes color-cycle paint coordinates by stamp raster anchor', () => {
