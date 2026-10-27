@@ -132,9 +132,10 @@ export const createLayerCompositeDrawing = ({
         canvas: HTMLCanvasElement;
         mode: 'over' | 'replace';
       },
+      includeBackground = true,
     ): void => {
       ctx.clearRect(0, 0, project.width, project.height);
-      if (project.backgroundColor && project.backgroundColor !== 'transparent') {
+      if (includeBackground && project.backgroundColor && project.backgroundColor !== 'transparent') {
         ctx.fillStyle = project.backgroundColor;
         ctx.fillRect(0, 0, project.width, project.height);
       }

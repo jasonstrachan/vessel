@@ -55,6 +55,32 @@ describe('layerCompositeDrawing multiplayer overlay', () => {
     ),
   });
 
+  it.each([undefined, true, false])('composes transparent and half-alpha pixels with background option %s', (includeBackground) => {
+    // Canvas I/O only: two pixels, transparent then green alpha128.
+    const pixels = new Uint8ClampedArray(8);
+    const sourcePixels = new Uint8ClampedArray([0, 0, 0, 0, 0, 255, 0, 128]);
+    const source = makeCanvas();
+    const context = {
+      clearRect: () => pixels.fill(0),
+      fillStyle: '',
+      fillRect: () => pixels.set([10, 20, 30, 255, 10, 20, 30, 255]),
+      globalCompositeOperation: 'source-over', globalAlpha: 1,
+      drawImage: (input: CanvasImageSource) => {
+        expect(input).toBe(source);
+        for (let i = 0; i < 8; i += 4) {
+          const a = sourcePixels[i + 3] / 255, b = pixels[i + 3] / 255, alpha = a + b * (1 - a);
+          for (let channel = 0; channel < 3; channel++) pixels[i + channel] = alpha ? Math.round((sourcePixels[i + channel] * a + pixels[i + channel] * b * (1 - a)) / alpha) : 0;
+          pixels[i + 3] = Math.round(alpha * 255);
+        }
+      },
+    } as unknown as CanvasRenderingContext2D;
+    const inputProject = { ...project, width: 2, height: 1, backgroundColor: '#0a141e' };
+    createSubject().drawAllLayersInOrder(context, [makeLayer('normal', 0, source)], inputProject, null, 0, undefined, includeBackground);
+    expect([...pixels]).toEqual(includeBackground === false ? [...sourcePixels] : [10, 20, 30, 255, 5, 138, 15, 255]);
+    expect(inputProject.backgroundColor).toBe('#0a141e');
+    expect([...sourcePixels]).toEqual([0, 0, 0, 0, 0, 255, 0, 128]);
+  });
+
   it('composites a live brush surface at its owning layer z-order', () => {
     const lower = makeCanvas();
     const active = makeCanvas();

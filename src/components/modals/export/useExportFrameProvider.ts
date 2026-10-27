@@ -8,6 +8,7 @@ import {
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { Layer } from '@/types';
+import type { CompositeLayersToCanvasOptions } from '@/stores/layers/layersSliceTypes';
 import type { FrameProvider } from '@/utils/export/types';
 
 import { hasSequentialExportLayers } from './exportModalModel';
@@ -15,17 +16,21 @@ import { hasSequentialExportLayers } from './exportModalModel';
 interface UseExportFrameProviderOptions {
   width: number;
   height: number;
-  compositeLayersToCanvas?: (canvas: HTMLCanvasElement) => void;
+  compositeLayersToCanvasSync: (canvas: HTMLCanvasElement, options?: CompositeLayersToCanvasOptions) => boolean;
+  includeBackground: boolean;
 }
 
 export const useExportFrameProvider = ({
   width,
   height,
-  compositeLayersToCanvas,
+  compositeLayersToCanvasSync,
+  includeBackground,
 }: UseExportFrameProviderOptions): FrameProvider => useMemo<FrameProvider>(() => ({
   getDimensions: () => ({ width, height }),
   compositeToCanvas: (canvas) => {
-    compositeLayersToCanvas?.(canvas);
+    if (!compositeLayersToCanvasSync(canvas, { includeBackground })) {
+      throw new Error('Failed to composite export frame');
+    }
   },
   beginAnimationSession: ({ fps, kind }) => {
     const setSequentialExportFrame = (frame: number) => {
@@ -180,4 +185,4 @@ export const useExportFrameProvider = ({
 
     return { stepFrame, advanceFrame, finish };
   },
-}), [compositeLayersToCanvas, height, width]);
+}), [compositeLayersToCanvasSync, height, includeBackground, width]);

@@ -96,6 +96,7 @@ const makeStore = () => ({
     currentFrame: 0,
   },
   compositeLayersToCanvas: jest.fn(),
+  compositeLayersToCanvasSync: jest.fn<boolean, [HTMLCanvasElement, { includeBackground?: boolean }]>(() => true),
   setActiveLayer: jest.fn(),
   addNotification: jest.fn(),
   setSequentialFrame: jest.fn(),
@@ -171,6 +172,57 @@ describe('ExportModal', () => {
     jest.useRealTimers();
   });
 
+
+  it.each([false, true])('captures PNG synchronously with background option %s before consuming pixels', async (includeBackground) => {
+    const target = document.createElement('canvas');
+    const capture = jest.fn((canvas: HTMLCanvasElement, options: { includeBackground?: boolean }) => {
+      expect(canvas).toBe(target);
+      expect(options).toEqual({ includeBackground: false });
+      canvas.width = 23;
+      return true;
+    });
+    store.compositeLayersToCanvasSync = capture;
+    runExportMock.mockImplementation(async (request) => {
+      expect(request.options.includeBackground).toBe(includeBackground);
+      request.frameProvider.compositeToCanvas(target);
+      expect(target.width).toBe(23);
+      return { kind: 'png', filename: 'Demo.png', blob: new Blob(['png'], { type: 'image/png' }) };
+    });
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => { jest.runAllTimers(); });
+    fireEvent.click(screen.getByText('PNG'));
+    const checkbox = screen.getByRole('checkbox', { name: 'Include background' });
+    if ((checkbox as HTMLInputElement).checked !== includeBackground) fireEvent.click(checkbox);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Export$/i })); });
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(store.compositeLayersToCanvas).not.toHaveBeenCalled();
+  });
+
+  it('reports synchronous compositor failure instead of consuming a blank frame', async () => {
+    store.compositeLayersToCanvasSync.mockReturnValue(false);
+    runExportMock.mockImplementation(async (request) => {
+      request.frameProvider.compositeToCanvas(document.createElement('canvas'));
+      throw new Error('Encoder must not run');
+    });
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => { jest.runAllTimers(); });
+    fireEvent.click(screen.getByText('PNG'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Export$/i })); });
+    expect(screen.getAllByText('Failed to composite export frame').length).toBeGreaterThan(0);
+    expect(store.compositeLayersToCanvasSync).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains project background for GIF frame capture', async () => {
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => { jest.runAllTimers(); });
+    fireEvent.click(screen.getByText('GIF'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^Export$/i })); });
+    const request = runExportMock.mock.calls[0][0];
+    const target = document.createElement('canvas');
+    request.frameProvider.compositeToCanvas(target);
+    expect(store.compositeLayersToCanvasSync).toHaveBeenCalledWith(target, { includeBackground: true });
+    expect(store.compositeLayersToCanvas).not.toHaveBeenCalled();
+  });
   it('renders when open and closes on overlay click', () => {
     const onClose = jest.fn();
     const { container } = render(<ExportModal isOpen onClose={onClose} />);

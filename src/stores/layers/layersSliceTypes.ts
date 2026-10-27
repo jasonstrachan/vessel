@@ -24,6 +24,8 @@ import type { ColorCycleSoftEdgeDitherAlgorithm } from '@/utils/colorCycleSoftEd
 export type { CompositeSegment } from '@/stores/layers/layerCompositeRenderer';
 
 export type CompositeLayersToCanvasOptions = {
+  /** Omit only the project background; layer alpha and blend modes remain intact. */
+  includeBackground?: boolean;
   dirtyBatches?: ColorCycleLayerDirtyBatch[];
   liveLayerOverlay?: {
     layerId: string;

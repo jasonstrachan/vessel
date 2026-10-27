@@ -347,7 +347,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
   const frameProvider = useExportFrameProvider({
     width: project?.width || 1,
     height: project?.height || 1,
-    compositeLayersToCanvas,
+    compositeLayersToCanvasSync,
+    // PNG adds its optional background once, beneath the completed layer frame.
+    includeBackground: exportKind !== 'png',
   });
 
   const webglPreflightError = useMemo(() => {

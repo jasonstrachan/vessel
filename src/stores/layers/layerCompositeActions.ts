@@ -281,6 +281,7 @@ export const createLayerCompositeActions = ({
           colorCycleBrushManager,
           (layer) => getSequentialLayerRenderFrame(get(), layer),
           options?.liveLayerOverlay,
+          options?.includeBackground,
         );
         const stats = getSequentialLayerRendererStats();
         get().setSequentialFrameCacheStats({
@@ -369,6 +370,7 @@ export const createLayerCompositeActions = ({
         colorCycleBrushManager,
         (layer) => getSequentialLayerRenderFrame(get(), layer),
         options?.liveLayerOverlay,
+        options?.includeBackground,
       );
 
       const stats = getSequentialLayerRendererStats();

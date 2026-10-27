@@ -1710,6 +1710,26 @@ The isolated full gate passes type-check, lint and626 suites/6552 tests/2 snapsh
 
 Focused ownership is SettingsModal and its new adjacent regression test plus these two audit records. Original47 working paths, the existing staged patch,59 prior clean owners and three separate mixed owners remain intact; the two newly committed clean owners bring that map to61. The original backup map, public/served15 and Studio remain unchanged. No push, deployment, branch change or new worktree. Areas55–65 remain incomplete.
 
+## Session39 — Area55 complete: PNG composition, transparency and recovery
+
+Areas01–55 are complete: **55/65 (84.6%)**. Area56 remains pending and starts from a fresh source-empty capture after this focused local commit.
+
+Two source-owned defects are repaired. PNG encoded a newly allocated canvas before the asynchronous compositor transferred its pixels; the mounted frame provider now uses the existing synchronous compositor and reports a failed composition explicitly. Composition also baked in the project background regardless of PNG's Include background setting. A default-true option at the existing drawing/compositor boundary lets PNG compose transparent layers first and add its selected background once in the export service. GIF/video retain their existing background choice; their native acceptance remains Areas56/57.
+
+The actual BEFORE cohort retained three primary blank-image failures: normal PNG was fully transparent, normal+CC PNG was fully transparent, and the untouched retry after a controlled encoder failure contained only the background. The nine failed checks include first-failure/incomplete-case records; 70 checks passed and all restoration checks passed. The background defect was masked by the empty output and independently demonstrated by the owning deterministic regression. The encoder-error presentation/Close flow already worked and is not described as a new repair.
+
+Production artifact `1704d94740e485bb0a3c9a389bf21f322226715bb904dc98f4193f6e325f364a` passes **3 native cases/115 checks**, with seven real PNG downloads and zero incorrect decoded RGBA bytes:
+
+- Normal64×48 source: declared1×/3× transparent and2×/4× background-on exports, nearest-neighbour dimensions, opaque and alpha128 pixels, filename/signature/native MIME and quality-control endpoints. Source/version/project/preference bytes and history counts/top IDs/state remain exact.
+- Mixed normal256×256 plate plus genuinely painted, paused CC red64 source: unmasked and public Sierra Lite edge-mask exports. The generated binary mask is positively admitted as renderer INPUT before export (50 kept, zero outside), then the whole PNG is independently composed from that input. All six canonical CC planes/material references and normal data remain exact; mask creation owns one separate history command. This does not independently certify the Sierra algorithm.
+- One explicitly synthetic callback(null) at the eligible native PNG encoder I/O boundary: trusted Export click, exact detached target/type/quality, original descriptor restored before delivering the null callback. Public failed state/notification, zero failed-attempt downloads, Close/reopen and one untouched native retry pass. Encoder and URL descriptors restore exactly.
+
+All three cases use the unchanged frozen A/B2/C2 fixtures, with seven owned preferences restored through the actual consumed/applied reload packet, more than350ms final quiet, zero later writes and the original packet restored. Named browser cleanup confirms closure and no matching daemon; post-run source/index/public/Studio and compiled/raw-log continuity checks pass. BEFORE evidence is retained and is not acceptance. Earlier unexecuted C locator preparations remain superseded; no failed restore is promoted.
+
+The exact same final regression files fail5/pass29 before and pass34 afterward. The isolated task-only full gate passes type-check, lint, diff review, **626 suites/6559 tests/two snapshots**, with one existing skipped suite/test. One production-preview build succeeds. Actual receipts: `area55-native-before-v1-session39.json`, `area55-native-after-v1-session39.json`, `area55-source-freeze-v1-session39.json`, `area55-final-gate-v1-session39.json`, `area55-preview-build-v1-session39.json` and `area55-preview-after-v1-session39.json` under `output/playwright/`; frozen private author manifest `bf1dcb1b…` and independent source/proof reviews bind the seven task paths.
+
+Scope is five existing implementation files and two existing regression files, plus these two audit records. Original47 working paths, the exact three-file staged patch,61 inherited clean owners, three separately modeled mixed owners, public/served15 and Studio remain preserved; after this commit the seven clean task owners join the inherited map. No push, deployment, branch/worktree change or new chat. No CanvasShape/filter/sequence PNG matrix, animation/video acceptance, performance, physical-device or OS-dialog success is claimed. CanvasShape export and video callback-failure cleanup remain explicit later-area leads.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1782,7 +1802,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 52 | Save/load: .vs/archive round trip, raster/CC/sequence/custom brushes/filters/alignments, errors | projectIO, project slice | verified (Session39;3 native cases/243 checks; source-empty serialization closeout) |
 | 53 | Load browser: file/folder/drop, preview/navigation/zoom, health/repair/export, cancellation | LoadProjectModal, directory/preview hooks | verified (Session39;4 native cases/168 checks; explicit repair copy) |
 | 54 | Autosave/recovery/backups: enable/interval/status, failure, recovery/new-document behavior | autosave slice/services, SettingsModal | verified (Session39; 3 native cases/200 checks; Settings timer correction and autosave runtime proof) |
-| 55 | PNG export: alpha/background, layer composition, bounds/size, download/errors | projectIO, ExportModal | pending |
+| 55 | PNG export: alpha/background, layer composition, bounds/size, download/errors | projectIO, ExportModal | verified (Session39; 3 native cases/115 checks; PNG synchronous composition and background ownership repaired) |
 | 56 | GIF export: duration/FPS/size, palette/alpha, playback, progress/cancel/errors | exportService, ExportModal | pending |
 | 57 | Video export: supported format/fallback, timing/size, progress/cancel/errors | exportService, ExportModal | pending |
 | 58 | Goblet: all formats, packaging/load, animation/filters/fit/masks/groups, progress/cancel/errors | goblet exporter, Goblet runtime | pending |
