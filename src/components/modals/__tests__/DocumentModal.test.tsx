@@ -1,4 +1,5 @@
 import React from 'react';
+import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { DocumentModal } from '@/components/modals/DocumentModal';
@@ -8,6 +9,7 @@ jest.mock('@/hooks/useKeyboardScope', () => ({
 }));
 
 const mockNewProject = jest.fn();
+const mockResizeCanvas = jest.fn();
 
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: () => ({
@@ -16,7 +18,7 @@ jest.mock('@/stores/useAppStore', () => ({
       height: 2000,
     },
     newProject: mockNewProject,
-    resizeCanvas: jest.fn(),
+    resizeCanvas: mockResizeCanvas,
     beginCanvasShapeEdit: jest.fn(),
   }),
 }));
@@ -32,7 +34,89 @@ describe('DocumentModal', () => {
     act(() => {
       jest.runOnlyPendingTimers();
     });
+    jest.restoreAllMocks();
     jest.useRealTimers();
+  });
+
+  it('keeps an early opened Document mounted beyond the startup close deadline', () => {
+    const onClose = jest.fn();
+    const { rerender } = render(<DocumentModal isOpen={false} onClose={onClose} />);
+    act(() => { jest.advanceTimersByTime(100); });
+    rerender(<DocumentModal isOpen onClose={onClose} />);
+    act(() => { jest.advanceTimersByTime(10); });
+    expect(screen.getByRole('heading', { name: 'Document' })).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(290); });
+    expect(screen.getByRole('heading', { name: 'Document' })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps a quickly reopened Document mounted after the superseded close deadline', () => {
+    const onClose = jest.fn();
+    const { rerender } = render(<DocumentModal isOpen onClose={onClose} />);
+    act(() => { jest.advanceTimersByTime(10); });
+    rerender(<DocumentModal isOpen={false} onClose={onClose} />);
+    act(() => { jest.advanceTimersByTime(100); });
+    rerender(<DocumentModal isOpen onClose={onClose} />);
+    act(() => { jest.advanceTimersByTime(300); });
+    expect(screen.getByRole('heading', { name: 'Document' })).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('does not reveal a closing Document through its superseded show timer', () => {
+    const { rerender } = render(<DocumentModal isOpen onClose={jest.fn()} />);
+    act(() => { jest.advanceTimersByTime(5); });
+    rerender(<DocumentModal isOpen={false} onClose={jest.fn()} />);
+    act(() => { jest.advanceTimersByTime(5); });
+    const heading = screen.getByRole('heading', { name: 'Document' });
+    expect(heading.closest('.fixed.inset-0')).toHaveClass('opacity-0');
+  });
+
+  it('retains the ordinary 300ms close transition', () => {
+    const onClose = jest.fn();
+    const { rerender } = render(<DocumentModal isOpen onClose={onClose} />);
+    act(() => { jest.advanceTimersByTime(10); });
+    rerender(<DocumentModal isOpen={false} onClose={onClose} />);
+    act(() => { jest.advanceTimersByTime(299); });
+    expect(screen.getByRole('heading', { name: 'Document' })).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(screen.queryByRole('heading', { name: 'Document' })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('releases its own pending transition on unmount (open=%s)', (isOpen) => {
+    const scheduled = jest.spyOn(window, 'setTimeout');
+    const cleared = jest.spyOn(window, 'clearTimeout');
+    const unrelated = window.setTimeout(jest.fn(), 500);
+    const { unmount } = render(<DocumentModal isOpen={isOpen} onClose={jest.fn()} />);
+    const index = scheduled.mock.calls.findIndex(([, delay]) => delay === (isOpen ? 10 : 300));
+    expect(index).toBeGreaterThanOrEqual(0);
+    const owned = scheduled.mock.results[index].value as number;
+    unmount();
+    expect(cleared).toHaveBeenCalledWith(owned);
+    expect(cleared).not.toHaveBeenCalledWith(unrelated);
+    scheduled.mockRestore();
+    cleared.mockRestore();
+  });
+
+  it.each([
+    ['New document width', 'Width', 'New Document', [320, 960]],
+    ['New document height', 'Height', 'New Document', [768, 320]],
+    ['Resize canvas width', 'Width', 'Resize', [320, 2000]],
+    ['Resize canvas height', 'Height', 'Resize', [2000, 320]],
+  ] as const)('associates %s with its visible label and preserves dimension callbacks', async (name, text, action, dimensions) => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    render(<DocumentModal isOpen onClose={jest.fn()} />);
+    const input = screen.getByRole('spinbutton', { name }) as HTMLInputElement;
+    const label = input.labels?.[0];
+    expect(label).toBeDefined();
+    expect(label).toHaveTextContent(text);
+    expect(label?.control).toBe(input);
+    expect(input.id).not.toBe('');
+    await user.click(label!);
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: '320' } });
+    await user.click(screen.getByRole('button', { name: action }));
+    expect(action === 'Resize' ? mockResizeCanvas : mockNewProject).toHaveBeenCalledWith(...dimensions);
   });
 
   it('defaults new documents to the 768×960 portrait preset', () => {

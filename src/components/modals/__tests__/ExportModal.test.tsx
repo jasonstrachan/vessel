@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
+import userEvent from '@testing-library/user-event';
 import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 
 import { registerGobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
@@ -172,6 +173,23 @@ describe('ExportModal', () => {
     jest.useRealTimers();
   });
 
+
+  it('names Design scale contextually and associates its visible label without changing the settings callback', async () => {
+    Object.assign(store.webglExportSettings, { viewportPreset: 'fixed', designScalePercent: 100 });
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    render(<ExportModal isOpen onClose={jest.fn()} />);
+    act(() => { jest.runAllTimers(); });
+    const input = screen.getByRole('spinbutton', { name: 'Design scale (%)' }) as HTMLInputElement;
+    const label = input.labels?.[0];
+    expect(label).toBeDefined();
+    expect(label).toHaveTextContent('Design scale');
+    expect(label?.control).toBe(input);
+    await user.click(label!);
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: '200' } });
+    expect(store.updateWebglExportSettings).toHaveBeenCalledWith({ designScalePercent: 200 });
+    expect(runExportMock).not.toHaveBeenCalled();
+  });
 
   it.each([false, true])('captures PNG synchronously with background option %s before consuming pixels', async (includeBackground) => {
     const target = document.createElement('canvas');

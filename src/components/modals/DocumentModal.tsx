@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 
 import { useKeyboardScope } from '@/hooks/useKeyboardScope';
 import { useAppStore } from '@/stores/useAppStore';
@@ -220,6 +220,7 @@ const DocumentMemoryWarning: React.FC<{ width: number; height: number }> = ({ wi
 };
 
 export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose }) => {
+  const id = useId();
   // Suspend global/canvas shortcuts while modal is open
   useKeyboardScope('modal', isOpen);
   const { project, newProject, resizeCanvas, beginCanvasShapeEdit } = useAppStore();
@@ -239,18 +240,20 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
   const dragOffset = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   useEffect(() => {
+    let timeout: number;
     if (isOpen) {
       setShouldRender(true);
       const modalWidth = Math.min(768, window.innerWidth - 32);
       const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
       const y = 24;
       setPos({ x, y });
-      setTimeout(() => setIsVisible(true), 10);
+      timeout = window.setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
       // Keep modal rendered during fade out, then remove it
-      setTimeout(() => setShouldRender(false), 300);
+      timeout = window.setTimeout(() => setShouldRender(false), 300);
     }
+    return () => window.clearTimeout(timeout);
   }, [isOpen]);
 
   useEffect(() => {
@@ -409,8 +412,10 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
 
             <div className="flex gap-3">
               <div className="w-20">
-                <label className="block text-base text-[#888] mb-1">Width</label>
+                <label htmlFor={`${id}-newWidth`} className="block text-base text-[#888] mb-1">Width</label>
                 <Input
+                  id={`${id}-newWidth`}
+                  aria-label="New document width"
                   type="number"
                   value={newWidth}
                   onChange={(e) => {
@@ -433,8 +438,10 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                 />
               </div>
               <div className="w-20">
-                <label className="block text-base text-[#888] mb-1">Height</label>
+                <label htmlFor={`${id}-newHeight`} className="block text-base text-[#888] mb-1">Height</label>
                 <Input
+                  id={`${id}-newHeight`}
+                  aria-label="New document height"
                   type="number"
                   value={newHeight}
                   onChange={(e) => {
@@ -484,8 +491,10 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
             
             <div className="flex gap-3">
               <div className="w-20">
-                <label className="block text-base text-[#888] mb-1">Width</label>
+                <label htmlFor={`${id}-resizeWidth`} className="block text-base text-[#888] mb-1">Width</label>
                 <Input
+                  id={`${id}-resizeWidth`}
+                  aria-label="Resize canvas width"
                   type="number"
                   value={resizeWidth}
                   onChange={(e) => {
@@ -509,8 +518,10 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                 />
               </div>
               <div className="w-20">
-                <label className="block text-base text-[#888] mb-1">Height</label>
+                <label htmlFor={`${id}-resizeHeight`} className="block text-base text-[#888] mb-1">Height</label>
                 <Input
+                  id={`${id}-resizeHeight`}
+                  aria-label="Resize canvas height"
                   type="number"
                   value={resizeHeight}
                   onChange={(e) => {

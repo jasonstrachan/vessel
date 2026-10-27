@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import Button from '@/components/ui/Button';
 import ButtonGroup from '@/components/ui/ButtonGroup';
@@ -118,6 +118,7 @@ export const ExportSetupView = ({
   onClose,
   onExport,
 }: ExportSetupViewProps) => {
+  const designScaleId = useId();
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const layerSummary = goblet.settings.includeHiddenLayers
     ? `${goblet.participatingLayerCount} layers included`
@@ -432,7 +433,7 @@ export const ExportSetupView = ({
               </p>
               {goblet.viewportPreset === 'fixed' && (
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <span className="text-sm text-[#D4D4D4]">Design scale</span>
+                  <label htmlFor={designScaleId} className="text-sm text-[#D4D4D4]">Design scale</label>
                   <div className="flex items-center gap-2">
                     <ButtonGroup
                       options={WEBGL_DESIGN_SCALE_PRESETS.map((value) => ({
@@ -446,6 +447,8 @@ export const ExportSetupView = ({
                       size="xs"
                     />
                     <Input
+                      id={designScaleId}
+                      aria-label="Design scale (%)"
                       type="number"
                       min={25}
                       max={800}

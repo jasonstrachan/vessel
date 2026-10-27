@@ -1,5 +1,5 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useId } from 'react';
 import { CC_DEBUG } from '@/debug/ccDebug';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
@@ -47,6 +47,7 @@ const formatBytes = (bytes: number): string => {
 };
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+  const id = useId();
   useKeyboardScope('modal', isOpen);
 
   const showRulers = useAppStore((state) => state.canvas.showRulers);
@@ -368,8 +369,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </div>
                 {isAutosaveEnabled && (
                   <div className="flex items-center justify-between">
-                    <label className="text-base text-[#888]">Save Interval</label>
+                    <label htmlFor={`${id}-save-interval`} className="text-base text-[#888]">Save Interval</label>
                     <select
+                      id={`${id}-save-interval`}
                       value={autosaveInterval}
                       onChange={(event) => setAutosaveInterval(Number(event.target.value))}
                       className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"
@@ -397,8 +399,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <h3 className="mb-3 text-base font-medium text-[#D9D9D9]">Performance</h3>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-base text-[#888]">Undo History Size</label>
+                  <label htmlFor={`${id}-history-size`} className="text-base text-[#888]">Undo History Size</label>
                   <select
+                    id={`${id}-history-size`}
                     value={historySize}
                     onChange={(event) => setHistorySize(Number(event.target.value))}
                     className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"

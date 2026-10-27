@@ -1,4 +1,5 @@
 import React from 'react';
+import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { SettingsModal } from '@/components/modals/SettingsModal';
@@ -45,11 +46,33 @@ describe('SettingsModal transition lifecycle', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
+    mockState.ui.settingsSection = 'display';
+    mockState.autosave.isEnabled = false;
   });
 
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
+  });
+
+  it.each([
+    ['Save Interval', 'autosave', '2'],
+    ['Undo History Size', 'performance', '25'],
+  ] as const)('associates %s with the native select and preserves its callback', async (name, section, value) => {
+    mockState.ui.settingsSection = section;
+    mockState.autosave.isEnabled = true;
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    render(<SettingsModal isOpen onClose={jest.fn()} />);
+    advance(10);
+    const select = screen.getByRole('combobox', { name }) as HTMLSelectElement;
+    const label = select.labels?.[0];
+    expect(label).toBeDefined();
+    expect(label).toHaveTextContent(name);
+    expect(label?.control).toBe(select);
+    await user.click(label!);
+    expect(select).toHaveFocus();
+    await user.selectOptions(select, value);
+    expect(name === 'Save Interval' ? mockState.setAutosaveInterval : mockState.setHistorySize).toHaveBeenCalledWith(Number(value));
   });
 
   it('keeps a quickly opened startup modal mounted beyond the previous closed deadline', () => {
