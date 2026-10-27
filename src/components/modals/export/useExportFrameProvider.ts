@@ -10,6 +10,7 @@ import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import type { Layer } from '@/types';
 import type { CompositeLayersToCanvasOptions } from '@/stores/layers/layersSliceTypes';
 import type { FrameProvider } from '@/utils/export/types';
+import { applyCanvasShapeMask, normalizeCanvasShape } from '@/utils/canvasShape';
 
 import { hasSequentialExportLayers } from './exportModalModel';
 
@@ -30,6 +31,12 @@ export const useExportFrameProvider = ({
   compositeToCanvas: (canvas) => {
     if (!compositeLayersToCanvasSync(canvas, { includeBackground })) {
       throw new Error('Failed to composite export frame');
+    }
+    const project = getAppStoreState().project;
+    if (project) {
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Failed to acquire export frame context');
+      applyCanvasShapeMask(context, normalizeCanvasShape(project.canvasShape, width, height));
     }
   },
   beginAnimationSession: ({ fps, kind }) => {

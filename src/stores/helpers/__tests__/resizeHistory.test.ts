@@ -5,7 +5,7 @@ import { registerColorCycleBrushSerializedStateRuntime, type ColorCycleBrushLaye
 import { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import { useAppStore } from '@/stores/useAppStore';
 import { captureResizeHistoryBaseline, recordResizeHistory } from '@/stores/helpers/resizeHistory';
-import type { Layer } from '@/types';
+import type { CanvasShape, Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 
 const mockRehydrate = jest.fn<Promise<void>, unknown[]>(async () => undefined);
@@ -147,5 +147,105 @@ describe('recordResizeHistory mask ownership', () => {
     install(state(4, 4, false, false), 4, 4);
     await recordResizeHistory({ beforeProject: { width: 4, height: 4 }, afterProject: { width: 4, height: 4 }, beforeLayers: new Map(), afterLayers: [], description: 'No resize' });
     expect(historyManager.entries()).toHaveLength(0);
+  });
+});
+
+
+describe('resize authored canvas geometry ownership', () => {
+  const circle: CanvasShape = {
+    kind: 'circle', center: { x: 192, y: 96 }, radius: 32,
+    bounds: { x: 160, y: 64, width: 64, height: 64 },
+  };
+  const freehand: CanvasShape = {
+    kind: 'freehand',
+    points: [{ x: 48, y: 64 }, { x: 112, y: 64 }, { x: 112, y: 128 }, { x: 48, y: 128 }, { x: 48, y: 64 }],
+    bounds: { x: 48, y: 64, width: 64, height: 64 },
+  };
+  const installNormal = (shape: CanvasShape | undefined, ownShape = true) => {
+    install(state(256, 256, false, false), 256, 256);
+    const current = useAppStore.getState();
+    const normal: Layer = { ...current.layers[0], layerType: 'normal' };
+    delete normal.colorCycleData;
+    const project = { ...current.project!, layers: [normal] };
+    if (ownShape) project.canvasShape = shape ? structuredClone(shape) : undefined;
+    else delete project.canvasShape;
+    useAppStore.setState({ project, layers: [normal] });
+  };
+  beforeEach(() => {
+    historyManager.clear();
+    mockRehydrate.mockReset();
+    mockRehydrate.mockResolvedValue(undefined);
+  });
+  afterEach(() => { historyManager.clear(); });
+
+  it('restores the authored circle through two real resize Undo/Redo cycles', async () => {
+    installNormal(circle);
+    await useAppStore.getState().resizeProjectCanvas(192, 160);
+    const accepted = structuredClone(useAppStore.getState().project!.canvasShape);
+    expect(accepted).toEqual({ kind: 'circle', center: { x: 176, y: 96 }, radius: 16, bounds: { x: 160, y: 80, width: 32, height: 32 } });
+    expect(historyManager.entries()).toHaveLength(1);
+    const command = historyManager.entries()[0].id;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await historyManager.undo();
+      expect(useAppStore.getState().project!.canvasShape).toEqual(circle);
+      expect([useAppStore.getState().project!.width, useAppStore.getState().project!.height]).toEqual([256, 256]);
+      await historyManager.redo();
+      expect(useAppStore.getState().project!.canvasShape).toEqual(accepted);
+      expect([useAppStore.getState().project!.width, useAppStore.getState().project!.height]).toEqual([192, 160]);
+      expect(historyManager.entries()[0].id).toBe(command);
+    }
+  });
+
+  it('restores raw closed freehand vertices without normalizing them during replay', async () => {
+    installNormal(freehand);
+    await useAppStore.getState().resizeProjectCanvas(96, 96);
+    // Forward resize owns normalization; history must preserve its actual accepted output.
+    const accepted = structuredClone(useAppStore.getState().project!.canvasShape);
+    for (let cycle = 0; cycle < 2; cycle++) {
+      await historyManager.undo();
+      expect(useAppStore.getState().project!.canvasShape).toEqual(freehand);
+      await historyManager.redo();
+      expect(useAppStore.getState().project!.canvasShape).toEqual(accepted);
+    }
+  });
+
+  it.each([false, true])('preserves optional shape own-property presence=%s through replay', async ownShape => {
+    installNormal(undefined, ownShape);
+    await useAppStore.getState().resizeProjectCanvas(192, 160);
+    const accepted = structuredClone(useAppStore.getState().project!.canvasShape);
+    await historyManager.undo();
+    const project = useAppStore.getState().project!;
+    expect(Object.hasOwn(project, 'canvasShape')).toBe(ownShape);
+    expect(project.canvasShape).toBeUndefined();
+    await historyManager.redo();
+    expect(useAppStore.getState().project!.canvasShape).toEqual(accepted);
+  });
+
+  it('installs saved authored geometry only after deferred replay rehydration completes', async () => {
+    installNormal(circle);
+    await useAppStore.getState().resizeProjectCanvas(192, 160);
+    let release!: () => void;
+    let entered!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    mockRehydrate.mockImplementationOnce(() => { entered(); return new Promise<void>(resolve => { release = resolve; }); });
+    const undo = historyManager.undo();
+    await started;
+    expect([useAppStore.getState().project!.width, useAppStore.getState().project!.height]).toEqual([256, 256]);
+    expect(useAppStore.getState().project!.canvasShape).not.toEqual(circle);
+    release();
+    await undo;
+    expect(useAppStore.getState().project!.canvasShape).toEqual(circle);
+  });
+
+  it('compensates accepted resized shape and dimensions if replay rehydration rejects', async () => {
+    installNormal(circle);
+    await useAppStore.getState().resizeProjectCanvas(192, 160);
+    const accepted = structuredClone(useAppStore.getState().project!.canvasShape);
+    const command = historyManager.entries()[0].id;
+    mockRehydrate.mockRejectedValueOnce(new Error('Resize geometry rehydration failed')).mockResolvedValue(undefined);
+    await expect(historyManager.undo()).rejects.toMatchObject({ compensationSucceeded: true });
+    expect(useAppStore.getState().project!.canvasShape).toEqual(accepted);
+    expect([useAppStore.getState().project!.width, useAppStore.getState().project!.height]).toEqual([192, 160]);
+    expect(historyManager.entries()[0].id).toBe(command);
   });
 });

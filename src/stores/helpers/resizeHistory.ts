@@ -4,6 +4,7 @@ import { createColorCycleStrokeDelta } from '@/history/deltas/colorCycleStrokeDe
 import { createColorCycleEraseMaskDelta } from '@/history/deltas/colorCycleEraseMaskDelta';
 import { createColorCycleSoftEdgeMaskDelta } from '@/history/deltas/colorCycleSoftEdgeMaskDelta';
 import { createProjectDimensionsDelta } from '@/history/deltas/projectDimensionsDelta';
+import { cloneCropProjectGeometry, createCropGeometryDelta, type CropProjectGeometry } from '@/history/deltas/cropGeometryDelta';
 import {
   captureColorCycleBrushState,
   type ColorCycleSerializedState,
@@ -13,7 +14,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import type { HistoryDelta, HistoryDirection, PreparedHistoryDelta } from '@/history/actionTypes';
 import type { Layer, Project } from '@/types';
 
-export type ResizeProjectSizeSnapshot = { width: number; height: number };
+export type ResizeProjectSizeSnapshot = CropProjectGeometry;
 
 export interface ResizeLayerSnapshot {
   image: ImageData | null;
@@ -142,12 +143,7 @@ export const captureResizeHistoryBaseline = ({
   project: Project | null;
   layers: Layer[];
 }): ResizeHistoryBaseline => {
-  const projectSize = project
-    ? {
-        width: project.width,
-        height: project.height,
-      }
-    : null;
+  const projectSize = project ? cloneCropProjectGeometry(project) : null;
 
   const layerSnapshots: ResizeLayerSnapshotMap = new Map();
   layers.forEach((layer) => {
@@ -183,6 +179,8 @@ export const recordResizeHistory = async ({
     return;
   }
 
+  const beforeGeometry = beforeProject ? cloneCropProjectGeometry(beforeProject) : null;
+  const afterGeometry = afterProject ? cloneCropProjectGeometry(afterProject) : null;
   let deltaCount = 0;
   const txn = historyManager.begin('project-transform', {
     description,
@@ -247,17 +245,21 @@ export const recordResizeHistory = async ({
     }
 
     if (
-      beforeProject &&
-      afterProject &&
-      (beforeProject.width !== afterProject.width || beforeProject.height !== afterProject.height)
+      beforeGeometry &&
+      afterGeometry &&
+      (beforeGeometry.width !== afterGeometry.width || beforeGeometry.height !== afterGeometry.height)
     ) {
       txn.push(
         createProjectDimensionsDelta({
-          before: beforeProject,
-          after: afterProject,
+          before: beforeGeometry,
+          after: afterGeometry,
         }),
       );
-      deltaCount += 1;
+      txn.push(createCropGeometryDelta(
+        { project: beforeGeometry, alignments: new Map() },
+        { project: afterGeometry, alignments: new Map() },
+      ));
+      deltaCount += 2;
     }
 
     if (deltaCount > 0) {

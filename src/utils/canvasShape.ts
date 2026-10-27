@@ -121,8 +121,11 @@ export const buildFreehandShape = (
 ): CanvasShape => {
   const clamped = points.map((point) => clampPointToBounds(point, bounds));
   const safePoints = clamped.length > 0 ? clamped : [{ x: bounds.x, y: bounds.y }];
-  const closedPoints = safePoints.length > 1
-    ? [...safePoints, safePoints[0]]
+  const firstPoint = safePoints[0];
+  const lastPoint = safePoints[safePoints.length - 1];
+  const closedPoints = safePoints.length > 1 &&
+    (lastPoint.x !== firstPoint.x || lastPoint.y !== firstPoint.y)
+    ? [...safePoints, firstPoint]
     : safePoints;
 
   return {

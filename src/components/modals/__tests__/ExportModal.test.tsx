@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import userEvent from '@testing-library/user-event';
-import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
+import { render, renderHook, screen, fireEvent, act, waitFor, within } from '@testing-library/react';
 
 import { registerGobletPublisher } from '@/utils/export/goblet/gobletPublisherRegistry';
 import { registerGobletTester } from '@/utils/export/goblet/gobletTesterRegistry';
@@ -12,6 +12,7 @@ import {
 import type { AppState } from '@/stores/useAppStore';
 
 import { ExportModal } from '../ExportModal';
+import { useExportFrameProvider } from '../export/useExportFrameProvider';
 
 jest.mock('@/hooks/useKeyboardScope', () => ({
   useKeyboardScope: jest.fn(),
@@ -1169,5 +1170,61 @@ describe('ExportModal', () => {
         value: originalAnchorClick,
       });
     }
+  });
+});
+
+
+describe('export frame canvas-shape presentation', () => {
+  it.each(['png', 'gif', 'video'] as const)('masks %s frames after composition without changing source pixels or context state', kind => {
+    store = makeStore();
+    Object.assign(store.project, { width: 256, height: 256, canvasShape: { kind: 'rectangle', bounds: { x: 48, y: 64, width: 64, height: 64 } } });
+    const pixels = new Uint8ClampedArray(256 * 256 * 4);
+    for (let x = 28; x < 36; x += 1) pixels.set([255, 0, 0, 255], (96 * 256 + x) * 4);
+    const sourceImage = new ImageData(pixels.slice(), 256, 256);
+    Object.assign(store.layers[0], { imageData: sourceImage });
+    const projectBefore = JSON.stringify(store.project), pixelsBefore = pixels.slice(), layerBefore = store.layers[0];
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
+    const ctx = canvas.getContext('2d')!;
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 0.6; ctx.fillStyle = '#123456';
+    const fillStyleBefore = ctx.fillStyle;
+    // The shared canvas I/O mock has no save/restore state stack; model that native boundary here.
+    const states: Array<{ composite: GlobalCompositeOperation; alpha: number; fill: string | CanvasGradient | CanvasPattern }> = [];
+    const save = jest.spyOn(ctx, 'save').mockImplementation(() => { states.push({ composite: ctx.globalCompositeOperation, alpha: ctx.globalAlpha, fill: ctx.fillStyle }); });
+    const restore = jest.spyOn(ctx, 'restore').mockImplementation(() => { const saved = states.pop(); if (!saved) throw new Error('Unbalanced canvas restore'); ctx.globalCompositeOperation = saved.composite; ctx.globalAlpha = saved.alpha; ctx.fillStyle = saved.fill; });
+    const trace: unknown[] = [];
+    const fill = jest.spyOn(ctx, 'fill').mockImplementation(() => { trace.push({ operation: 'mask', composite: ctx.globalCompositeOperation, alpha: ctx.globalAlpha }); });
+    const rect = jest.spyOn(ctx, 'rect');
+    const composite = jest.fn(() => { trace.push({ operation: 'compose' }); return true; });
+    const includeBackground = kind !== 'png';
+    const { result } = renderHook(() => useExportFrameProvider({ width: 256, height: 256, compositeLayersToCanvasSync: composite, includeBackground }));
+    result.current.compositeToCanvas(canvas);
+    expect(composite).toHaveBeenCalledWith(canvas, { includeBackground });
+    expect(trace).toEqual([{ operation: 'compose' }, { operation: 'mask', composite: 'destination-in', alpha: 1 }]);
+    expect(rect).toHaveBeenCalledWith(48, 64, 64, 64);
+    expect(fill).toHaveBeenCalledTimes(1);
+    expect(ctx.globalCompositeOperation).toBe('source-over'); expect(ctx.globalAlpha).toBe(0.6); expect(ctx.fillStyle).toBe(fillStyleBefore);
+    expect(JSON.stringify(store.project)).toBe(projectBefore); expect(store.layers[0]).toBe(layerBefore);
+    expect(Reflect.get(store.layers[0], 'imageData')).toBe(sourceImage);
+    expect(sourceImage.data).toEqual(pixelsBefore);
+    expect(save).toHaveBeenCalledTimes(1); expect(restore).toHaveBeenCalledTimes(1); expect(states).toEqual([]);
+    fill.mockRestore(); rect.mockRestore(); save.mockRestore(); restore.mockRestore();
+  });
+
+  it('normalizes a missing shape to full export bounds without changing composition success', () => {
+    store = makeStore();
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 10;
+    const ctx = canvas.getContext('2d')!, rect = jest.spyOn(ctx, 'rect'), fill = jest.spyOn(ctx, 'fill');
+    const { result } = renderHook(() => useExportFrameProvider({ width: 10, height: 10, compositeLayersToCanvasSync: () => true, includeBackground: false }));
+    result.current.compositeToCanvas(canvas);
+    expect(rect).toHaveBeenCalledWith(0, 0, 10, 10); expect(fill).toHaveBeenCalledTimes(1);
+    rect.mockRestore(); fill.mockRestore();
+  });
+
+  it('does not apply a shape mask to a failed compositor frame', () => {
+    store = makeStore();
+    const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d')!, fill = jest.spyOn(ctx, 'fill');
+    const { result } = renderHook(() => useExportFrameProvider({ width: 10, height: 10, compositeLayersToCanvasSync: () => false, includeBackground: false }));
+    expect(() => result.current.compositeToCanvas(canvas)).toThrow('Failed to composite export frame');
+    expect(fill).not.toHaveBeenCalled(); fill.mockRestore();
   });
 });

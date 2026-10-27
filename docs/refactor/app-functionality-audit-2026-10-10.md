@@ -1,5 +1,9 @@
 # Vessel functionality audit — 10 October 2026
 
+## Current audit status — Session39 final
+
+**65/65 (100%) complete** under the recorded software-verification scopes and explicit capability limits. Final Area65: **3 native cases/139 checks**, all passed on production artifact `adc2adecabbd52caf9237a147727b745626b10df92b68034e114ee8aea72db2d`; source8 gate/build/native proof and preserved-work boundaries are recorded in the Area65 completion below. Historical incomplete/pending statements remain as dated evidence, not current status. No private/legacy capability or subjective visual approval is inferred.
+
 ## Session39 — 24 October 2026: reported selection and stroke regressions
 
 The user resumed the whole-app audit with GPT-6.1 Sol subagents and prioritized
@@ -1887,6 +1891,26 @@ Earlier Triangle failures remain excluded. Initial startup pause is intentionall
 
 The auxiliary case preserves raw preferences and typed database presence or absence without writes or store creation. The Triangle case restores the original seven raw values and both typed stores through the owned same-page lifecycle. Quiet fences1088.3ms and357ms record no post-restoration writes or transactions; unused packets and native descriptors remain exact. Both named contexts close with no matching daemon. Original47/raw staged patch,83 clean source owners, three mixed owners, public15, Studio and both auxiliary route authorities remain unchanged. The settled Area62 gate/build is reused; no fixture/docs-only build or repeated full suite was run. Only these two audit records enter a focused local commit, with no push, deployment, branch or worktree change.
 
+## Session39 — Area65 complete: Canvas Shape geometry, clipping and archive idempotence
+
+Areas01–65 are complete: **65/65 (100%)**, within the recorded software-verification scopes and capability limits. Final Area65 passed **3 native cases/139 checks**: geometry/history49, rectangular clipping/PNG47 and two-cycle Save/Load43. All passed on production artifact `adc2adecabbd52caf9237a147727b745626b10df92b68034e114ee8aea72db2d`, with zero unexpected errors, exact restoration and closed-browser cleanup.
+
+The actual BEFORE packet completed all three cases with125 passing/six failing checks. It proved three application defects: freehand Enter added duplicate closing vertices and genuine Load grew raw lists7→8→9; Resize Undo restored document dimensions but retained the smaller clamped circle; PNG export exposed paint outside the authored rectangle, producing192 wrong RGBA channels. Every BEFORE case restored its data; that failed packet remains excluded from acceptance.
+
+The canvasShape owner now appends a closing vertex only when the clamped terminal point differs from the first. Fresh authored freehand geometry stays at five points through Enter and both genuine Save/Load cycles. Already-closed historical lists are retained without destructive duplicate cleanup. Save/Load proof includes independently parsed ZIP/CRC/raster bytes, file identity and SHA captured before native Load, a fresh project object, cleared import history and preserved durable document/layer metadata. File-handle I/O is an explicit boundary double; serialization and public Save/Load handlers are real.
+
+Resize history retains the dimensions delta and adds the existing raw crop-geometry companion, cloned before asynchronous work and finalized after replay rehydration. Native Undo restores the original circle center192,96/r32; Redo restores the clamped176,96/r16 circle, and a second Undo restores the original again. Dimensions, complete canonical/framebuffer pixels, normal version behavior and the same history command/prefix pass in each direction. Pixel comparisons here prove history roundtrips against captured states, not an independent resize algorithm oracle. Unit regressions additionally cover absent versus own-undefined shape fields and replay failure compensation.
+
+The export frame provider applies the existing normalized shape mask after composition and before scaling/encoding. Native rectangle export retains128 red canonical pixels in the document while display and transparent-background1x PNG contain only32 in-shape pixels. Independent full256×256 decoded PNG comparison has zero mismatches. Shared-provider unit tests cover mask ordering for PNG/GIF/video; this is not native acceptance of every format, background option, shape antialiasing or performance characteristic. Existing background-on encoder behavior is unchanged.
+
+Eight existing source/test paths form the final boundary. Seven reviewed release files are unchanged from the original candidate; the eighth updates the existing history intent test to expect dimensions and crop geometry within one history entry. The first full gate failed only that obsolete tag expectation (628 passing suites/6622 passing tests), preserved all data and never built. The corrected audit passed17 scoped tests. The two causal parent suites total54 tests: BEFORE12 failed/42 passed, AFTER54 passed. Final gateV2 passed diff/type/lint and **629 suites/6623 tests**, with one existing skipped suite/test and two passing snapshots. The sole actual production preview buildV2 passed. No public store API, archive codec, brush algorithm or unrelated crop implementation changed.
+
+Final native receipt `f218ae3e05cd0c1e51d75d19d5058b9772fefd664323eaab00e148eac41c6968`, plan `bc143c36066b0b5f65c2a2c793a178fc145ed66f9a5523ccaf0e037390f2785b` and manifest `7d725824376bd8fa0a85ba7f3547d60ab6872e2f95298ce68367a1dc87593290` bind the actual three cases. Gate `846caa6eeb718ece8bca958edeb3fa2659687065e3fff1044713563c8ec0612b`, source freeze `76111af2ab982dc02c1b1a06e28d2caf2e35c459e5a412d5c271284198a07935`, build `d2d999582ff263b4fcbbfa7b52ab3507b32d4271a2eb58a3b0c99e88710dcb11` and after `677d1038ddc743b6b5149bf5f8b69f39838e1e7b706be153c39fa587c8ac21e1` bind exact source8 and both auxiliary route maps. Author `ae6fa3a2ae30a492b8f0945e60bfcc9ef1c6fbdb1a1b2dea70e92d9042baa975` and publication release `0c406c8800af8dd447d17bf26489c60be6b40f4f851b19bfd4a4fff2aadbee8b` retain the failed qualification and first gate unchanged.
+
+All three cases restored the seven original raw preference values and both typed IndexedDB stores, with final quiet fences363.6/361.3/354.9ms and zero post-restoration writes or transactions. Session packets remained unused/unchanged and native API descriptors were restored. One reused named main primary closed with no matching daemon; source and prepared/compiled continuity passed. Historical fixture labels and disposable filenames still say Area54; their actual loaded SHA and source bindings are the final Area65 artifact above. No private/legacy capability, opaque history payload or subjective visual signoff is inferred.
+
+The focused local commit includes source8 and these two audit records only. Original47 working paths, byte-exact original staged patch, backupMap53, three mixed owners, public15 and Studio are preserved. Four inherited overlaps and four additional clean owners produce union87. Both ReferenceStudio and UI Shape auxiliary authorities bind assets from the same sole build. No push, deployment, branch or worktree change.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1969,7 +1993,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 62 | Multiplayer: start/stop/failure, shared canvas/input/permissions, session lifecycle | collaboration runtime, toolbar | verified (Session39; 2 native cases/100 checks; source4 protocol-only client closeout) |
 | 63 | Conditional Studio extension: enumerate visible controls only if build enables it | extensions/studioExtension | verified (Session39; 1 native case/15 checks; source-empty BASE capability classification) |
 | 64 | Public CC Triangle, legacy Shape Gradient reachability and auxiliary UI Shape reference | presets, pages, extension entrypoints | verified (Session39; 2 native cases/55 checks; source-empty public Triangle and auxiliary route) |
-| 65 | Canvas shape: rectangular/circle/freehand document bounds, Enter/Escape, clipping, persistence/export/history | DocumentModal, canvasShape slice/handlers | pending |
+| 65 | Canvas shape: rectangular/circle/freehand document bounds, Enter/Escape, clipping, persistence/export/history | DocumentModal, canvasShape slice/handlers | verified (Session39; 3 native cases/139 checks; source8 Canvas Shape closeout) |
 
 ## Issue and evidence log — session 1 (historical; superseded below)
 

@@ -777,7 +777,7 @@ export const createProjectSlice =
 
       await recordResizeHistory({
         beforeProject: historyBaseline.projectSize,
-        afterProject: { width, height },
+        afterProject: get().project,
         beforeLayers: historyBaseline.layerSnapshots,
         afterLayers: get().layers,
         description: `Resize canvas to ${width}×${height}`,

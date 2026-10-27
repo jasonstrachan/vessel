@@ -72,3 +72,34 @@ describe('canvasShape', () => {
     expect(isPointInCanvasShape(shape, { x: 80, y: 80 })).toBe(false);
   });
 });
+
+
+describe('freehand normalization idempotence', () => {
+  const vertices = [{ x: 48, y: 64 }, { x: 112, y: 64 }, { x: 112, y: 128 }, { x: 48, y: 128 }];
+  const documentBounds = getCanvasBounds(256, 256);
+
+  it('closes an open polygon once and preserves the exact ordered vertices through repeated normalization', () => {
+    const input = vertices.map(point => ({ ...point }));
+    const original = JSON.parse(JSON.stringify(input));
+    let shape = buildFreehandShape(input, documentBounds);
+    for (let index = 0; index < 5; index += 1) shape = normalizeCanvasShape(shape, 256, 256);
+    expect(shape).toEqual({ kind: 'freehand', points: [...vertices, vertices[0]], bounds: { x: 48, y: 64, width: 64, height: 64 } });
+    expect(input).toEqual(original);
+  });
+
+  it('does not grow or destructively rewrite already closed historical point lists', () => {
+    const points = [...vertices, vertices[0], vertices[0]].map(point => ({ ...point }));
+    const original = JSON.parse(JSON.stringify(points));
+    const shape = buildFreehandShape(points, documentBounds);
+    expect(shape.kind === 'freehand' && shape.points).toEqual(original);
+    expect(normalizeCanvasShape(shape, 256, 256)).toEqual(shape);
+    expect(points).toEqual(original);
+  });
+
+  it('tests terminal equality after clamping and leaves singleton behavior intact', () => {
+    const shape = buildFreehandShape([{ x: -1, y: 10 }, { x: 20, y: 30 }, { x: -9, y: 10 }], documentBounds);
+    expect(shape.kind === 'freehand' && shape.points).toEqual([{ x: 0, y: 10 }, { x: 20, y: 30 }, { x: 0, y: 10 }]);
+    const single = buildFreehandShape([{ x: 4, y: 8 }], documentBounds);
+    expect(single.kind === 'freehand' && single.points).toEqual([{ x: 4, y: 8 }]);
+  });
+});

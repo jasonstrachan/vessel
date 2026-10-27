@@ -569,7 +569,7 @@ describe('history intent audit', () => {
     expectOneHistoryEntry({
       beforeCount,
       action: 'project-transform',
-      deltaTags: ['project-dimensions'],
+      deltaTags: ['project-dimensions', 'crop-geometry'],
     });
   });
 
