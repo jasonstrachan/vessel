@@ -168,17 +168,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   }, []);
 
   useEffect(() => {
+    let timeout: number;
     if (isOpen) {
       setShouldRender(true);
       const modalWidth = 448;
       const x = Math.max(16, Math.round((window.innerWidth - modalWidth) / 2));
       const y = Math.max(24, Math.round(window.innerHeight * 0.12));
       setPos({ x, y });
-      window.setTimeout(() => setIsVisible(true), 10);
+      timeout = window.setTimeout(() => setIsVisible(true), 10);
     } else {
       setIsVisible(false);
-      window.setTimeout(() => setShouldRender(false), 300);
+      timeout = window.setTimeout(() => setShouldRender(false), 300);
     }
+    return () => window.clearTimeout(timeout);
   }, [isOpen]);
 
   useEffect(() => {

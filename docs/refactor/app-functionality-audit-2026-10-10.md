@@ -1692,6 +1692,24 @@ The isolated final gate passes type-check, lint and the full suite: 625 suites/6
 
 The focused change comprises projectIO, projectRepairExport and its existing test plus these two audit records. The original protected projectIO +21 patch is preserved as a separate working projection, alongside the two earlier keyboard mixed owners; all other original working paths and the original staged patch remain intact. Public/served15 and Studio are unchanged. No push, deployment, branch change or new worktree. Areas54–65 remain incomplete.
 
+## Session39 — Area54 complete: autosave, attached backup and reload flows
+
+Areas01–54 are complete: **54/65 (83.1%)**. Area55 remains pending and starts from a fresh source-empty capture after this focused local commit.
+
+Accepted production proof: **3 native cases/200 checks** (immediate/periodic65, attached-backup65, reload/New70), zero failures/errors. `area54-native-after-v1-session39.json` is bound to production artifact `d4cb87af88e083530d2abee0a3d78434b135b32c7f7bf88de525ec4e3e2e7deb`. All prepared/compiled/log/raw tuples, source hashes, exact restoration receipts, named-browser closure and repository post-guards pass. Diagnostic-only and failed BEFORE cohorts remain excluded.
+
+Public Autosave enable produces an immediate atomic archive/session save. All exposed interval choices2/5/10/1 are admitted; a genuine60315.1ms interval produces a newer saved revision with independently decoded literal raster pixels, while disabling prevents archive writes during the bounded subsequent edit. Canonical pixels/framebuffer/version/history remain exact; autosave does not add paint history commands. Seven raw preferences and both IndexedDB stores return to their captured originals.
+
+A public Save establishes a declared in-memory file-handle I/O boundary. Autosave updates the reachable attached-file backup with matching declared material. A subsequent denied permission query leaves the backup bytes/time unchanged, issues no permission request or replacement picker/write, preserves a newer primary IndexedDB save and exposes the specific warning. This is attached-handle behavior under an explicit I/O double; native OS permission dialogs and directory backup modes are not claimed.
+
+Reload starts the source-defined transparent Untitled document/history0 while retaining the earlier archive and raw current-session, including a newer unsaved revision. No mounted recovery prompt/control is present; private recovery functions, real crashes and successful recovery UI are not claimed. Public New resets its current session/history and preserves prior archives. The reloaded file-handle baseline is null; this case does not prove detachment of a non-null saved handle. Durable raw backup, owned-record cleanup, exact two-store/preferences readback,365.3ms quiet with zero later writes/transactions, and deletion of only the UUID-owned backup all pass. Original stores were empty in this bounded case; arbitrary nonempty legacy records/handles/graphs are not claimed as positively exercised.
+
+The qualified source defect was a stale Settings close timer: after a trusted Options click, its heading/tab appeared at441.3ms and vanished at456.1ms while the app still held settings=true and modal keyboard scope, without a close input. SettingsModal now cancels its effect-owned timeout on dependency changes/unmount. The existing10/300ms durations, normal closing transition, public Escape save and store/keyboard owners remain intact. Four actual-component regressions produce2fail/2pass before and4pass after; the fresh browser AFTER uses the unchanged functional actions and now completes storage restoration without added waits or forced clicks. The analogous DocumentModal pattern remains a separate Area60 follow-up.
+
+The isolated full gate passes type-check, lint and626 suites/6552 tests/2 snapshots, with one existing skipped suite/test. The new working production-preview build and exact three browser flows pass. Earlier selector/cleanup failures and the timer diagnostic retain truthful unverified restoration results; later passing evidence does not rewrite those results.
+
+Focused ownership is SettingsModal and its new adjacent regression test plus these two audit records. Original47 working paths, the existing staged patch,59 prior clean owners and three separate mixed owners remain intact; the two newly committed clean owners bring that map to61. The original backup map, public/served15 and Studio remain unchanged. No push, deployment, branch change or new worktree. Areas55–65 remain incomplete.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1763,7 +1781,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 51 | History: all edit operations, redo invalidation, limits/spill/recovery, layer/runtime rehydration | history manager/slice/deltas | verified (Session39;4 native cases/456 checks; source-empty history closeout) |
 | 52 | Save/load: .vs/archive round trip, raster/CC/sequence/custom brushes/filters/alignments, errors | projectIO, project slice | verified (Session39;3 native cases/243 checks; source-empty serialization closeout) |
 | 53 | Load browser: file/folder/drop, preview/navigation/zoom, health/repair/export, cancellation | LoadProjectModal, directory/preview hooks | verified (Session39;4 native cases/168 checks; explicit repair copy) |
-| 54 | Autosave/recovery/backups: enable/interval/status, failure, recovery/new-document behavior | autosave slice/services, SettingsModal | pending |
+| 54 | Autosave/recovery/backups: enable/interval/status, failure, recovery/new-document behavior | autosave slice/services, SettingsModal | verified (Session39; 3 native cases/200 checks; Settings timer correction and autosave runtime proof) |
 | 55 | PNG export: alpha/background, layer composition, bounds/size, download/errors | projectIO, ExportModal | pending |
 | 56 | GIF export: duration/FPS/size, palette/alpha, playback, progress/cancel/errors | exportService, ExportModal | pending |
 | 57 | Video export: supported format/fallback, timing/size, progress/cancel/errors | exportService, ExportModal | pending |
