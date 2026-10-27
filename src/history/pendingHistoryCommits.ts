@@ -2,9 +2,10 @@ const pendingHistoryCommits = new Set<Promise<void>>();
 
 export const trackPendingHistoryCommit = (commitPromise: Promise<void>): void => {
   pendingHistoryCommits.add(commitPromise);
-  commitPromise.finally(() => {
+  const settle = () => {
     pendingHistoryCommits.delete(commitPromise);
-  });
+  };
+  void commitPromise.then(settle, settle);
 };
 
 export const waitForPendingHistoryCommits = async (): Promise<void> => {

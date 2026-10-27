@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { trackPendingHistoryCommit } from '@/history/pendingHistoryCommits';
 import {
   createFinalizeExecutionDispatcher as createFinalizeExecutionDispatcherExternal,
 } from '@/hooks/canvas/handlers/finalizeExecution';
@@ -67,6 +68,7 @@ export const useFinalizeDrawingHandlers = ({
   const wrappedHandlers = useMemo(() => {
     const finalizeDrawing = (skipSaveOrOptions?: Parameters<typeof baseHandlers.finalizeDrawing>[0]) => {
       const run = baseHandlers.finalizeDrawing(skipSaveOrOptions);
+      trackPendingHistoryCommit(run);
       pendingFinalizeRef.current = run;
       return run.finally(() => {
         if (pendingFinalizeRef.current === run) {
