@@ -127,20 +127,7 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
 
 export const resetFeatureFlags = (): void => {
   (Object.keys(defaultState) as FeatureFlagKey[]).forEach((key) => {
-    const value = defaultState[key];
-    if (state[key] !== value) {
-      state[key] = value;
-      if (typeof window !== 'undefined') {
-        try {
-          window.localStorage.setItem(STORAGE_KEYS[key], value ? 'true' : 'false');
-        } catch (error) {
-          if (process.env.NODE_ENV !== 'production') {
-            debugWarn('raw-console', '[featureFlags] failed to persist storage', error);
-          }
-        }
-      }
-      notify(key);
-    }
+    setFeatureFlag(key, defaultState[key]);
   });
 };
 
