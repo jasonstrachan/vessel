@@ -1,5 +1,7 @@
+import * as realGifenc from 'gifenc';
+
 import { estimateExport, runExport } from '@/utils/export/exportService';
-import type { ExportEstimateRequest, FrameProvider } from '@/utils/export/types';
+import type { ExportEstimateRequest, ExportProgress, FrameProvider, GifExportRequest } from '@/utils/export/types';
 
 describe('exportService', () => {
   const blobToBytes = async (blob: Blob): Promise<Uint8Array> => {
@@ -100,6 +102,133 @@ describe('exportService', () => {
       advanceFrame: () => {},
       finish: () => {},
     }),
+  });
+
+
+  const readGraphicControls = (bytes: Uint8Array) => {
+    expect(String.fromCharCode(...bytes.slice(0, 6))).toBe('GIF89a');
+    let offset = 13 + ((bytes[10] & 128) ? 3 * (1 << ((bytes[10] & 7) + 1)) : 0);
+    const controls: Array<{ transparent: boolean; index: number }> = [];
+    const skipBlocks = () => {
+      while (bytes[offset] !== 0) {
+        offset += bytes[offset] + 1;
+        if (offset >= bytes.length) throw new Error('Truncated test GIF');
+      }
+      offset += 1;
+    };
+    while (offset < bytes.length && bytes[offset] !== 0x3b) {
+      const tag = bytes[offset++];
+      if (tag === 0x21) {
+        const kind = bytes[offset++];
+        if (kind === 0xf9) {
+          expect(bytes[offset]).toBe(4);
+          controls.push({ transparent: (bytes[offset + 1] & 1) !== 0, index: bytes[offset + 4] });
+        }
+        skipBlocks();
+      } else if (tag === 0x2c) {
+        const packed = bytes[offset + 8];
+        offset += 9 + ((packed & 128) ? 3 * (1 << ((packed & 7) + 1)) : 0);
+        offset += 1; // LZW minimum code size; skip image payload without decoding it.
+        skipBlocks();
+      } else {
+        throw new Error('Unexpected test GIF block');
+      }
+    }
+    expect(bytes[offset]).toBe(0x3b);
+    return controls;
+  };
+
+  const literalGifRequest = (frameProvider: FrameProvider): GifExportRequest => ({
+    kind: 'gif', filenameBase: 'Literal', scale: 1, frameProvider, gifencModule: realGifenc,
+    options: {
+      fps: 50, durationSeconds: 0.04, repeat: -1, autoFrames: false,
+      frameStep: 1, ditherMethod: 'none', ditherStrength: 1, maxColors: 4, autoColors: true,
+    },
+  });
+
+  it.each([true, false])('writes the real GIF transparency flag for transparent source %s', async (transparent) => {
+    const rgba = new Uint8ClampedArray([
+      0, 0, 0, transparent ? 0 : 255, 255, 0, 0, 255,
+      0, 0, 255, 255, 255, 0, 0, 255,
+    ]);
+    const context = { getImageData: () => new ImageData(rgba.slice(), 2, 2) };
+    const getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation((() => context) as unknown as HTMLCanvasElement['getContext']);
+    const finish = jest.fn();
+    const provider: FrameProvider = {
+      getDimensions: () => ({ width: 2, height: 2 }), compositeToCanvas: jest.fn(),
+      beginAnimationSession: () => ({ stepFrame: jest.fn(), advanceFrame: jest.fn(), finish }),
+    };
+    try {
+      const result = await runExport(literalGifRequest(provider), jest.fn(), new AbortController().signal);
+      if (result.kind !== 'gif') throw new Error('Expected actual GIF');
+      const controls = readGraphicControls(await blobToBytes(result.blob));
+      expect(controls).toHaveLength(2);
+      expect(controls.map((control) => control.transparent)).toEqual([transparent, transparent]);
+      if (transparent) expect(controls.map((control) => control.index)).toEqual([0, 0]);
+      expect(finish).toHaveBeenCalledTimes(1);
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it('rejects an already aborted GIF without consuming pixels or producing encoder output', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const encoder = realGifenc.GIFEncoder();
+    const encoderFinish = jest.spyOn(encoder, 'finish');
+    const encoderBytes = jest.spyOn(encoder, 'bytes');
+    const sessionFinish = jest.fn();
+    const beginAnimationSession = jest.fn(() => ({
+      stepFrame: jest.fn(), advanceFrame: jest.fn(), finish: sessionFinish,
+    }));
+    const compositeToCanvas = jest.fn();
+    const provider: FrameProvider = {
+      getDimensions: () => ({ width: 2, height: 2 }), compositeToCanvas, beginAnimationSession,
+    };
+    const request = { ...literalGifRequest(provider), gifencModule: {
+      ...realGifenc, GIFEncoder: jest.fn(() => encoder),
+    } };
+    await expect(runExport(request, jest.fn(), controller.signal))
+      .rejects.toMatchObject({ name: 'AbortError', message: 'Export cancelled' });
+    expect(compositeToCanvas).not.toHaveBeenCalled();
+    expect(encoderFinish).not.toHaveBeenCalled();
+    expect(encoderBytes).not.toHaveBeenCalled();
+    expect(sessionFinish).toHaveBeenCalledTimes(beginAnimationSession.mock.calls.length);
+  });
+
+  it.each(['analyze', 'encode', 'final-encode'] as const)('rejects cancellation during %s without producing an export and restores the session', async (stage) => {
+    const context = { getImageData: () => new ImageData(new Uint8ClampedArray([
+      255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+    ]), 2, 2) };
+    const getContext = jest.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation((() => context) as unknown as HTMLCanvasElement['getContext']);
+    const controller = new AbortController();
+    const progress: ExportProgress[] = [];
+    let frame = 17;
+    const finish = jest.fn(() => { frame = 17; });
+    const provider: FrameProvider = {
+      getDimensions: () => ({ width: 2, height: 2 }), compositeToCanvas: jest.fn(),
+      beginAnimationSession: () => ({
+        stepFrame: ({ frameIndex }) => { frame = frameIndex; }, advanceFrame: jest.fn(), finish,
+      }),
+    };
+    const onProgress = (value: ExportProgress) => {
+      progress.push(value);
+      if ((stage === 'analyze' && value.phase === 'analyze')
+        || (stage === 'encode' && value.phase === 'encode')
+        || (stage === 'final-encode' && value.phase === 'encode' && value.percent === 100)) controller.abort();
+    };
+    try {
+      await expect(runExport(literalGifRequest(provider), onProgress, controller.signal))
+        .rejects.toMatchObject({ name: 'AbortError', message: 'Export cancelled' });
+      expect(controller.signal.aborted).toBe(true);
+      expect(progress.some((value) => value.phase === 'finalize')).toBe(false);
+      expect(finish).toHaveBeenCalledTimes(1);
+      expect(frame).toBe(17);
+    } finally {
+      getContext.mockRestore();
+    }
   });
 
   it('estimates GIF palette size and bytes', async () => {

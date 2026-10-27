@@ -292,7 +292,7 @@ const runGifExport = async (
   let paletteSize = 0;
   try {
     for (let i = 0; i < totalFrames; i++) {
-      if (signal.aborted) break;
+      if (signal.aborted) throw new DOMException('Export cancelled', 'AbortError');
       animationSession?.stepFrame({
         frameIndex: i,
         totalFrames,
@@ -325,7 +325,7 @@ const runGifExport = async (
     const transparentIndex = fixedPalette.findIndex((c) => (c.length >= 4 && c[3] === 0));
 
     for (let i = 0; i < frames.length; i++) {
-      if (signal.aborted) break;
+      if (signal.aborted) throw new DOMException('Export cancelled', 'AbortError');
       const frame = frames[i];
       const index = applyGifPalette(
         frame.data,
@@ -341,6 +341,7 @@ const runGifExport = async (
         palette: toGifPalette(fixedPalette),
         delay: Math.round(1000 / effectiveFps),
         repeat: options.repeat,
+        transparent: transparentIndex >= 0,
         transparentIndex: transparentIndex >= 0 ? transparentIndex : undefined,
       });
 
@@ -351,6 +352,7 @@ const runGifExport = async (
     animationSession?.finish?.();
   }
 
+  if (signal.aborted) throw new DOMException('Export cancelled', 'AbortError');
   gif.finish();
   const bytes = gif.bytes();
   const bytesCopy = new Uint8Array(bytes.length);
