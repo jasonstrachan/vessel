@@ -1,5 +1,6 @@
 import { PROJECT_FILE_EXTENSION } from '@/constants/projectFiles';
 import {
+  analyzeProjectArchiveRefs,
   deserializeProjectWithReport,
   getProjectHealthReport,
   readProjectHealthReport,
@@ -105,12 +106,17 @@ export async function repairAndExportProject(
   },
 ): Promise<ProjectRepairExportResult | null> {
   let repairInput = projectData;
-  let beforeHealth: ProjectHealthReport;
+  let beforeHealth: ProjectHealthReport | null = null;
+  let healthError: unknown;
   let explicitArchiveRepairDetailLines: string[] = [];
   let explicitArchiveRepairCount = 0;
   try {
     beforeHealth = await readProjectHealthReport(projectData);
   } catch (error) {
+    healthError = error;
+  }
+  // Health validates declared refs; repair must also inspect actual archive payloads.
+  if (beforeHealth === null || (await analyzeProjectArchiveRefs(projectData)).canRepairDanglingColorCycleRefs) {
     const repairedArchive = await repairDanglingColorCycleArchiveRefs(projectData);
     repairInput = repairedArchive.archiveData;
     explicitArchiveRepairCount = repairedArchive.report.removedRefs.length;
@@ -125,8 +131,8 @@ export async function repairAndExportProject(
     explicitArchiveRepairDetailLines = repairedArchive.report.removedRefs
       .slice(0, 5)
       .map((ref) => `Removed dangling ${ref.kind} ref ${ref.path} from ${ref.layerId}`);
-    if (explicitArchiveRepairDetailLines.length === 0 && error instanceof Error) {
-      explicitArchiveRepairDetailLines = [error.message];
+    if (explicitArchiveRepairDetailLines.length === 0 && healthError instanceof Error) {
+      explicitArchiveRepairDetailLines = [healthError.message];
     }
   }
 

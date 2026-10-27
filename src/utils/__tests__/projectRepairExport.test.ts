@@ -1,6 +1,9 @@
-import { deserializeProjectWithReport, readProjectHealthReport } from '@/utils/projectIO';
+import JSZip from 'jszip';
+
+import { analyzeProjectArchiveRefs, deserializeProjectWithReport, getProjectHealthReport, readProjectHealthReport, readProjectManifest, repairDanglingColorCycleArchiveRefs, serializeProject } from '@/utils/projectIO';
 import { repairAndExportProject } from '@/utils/projectRepairExport';
 import { sanitizeDisplayFilters } from '@/lib/displayFilters';
+import { fnv1aHash } from '@/utils/projectPersistence';
 
 const encodeRawImageDataUrl = (imageData: ImageData): string => {
   const rawData = {
@@ -738,4 +741,128 @@ describe('projectRepairExport', () => {
       });
     }
   }, 15000);
+  const createDeclaredPaintArchive = async (missingPaint: boolean, intactMotion = false) => {
+    const pixels = new Uint8ClampedArray([
+      255, 0, 0, 255, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 255, 255,
+    ]);
+    const preview = encodeRawImageDataUrl(new ImageData(pixels, 2, 2));
+    const previewBytes = new TextEncoder().encode(preview);
+    const paint = new Uint8Array([255, 0, 0, 255]);
+    const paintPath = 'buffers/color-cycle/repair-cc/paint.bin';
+    const previewPath = 'buffers/color-cycle/repair-cc/canvas-image.txt';
+    const motion = { speed: new Uint8Array([12, 0, 0, 23]), flow: new Uint8Array([1, 2, 3, 4]), phase: new Uint8Array([5, 6, 7, 8]) };
+    const motionEntries = Object.entries(motion).map(([name, bytes]) => ({ version: 1, path: `buffers/color-cycle/repair-cc/${name}.bin`, checksum: fnv1aHash(bytes), byteLength: bytes.byteLength, dtype: 'uint8', compression: 'deflate' }));
+    const archive = new JSZip();
+    archive.file('project.json', JSON.stringify({
+      version: '1.0.0',
+      manifestVersion: 1,
+      metadata: { name: 'declared-paint', created: '2025-01-01T00:00:00.000Z', modified: '2025-01-01T00:00:00.000Z', appVersion: '1.0.0' },
+      project: {
+        id: 'declared-paint-project', name: 'declared-paint', width: 2, height: 2,
+        backgroundColor: 'transparent', customBrushes: [],
+        layers: [{
+          id: 'repair-cc', name: 'Repair CC', visible: true, opacity: 1,
+          blendMode: 'source-over', locked: false, order: 0, imageDataUrl: '',
+          layerType: 'color-cycle',
+          state: { version: 1, dimensions: { width: 2, height: 2 }, paintRef: `zip:${paintPath}`, hasContent: true, ...(intactMotion ? { speedRef: 'zip:buffers/color-cycle/repair-cc/speed.bin', flowRef: 'zip:buffers/color-cycle/repair-cc/flow.bin', phaseRef: 'zip:buffers/color-cycle/repair-cc/phase.bin' } : {}) },
+          colorCycleData: { canvasImageData: `zip:${previewPath}` },
+        }],
+      },
+      binaries: { entries: [
+        ...(intactMotion ? motionEntries : []),
+        { version: 1, path: paintPath, checksum: fnv1aHash(paint), byteLength: paint.byteLength, dtype: 'uint8', compression: 'deflate' },
+        { version: 1, path: previewPath, checksum: fnv1aHash(previewBytes), byteLength: previewBytes.byteLength, dtype: 'unknown', compression: 'deflate' },
+      ] },
+    }));
+    archive.file(previewPath, preview);
+    if (intactMotion) for (const [name, bytes] of Object.entries(motion)) archive.file(`buffers/color-cycle/repair-cc/${name}.bin`, bytes);
+    if (!missingPaint) archive.file(paintPath, paint);
+    return { bytes: await archive.generateAsync({ type: 'uint8array', compression: 'DEFLATE' }), pixels, preview, paintPath, motion };
+  };
+
+  it.each([false, true])('reaches explicit confirmation for a declared but missing paint payload (accept=%s)', async (accept) => {
+    const input = await createDeclaredPaintArchive(true, true);
+    const originalBytes = input.bytes.slice();
+    // This is the reported mismatch: health accepts the declared manifest while
+    // archive analysis sees that the actual canonical payload is absent.
+    await expect(readProjectHealthReport(input.bytes)).resolves.toBeDefined();
+    expect((await analyzeProjectArchiveRefs(input.bytes)).canRepairDanglingColorCycleRefs).toBe(true);
+    const originalPicker = Object.getOwnPropertyDescriptor(window, 'showSaveFilePicker');
+    const originalEncoding = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, 'toDataURL');
+    let savedBytes: Uint8Array = new Uint8Array(0);
+    const write = jest.fn(async (payload: { data: ArrayBuffer }) => { savedBytes = new Uint8Array(payload.data); });
+    const close = jest.fn(async () => {});
+    const newHandle = { name: 'damaged-repaired.vs', createWritable: jest.fn(async () => ({ write, truncate: async () => {}, close, abort: async () => {} })) } as unknown as FileSystemFileHandle;
+    const existingHandle = { createWritable: jest.fn() } as unknown as FileSystemFileHandle;
+    const picker = jest.fn(async () => newHandle);
+    const confirmWrite = jest.fn(async () => accept);
+    Object.defineProperty(window, 'showSaveFilePicker', { configurable: true, value: picker });
+    Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', { configurable: true, value: () => { throw new Error('Use raw image I/O boundary'); } });
+    try {
+      const result = await repairAndExportProject(input.bytes, { fileName: 'damaged.vs', existingHandle, confirmWrite });
+      expect(confirmWrite).toHaveBeenCalledTimes(1);
+      expect(confirmWrite).toHaveBeenCalledWith(expect.objectContaining({
+        confirmationMessage: expect.stringContaining(input.paintPath),
+        semanticRepairCount: expect.any(Number),
+      }));
+      expect(existingHandle.createWritable).not.toHaveBeenCalled();
+      expect(input.bytes).toEqual(originalBytes);
+      if (!accept) {
+        expect(result).toBeNull();
+        expect(picker).not.toHaveBeenCalled();
+        expect(write).not.toHaveBeenCalled();
+        return;
+      }
+      expect(result?.fileName).toBe('damaged-repaired.vs');
+      expect(picker).toHaveBeenCalledTimes(1);
+      expect(write).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(result?.project.layers[0]?.colorCycleData?.repairStatus).toEqual(expect.objectContaining({ ok: false, reason: 'missing-paint-buffer' }));
+      const repairedPixels = result?.project.layers[0]?.colorCycleData?.canvasImageData;
+      expect(repairedPixels).toBeInstanceOf(ImageData);
+      expect(Array.from((repairedPixels as ImageData).data)).toEqual(Array.from(input.pixels));
+      const manifest = await readProjectManifest(savedBytes);
+      expect((await analyzeProjectArchiveRefs(savedBytes)).missingCanonicalColorCycleRefs).toEqual([]);
+      expect(manifest.project.layers[0]?.colorCycleData?.repairStatus).toEqual(expect.objectContaining({ ok: false, reason: 'missing-paint-buffer' }));
+      const output = await JSZip.loadAsync(savedBytes);
+      const layer = manifest.project.layers[0];
+      const ref = layer?.colorCycleData?.canvasImageData;
+      expect(typeof ref).toBe('string');
+      const preview = ref?.startsWith('zip:') ? await output.file(ref.slice(4))!.async('string') : ref;
+      expect(preview).toBe(input.preview);
+      expect(output.file(input.paintPath)).toBeNull();
+      for (const [name, bytes] of Object.entries(input.motion)) {
+        expect(await output.file(`buffers/color-cycle/repair-cc/${name}.bin`)!.async('uint8array')).toEqual(bytes);
+      }
+    } finally {
+      if (originalPicker) Object.defineProperty(window, 'showSaveFilePicker', originalPicker);
+      else Reflect.deleteProperty(window, 'showSaveFilePicker');
+      if (originalEncoding) Object.defineProperty(HTMLCanvasElement.prototype, 'toDataURL', originalEncoding);
+    }
+  });
+
+  it('does not mutate repaired eager motion metadata across repeated health reports and saves', async () => {
+    const input = await createDeclaredPaintArchive(true, true);
+    const originalBytes = input.bytes.slice();
+    const archive = (await repairDanglingColorCycleArchiveRefs(input.bytes)).archiveData;
+    const { project } = await deserializeProjectWithReport(archive);
+    const layer = project.layers[0];
+    const sourceBefore = JSON.stringify(layer.colorCycleData?.brushState);
+    expect(sourceBefore).toContain(Buffer.from(input.motion.speed).toString('base64'));
+    expect(sourceBefore).not.toContain('zip:');
+    for (let round = 0; round < 2; round += 1) {
+      await getProjectHealthReport(project, project.layers);
+      expect(JSON.stringify(layer.colorCycleData?.brushState)).toBe(sourceBefore);
+      const saved = await serializeProject(project, project.layers);
+      expect(JSON.stringify(layer.colorCycleData?.brushState)).toBe(sourceBefore);
+      const output = await JSZip.loadAsync(saved);
+      for (const [name, bytes] of Object.entries(input.motion)) {
+        expect(await output.file(`buffers/color-cycle/repair-cc/${name}.bin`)!.async('uint8array')).toEqual(bytes);
+      }
+      expect((await analyzeProjectArchiveRefs(saved)).issues).toEqual([]);
+    }
+    expect(input.bytes).toEqual(originalBytes);
+  });
+
 });

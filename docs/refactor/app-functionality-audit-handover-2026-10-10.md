@@ -1677,6 +1677,22 @@ No source change, new full gate or production rebuild was needed for this source
 
 Compatible prior owner proofs reused explicitly: Area40 alignment195, Area46 enabled-filter `.vs`73 and Area42 group Save/Load36. They are provenance, not additional Area52 checks. Prior Area49 full gate625 suites/6545 tests plus2 snapshots and one existing skip/build is unchanged provenance; no new build or full-suite claim for this source-empty area. All three accepted cases restore exact seven/nine/seven preference keys after real startup persistence and two quiet fences; API/session/observer cleanup, no browser daemon, original47 working paths, original staged bytes,57 inherited clean owners plus two mixed owners,15 public/served assets and Studio fingerprints pass. Local documentation-only commit; no push/deploy/branch change.
 
+## Session39 — Area53 complete: file browser, preview and safe repair export
+
+Areas01–53 are complete: **53/65 (81.5%)**. Area54 remains pending and begins from a fresh source-empty capture after this focused local commit.
+
+Production proof: **4 native cases/168 checks** (file preview36, repair copy38, real directory55, global drop39), zero failures/errors. Actual AFTER4 receipt `area53-native-after-v4-session39.json` is bound to artifact `896c46e414e6eca6b97306e6a2b758db63e208b58f795fa89cde09d49182b3a6`; prepared/compiled/log/result continuity, exact owned preference restoration, quiet fences, named-browser closure and repository preservation all pass.
+
+The file preview case covers the public file input, fit capped at2x, centering, clamped pan, double-click recenter, resize, Cancel and Escape. The directory case uses a real isolated OPFS directory and native handle cloning/persistence, exact numeric sort, eight navigation keys, Refresh/reopen, stale-row Close admission and healthy double-click import; only owned directory records/files are removed. The drop case uses explicitly synthetic DragEvent/DataTransfer/File I/O through the mounted global handler, unsupported-file rejection, overlay/Escape and preview cancellation. Browser synthetic copy-cursor support and trusted OS dragging are excluded.
+
+Two source defects are repaired. Repair export now checks actual archive payload availability even when the declared health manifest succeeds. Serialization copies the snapshot metadata it externalizes, preventing health reporting from rewriting loaded motion buffers into dangling ZIP refs before Save. The same final regression tests fail twice before and pass all7 after in both clean and protected-working projections, including repeated health reports/saves and unchanged source metadata/original archive.
+
+The damaged-paint browser case proves actual repair-only controls, declared reversible confirmation I/O Cancel then Accept, one new repaired-copy write/close without overwriting the source, exact retained speed/flow/phase bytes, complete checksummed emitted ZIP refs and the independent literal red64 static preview. Existing canonical policy explicitly omits paint and orphan gradient bindings when paint is unavailable: hasContentfalse and missing-paint repairStatus remain accurate. This is a static compatibility copy; recovered animation or preservation of all orphan canonical planes is not claimed. The original archive remains unchanged. Native confirmation reach was observed separately; automated Cancel/Accept uses the declared I/O boundary, without an OS-dialog-click claim.
+
+The isolated final gate passes type-check, lint and the full suite: 625 suites/6548 tests/2 snapshots, with one existing skipped suite/test. The working production-preview build and exact runtime interaction pass. Earlier interrupted/failed cohorts and the overbroad five-canonical-ref fixture failure remain immutable evidence and are excluded from acceptance; AFTER4 is the accepted four-case cohort.
+
+The focused change comprises projectIO, projectRepairExport and its existing test plus these two audit records. The original protected projectIO +21 patch is preserved as a separate working projection, alongside the two earlier keyboard mixed owners; all other original working paths and the original staged patch remain intact. Public/served15 and Studio are unchanged. No push, deployment, branch change or new worktree. Areas54–65 remain incomplete.
+
 ## Current continuation — Session38, Area19 complete
 
 FIRST READ output/playwright/area20-root-facts-session38.md, then Session38 final

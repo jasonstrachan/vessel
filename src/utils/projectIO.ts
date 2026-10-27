@@ -2511,34 +2511,42 @@ const getSerializedBrushSnapshotForLayer = (
 const buildColorCycleStateSource = (
   brushState: PersistedColorCycleBrushState | undefined,
   layerId: string,
-): SerializedColorCycleStateSource => ({
-  currentLayerSnapshot: getSerializedBrushSnapshotForLayer(brushState, layerId),
-  speedSourceVersion: getSerializedBrushSnapshotForLayer(brushState, layerId)
-    ?.strokeData?.speedSourceVersion,
-  dither: brushState
-    ? {
-        enabled: brushState.ditherEnabled,
-        strength: brushState.ditherStrength,
-        pixelSize: brushState.ditherPixelSize,
-        perceptual: brushState.perceptualDither,
-        stampShape: brushState.stampShape,
-        stampDitherEnabled: brushState.stampDitherEnabled,
-        stampDitherPixelSize: brushState.stampDitherPixelSize,
-        stampDitherAlgorithm: brushState.stampDitherAlgorithm,
-        stampDitherPatternStyle: brushState.stampDitherPatternStyle,
-        stampDitherPatternTileId: brushState.stampDitherPatternTileId,
-        stampDitherPatternTileScale: brushState.stampDitherPatternTileScale,
-        stampDitherPatternTileInvert: brushState.stampDitherPatternTileInvert,
-        stampDitherPatternTileThreshold: brushState.stampDitherPatternTileThreshold,
-        stampDitherPatternTileOffsetX: brushState.stampDitherPatternTileOffsetX,
-        stampDitherPatternTileOffsetY: brushState.stampDitherPatternTileOffsetY,
-        stampDitherBgFill: brushState.stampDitherBgFill,
-        stampDitherClears: brushState.stampDitherClears,
-        stampDitherPressureLinked: brushState.stampDitherPressureLinked,
-        pxlEdgeEnabled: brushState.pxlEdgeEnabled,
-      }
-    : undefined,
-});
+): SerializedColorCycleStateSource => {
+  const snapshot = getSerializedBrushSnapshotForLayer(brushState, layerId);
+  return {
+    // Archive externalization replaces buffer refs; never write through to the loaded layer.
+    currentLayerSnapshot: snapshot
+      ? {
+          ...snapshot,
+          ...(snapshot.strokeData ? { strokeData: { ...snapshot.strokeData } } : {}),
+        }
+      : undefined,
+    speedSourceVersion: snapshot?.strokeData?.speedSourceVersion,
+    dither: brushState
+      ? {
+          enabled: brushState.ditherEnabled,
+          strength: brushState.ditherStrength,
+          pixelSize: brushState.ditherPixelSize,
+          perceptual: brushState.perceptualDither,
+          stampShape: brushState.stampShape,
+          stampDitherEnabled: brushState.stampDitherEnabled,
+          stampDitherPixelSize: brushState.stampDitherPixelSize,
+          stampDitherAlgorithm: brushState.stampDitherAlgorithm,
+          stampDitherPatternStyle: brushState.stampDitherPatternStyle,
+          stampDitherPatternTileId: brushState.stampDitherPatternTileId,
+          stampDitherPatternTileScale: brushState.stampDitherPatternTileScale,
+          stampDitherPatternTileInvert: brushState.stampDitherPatternTileInvert,
+          stampDitherPatternTileThreshold: brushState.stampDitherPatternTileThreshold,
+          stampDitherPatternTileOffsetX: brushState.stampDitherPatternTileOffsetX,
+          stampDitherPatternTileOffsetY: brushState.stampDitherPatternTileOffsetY,
+          stampDitherBgFill: brushState.stampDitherBgFill,
+          stampDitherClears: brushState.stampDitherClears,
+          stampDitherPressureLinked: brushState.stampDitherPressureLinked,
+          pxlEdgeEnabled: brushState.pxlEdgeEnabled,
+        }
+      : undefined,
+  };
+};
 
 const applyColorCycleDocumentStateToSerializedSource = (
   source: SerializedColorCycleStateSource,
