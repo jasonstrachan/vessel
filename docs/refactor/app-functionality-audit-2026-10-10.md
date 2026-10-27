@@ -1863,6 +1863,16 @@ Earlier failed cohorts and the excluded ACK diagnostic remain excluded. In parti
 
 Root preserved the original47 working paths and raw staged patch, all83 inherited clean source owners after this commit, three mixed owners, all15 working/served public assets and Studio. The focused local commit contains four source/test files and these two audit records. No push, deployment, branch or worktree change.
 
+## Session39 — Area63 complete: Public BASE extension capability boundary
+
+Areas01–63 are complete: **63/65 (96.9%)**. The current public production build passed **1 native case/15 checks**, with no errors and exact source and storage preservation. Area64 is next; Areas64–65 remain pending. No application-source change was required.
+
+The source active entry selects the no-op Studio extension, and the completed public static-build configuration rejects inclusion of private Studio extensions. The actual bound main artifact contains one empty-preset supporting literal. Native enabled Library controls and a trusted public All filter contact are positive premises; the retained public inventory has no Unresolve or Replay controls. This classifies the public BASE build. It does not establish private Studio runtime behavior or depend on an internal module export or a fabricated runtime object.
+
+The case preserves complete source, project and autosave state; history counts, top IDs and state; seven raw preference values; and both typed IndexedDB stores. The original stores and unused session packet remain exact; native descriptors are restored, autosave remains disabled until the isolated test context closes, and the363.4ms final quiet fence records no writes or transactions. The named browser closes with no matching daemon. The inherited first diagnostic title mentions Area62, while its actual Area63 artifact and baseline bindings are correct; this cosmetic label adds no feature claim.
+
+The unchanged artifact is `a98a04a8651356e016f0b33eeee927501fb9ca6b04ff883b9b45163a8cce7195`, from the completed Area62 production build. Its settled full gate remains629 passing suites/6609 passing tests, one suite/test skipped and two passing snapshots, with type-check and lint passed. No fixture/docs-only rebuild or repeated full suite was needed. Original47/raw staged patch,83 clean source owners, three mixed owners, public15 and Studio remain unchanged. Only the two audit records enter the focused local commit; no push, deployment, branch or worktree change.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1943,7 +1953,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 60 | Library/UI: filters, active tool states, panel collapse/scroll, keyboard access, modals | BrushLibrary, toolbar, panels | verified (Session39; 4 native cases/95 checks; native labels and Document timer repaired) |
 | 61 | Reference Studio: open/blocked popup, import/reference manipulation, lifecycle | referenceStudio, toolbar | verified (Session39; 3 native cases/187 checks; source-empty Reference Studio closeout) |
 | 62 | Multiplayer: start/stop/failure, shared canvas/input/permissions, session lifecycle | collaboration runtime, toolbar | verified (Session39; 2 native cases/100 checks; source4 protocol-only client closeout) |
-| 63 | Conditional Studio extension: enumerate visible controls only if build enables it | extensions/studioExtension | pending |
+| 63 | Conditional Studio extension: enumerate visible controls only if build enables it | extensions/studioExtension | verified (Session39; 1 native case/15 checks; source-empty BASE capability classification) |
 | 64 | Hidden/legacy entrypoints: CC triangle/shape-gradient, auxiliary pages; establish reachability before scope | presets, pages, extension entrypoints | pending |
 | 65 | Canvas shape: rectangular/circle/freehand document bounds, Enter/Escape, clipping, persistence/export/history | DocumentModal, canvasShape slice/handlers | pending |
 
