@@ -218,7 +218,7 @@ export const ExportProgressView = ({
         )}
       </div>
 
-      <div className="flex shrink-0 justify-end gap-2 border-t border-[#424242] bg-[#252525] px-5 py-3">
+      <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[#424242] bg-[#252525] px-5 py-3">
         {isBlocked ? (
           <>
             <Button variant="secondary" onClick={onBack}>Back</Button>

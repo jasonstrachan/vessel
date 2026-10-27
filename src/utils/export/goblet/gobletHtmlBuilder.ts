@@ -291,6 +291,7 @@ const appendZipAutoloadSnippet = (
         }
         summarizeMetadata(normalizedMetadata, renderResult);
         lastMetadata = normalizedMetadata;
+        window.dispatchEvent(new CustomEvent('vessel-goblet-metadata', { detail: normalizedMetadata }));
         const rendererHandle = canvas && canvas[Symbol.for('VesselRenderer')];
         if (rendererHandle && typeof rendererHandle.setSourceMetadata === 'function') {
           rendererHandle.setSourceMetadata(normalizedMetadata);
@@ -628,6 +629,7 @@ const buildSingleFileRenderSnippet = (metadataJson: string, diagnosticsEnabled: 
             emitLog('[goblet] Render complete:', renderResult);
           }
           summarizeMetadata(packagedMetadata, renderResult);
+          window.dispatchEvent(new CustomEvent('vessel-goblet-metadata', { detail: packagedMetadata }));
           if (enableDiagnostics) {
             emitLog('Goblet render summary:', {
               scale,

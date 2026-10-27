@@ -757,6 +757,7 @@ describe('webglExporter bundle contracts', () => {
     expect(html).toContain('const packagedMetadataRaw = JSON.parse(`');
     expect(html).toContain('"format": "vessel-goblet2"');
     expect(html).toContain('"bundleFormat": "single-html"');
+    expect(html).toContain("new CustomEvent('vessel-goblet-metadata', { detail: packagedMetadata })");
   });
 
   it('wraps display-filter runtime in legacy single-file fallback', async () => {
@@ -819,6 +820,7 @@ describe('webglExporter bundle contracts', () => {
     expect(html).toContain('<title>Custom &lt;Goblet&gt;</title>');
     expect(html).toContain('bundle-contract-goblet.json');
     expect(html).not.toContain('"format": "vessel-goblet2"');
+    expect(html).toContain("new CustomEvent('vessel-goblet-metadata', { detail: normalizedMetadata })");
   });
 
   it('keeps diagnostic sidecar zip exports safe without embedded fallback metadata', async () => {

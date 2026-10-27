@@ -683,6 +683,7 @@
             await rendererV1?.ready;
             debugLog('[DEBUG] drawMetadata render summary', summary);
             lastMetadata = current;
+            window.dispatchEvent(new CustomEvent('vessel-goblet-metadata', { detail: current }));
           } catch (error) {
             console.error('Failed to render Goblet bundle', error);
             break;
