@@ -32,6 +32,44 @@ const readRuntime = (runtime: 'goblet' | 'goblet2'): string => (
 );
 
 describe('goblet metadata schema', () => {
+  describe.each(['goblet', 'goblet2'] as const)('%s actual metadata decoder', (runtime) => {
+    const loadDecoder = () => {
+      const source = readRuntime(runtime);
+      const map = source.match(/const PROPERTY_UNMINIFY_MAP = (\{[\s\S]*?\n\});/);
+      const start = source.indexOf('const expandMinifiedProperties =');
+      const end = source.indexOf("\nif (typeof window", start);
+      if (!map || start < 0 || end < 0) throw new Error('Actual runtime metadata decoder missing');
+      return new Function(`const PROPERTY_UNMINIFY_MAP = ${map[1]};\n${source.slice(start, end).replace('export const expandVesselMetadata', 'const expandVesselMetadata')}\nreturn { map: PROPERTY_UNMINIFY_MAP, expand: expandVesselMetadata };`)() as {
+        map: Record<string, string>;
+        expand: (value: unknown) => unknown;
+      };
+    };
+
+    it('decodes every canonical schema alias without claiming renderer feature support', () => {
+      const decoder = loadDecoder();
+      expect(Object.fromEntries(Object.keys(GOBLET_PROPERTY_UNMINIFY_MAP).map(key => [key, decoder.map[key]]))).toEqual(GOBLET_PROPERTY_UNMINIFY_MAP);
+      expect(decoder.map.plc).toBe('placement');
+      const original = Object.fromEntries(Object.keys(GOBLET_PROPERTY_MINIFY_MAP).map(key => [key, `literal-${key}`]));
+      expect(decoder.expand(__TESTING__.minifyProperties(original))).toEqual(original);
+    });
+
+    it('preserves nested presentation, image assets, unknown fields and unminified metadata', () => {
+      const decoder = loadDecoder();
+      const original = {
+        format: 'vessel',
+        settings: { htmlTitle: 'Literal title', htmlBackgroundColor: '#123456', futureSetting: { literal: 17 } },
+        layers: [{ paintedSize: { width: 128, height: 96 }, futureLayerField: ['unchanged'] }],
+        uiImageAssets: [{ assetId: 'image-1', naturalWidth: 64, naturalHeight: 48, createdAt: 3, updatedAt: 7 }],
+        unknownExtension: { literal: true },
+      };
+      const compact = __TESTING__.minifyProperties(original);
+      const before = JSON.stringify(compact);
+      expect(decoder.expand(compact)).toEqual(original);
+      expect(JSON.stringify(compact)).toBe(before);
+      expect(decoder.expand(original)).toBe(original);
+    });
+  });
+
   it('has no duplicate minified keys and supports critical CC fields', () => {
     const minifiedKeys = Object.values(GOBLET_PROPERTY_MINIFY_MAP);
 

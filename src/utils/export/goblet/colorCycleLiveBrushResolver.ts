@@ -42,14 +42,15 @@ export const hasGobletColorCycleLiveBrush = (layer: Layer): boolean => (
   Boolean(resolveGobletColorCycleLiveBrush(layer))
 );
 
-const isUnresolvedColdColorCycleDocument = (
+const isUnavailableColorCycleDocument = (
   document: ColorCycleLayerDocumentReader | null | undefined,
-): boolean => document?.residency === 'cold-archive-ref';
+): boolean => document?.residency === 'cold-archive-ref'
+  || document?.residency === 'static-preview-only';
 
 const resolveExportableGobletColorCycleDocument = (
   document: ColorCycleLayerDocumentReader | null | undefined,
 ): ColorCycleLayerDocumentReader | undefined => (
-  document && !isUnresolvedColdColorCycleDocument(document)
+  document && !isUnavailableColorCycleDocument(document)
     ? document
     : undefined
 );

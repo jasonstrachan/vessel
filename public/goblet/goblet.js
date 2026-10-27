@@ -1549,7 +1549,25 @@ const PROPERTY_UNMINIFY_MAP = {
   cbp: 'coverageBoundsPx',
   cbsp: 'coverageBoundsSourcePx',
   pm: 'phaseMap',
-  sq: 'sequential'
+  sq: 'sequential',
+  uia: 'uiImageAssets',
+  enc: 'encoding',
+  ev: 'encodedValues',
+  sc: 'sampleCount',
+  aid: 'assetId',
+  nw: 'naturalWidth',
+  nh: 'naturalHeight',
+  ca: 'createdAt',
+  ua: 'updatedAt',
+  hd: 'hand',
+  ag: 'adjustmentGroups',
+  adj: 'adjustment',
+  ef: 'effect',
+  tli: 'targetLayerIds',
+  csv: 'schemaVersion',
+  psz: 'paintedSize',
+  htl: 'htmlTitle',
+  hbc: 'htmlBackgroundColor'
 };
 
 const GOBLET_TRANSPARENCY_GRAY = '#5a5a5f';
