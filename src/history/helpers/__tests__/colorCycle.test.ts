@@ -105,6 +105,54 @@ describe('captureColorCycleBrushState', () => {
     expect(getImageDataSpy).toHaveBeenCalledTimes(2);
   });
 
+  it('captures independent sampled path metadata with fractional strand offsets', () => {
+    const sampledPath = { rgba: 'Nzc3/8PDw/8=', offset: 510 - 32 * 12 / 255 };
+    const definition = {
+      id: 3, kind: 'linear', stops: [{ position: 0, color: '#373737' }],
+      hash: 'sampled-path', source: 'sampled', seamProfile: 'hard', createdAtMs: 1,
+      sampledPath,
+    };
+    const paintBuffer = new Uint8Array([1, 2, 0, 0]).buffer;
+    (useAppStore.getState as jest.Mock).mockReturnValue({
+      project: { width: 2, height: 2 },
+      layers: [{ id: 'sampled-history', layerType: 'color-cycle',
+        colorCycleData: { canvasWidth: 2, canvasHeight: 2 } }],
+    });
+    (getColorCycleBrushManager as jest.Mock).mockReturnValue({
+      getHistoryBrush: () => ({
+        getColorCycleLayerDocument: () => ({ read: () => ({ version: 4, snapshot: {
+          layerId: 'sampled-history', width: 2, height: 2, paintBuffer,
+          gradientIdBuffer: new Uint8Array(4).buffer,
+          gradientDefIdBuffer: new Uint16Array([3, 3, 0, 0]).buffer,
+          speedBuffer: new Uint8Array(4).fill(17).buffer,
+          flowBuffer: new Uint8Array(4).fill(5).buffer,
+          phaseBuffer: new Uint8Array([32, 224, 0, 0]).buffer,
+          gradientDefStore: [definition], hasContent: true,
+          sources: { brushStateSnapshot: false, topLevelBuffers: false, legacyStateRefs: false },
+        } }) }),
+        serialize: () => ({ canonicalPaint: true, schemaVersion: 1, layers: [{
+          layerId: 'sampled-history', canonicalPaint: true, schemaVersion: 1,
+          dimensions: { width: 2, height: 2 }, gradientDefStore: [definition],
+          strokeData: { paintBuffer, gradientIdBuffer: new Uint8Array(4).buffer,
+            gradientDefIdBuffer: new Uint16Array([3, 3, 0, 0]).buffer,
+            speedBuffer: new Uint8Array(4).fill(17).buffer,
+            flowBuffer: new Uint8Array(4).fill(5).buffer,
+            phaseBuffer: new Uint8Array([32, 224, 0, 0]).buffer, hasContent: true },
+        }] }),
+      }),
+    });
+    const captured = captureColorCycleBrushState('sampled-history');
+    const capturedDefinition = captured?.layers[0]?.gradientDefStore?.[0];
+    expect(capturedDefinition?.sampledPath).toEqual(sampledPath);
+    expect(capturedDefinition?.sampledPath).not.toBe(sampledPath);
+    expect(capturedDefinition?.sampledPath?.offset).not.toBe(Math.round(sampledPath.offset));
+    sampledPath.offset = 0;
+    sampledPath.rgba = 'AAAAAA==';
+    expect(capturedDefinition?.sampledPath).toEqual({
+      rgba: 'Nzc3/8PDw/8=', offset: 510 - 32 * 12 / 255,
+    });
+  });
+
   it('preserves empty pre-stroke color-cycle history snapshots', () => {
     (useAppStore.getState as jest.Mock).mockReturnValue({
       project: { width: 4, height: 4 },

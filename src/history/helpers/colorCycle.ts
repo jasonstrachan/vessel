@@ -460,6 +460,7 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                       createdAtMs: entry.createdAtMs,
                       slot: entry.slot,
                       speedCps: entry.speedCps,
+                      sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
                     }))
                   : undefined,
                 nextGradientDefId: layer.nextGradientDefId,
