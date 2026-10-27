@@ -20,7 +20,7 @@ transformation, depth, and forms whose animation needs a spatial axis.
 | Speed / Vel | Animation rate and optional link to drawing velocity. |
 | Drawing shape | Free, Rect, Oval, Line, Click Line, Tri, or Poly. Selects how the bounded geometry is constructed. |
 | FG Grad / Man Grad / Sample | Uses tones of the selected foreground colour, authored stops, or sampled colours. |
-| Foreground controls | Contrast sets the light/dark range around the selected colour; Colours sets 2–16 distinct tones within that same range. Hue, saturation and opacity come from the selected foreground colour. The recipe is shared across CC brushes and saved between sessions. Previously painted strokes retain their colours. |
+| Foreground controls | Contrast sets the light/dark range around the selected colour; Colours sets 2–16 colour anchors within that same range. Playback blends through those anchors from dark to light and back, making a continuous loop. Hue, saturation and opacity come from the selected foreground colour. The recipe is shared across CC brushes and saved between sessions. Previously painted strokes retain their colours. |
 | Manual gradient controls | Edit stop colour, position, opacity, and saved gradient choices. |
 | Sample controls / Soft seam | Capture canvas colours and choose a continuous or pulsing loop join. |
 | Grad / Stroke / Concentric | Chooses linear, gesture-following, or radial colour placement. |

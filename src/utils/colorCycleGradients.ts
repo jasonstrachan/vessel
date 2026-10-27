@@ -506,8 +506,8 @@ export const buildForegroundColorRampSpec = (
     contrast,
     lightness: 50,
     bands,
-    algoVersion: 4,
-    key: JSON.stringify(['fg', 4, baseColor, contrast, bands]),
+    algoVersion: 5,
+    key: JSON.stringify(['fg', 5, baseColor, contrast, bands]),
   };
 };
 
@@ -615,7 +615,7 @@ export const buildForegroundDerivedGradientSpec = (params: {
 };
 
 export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<{ position: number; color: string; opacity?: number }> => {
-  if (spec.algoVersion === 4) {
+  if (spec.algoVersion === 4 || spec.algoVersion === 5) {
     const parsed = parseCssColor(spec.baseColor);
     const [hue, saturation, lightness] = rgbToHsl(parsed.r, parsed.g, parsed.b);
     const range = clampForegroundContrast(spec.contrast);
@@ -629,9 +629,20 @@ export const deriveForegroundGradientStops = (spec: DerivedGradientSpec): Array<
       const color = parsed.a === 255
         ? rgbToHex(r, g, b)
         : `rgba(${r}, ${g}, ${b}, ${parsed.a / 255})`;
-      // Adjacent equal-position stops encode discrete tones in both Vessel and Goblet.
-      stops.push({ position: index / count, color });
-      stops.push({ position: (index + 1) / count, color });
+      if (spec.algoVersion === 4) {
+        // Preserve saved recipes that intentionally used discrete tones.
+        stops.push({ position: index / count, color });
+        stops.push({ position: (index + 1) / count, color });
+      } else {
+        stops.push({ position: index / (2 * (count - 1)), color });
+      }
+    }
+    if (spec.algoVersion === 5) {
+      // Return through the same anchors so interpolation stays continuous at wrap.
+      // Authored stops carry this loop identically into Vessel and Goblet.
+      for (let index = count - 2; index >= 0; index -= 1) {
+        stops.push({ position: 1 - stops[index].position, color: stops[index].color });
+      }
     }
     return stops;
   }

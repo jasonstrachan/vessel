@@ -111,13 +111,20 @@ describe('foreground contrast and colours', () => {
   };
 
   it.each(['#cc2222', '#2255bb', '#eeee44', '#090909', '#fafafa', '#000000', '#ffffff', '#808080'])(
-    'retains the requested colour count in the actual LUT for %s', (color) => {
+    'blends the requested anchors continuously around the LUT for %s', (color) => {
       for (const count of [2, 4, 6, 16]) {
         const stops = ramp(color, 40, count);
         expect(new Set(stops.map(stop => stop.color)).size).toBe(count);
         const palette = new GradientPalette(stops).getPaletteStrings();
-        expect(new Set(palette).size).toBe(count);
-        expect(lightness(stops.at(-1)!.color) - lightness(stops[0].color)).toBeCloseTo(40, 0);
+        expect(new Set(palette).size).toBeGreaterThan(count);
+        expect(stops.at(-1)!.color).toBe(stops[0].color);
+        const channels = palette.map(color => parseCssColor(color));
+        for (let index = 0; index < channels.length; index += 1) {
+          const current = channels[index];
+          const next = channels[(index + 1) % channels.length];
+          expect(Math.max(Math.abs(current.r - next.r), Math.abs(current.g - next.g), Math.abs(current.b - next.b))).toBeLessThanOrEqual(4);
+        }
+        expect(lightness(stops[count - 1].color) - lightness(stops[0].color)).toBeCloseTo(40, 0);
       }
     },
   );
@@ -126,10 +133,10 @@ describe('foreground contrast and colours', () => {
     const two = ramp('#336699', 40, 2);
     const six = ramp('#336699', 40, 6);
     expect(two[0].color).toBe(six[0].color);
-    expect(two.at(-1)!.color).toBe(six.at(-1)!.color);
+    expect(two[1].color).toBe(six[5].color);
     const wider = ramp('#336699', 80, 6);
     expect(new Set(wider.map(stop => stop.color)).size).toBe(6);
-    expect(lightness(wider.at(-1)!.color) - lightness(wider[0].color)).toBeCloseTo(80, 0);
+    expect(lightness(wider[5].color) - lightness(wider[0].color)).toBeCloseTo(80, 0);
   });
 
   it('inherits hue, saturation and opacity from the selected colour', () => {
@@ -146,6 +153,15 @@ describe('foreground contrast and colours', () => {
       const { r, g, b } = parseCssColor(stop.color);
       return rgbToHsl(r, g, b)[1];
     }))).toEqual(new Set([0]));
+  });
+
+  it('preserves the discrete palette of saved version 4 recipes', () => {
+    const spec = { ...buildForegroundColorRampSpec('#808080', {}), algoVersion: 4 };
+    const stops = deriveForegroundGradientStops(spec);
+    expect(stops).toHaveLength(8);
+    expect(new Set(new GradientPalette(stops).getPaletteStrings()).size).toBe(4);
+    expect(stops[1].position).toBe(stops[2].position);
+    expect(stops[0].color).not.toBe(stops.at(-1)!.color);
   });
 
   it('collapses to the picked colour at zero contrast and survives spec serialization', () => {

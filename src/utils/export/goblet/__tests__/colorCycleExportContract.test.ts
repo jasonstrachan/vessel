@@ -326,10 +326,13 @@ describe('Goblet color-cycle export contract boundaries', () => {
     }
   });
 
-  it('exports the exact FG tones and hard boundaries from the committed definition', async () => {
-    const stops = deriveForegroundGradientStops(buildForegroundColorRampSpec('rgba(51, 102, 153, 0.4)', {
-      colorCycleFgContrast: 60, colorCycleFgColors: 6,
-    }));
+  it.each([4, 5])('exports the exact FG palette from a version %s committed definition', async (algoVersion) => {
+    const stops = deriveForegroundGradientStops({
+      ...buildForegroundColorRampSpec('rgba(51, 102, 153, 0.4)', {
+        colorCycleFgContrast: 60, colorCycleFgColors: 6,
+      }),
+      algoVersion,
+    });
     const layer = createLayer({
       gradientDefStore: [{ id: 1, kind: 'linear', stops, hash: 'fg-ramp', source: 'fg',
         seamProfile: 'hard', createdAtMs: 1 }],
