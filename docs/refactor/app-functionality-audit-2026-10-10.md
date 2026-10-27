@@ -1831,6 +1831,24 @@ One clean-HEAD-plus-six full gate passed diff check, type-check, lint,627 suites
 
 Root and independent GPT-6.1 Sol peers reviewed source, causal tests, native evidence and closeout. The focused local commit contains source6 plus these two audit records only. Original47 working bytes, three mixed owners, original raw staged patchdf0184e4cfed84743065aaed4fda0b454781904568af19b8de746bdcb57dc4b2 and backupMap53 remain exact. Three inherited source overlaps are updated; the clean-owner union is79. Public/served15 and both Studio directories remain exact. No push or deployment. Area61’s public Reference Studio companion and blocked-popup path require their own fresh source-empty admission and production evidence.
 
+## Session39 — Area61 complete: Reference Studio public companion and reference controls
+
+Areas01–61 are complete: **61/65 (93.8%)**. Area61 closes with no app-source changes. The actual production cohort passed **3 native cases/187 checks** (89 controls/sampling, 79 transforms/Liquify, 19 blocked-popup), with no unexpected errors. Area62 remains pending.
+
+The two genuine public-button companions loaded the same-origin `/vessel/reference-studio/` route and actual page chunk `b83a2a411cd8c60a16903c80b4c0b19502910f8a58434633bf76fed2118e346b`, paired with main artifact `27c921c453466224d29e849dd4e39701d0837ace43149fdda0fcb5c11824af0f` from the completed Area60 production build. Their native channel-ready publications and subsequent exact expected snapshots were fenced per action. Publications are state observations, not transactional acknowledgements. Only the owned companion was opened and closed; no foreground or screenshot tools were used.
+
+Independent PNG inputs and literal geometry proved import, layer/asset sampling-source selection and Canvas fallback, red/blue colour sampling, Show, Lock, ordering, removal, shared 4×5 guide-grid controls, and controls Hide/Open. Lock testing positively admitted the exposed locked asset and its trusted pointerdown. Move, aspect-preserving resize, Fit, flip permutations, and opacity preview/commit passed. Liquify preserved no-motion input, positively changed the declared support region, and preserved independent guard stripes; this is bounded functional coverage, not an independent whole-algorithm pixel oracle. File delivery used the declared external File-input boundary, without an OS chooser claim.
+
+The blocked-popup case temporarily returned null only for the exact trusted public-button window.open call, restored the native descriptor before returning, showed the actual blocked feedback, and opened no companion. Primary canonical/framebuffer material, metadata, selection and history counts/top IDs/state remained exact across declared reference projections. Reference actions preserved their source-owned timestamps and dirty-state policy; they do not create paint-history entries.
+
+Both IndexedDB stores retained their exact original typed values after owned cleanup. All seven original raw preferences, the channel session key, unused fixture packets, and native observer descriptors were restored. Quiet intervals were 360.6/361.7/359.6ms with no later writes or transactions. Both owned companions and the named automation daemon were closed. Original47 working paths, the original staged patch, 79 inherited clean owners, three mixed owners, public/served15 assets, backupMap53 and Studio outputs remained exact.
+
+Earlier failed cohorts remain excluded. Fixture corrections traced double reference dirty marks, nested palette-subscription suppression, overlapping-image hit testing, and prebaseline brush-cache materialization. The earlier missing preference baseline prevents an exact retrospective cache-delta claim; the accepted cohort retained full seven-key PRE/final witnesses and passed the unchanged strict oracle. No app defect was established in this area. No new build or full-suite run was needed for fixture/docs-only work; the settled Area60 gate remains 627 passing suites/6,603 tests/two snapshots, with one existing skipped test.
+
+Wheel/pan, window reopening, invalid-image faults, private Studio capabilities, unsaved-document restoration, and new archive-roundtrip claims are outside this bounded closeout. The next focused local commit contains only the two audit records; no push or deployment is included.
+
+Accepted receipt: `output/playwright/area61-native-before-v7-session39.json` (`a2c93acfde1d6382ce6f9c70cb74a5e8ac1467b37a9ff1c393e682e0e83284a9`). Plan: `376e927fd6a4c4ee6cb194c5832b4e1d988500117e8461688ea1c589dd129e4d`; manifest: `e7b71cd3e8086aa7e3a7337ac6c8e3a51d23ab2e1166a5fc3509a98f4aa6ed2a`. Parent HEAD: `b3f186cc19bd9e08781787bc16f63b6e2b41c5d1`.
+
 ## Goal and method
 
 Review every reachable user function, exercise its interaction and settings in the local production preview, repair reproduced defects at their owner, retest, review the resulting diff, and commit each completed area separately. A passing smoke check does not establish that every setting or hardware input works.
@@ -1909,7 +1927,7 @@ This inventory follows `HomeClientMount` → `HomeClient`, toolbar, library, pan
 | 58 | Goblet: all formats, packaging/load, animation/filters/fit/masks/groups, progress/cancel/errors | goblet exporter, Goblet runtime | verified (Session39; 6 native cases/549 checks; decoder aliases and preview-only source handling repaired) |
 | 59 | Options: display/background/rulers/FPS/pixel grid, history limit, persistence/reset | SettingsModal, localSettings | verified (Session39; 4 native cases/196 checks; Reset notifications repaired) |
 | 60 | Library/UI: filters, active tool states, panel collapse/scroll, keyboard access, modals | BrushLibrary, toolbar, panels | verified (Session39; 4 native cases/95 checks; native labels and Document timer repaired) |
-| 61 | Reference Studio: open/blocked popup, import/reference manipulation, lifecycle | referenceStudio, toolbar | pending |
+| 61 | Reference Studio: open/blocked popup, import/reference manipulation, lifecycle | referenceStudio, toolbar | verified (Session39; 3 native cases/187 checks; source-empty Reference Studio closeout) |
 | 62 | Multiplayer: start/stop/failure, shared canvas/input/permissions, session lifecycle | collaboration runtime, toolbar | pending |
 | 63 | Conditional Studio extension: enumerate visible controls only if build enables it | extensions/studioExtension | pending |
 | 64 | Hidden/legacy entrypoints: CC triangle/shape-gradient, auxiliary pages; establish reachability before scope | presets, pages, extension entrypoints | pending |
