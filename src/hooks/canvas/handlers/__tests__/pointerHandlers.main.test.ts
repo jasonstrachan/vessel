@@ -479,22 +479,26 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setCursorStyle).not.toHaveBeenCalled();
   });
 
-  it('blurs focused editable controls before processing canvas pointer down', () => {
-    const { deps } = createDeps();
-    const handlers = createPointerHandlers(deps);
-    const input = document.createElement('input');
-    document.body.appendChild(input);
-    input.focus();
+  it.each(['input', 'textarea', 'select', 'button'] as const)(
+    'releases focused %s controls when canvas pointer input begins',
+    (tagName) => {
+      const { deps } = createDeps();
+      const handlers = createPointerHandlers(deps);
+      const control = document.createElement(tagName);
+      document.body.appendChild(control);
+      try {
+        control.focus();
+        expect(document.activeElement).toBe(control);
 
-    const blurSpy = jest.spyOn(input, 'blur');
+        handlers.handlePointerDown(makePointerEvent());
 
-    handlers.handlePointerDown(makePointerEvent());
-
-    expect(blurSpy).toHaveBeenCalled();
-
-    blurSpy.mockRestore();
-    input.remove();
-  });
+        // Enter must reach the canvas workflow instead of activating the old control.
+        expect(document.activeElement).toBe(document.body);
+      } finally {
+        control.remove();
+      }
+    },
+  );
 
   it('does not bootstrap stroke from pointermove while busy', () => {
     const { deps } = createDeps();

@@ -425,7 +425,7 @@ const isAdvancedShapeBrush = (brushShape?: BrushShape | null): boolean =>
 const isOverlayExtensionBrush = (tools: EventHandlerDynamicDeps['tools']): boolean =>
   tools.currentTool === 'brush' && tools.brushSettings.brushShape === BrushShape.EXTENSION;
 
-const blurFocusedEditableElement = (): void => {
+const blurFocusedControl = (): void => {
   if (typeof document === 'undefined') {
     return;
   }
@@ -436,13 +436,15 @@ const blurFocusedEditableElement = (): void => {
   }
 
   const tagName = active.tagName;
-  const isEditable =
+  const isControl =
+    tagName === 'BUTTON' ||
     tagName === 'INPUT' ||
     tagName === 'TEXTAREA' ||
     tagName === 'SELECT' ||
     active.isContentEditable;
 
-  if (isEditable) {
+  if (isControl) {
+    // Pointer input owns subsequent Enter/Space, not the previously focused control.
     active.blur();
   }
 };
@@ -2565,7 +2567,7 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
 
   const handlePointerDown = (event: React.PointerEvent<Element>) => {
     deps.selectionRuntimeRef.current.admittedMousePointerId = null;
-    blurFocusedEditableElement();
+    blurFocusedControl();
     suppressBootstrapUntilPointerUpRef.current = false;
     const polygonGradientStateGuard = getDynamicDeps().polygonGradientState;
     const adjustSessionActive =
