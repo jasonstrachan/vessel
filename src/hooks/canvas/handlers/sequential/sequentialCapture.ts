@@ -16,7 +16,6 @@ import {
   serializePluginConfigForKey,
 } from '@/lib/sequential/pluginConfig';
 import {
-  recordSequentialFlushPerf,
   recordSequentialTemporalDistributionPerf,
 } from '@/lib/sequential/SequentialPerfCounters';
 import {
@@ -41,300 +40,38 @@ import {
   type SequentialStrokeEvent,
 } from '@/types';
 
-export const MAX_SEQUENTIAL_STAMPS_PER_SEC = 6000;
-const STAMP_BURST_WINDOW_SECONDS = 0.1;
-const STAMP_BURST_CAPACITY = MAX_SEQUENTIAL_STAMPS_PER_SEC * STAMP_BURST_WINDOW_SECONDS;
+import {
+  applyDeterministicStampCap,
+  STAMP_BURST_CAPACITY,
+  defaultStampCapRuntime,
+  defaultPayloadBudgetRuntime,
+  defaultPayloadNotificationRuntime,
+  defaultEventBufferRuntime,
+  type SequentialStampCapRuntime,
+  type SequentialPayloadNotificationRuntime,
+  type SequentialEventBufferRuntime,
+} from '@/hooks/canvas/handlers/sequential/sequentialCaptureRuntime';
+import {
+  flushBufferedSequentialEvents,
+  enqueueBufferedSequentialEvent,
+  readCachedProjectPayloadBytes,
+} from '@/hooks/canvas/handlers/sequential/sequentialCaptureBuffer';
 
-export interface SequentialStampCapRuntime {
-  sessionKey: string | null;
-  sessionStartFrameIndex: number | null;
-  tokens: number;
-  lastTimestampMs: number | null;
-  strokeSegment: number;
-  lastBrushSnapshotKey: string | null;
-  lastResolvedBrushSnapshotKey: string | null;
-  lastResolvedBrushSnapshot: SequentialBrushSnapshot | null;
-  lastSelectionStartRef?: AppState['selectionStart'];
-  lastSelectionEndRef?: AppState['selectionEnd'];
-  lastSelectionMaskRef?: AppState['selectionMask'];
-  lastSelectionMaskBoundsRef?: AppState['selectionMaskBounds'];
-  lastSelectionClip?: SequentialBrushSnapshot['selectionClip'];
-  lastBrushSettingsRef: AppState['tools']['brushSettings'] | null;
-  lastToolRef: AppState['tools']['currentTool'] | null;
-  lastPluginBrushIdRef?: string | null;
-  lastCustomBrushDataRef?: CustomBrushStrokeData;
-  lastGradientRef: BrushSettings['colorCycleGradient'] | null | undefined;
-  lastGradientSnapshot: SequentialBrushSnapshot['colorCycleGradient'];
-  lastGradientKey: string;
-  cachedStrokeId: string | null;
-  cachedEventIdPrefix: string | null;
-  cachedIdSegment: number | null;
-  lastCaptureLayersRef: Layer[] | null;
-  lastCaptureLayerId: string | null;
-  lastResolvedCaptureLayer: Layer | null;
-  captureWasActive: boolean;
-  eventCounter: number;
-  lastAcceptedStamp: SequentialStampPoint | null;
-  lastAcceptedStampAtMs: number | null;
-  emittedCustomStampHashes: Set<string>;
-}
-
-export interface SequentialPayloadNotificationRuntime {
-  softWarningShown: boolean;
-  hardCapBlockedAtBytes: number | null;
-}
-
-interface BufferedSequentialLayerEvents {
-  events: SequentialStrokeEvent[];
-  byFrame: Map<number, SequentialStrokeEvent[]>;
-  frameCount: number;
-  fps: number;
-  durationMs: number;
-}
-
-export interface SequentialEventBufferRuntime {
-  sessionKey: string | null;
-  pendingPayloadBytes: number;
-  selectionClipKeysByLayer: Map<string, Set<string>>;
-  lastKnownLayersRef: Layer[] | null;
-  lastKnownProjectPayloadBytes: number | null;
-  isFlushing: boolean;
-  layers: Map<string, BufferedSequentialLayerEvents>;
-}
-
-const defaultStampCapRuntime: SequentialStampCapRuntime = {
-  sessionKey: null,
-  sessionStartFrameIndex: null,
-  tokens: STAMP_BURST_CAPACITY,
-  lastTimestampMs: null,
-  strokeSegment: 0,
-  lastBrushSnapshotKey: null,
-  lastResolvedBrushSnapshotKey: null,
-  lastResolvedBrushSnapshot: null,
-  lastBrushSettingsRef: null,
-  lastToolRef: null,
-  lastPluginBrushIdRef: null,
-  lastCustomBrushDataRef: undefined,
-  lastGradientRef: undefined,
-  lastGradientSnapshot: undefined,
-  lastGradientKey: '',
-  cachedStrokeId: null,
-  cachedEventIdPrefix: null,
-  cachedIdSegment: null,
-  lastCaptureLayersRef: null,
-  lastCaptureLayerId: null,
-  lastResolvedCaptureLayer: null,
-  captureWasActive: false,
-  eventCounter: 0,
-  lastAcceptedStamp: null,
-  lastAcceptedStampAtMs: null,
-  emittedCustomStampHashes: new Set<string>(),
-};
-
-const defaultPayloadBudgetRuntime = createSequentialPayloadBudgetRuntime();
-const defaultPayloadNotificationRuntime: SequentialPayloadNotificationRuntime = {
-  softWarningShown: false,
-  hardCapBlockedAtBytes: null,
-};
-const defaultEventBufferRuntime: SequentialEventBufferRuntime = {
-  sessionKey: null,
-  pendingPayloadBytes: 0,
-  selectionClipKeysByLayer: new Map(),
-  lastKnownLayersRef: null,
-  lastKnownProjectPayloadBytes: null,
-  isFlushing: false,
-  layers: new Map<string, BufferedSequentialLayerEvents>(),
-};
-
-export const createSequentialStampCapRuntime = (): SequentialStampCapRuntime => ({
-  sessionKey: null,
-  sessionStartFrameIndex: null,
-  tokens: STAMP_BURST_CAPACITY,
-  lastTimestampMs: null,
-  strokeSegment: 0,
-  lastBrushSnapshotKey: null,
-  lastResolvedBrushSnapshotKey: null,
-  lastResolvedBrushSnapshot: null,
-  lastBrushSettingsRef: null,
-  lastToolRef: null,
-  lastPluginBrushIdRef: null,
-  lastCustomBrushDataRef: undefined,
-  lastGradientRef: undefined,
-  lastGradientSnapshot: undefined,
-  lastGradientKey: '',
-  cachedStrokeId: null,
-  cachedEventIdPrefix: null,
-  cachedIdSegment: null,
-  lastCaptureLayersRef: null,
-  lastCaptureLayerId: null,
-  lastResolvedCaptureLayer: null,
-  captureWasActive: false,
-  eventCounter: 0,
-  lastAcceptedStamp: null,
-  lastAcceptedStampAtMs: null,
-  emittedCustomStampHashes: new Set<string>(),
-});
-
-export const createSequentialPayloadNotificationRuntime = (): SequentialPayloadNotificationRuntime => ({
-  softWarningShown: false,
-  hardCapBlockedAtBytes: null,
-});
-
-export const createSequentialEventBufferRuntime = (): SequentialEventBufferRuntime => ({
-  sessionKey: null,
-  pendingPayloadBytes: 0,
-  selectionClipKeysByLayer: new Map(),
-  lastKnownLayersRef: null,
-  lastKnownProjectPayloadBytes: null,
-  isFlushing: false,
-  layers: new Map<string, BufferedSequentialLayerEvents>(),
-});
-
-export const flushBufferedSequentialEvents = ({
-  state,
-  runtime,
-  preserveLivePreview = false,
-}: {
-  state: AppState;
-  runtime?: SequentialEventBufferRuntime;
-  preserveLivePreview?: boolean;
-}): number => {
-  const flushStartMs =
-    typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : Date.now();
-  const targetRuntime = runtime ?? defaultEventBufferRuntime;
-  if (targetRuntime.isFlushing || targetRuntime.layers.size === 0) {
-    return 0;
-  }
-
-  targetRuntime.isFlushing = true;
-  const queuedLayerEntries = Array.from(targetRuntime.layers.entries());
-  targetRuntime.layers.clear();
-  targetRuntime.pendingPayloadBytes = 0;
-  targetRuntime.selectionClipKeysByLayer.clear();
-
-  let flushedEventCount = 0;
-  try {
-    queuedLayerEntries.forEach(([layerId, entry]) => {
-      if (entry.events.length === 0) {
-        return;
-      }
-      state.appendSequentialLayerEvents(layerId, entry.events, {
-        frameCount: entry.frameCount,
-        fps: entry.fps,
-        durationMs: entry.durationMs,
-      });
-      if (!preserveLivePreview) {
-        clearSequentialLivePreview(layerId);
-      }
-      entry.byFrame.clear();
-      flushedEventCount += entry.events.length;
-    });
-  } finally {
-    targetRuntime.isFlushing = false;
-  }
-  const flushDurationMs =
-    (typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : Date.now()) - flushStartMs;
-  recordSequentialFlushPerf({
-    events: flushedEventCount,
-    durationMs: flushDurationMs,
-  });
-  return flushedEventCount;
-};
-
-export const getBufferedSequentialPendingPayloadBytes = ({
-  runtime,
-}: {
-  runtime?: SequentialEventBufferRuntime;
-} = {}): number => {
-  const targetRuntime = runtime ?? defaultEventBufferRuntime;
-  return Math.max(0, targetRuntime.pendingPayloadBytes);
-};
-
-export const getBufferedSequentialLayerFrameEvents = ({
-  layerId,
-  frameIndex,
-  runtime,
-}: {
-  layerId: string;
-  frameIndex: number;
-  runtime?: SequentialEventBufferRuntime;
-}): ReadonlyArray<SequentialStrokeEvent> => {
-  if (!layerId) {
-    return [];
-  }
-  const targetRuntime = runtime ?? defaultEventBufferRuntime;
-  const layerEvents = targetRuntime.layers.get(layerId);
-  if (!layerEvents) {
-    return [];
-  }
-  const normalizedFrameIndex = Number.isFinite(frameIndex) ? Math.round(frameIndex) : 0;
-  return layerEvents.byFrame.get(normalizedFrameIndex) ?? [];
-};
-
-const enqueueBufferedSequentialEvent = ({
-  layerId,
-  event,
-  metadata,
-  payloadBytes,
-  runtime,
-}: {
-  layerId: string;
-  event: SequentialStrokeEvent;
-  metadata: { frameCount: number; fps: number; durationMs: number };
-  payloadBytes: number;
-  runtime: SequentialEventBufferRuntime;
-}): void => {
-  const existing = runtime.layers.get(layerId);
-  if (existing) {
-    existing.events.push(event);
-    const existingFrameEvents = existing.byFrame.get(event.frameIndex);
-    if (existingFrameEvents) {
-      existingFrameEvents.push(event);
-    } else {
-      existing.byFrame.set(event.frameIndex, [event]);
-    }
-    existing.frameCount = metadata.frameCount;
-    existing.fps = metadata.fps;
-    existing.durationMs = metadata.durationMs;
-  } else {
-    runtime.layers.set(layerId, {
-      events: [event],
-      byFrame: new Map([[event.frameIndex, [event]]]),
-      frameCount: metadata.frameCount,
-      fps: metadata.fps,
-      durationMs: metadata.durationMs,
-    });
-  }
-  runtime.pendingPayloadBytes += payloadBytes;
-};
-
-const readCachedProjectPayloadBytes = ({
-  state,
-  payloadRuntime,
-  eventBufferRuntime,
-}: {
-  state: AppState;
-  payloadRuntime: ReturnType<typeof createSequentialPayloadBudgetRuntime>;
-  eventBufferRuntime: SequentialEventBufferRuntime;
-}): number => {
-  if (
-    eventBufferRuntime.lastKnownLayersRef === state.layers &&
-    Number.isFinite(eventBufferRuntime.lastKnownProjectPayloadBytes)
-  ) {
-    return Math.max(0, eventBufferRuntime.lastKnownProjectPayloadBytes ?? 0);
-  }
-  const projectPayloadBytes = readSequentialProjectPayloadBytes({
-    layers: state.layers,
-    runtime: payloadRuntime,
-  });
-  eventBufferRuntime.lastKnownLayersRef = state.layers;
-  eventBufferRuntime.lastKnownProjectPayloadBytes = projectPayloadBytes;
-  return projectPayloadBytes;
-};
+export {
+  MAX_SEQUENTIAL_STAMPS_PER_SEC,
+  createSequentialStampCapRuntime,
+  createSequentialPayloadNotificationRuntime,
+  createSequentialEventBufferRuntime,
+  applyDeterministicStampCap,
+  type SequentialStampCapRuntime,
+  type SequentialPayloadNotificationRuntime,
+  type SequentialEventBufferRuntime,
+} from '@/hooks/canvas/handlers/sequential/sequentialCaptureRuntime';
+export {
+  flushBufferedSequentialEvents,
+  getBufferedSequentialPendingPayloadBytes,
+  getBufferedSequentialLayerFrameEvents,
+} from '@/hooks/canvas/handlers/sequential/sequentialCaptureBuffer';
 
 export const noteSequentialCaptureActivity = ({
   isActive,
@@ -890,43 +627,6 @@ export const createFallbackSequentialStamp = (
       ? Math.max(0, Math.min(1, brushSettings.opacity))
       : 1,
   };
-};
-
-export const applyDeterministicStampCap = ({
-  runtime,
-  sessionKey,
-  stamps,
-  nowMs,
-}: {
-  runtime: SequentialStampCapRuntime;
-  sessionKey: string;
-  stamps: SequentialStampPoint[];
-  nowMs: number;
-}): SequentialStampPoint[] => {
-  if (runtime.sessionKey !== sessionKey) {
-    runtime.sessionKey = sessionKey;
-    runtime.tokens = STAMP_BURST_CAPACITY;
-    runtime.lastTimestampMs = nowMs;
-  } else {
-    const lastTimestampMs = runtime.lastTimestampMs ?? nowMs;
-    const deltaMs = Math.max(0, nowMs - lastTimestampMs);
-    runtime.tokens = Math.min(
-      STAMP_BURST_CAPACITY,
-      runtime.tokens + (deltaMs * MAX_SEQUENTIAL_STAMPS_PER_SEC) / 1000
-    );
-    runtime.lastTimestampMs = nowMs;
-  }
-
-  const availableTokens = Math.max(0, Math.floor(runtime.tokens));
-  const acceptedCount = Math.min(stamps.length, availableTokens);
-  if (acceptedCount <= 0) {
-    return [];
-  }
-  runtime.tokens -= acceptedCount;
-  if (acceptedCount >= stamps.length) {
-    return stamps;
-  }
-  return stamps.slice(0, acceptedCount);
 };
 
 export const captureSequentialStampsForActiveLayer = ({

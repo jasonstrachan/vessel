@@ -5,6 +5,8 @@ import {
   getSequentialLayerRenderCanvas,
   getSequentialLayerRendererDiagnostics,
   getSequentialLayerRendererStats,
+  resetSequentialLayerRendererDiagnostics,
+  type SequentialLayerRendererDiagnostics,
 } from '@/lib/sequential/SequentialLayerRenderer';
 import { SequentialCpuMaterializer } from '@/lib/sequential/materializer/SequentialCpuMaterializer';
 import { __setSequentialWorkerFactoryForTests } from '@/lib/sequential/SequentialWorkerMaterializerBridge';
@@ -105,6 +107,36 @@ describe('SequentialLayerRenderer', () => {
   afterEach(() => {
     setFeatureFlag('enableSequentialGpuAcceleration', false);
     setFeatureFlag('enableSequentialWorkerMaterialization', false);
+  });
+
+  it('publishes detached diagnostics snapshots and resets them without clearing rendered frames', () => {
+    const initialDiagnostics = getSequentialLayerRendererDiagnostics();
+    const layer = createLayer([createEvent('f0', 0, '#ff0000')]);
+    const options = { layer, width: 16, height: 16, frameIndex: 0 };
+    const canvas = getSequentialLayerRenderCanvas(options);
+    expect(canvas).not.toBeNull();
+    expect(getSequentialLayerRenderCanvas(options)).toBe(canvas);
+
+    const target = globalThis as typeof globalThis & {
+      __vesselSequentialRendererDiagnostics?: SequentialLayerRendererDiagnostics;
+      __vesselSequentialRendererResetDiagnostics?: () => void;
+    };
+    const snapshot = getSequentialLayerRendererDiagnostics();
+    expect(snapshot.renderCalls).toBe(2);
+    expect(snapshot.presentationHits).toBe(1);
+    expect(target.__vesselSequentialRendererDiagnostics).toEqual(snapshot);
+    expect(target.__vesselSequentialRendererDiagnostics).not.toBe(snapshot);
+    expect(target.__vesselSequentialRendererResetDiagnostics).toBe(resetSequentialLayerRendererDiagnostics);
+    snapshot.renderCalls = -1;
+    expect(getSequentialLayerRendererDiagnostics().renderCalls).toBe(2);
+
+    const cacheStats = getSequentialLayerRendererStats();
+    resetSequentialLayerRendererDiagnostics();
+    expect(getSequentialLayerRendererDiagnostics()).toEqual(initialDiagnostics);
+    expect(target.__vesselSequentialRendererDiagnostics).toEqual(initialDiagnostics);
+    expect(getSequentialLayerRendererStats()).toEqual(cacheStats);
+    expect(getSequentialLayerRenderCanvas(options)).toBe(canvas);
+    expect(getSequentialLayerRendererDiagnostics().presentationHits).toBe(1);
   });
 
   it('materializes frame-specific canvases and updates cache stats', () => {

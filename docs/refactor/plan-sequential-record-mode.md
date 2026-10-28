@@ -84,9 +84,14 @@ mutates the live Zustand playback state.
 ## Module Boundaries
 
 - Capture orchestration: `src/hooks/canvas/handlers/sequential/sequentialCapture.ts`
+- Capture contracts/buffering: adjacent `sequentialCaptureRuntime.ts` and
+  `sequentialCaptureBuffer.ts`
 - Pure temporal placement: `src/hooks/canvas/utils/sequentialTemporalDistribution.ts`
 - Transport: `src/runtime/playback/sequentialFrameCursor.ts`
 - Materialization/cache: `src/lib/sequential/**`
+- Renderer counters: `src/lib/sequential/SequentialLayerRendererDiagnostics.ts`
+- Pure CPU brush helpers: `src/lib/sequential/materializer/sequentialBrushShape.ts`
+  and `sequentialBrushConfig.ts`
 - Panel composition: `src/components/panels/AnimationControlsPanel.tsx` and
   `SequentialControlsModule.tsx`
 
@@ -139,3 +144,11 @@ oracles and `perf:sequential` budget. Complete the production-preview verificati
 above when the touched path requires it. The exception exits only when the owner
 is within its original target and that target is restored in the blocking
 checker. This plan authorizes no runtime refactor in the dependency update.
+
+
+### Cleanup exit — 2026-10-28
+
+All three planned extractions above are implemented. The original blocking
+limits (1250/1100/2600) are restored; no temporary allowance remains. Capture
+runtime instances and public entrypoints stay shared, renderer diagnostics do
+not own caches, and CPU helpers preserve the existing calculations verbatim.
