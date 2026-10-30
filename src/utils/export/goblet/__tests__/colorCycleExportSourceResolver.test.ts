@@ -1,3 +1,4 @@
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import { cloneGobletExportLayer, resolveGobletColorCycleExportSource } from '@/utils/export/goblet/colorCycleExportSourceResolver';
 import { buildGobletColorCyclePayload } from '@/utils/export/goblet/colorCyclePayloadBuilder';
 import { serializeColorCycleDataFromResolvedLayer } from '@/utils/export/goblet/gobletColorCycleSerializer';
@@ -125,6 +126,32 @@ const expectMissingDocument = (
 describe('resolveGobletColorCycleExportSource', () => {
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it('pins committed masks and paint while an edit is unfinished, then exports the next complete generation', async () => {
+    const initial = createDocumentSnapshot();
+    const document = new ColorCycleLayerDocument({ ...initial,
+      eraseMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([255, 0, 0, 0]), version: 1 },
+      softEdgeMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([255, 128, 255, 255]), version: 1, enabled: true },
+    });
+    const layer = createLayer({ colorCycleBrush: { getColorCycleLayerDocument: () => document } as never });
+    const edit = document.beginEdit('unfinished-stroke');
+    document.replaceState({ ...document.read().snapshot,
+      paintBuffer: new Uint8Array([9, 9, 9, 9]).buffer,
+      eraseMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([0, 255, 0, 0]), version: 2 },
+    }, 'pending');
+    const during = await resolveGobletColorCycleExportSource(layer, project);
+    expect(during.ok).toBe(true);
+    if (!during.ok) throw new Error(during.reason);
+    expect(Array.from(new Uint8Array(during.documentRead!.snapshot.paintBuffer!))).toEqual([5, 6, 7, 8]);
+    expect(Array.from(during.layer.colorCycleData!.eraseMaskImageData!.data).filter((_, i) => i % 4 === 3)).toEqual([255, 0, 0, 0]);
+    expect(during.layer.colorCycleData!.softEdgeMaskImageData!.data[7]).toBe(128);
+    document.commitEdit(edit);
+    const after = await resolveGobletColorCycleExportSource(layer, project);
+    if (!after.ok) throw new Error(after.reason);
+    expect(Array.from(new Uint8Array(after.documentRead!.snapshot.paintBuffer!))).toEqual([9, 9, 9, 9]);
+    expect(after.layer.colorCycleData!.eraseMaskImageData!.data[3]).toBe(0);
+    expect(during.layer.colorCycleData!.eraseMaskImageData!.data[3]).toBe(255);
   });
 
   it('does not let stale legacy buffers override the pinned document during payload serialization', async () => {

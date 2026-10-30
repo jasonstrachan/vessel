@@ -1,4 +1,4 @@
-import { ensureGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
+import { ensureGradientDefForStops, ensureGradientDefsForStops, prepareGradientDefForStops, hashStops, type StoredStop } from '@/utils/colorCycleGradientDefs';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { useAppStore } from '@/stores/useAppStore';
 import {
@@ -44,6 +44,50 @@ describe('colorCycleGradientDefs', () => {
 
   beforeEach(() => {
     useAppStore.setState(initialState, true);
+  });
+
+  it('prepares definitions without changing the input generation or store', () => {
+    const original = createLayer().colorCycleData!;
+    const state = useAppStore.getState();
+    const prepared = prepareGradientDefForStops(original, {
+      layerId: 'layer-1', kind: 'linear', stops: baseStops, source: 'manual',
+    }, 123);
+    expect(prepared.result?.def.createdAtMs).toBe(123);
+    expect(prepared.colorCycleData?.gradientDefStore).toHaveLength(1);
+    expect(original.gradientDefStore).toEqual([]);
+    expect(useAppStore.getState()).toBe(state);
+  });
+
+  it('publishes both ink bindings in one update', () => {
+    const layer = createLayer();
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const publish = jest.spyOn(useAppStore.getState(), 'updateLayer');
+    try {
+      const result = ensureGradientDefsForStops(layer.id, [baseStops, altStops].map(stops => ({
+        kind: 'linear', stops, source: 'manual',
+      })), { skipColorCycleSync: true });
+      expect(result).toHaveLength(2);
+      expect(result![0].slot).not.toBe(result![1].slot);
+      expect(publish).toHaveBeenCalledTimes(1);
+    } finally { publish.mockRestore(); }
+  });
+
+  it('leaves no partial binding when only one slot remains for two inks', () => {
+    const defs = Array.from({ length: 253 }, (_, slot) => ({
+      id: slot + 1, slot, kind: 'linear' as const, source: 'manual' as const,
+      createdAtMs: 0, stops: baseStops, hash: hashStops(baseStops, 'linear'),
+    }));
+    const layer = createLayer({ colorCycleData: attachLegacyColorCycleTopLevelBuffers({
+      gradientDefStore: defs, nextGradientDefId: 254, gradientDefs: [],
+      slotPalettes: defs.map(def => ({ slot: def.slot, stops: def.stops })),
+    }, { gradientDefIdBuffer: new Uint16Array(defs.map(def => def.id)).buffer }) });
+    useAppStore.setState({ layers: [layer], activeLayerId: layer.id });
+    const result = ensureGradientDefsForStops(layer.id, [altStops, [{ position: 0, color: '#123456' }]].map(stops => ({
+      kind: 'linear', stops, source: 'manual',
+    })), { skipColorCycleSync: true });
+    expect(result).toBeNull();
+    expect(useAppStore.getState().layers[0].colorCycleData!.gradientDefStore).toHaveLength(253);
+    expect(useAppStore.getState().layers[0].colorCycleData!.gradientDefStore?.some(def => def.stops[0].color === '#ff0000')).toBe(false);
   });
 
   it('returns null when no slots are available', () => {

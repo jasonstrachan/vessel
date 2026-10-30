@@ -1,3 +1,4 @@
+import { colorCycleDocumentMaskToImageData } from '@/lib/colorCycle/document/documentMasks';
 import type { SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 import { snapshotColorCyclePlaybackProject } from '@/lib/colorCycle/playbackClock';
 // Project input/output utilities for Vessel
@@ -3555,14 +3556,21 @@ async function serializeLayer(layer: Layer): Promise<SerializedLayer> {
       layer,
       snapshot.ok ? snapshot.documentVersion ?? runtimeDocumentVersion : runtimeDocumentVersion,
     );
-    const eraseMaskImageData = captureCanvasImageData(sourceColorCycleData.eraseMask ?? null) ?? sourceColorCycleData.eraseMaskImageData;
-    const softEdgeMaskImageData = sourceColorCycleData.softEdgeMaskImageData ?? captureCanvasImageData(sourceColorCycleData.softEdgeMask ?? null);
+    const eraseMaskImageData = runtimeDocumentRead
+      ? colorCycleDocumentMaskToImageData(runtimeDocumentRead.snapshot.eraseMask)
+      : captureCanvasImageData(sourceColorCycleData.eraseMask ?? null) ?? sourceColorCycleData.eraseMaskImageData;
+    const softEdgeMaskImageData = runtimeDocumentRead
+      ? colorCycleDocumentMaskToImageData(runtimeDocumentRead.snapshot.softEdgeMask)
+      : sourceColorCycleData.softEdgeMaskImageData ?? captureCanvasImageData(sourceColorCycleData.softEdgeMask ?? null);
     const colorCycleData = {
       ...sourceColorCycleData,
       brushState: snapshot.ok ? snapshot.brushState : sourceColorCycleData.brushState,
       canvasImageData: canvasImageData ?? sourceColorCycleData.canvasImageData,
-      eraseMaskImageData: eraseMaskImageData ?? sourceColorCycleData.eraseMaskImageData,
-      softEdgeMaskImageData: softEdgeMaskImageData ?? sourceColorCycleData.softEdgeMaskImageData,
+      eraseMaskImageData,
+      softEdgeMaskImageData,
+      eraseMaskVersion: runtimeDocumentRead ? runtimeDocumentRead.snapshot.eraseMask?.version : sourceColorCycleData.eraseMaskVersion,
+      softEdgeMaskVersion: runtimeDocumentRead ? runtimeDocumentRead.snapshot.softEdgeMask?.version : sourceColorCycleData.softEdgeMaskVersion,
+      softEdgeMaskEnabled: runtimeDocumentRead ? runtimeDocumentRead.snapshot.softEdgeMask?.enabled : sourceColorCycleData.softEdgeMaskEnabled,
     };
     const serializedColorCycle: SerializedColorCycleLayerData = {
       documentId: colorCycleData.documentId ?? layer.id,

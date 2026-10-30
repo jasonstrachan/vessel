@@ -75,6 +75,86 @@ const makeState = (
 });
 
 describe('ColorCycleLayerDocument', () => {
+  it('publishes pixels, bindings and masks once and hides provisional writes from readers', () => {
+    const document = new ColorCycleLayerDocument(makeState());
+    const before = document.read();
+    const edit = document.beginEdit('stroke');
+    document.replaceState(makeState({ paintBuffer: makeBuffer([9, 0, 0, 0]), paintSlot: 3 }), 'pixels');
+    const mask = { width: 2, height: 2, alpha: new Uint8ClampedArray([255, 128, 0, 0]), version: 1 };
+    document.replaceState({ ...document.readPreview().snapshot, eraseMask: mask }, 'heal');
+    expect(document.read()).toEqual(before);
+    expect(document.readPreview().snapshot.paintSlot).toBe(3);
+    const after = document.commitEdit(edit);
+    expect(after.version).toBe(before.version + 1);
+    expect(readBytes(after.snapshot.paintBuffer)).toEqual([9, 0, 0, 0]);
+    expect(Array.from(after.snapshot.eraseMask!.alpha)).toEqual([255, 128, 0, 0]);
+    mask.alpha[0] = 0;
+    expect(after.snapshot.eraseMask!.alpha[0]).toBe(255);
+    expect(before.snapshot.eraseMask).toBeUndefined();
+    expect(document.getAuditLog()).toHaveLength(1);
+  });
+
+  it('cancels failed edits and rejects overlapping or stale edits without publication', () => {
+    const document = new ColorCycleLayerDocument(makeState());
+    const before = document.read();
+    const edit = document.beginEdit('cancelled');
+    expect(() => document.beginEdit('overlap')).toThrow(/edit/);
+    expect(() => document.replaceState(makeState({ eraseMask: {
+      width: 2, height: 2, alpha: new Uint8ClampedArray(1), version: 1,
+    } }), 'bad-mask')).toThrow(/mask/i);
+    document.cancelEdit(edit);
+    expect(document.read()).toEqual(before);
+    const stale = document.beginEdit('stale');
+    document.replaceState(makeState({ paintSlot: 3 }), 'provisional');
+    document.replaceBaseline(makeState({ paintSlot: 7 }));
+    expect(() => document.commitEdit(stale)).toThrow(/edit/);
+    expect(document.read().snapshot.paintSlot).toBe(7);
+  });
+
+  it('rejects a stale transaction without overwriting a newer committed generation', () => {
+    const document = new ColorCycleLayerDocument(makeState());
+    const stale = document.beginTransaction('stale-edit');
+    stale.updateScalarMetadata({ paintSlot: 9 });
+    const current = document.beginTransaction('current-edit');
+    current.updateScalarMetadata({ fgActiveSlot: 3 });
+    current.commit();
+    const before = document.read();
+    expect(() => stale.commit()).toThrow(/changed/);
+    expect(document.read()).toEqual(before);
+    expect(document.getAuditLog()).toHaveLength(1);
+  });
+
+  it('isolates sampled path metadata and versions changes to it', () => {
+    const state = makeState();
+    const path = { rgba: 'AAAAAA==', offset: 2 };
+    state.gradientDefStore![0].sampledPath = path;
+    const document = new ColorCycleLayerDocument(state);
+    path.offset = 9;
+    const before = document.read();
+    expect(before.snapshot.gradientDefStore![0].sampledPath?.offset).toBe(2);
+    expect(Object.isFrozen(before.snapshot.gradientDefStore![0].sampledPath)).toBe(true);
+    const transaction = document.beginTransaction('path-edit');
+    transaction.mutate((draft) => { draft.gradientDefStore![0].sampledPath!.offset = 4; });
+    const after = transaction.commit();
+    expect(after.version).toBe(before.version + 1);
+    expect(after.snapshot.gradientDefStore![0].sampledPath?.offset).toBe(4);
+    expect(before.snapshot.gradientDefStore![0].sampledPath?.offset).toBe(2);
+  });
+
+  it.each(['slotPalettes', 'gradientDefStore'] as const)('versions opacity-only changes in %s', (field) => {
+    const initial = makeState();
+    initial[field]![0].stops[0].opacity = 0.25;
+    const document = new ColorCycleLayerDocument(initial);
+    const before = document.read();
+    const next = makeState();
+    next[field]![0].stops[0].opacity = 0.75;
+    const after = document.replaceState(next, 'stop-opacity', { pixelsChanged: false });
+    expect(after.version).toBe(before.version + 1);
+    expect(after.snapshot[field]![0].stops[0].opacity).toBe(0.75);
+    expect(before.snapshot[field]![0].stops[0].opacity).toBe(0.25);
+    expect(after.snapshot.paintBuffer).toBe(before.snapshot.paintBuffer);
+  });
+
   it('returns the same immutable canonical generation without copying on read', () => {
     const document = new ColorCycleLayerDocument(makeState());
     resetColorCycleCanonicalCopyMetrics();

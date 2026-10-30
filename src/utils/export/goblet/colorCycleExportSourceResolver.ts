@@ -1,3 +1,4 @@
+import { projectColorCycleDocumentMasks } from '@/lib/colorCycle/document/documentMasks';
 import type { Layer, Project } from '@/types';
 import {
   ColorCycleLayerDocument,
@@ -107,6 +108,7 @@ const cloneLayerFromDocumentSnapshot = (
     colorCycleData: cloned.colorCycleData
       ? {
           ...cloned.colorCycleData,
+          ...projectColorCycleDocumentMasks(snapshot),
           colorCycleBrush: undefined,
           canvasWidth: snapshot.width,
           canvasHeight: snapshot.height,

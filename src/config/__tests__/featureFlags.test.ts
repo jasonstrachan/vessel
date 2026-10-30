@@ -27,7 +27,6 @@ jest.mock('@/utils/debug', () => ({
 const defaults: Record<FeatureFlagKey, boolean> = {
   useCanvas2DColorCycle: false,
   logColorCycleOperations: false,
-  useColorCycleWorker: true,
   enableSequentialRecordMode: true,
   enableSequentialGpuAcceleration: false,
   enableSequentialWorkerMaterialization: true,
@@ -76,7 +75,7 @@ describe('feature flag Reset uses the ordinary live-consumer contract', () => {
   });
 
   it('emits both ordered events only for changed flags, after persisting defaults', () => {
-    for (const key of ['useColorCycleWorker', 'logColorCycleOperations', 'useCanvas2DColorCycle'] as const) {
+    for (const key of ['logColorCycleOperations', 'useCanvas2DColorCycle'] as const) {
       setFeatureFlag(key, !defaults[key]);
     }
     events.length = 0;
@@ -85,7 +84,7 @@ describe('feature flag Reset uses the ordinary live-consumer contract', () => {
 
     resetFeatureFlags();
 
-    const changed = ['useCanvas2DColorCycle', 'logColorCycleOperations', 'useColorCycleWorker'] as const;
+    const changed = ['useCanvas2DColorCycle', 'logColorCycleOperations'] as const;
     expect(events).toEqual(changed.flatMap(key => eventTypes.map(type => ({
       type, key, value: defaults[key], stored: String(defaults[key]),
     }))));
@@ -156,8 +155,8 @@ it('keeps Reset safe in a server realm without window or storage', () => {
     },
   });
   const flags = exported as unknown as typeof import('@/config/featureFlags');
-  flags.setFeatureFlag('useColorCycleWorker', false);
-  expect(flags.isFeatureFlagEnabled('useColorCycleWorker')).toBe(false);
+  flags.setFeatureFlag('enableSequentialWorkerMaterialization', false);
+  expect(flags.isFeatureFlagEnabled('enableSequentialWorkerMaterialization')).toBe(false);
   expect(() => flags.resetFeatureFlags()).not.toThrow();
-  expect(flags.isFeatureFlagEnabled('useColorCycleWorker')).toBe(true);
+  expect(flags.isFeatureFlagEnabled('enableSequentialWorkerMaterialization')).toBe(true);
 });

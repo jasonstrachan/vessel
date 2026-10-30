@@ -10,6 +10,7 @@ import { resolveLayerColorCycleFallbackSpeedCps } from '@/utils/colorCycleLayerS
 import type {
   ColorCycleLayerDocumentState,
 } from './colorCycleDocumentContract';
+import { captureColorCycleDocumentMasks } from './documentMasks';
 import { readLegacyColorCycleTopLevelBuffers } from './legacyTopLevelBuffers';
 
 export type { ColorCycleLayerDocumentState };
@@ -196,6 +197,8 @@ export const validateColorCycleDocumentStateDimensions = (
     | 'speedBuffer'
     | 'flowBuffer'
     | 'phaseBuffer'
+    | 'eraseMask'
+    | 'softEdgeMask'
   >,
 ): { ok: true } | { ok: false; reason: string } => {
   const expectedPixels = state.width * state.height;
@@ -217,6 +220,13 @@ export const validateColorCycleDocumentStateDimensions = (
     }
   }
 
+  for (const [name, mask] of [['eraseMask', state.eraseMask], ['softEdgeMask', state.softEdgeMask]] as const) {
+    if (mask && (!Number.isInteger(mask.width) || mask.width <= 0
+      || !Number.isInteger(mask.height) || mask.height <= 0
+      || mask.alpha.length !== mask.width * mask.height)) {
+      return { ok: false, reason: `Invalid color-cycle mask: ${name}` };
+    }
+  }
   return { ok: true };
 };
 
@@ -350,6 +360,7 @@ export const normalizeColorCycleLayerDocumentState = (
     legacyRefs.phaseBuffer;
 
   const state: ColorCycleLayerDocumentState = {
+    ...captureColorCycleDocumentMasks(colorCycleData),
     layerId: layer.id,
     width: dimensions.width,
     height: dimensions.height,

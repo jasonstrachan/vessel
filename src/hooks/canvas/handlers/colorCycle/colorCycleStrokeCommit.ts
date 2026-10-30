@@ -371,6 +371,16 @@ export const commitColorCycleStrokeIfNeeded = async (
     shouldBuildEraseMask: shouldHealEraseMask,
     transparencyLockPaintMask: args.transparencyLockPaintMask,
   }, {
+    finalizeMasks: (brush, roi, paintMask) => {
+      const finalized = brush.getFinalizedStrokePaintMask?.(args.activeLayer!.id);
+      const healRoi = finalized?.bounds ?? roi ?? args.captureRoi;
+      if (healRoi && shouldHealEraseMask) {
+        deps.clearEraseMaskInRegion(args.activeLayer!.id, healRoi, {
+          paintMask: finalized ?? paintMask,
+          ...(finalized ? { replacePendingHeal: true } : {}),
+        });
+      }
+    },
     getBrushForLayer: deps.getBrushForLayer,
     bindBrushToCanvas: deps.bindBrushToCanvas,
     markLayerHasContent: deps.markLayerHasContent,
@@ -382,14 +392,6 @@ export const commitColorCycleStrokeIfNeeded = async (
   });
 
   const resolvedStrokeCaptureRoi = commitResult.strokeCaptureRoi ?? args.captureRoi;
-  const finalizedPaintMask = commitResult.brushForCleanup?.getFinalizedStrokePaintMask?.(args.activeLayer.id);
-  const healRoi = finalizedPaintMask?.bounds ?? resolvedStrokeCaptureRoi;
-  if (healRoi && shouldHealEraseMask) {
-    deps.clearEraseMaskInRegion(args.activeLayer.id, healRoi, {
-      paintMask: finalizedPaintMask ?? commitResult.eraseMaskPaintMask,
-      ...(finalizedPaintMask ? { replacePendingHeal: true } : {}),
-    });
-  }
 
   return {
     handled: true,

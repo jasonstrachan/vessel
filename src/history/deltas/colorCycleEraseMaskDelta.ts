@@ -1,3 +1,5 @@
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { publishColorCycleLayerMetadata } from '@/lib/colorCycle/document/documentMasks';
 import type {
   HistoryDelta,
   HistoryDirection,
@@ -95,6 +97,8 @@ class ColorCycleEraseMaskDelta implements HistoryDelta {
       delete colorCycleData.eraseMaskImageData;
       delete colorCycleData.eraseMaskVersion;
     }
+
+    publishColorCycleLayerMetadata(getColorCycleBrushManager().getDocument?.(this.layerId), { ...layer, colorCycleData }, 'history-erase-mask', true);
 
     // Crop's indexed delta owns document anchors. Replace mask surfaces without
     // resizing or mutating the previous canvas so failed replay can restore it exactly.

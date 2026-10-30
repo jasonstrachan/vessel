@@ -112,21 +112,9 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     assumeDerivedSurfaceCurrent?: boolean;
     derivedSurface?: RebuildableDerivedSurface | null;
   }): void {
-    strokeFinalizeProbeTimeSync(
-      'colorCycleRuntimeDocumentState:setStrokeState',
-      () => this.setStrokeState(params.layerId, params.strokeState),
-      { layerId: params.layerId, reason: params.reason ?? 'snapshot-apply' }
-    );
-    if (!params.publishToDocument) {
-      return;
-    }
-
-    const document = strokeFinalizeProbeTimeSync(
-      'colorCycleRuntimeDocumentState:getLayerDocument',
-      () => this.getLayerDocument(params.layerId),
-      { layerId: params.layerId, reason: params.reason ?? 'snapshot-apply' }
-    );
+    const document = params.publishToDocument ? this.getLayerDocument(params.layerId) : undefined;
     if (!document) {
+      this.setStrokeState(params.layerId, params.strokeState);
       return;
     }
 
@@ -134,7 +122,7 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     const read = strokeFinalizeProbeTimeSync(
       'colorCycleRuntimeDocumentState:replaceDocumentState',
       () => document.replaceState(
-        params.buildDocumentState(),
+        { ...document.readPreview().snapshot, ...params.buildDocumentState() },
         reason,
         {
           force: params.forceDocumentPublish,
@@ -144,6 +132,7 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
       ),
       { layerId: params.layerId, reason }
     );
+    this.setStrokeState(params.layerId, params.strokeState);
     const derivedSurface = params.derivedSurface;
     if (derivedSurface) {
       const isStale = strokeFinalizeProbeTimeSync(
@@ -324,11 +313,11 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
   }
 
   getLayerDocumentRead(layerId: string): ReturnType<ColorCycleLayerDocument['read']> | undefined {
-    return this.getLayerDocument(layerId)?.read();
+    return this.getLayerDocument(layerId)?.readPreview();
   }
 
   getLayerDocumentVersion(layerId: string): number | null {
-    return this.getLayerDocument(layerId)?.read().version ?? null;
+    return this.getLayerDocument(layerId)?.readPreview().version ?? null;
   }
 
   consumeLayerDirtyBatch(layerId: string): ReturnType<ColorCycleLayerDocument['consumeDirtyBatch']> | undefined {
@@ -367,7 +356,7 @@ export class ColorCycleRuntimeDocumentState<StrokeState extends ColorCycleBrushP
     if (!document) {
       return;
     }
-    const candidate = params.buildState();
+    const candidate = { ...document.read().snapshot, ...params.buildState() };
     const candidateContent = classifyColorCycleCanonicalContent(candidate);
     if (candidateContent.kind === 'invalid') {
       debugWarn(

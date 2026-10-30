@@ -66,6 +66,44 @@ describe('restoreColorCycleBrushesWithDocumentHydration', () => {
     disposeColorCycleBrushManager();
   });
 
+  it('retains canonical masks when saving an archive-backed layer before waking its renderer', async () => {
+    const manager = createColorCycleBrushManager();
+    const layer = createColorCycleLayer();
+    const image = new ImageData(2, 2);
+    image.data[3] = 128;
+    layer.colorCycleData!.eraseMaskImageData = image;
+    layer.colorCycleData!.eraseMaskVersion = 3;
+    const restoreRuntime = jest.fn();
+    const runtime = {
+      brushState: layer.colorCycleData!.brushState as PersistedColorCycleBrushState,
+      paintRef: 'zip:paint.bin', gradientIdRef: 'zip:gid.bin', gradientDefIdRef: 'zip:def.bin',
+      speedRef: 'zip:speed.bin', flowRef: 'zip:flow.bin', phaseRef: 'zip:phase.bin',
+    };
+    await restoreColorCycleBrushesWithDocumentHydration([layer], {
+      lazy: true, activeLayerId: 'another-layer', colorCycleBrushManager: manager,
+    }, {
+      shouldDeferColorCycleRuntimeRestore: () => true,
+      getLazyColorCycleArchiveRuntime: () => runtime,
+      hydrateLazyColorCycleArchiveRuntime: jest.fn(), commitLazyColorCycleArchiveRuntimeHydration: jest.fn(),
+      getSavedColorCycleBrushState: () => runtime.brushState,
+      serializeRuntimeBrushState: () => undefined, restoreLayerRuntimeForMaterialization: restoreRuntime,
+      describeBufferForDebug: () => null, isPrimaryColorCyclePayloadFailure: () => false,
+      withColorCycleDiagnosticNotes: (notes, extra = []) => [...notes, ...extra],
+      debug: { log: jest.fn(), warn: jest.fn() },
+    });
+    const document = manager.getDocument(layer.id)!;
+    expect(document.residency).toBe('cold-archive-ref');
+    expect(document.read().snapshot.eraseMask?.alpha[0]).toBe(128);
+    image.data[3] = 255;
+    const saved = captureColorCyclePersistenceSnapshot(layer, {
+      mode: 'canonical-save', projectWidth: 2, projectHeight: 2, requirePaint: true, document,
+    });
+    if (!saved.ok) throw new Error(saved.reason);
+    expect(saved.documentState.eraseMask?.alpha[0]).toBe(128);
+    expect(saved.documentState.eraseMask?.version).toBe(3);
+    expect(restoreRuntime).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, 2] as const)('retains embedded paint and speed source %s while deferring the renderer', async (speedSourceVersion) => {
     const manager = createColorCycleBrushManager();
     const layer = createColorCycleLayer();

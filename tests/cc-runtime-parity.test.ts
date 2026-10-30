@@ -445,12 +445,14 @@ const renderVesselEditorFrame = (params: {
   slotPalettes: Map<number, { stops: Goblet2GradientStop[]; seamProfile?: GradientSeamProfile }> | null;
   timeSeconds: number;
   legacyOffset01: number;
+  frameDeltas?: number[];
 }): Uint8ClampedArray => {
   const animator = new ColorCycleAnimator({
     width: params.width,
     height: params.height,
     gradientStops: params.fallbackGradient,
     forceCanvas2D: true,
+    speed: 1,
   });
   params.slotPalettes?.forEach((entry, slot) => {
     animator.setGradientSlot(slot, entry.stops, entry.seamProfile);
@@ -462,10 +464,16 @@ const renderVesselEditorFrame = (params: {
     params.flowBuffer,
     params.phaseBuffer,
   );
-  (animator as unknown as {
-    renderFrame(offset?: number, baseTimeOverride?: number): void;
-  }).renderFrame(params.legacyOffset01, params.timeSeconds);
-  return new Uint8ClampedArray(animator.getImageData().data);
+  if (params.frameDeltas) {
+    params.frameDeltas.forEach((delta) => animator.updateFrame(delta));
+  } else {
+    (animator as unknown as {
+      renderFrame(offset?: number, baseTimeOverride?: number): void;
+    }).renderFrame(params.legacyOffset01, params.timeSeconds);
+  }
+  const pixels = new Uint8ClampedArray(animator.getImageData().data);
+  animator.cleanup();
+  return pixels;
 };
 
 const loadFixtures = (): CCFixture[] => {
@@ -1025,6 +1033,26 @@ describe('Color cycle runtime parity (Vessel reference vs Goblet2 CPU)', () => {
       MAX_BRUSH_COLOR_CYCLE_SPEED * animator.getEffectivePlaybackSpeed(),
       8,
     );
+  });
+
+  it('keeps elapsed-time editor playback equal to Goblet at the same timestamp', () => {
+    const fixture = fixtures.find((entry) => entry.id === 'vessel-editor-reference-path')!;
+    const indexBuffer = Uint8Array.from(fixture.brushState.indexBuffer);
+    const gradientIdBuffer = Uint8Array.from(fixture.brushState.gradientIdBuffer);
+    const speedBuffer = Uint8Array.from(fixture.brushState.speedBuffer);
+    const slotPalettes = new Map((fixture.slotPalettes ?? []).map((entry) => [entry.slot, entry]));
+    const timeSeconds = 0.25;
+    const expected = renderBrushFrame({
+      indexBuffer, gradientIdBuffer, speedBuffer,
+      paletteTable: bakePaletteTable(slotPalettes, fixture.brushState.gradientStops, 256, 256),
+      speedMin: fixture.speedMin, speedMax: fixture.speedMax, timeSeconds,
+    });
+    const actual = renderVesselEditorFrame({
+      width: fixture.width, height: fixture.height, indexBuffer, gradientIdBuffer, speedBuffer,
+      fallbackGradient: fixture.brushState.gradientStops, slotPalettes,
+      timeSeconds, legacyOffset01: 0, frameDeltas: [0.02, 0.04, 0.09, 0.1],
+    });
+    expect(diffFrames(actual, expected).maxChannelDelta).toBeLessThanOrEqual(1);
   });
 
   it('pins the Vessel reference side to the editor ColorCycleAnimator playback path', () => {

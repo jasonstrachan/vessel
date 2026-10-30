@@ -20,7 +20,7 @@ describe('captureColorCycleBrushState', () => {
     window.localStorage.clear();
   });
 
-  it('reuses cached erase mask snapshots when version is unchanged', () => {
+  it('reads committed erase masks without capturing the live mask projection', () => {
     const maskCanvas = document.createElement('canvas');
     maskCanvas.width = 4;
     maskCanvas.height = 4;
@@ -33,6 +33,7 @@ describe('captureColorCycleBrushState', () => {
     maskCtx.fillRect(0, 0, 4, 4);
     const getImageDataSpy = jest.spyOn(maskCtx, 'getImageData');
 
+    const committedMask = { width: 4, height: 4, alpha: new Uint8ClampedArray(16).fill(128), version: 1 };
     let maskVersion = 1;
     (useAppStore.getState as jest.Mock).mockImplementation(() => ({
       project: { width: 4, height: 4 },
@@ -56,6 +57,7 @@ describe('captureColorCycleBrushState', () => {
           read: () => ({
             version: 1,
             snapshot: {
+              eraseMask: committedMask,
               layerId: 'layer-1',
               width: 4,
               height: 4,
@@ -96,13 +98,13 @@ describe('captureColorCycleBrushState', () => {
       }),
     });
 
+    expect(captureColorCycleBrushState('layer-1')?.layers[0].eraseMaskSnapshot).toBe(committedMask);
     captureColorCycleBrushState('layer-1');
-    captureColorCycleBrushState('layer-1');
-    expect(getImageDataSpy).toHaveBeenCalledTimes(1);
+    expect(getImageDataSpy).not.toHaveBeenCalled();
 
     maskVersion = 2;
-    captureColorCycleBrushState('layer-1');
-    expect(getImageDataSpy).toHaveBeenCalledTimes(2);
+    expect(captureColorCycleBrushState('layer-1')?.layers[0].eraseMaskSnapshot).toBe(committedMask);
+    expect(getImageDataSpy).not.toHaveBeenCalled();
   });
 
   it('captures independent sampled path metadata with fractional strand offsets', () => {

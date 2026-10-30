@@ -76,7 +76,13 @@ jest.mock('@/stores/colorCycleBrushManager', () => {
     getSurfaceBrush: jest.fn(() => mockBrush),
     getBrush: jest.fn(() => mockBrush),
     getDocument: jest.fn(() => undefined),
-    ensureDocument: jest.fn(() => undefined),
+    ensureDocument: jest.fn((layerId: string, width: number, height: number, options?: object) => {
+      const { ColorCycleLayerDocument } = jest.requireActual('@/lib/colorCycle/document/ColorCycleLayerDocument');
+      return new ColorCycleLayerDocument({
+        layerId, width, height, hasContent: false,
+        sources: { brushStateSnapshot: false, topLevelBuffers: false, legacyStateRefs: false },
+      }, options);
+    }),
     createBrush: jest.fn(() => mockBrush),
     registerDocument: jest.fn(),
     registerRestoredBrush: jest.fn((layerId: string, brush: unknown) => {

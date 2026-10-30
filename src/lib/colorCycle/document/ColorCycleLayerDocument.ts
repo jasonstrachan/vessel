@@ -7,6 +7,7 @@ import { debugWarn } from '@/utils/debug';
 import { strokeFinalizeProbeTimeSync } from '@/utils/strokeFinalizeProbe';
 
 import type {
+  ColorCycleDocumentMask,
   ColorCycleLayerDocumentSnapshot,
   ColorCycleLayerDocumentState,
 } from './colorCycleDocumentContract';
@@ -311,9 +312,20 @@ const cloneGradientDefStore = (
 ): ColorCycleGradientDefStoreEntry[] | undefined => (
   gradientDefStore?.map((entry) => ({
     ...entry,
+    sampledPath: entry.sampledPath ? { ...entry.sampledPath } : undefined,
     stops: entry.stops.map((stop) => ({ ...stop })),
     sourceStops: entry.sourceStops?.map((stop) => ({ ...stop })),
   }))
+);
+
+const cloneMask = (mask: ColorCycleDocumentMask | undefined): ColorCycleDocumentMask | undefined => (
+  mask ? { ...mask, alpha: mask.alpha.slice() } : undefined
+);
+
+const masksEqual = (a: ColorCycleDocumentMask | undefined, b: ColorCycleDocumentMask | undefined): boolean => (
+  a === b || Boolean(a && b && a.width === b.width && a.height === b.height
+    && a.version === b.version && a.enabled === b.enabled
+    && a.alpha.length === b.alpha.length && a.alpha.every((value, index) => value === b.alpha[index]))
 );
 
 const cloneDocumentState = (
@@ -322,6 +334,8 @@ const cloneDocumentState = (
 ): ColorCycleLayerDocumentState => {
   const clone = {
     ...state,
+    eraseMask: cloneMask(state.eraseMask),
+    softEdgeMask: cloneMask(state.softEdgeMask),
     paintBuffer: cloneArrayBuffer(state.paintBuffer),
     gradientIdBuffer: cloneArrayBuffer(state.gradientIdBuffer),
     gradientDefIdBuffer: cloneArrayBuffer(state.gradientDefIdBuffer),
@@ -342,6 +356,8 @@ const cloneDocumentMetadataWithCanonicalBuffers = (
   canonicalState: ColorCycleLayerDocumentSnapshot,
 ): ColorCycleLayerDocumentState => ({
   ...state,
+  eraseMask: cloneMask(state.eraseMask),
+  softEdgeMask: cloneMask(state.softEdgeMask),
   paintBuffer: canonicalState.paintBuffer,
   gradientIdBuffer: canonicalState.gradientIdBuffer,
   gradientDefIdBuffer: canonicalState.gradientDefIdBuffer,
@@ -406,13 +422,14 @@ const optionalArrayEqual = <T>(
 };
 
 const stopsEqual = (
-  a: Array<{ position: number; color: string }>,
-  b: Array<{ position: number; color: string }>,
+  a: Array<{ position: number; color: string; opacity?: number }>,
+  b: Array<{ position: number; color: string; opacity?: number }>,
 ): boolean => (
   a.length === b.length &&
   a.every((stop, index) => (
     stop.position === b[index]?.position &&
-    stop.color === b[index]?.color
+    stop.color === b[index]?.color &&
+    stop.opacity === b[index]?.opacity
   ))
 );
 
@@ -446,6 +463,8 @@ const gradientDefStoreEntriesEqual = (
   a.createdAtMs === b.createdAtMs &&
   a.slot === b.slot &&
   a.speedCps === b.speedCps &&
+  a.sampledPath?.rgba === b.sampledPath?.rgba &&
+  a.sampledPath?.offset === b.sampledPath?.offset &&
   stopsEqual(a.stops, b.stops) &&
   optionalArrayEqual(a.sourceStops, b.sourceStops, (left, right) => (
     left.position === right.position &&
@@ -470,6 +489,8 @@ const documentMetadataEqual = (
   a: ColorCycleLayerDocumentState,
   b: ColorCycleLayerDocumentState,
 ): boolean => (
+  masksEqual(a.eraseMask, b.eraseMask) &&
+  masksEqual(a.softEdgeMask, b.softEdgeMask) &&
   a.layerId === b.layerId &&
   a.width === b.width &&
   a.height === b.height &&
@@ -490,6 +511,8 @@ const documentMetadataEqual = (
 const freezeDocumentSnapshot = (
   state: ColorCycleLayerDocumentState,
 ): ColorCycleLayerDocumentSnapshot => {
+  if (state.eraseMask) Object.freeze(state.eraseMask);
+  if (state.softEdgeMask) Object.freeze(state.softEdgeMask);
   Object.freeze(state.sources);
   state.gradientDefs?.forEach(Object.freeze);
   state.slotPalettes?.forEach((palette) => {
@@ -498,6 +521,7 @@ const freezeDocumentSnapshot = (
     Object.freeze(palette);
   });
   state.gradientDefStore?.forEach((entry) => {
+    if (entry.sampledPath) Object.freeze(entry.sampledPath);
     entry.stops.forEach(Object.freeze);
     Object.freeze(entry.stops);
     if (entry.sourceStops) {
@@ -562,11 +586,14 @@ export class CCDocumentTransaction {
 
   private readonly dirtyRects: ColorCycleDirtyRect[] = [];
 
+  private readonly baseline: ColorCycleLayerDocumentRead;
+
   constructor(
     private readonly document: ColorCycleLayerDocument,
     readonly reason: string,
     initialState: ColorCycleLayerDocumentState,
   ) {
+    this.baseline = document.read();
     this.draft = cloneDocumentMetadataWithCanonicalBuffers(initialState, initialState);
   }
 
@@ -597,6 +624,11 @@ export class CCDocumentTransaction {
   commit(): ColorCycleLayerDocumentRead {
     this.assertOpen();
     this.isClosed = true;
+    if (this.document.hasPendingEdit) throw new Error('A color-cycle edit is already pending');
+    const current = this.document.read();
+    if (current.version !== this.baseline.version || current.snapshot !== this.baseline.snapshot) {
+      throw new Error(`Color-cycle document changed during transaction: ${this.reason}`);
+    }
     if (!this.hasWritableCanonicalBuffers) {
       return this.document.commitTransaction(this.reason, this.draft, this.dirtyRects);
     }
@@ -619,6 +651,14 @@ export class CCDocumentTransaction {
 }
 
 export class ColorCycleLayerDocument {
+  private pendingEdit: {
+    token: object;
+    reason: string;
+    baseline: ColorCycleLayerDocumentRead;
+    preview: ColorCycleLayerDocumentRead;
+    dirtyRects: ColorCycleDirtyRect[];
+  } | null = null;
+
   private currentSnapshot: ColorCycleLayerDocumentSnapshot;
 
   private currentVersion: number;
@@ -699,6 +739,44 @@ export class ColorCycleLayerDocument {
     };
   }
 
+  get hasPendingEdit(): boolean {
+    return this.pendingEdit !== null;
+  }
+
+  readPreview(): ColorCycleLayerDocumentRead {
+    return this.pendingEdit?.preview ?? this.read();
+  }
+
+  beginEdit(reason: string): object {
+    if (this.pendingEdit) throw new Error('A color-cycle edit is already pending');
+    if (!reason) throw new Error('Color-cycle edits require a reason');
+    const baseline = this.read();
+    const token = {};
+    this.pendingEdit = { token, reason, baseline, preview: baseline, dirtyRects: [] };
+    return token;
+  }
+
+  commitEdit(token: object): ColorCycleLayerDocumentRead {
+    const edit = this.requireEdit(token);
+    this.pendingEdit = null;
+    if (edit.baseline.snapshot !== this.currentSnapshot || edit.baseline.version !== this.currentVersion) {
+      throw new Error('Color-cycle edit baseline changed');
+    }
+    return this.commitTransaction(edit.reason, edit.preview.snapshot, edit.dirtyRects);
+  }
+
+  cancelEdit(token: object): void {
+    this.requireEdit(token);
+    this.pendingEdit = null;
+  }
+
+  private requireEdit(token: object) {
+    if (!this.pendingEdit || this.pendingEdit.token !== token) {
+      throw new Error('Color-cycle edit is stale or already closed');
+    }
+    return this.pendingEdit;
+  }
+
   peekDirtyBatch(): ColorCycleLayerDirtyBatch | null {
     return this.dirtyTracker.peek();
   }
@@ -708,6 +786,7 @@ export class ColorCycleLayerDocument {
   }
 
   beginTransaction(reason: string): CCDocumentTransaction {
+    if (this.pendingEdit) throw new Error('A color-cycle edit is already pending');
     if (!reason) {
       throw new Error('Color-cycle document transactions require a reason');
     }
@@ -733,6 +812,7 @@ export class ColorCycleLayerDocument {
     options: ColorCycleLayerDocumentBaselineOptions = {},
   ): ColorCycleLayerDocumentRead {
     this.assertValidState(nextState);
+    this.pendingEdit = null;
     this.currentSnapshot = freezeDocumentSnapshot(
       cloneDocumentState(nextState, 'document-baseline'),
     );
@@ -820,6 +900,16 @@ export class ColorCycleLayerDocument {
     options: ColorCycleLayerDocumentCommitOptions = {},
   ): ColorCycleLayerDocumentRead {
     this.assertValidState(draft);
+    if (this.pendingEdit) {
+      const edit = this.pendingEdit;
+      edit.preview = {
+        snapshot: freezeDocumentSnapshot(cloneDocumentState(draft, 'document-commit')),
+        version: edit.preview.version + 1,
+        pixelVersion: edit.preview.pixelVersion + (options.pixelsChanged === false ? 0 : 1),
+      };
+      if (dirtyRects) edit.dirtyRects.push(...dirtyRects);
+      return edit.preview;
+    }
     const probeMeta = {
       layerId: draft.layerId,
       reason,

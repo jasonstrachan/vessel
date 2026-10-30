@@ -3,6 +3,12 @@
 Date: 2026-02-08  
 Status: Active policy
 
+Color-cycle playback scheduling lives in `src/runtime/playback/animationRuntime.ts`.
+Brush, recolor and canvas presentation subscribe to the shared scheduler; canvas
+composition shells do not own animation loops or initialize a compositor worker.
+The unused compositor worker pipeline was removed under
+`plan-color-cycle-architecture-2026-10-30.md`; computational fill workers remain.
+
 ## Why
 We reduced `useDrawingHandlers.ts` and `DrawingCanvas.tsx` from multi-thousand-line hotspots to orchestration shells. This policy prevents regression into monolith files.
 

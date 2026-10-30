@@ -1,3 +1,6 @@
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
+import { publishColorCycleLayerMetadata, projectColorCycleDocumentMasks } from '@/lib/colorCycle/document/documentMasks';
+import { readColorCycleBrushLayerSnapshotFromDocumentRead } from '@/lib/colorCycle/document/brushPersistenceAdapter';
 import { buildSampledPathStroke } from './sampledPathStroke';
 import { encodeColorCycleSpeedByte } from '@/utils/colorCycleSpeed';
 import { alignSampledStampPositions, measureSampledInkCoverage, type SampledStampPositions } from '@/hooks/canvas/handlers/colorCycle/alignSampledStroke';
@@ -177,6 +180,7 @@ export type CommitColorCycleLayerStrokeDeps = {
   perfMeasure: (label: string, startLabel: string, endLabel: string) => void;
   startFinalizeVisibleTimer: () => void;
   endFinalizeVisibleTimer: () => void;
+  finalizeMasks?: (brush: ManagedColorCycleBrush, roi: CaptureRegion | undefined, paintMask: ColorCyclePaintMask | null) => void;
   dispatchFrameUpdate: (layerId: string) => void;
 };
 
@@ -614,6 +618,10 @@ export const commitColorCycleLayerStroke = async (
     deps.perfMeasure('cc:roi', 'cc:roi:start', 'cc:roi:end');
   }
 
+  let editDocument: ColorCycleLayerDocument | undefined;
+  let editToken: object | undefined;
+  let baseline: ReturnType<ColorCycleLayerDocument['read']> | undefined;
+  let editBrush: ManagedColorCycleBrush | undefined;
   let brushForCleanup: ManagedColorCycleBrush | undefined;
   const targetLayerId = args.layer.id;
   try {
@@ -626,6 +634,13 @@ export const commitColorCycleLayerStroke = async (
       }
     );
     if (brush) {
+      const document = brush.getColorCycleLayerDocument?.(targetLayerId);
+      if (document instanceof ColorCycleLayerDocument) {
+        editDocument = document;
+        baseline = document.read();
+        editToken = document.beginEdit('stroke-finalize');
+        editBrush = brush;
+      }
       const shouldBuildEraseMask = args.shouldBuildEraseMask !== false;
       const beforeStrokeSnapshot = shouldBuildEraseMask
         ? strokeFinalizeProbeTimeSync(
@@ -642,7 +657,7 @@ export const commitColorCycleLayerStroke = async (
         label: string,
         bbox?: { minX: number; minY: number; width: number; height: number }
       ): Map<number, number> | null => {
-        const committedState = readColorCycleCommittedLayerStateFromRuntime(brush, targetLayerId);
+        const committedState = readColorCycleCommittedLayerStateFromRuntime(brush, targetLayerId, true);
         if (!committedState) {
           return null;
         }
@@ -710,7 +725,7 @@ export const commitColorCycleLayerStroke = async (
       if (args.transparencyLockPaintMask) {
         const currentSnapshot = strokeFinalizeProbeTimeSync(
           'commitColorCycleLayerStroke:readTransparencyLockSnapshot',
-          () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId),
+          () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId, true),
           {
             layerId: targetLayerId,
             layerType: args.layer.layerType,
@@ -756,7 +771,7 @@ export const commitColorCycleLayerStroke = async (
           // pointer path accumulates a different length at diagonals and turns.
           sampledSession.sampledStrokePoints = ownership.points;
         }
-        const snapshot = snapshotAfterTransparencyLock ?? readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
+        const snapshot = snapshotAfterTransparencyLock ?? readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId, true);
         if (ownership && snapshot?.gradientIdBuffer) {
           sampledSession.sampledPrimaryCoverage = measureSampledInkCoverage(
             new Uint8Array(snapshot.paintBuffer), new Uint8Array(snapshot.gradientIdBuffer), ownership,
@@ -784,7 +799,7 @@ export const commitColorCycleLayerStroke = async (
 
       if (committedSession?.sampledPathStops && committedSession.sampledAlignment?.bandPx) {
         const ownership = brush.getSampledStrokePositions?.(targetLayerId);
-        const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
+        const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId, true);
         const current = getAppStoreState().layers.find(entry => entry.id === targetLayerId)?.colorCycleData;
         if (!ownership || !snapshot?.gradientIdBuffer || !current) throw new Error('The sampled stroke source is unavailable.');
         const result = buildSampledPathStroke({ snapshot, ownership,
@@ -816,7 +831,7 @@ export const commitColorCycleLayerStroke = async (
           if (committedSession.binding && currentDef?.slot !== undefined) {
             committedSession.binding = { ...committedSession.binding, slot: currentDef.slot };
           }
-          const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId);
+          const snapshot = readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId, true);
           if (!snapshot?.gradientIdBuffer) throw new Error('The sampled stroke pixels are unavailable.');
           if (secondary && secondaryStops) {
             brush.setGradientSlotStops?.(targetLayerId, secondary.slot, secondary.def.stops, committedSession.seamProfile);
@@ -1016,7 +1031,7 @@ export const commitColorCycleLayerStroke = async (
       if (shouldBuildEraseMask) {
         const afterStrokeSnapshot = strokeFinalizeProbeTimeSync(
           'commitColorCycleLayerStroke:readAfterSnapshot',
-          () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId) as ColorCyclePaintSnapshot | null,
+          () => readColorCycleBrushLayerSnapshotFromRuntime(brush, targetLayerId, true) as ColorCyclePaintSnapshot | null,
           {
             layerId: targetLayerId,
             layerType: args.layer.layerType,
@@ -1136,10 +1151,41 @@ export const commitColorCycleLayerStroke = async (
           }
         );
       } catch {}
+      deps.finalizeMasks?.(brush, strokeCaptureRoi, eraseMaskPaintMask);
+      if (editDocument && editToken) {
+        const currentLayer = getAppStoreState().layers.find((layer) => layer.id === targetLayerId);
+        if (!currentLayer) throw new Error('Color-cycle layer disappeared during finalization');
+        publishColorCycleLayerMetadata(editDocument, currentLayer, 'stroke-masks-and-bindings');
+        editDocument.commitEdit(editToken);
+        editToken = undefined;
+      }
     } else {
       throw new Error(`Color Cycle stroke commit requires a brush runtime for ${targetLayerId}`);
     }
   } catch (error) {
+    if (editDocument && editToken && baseline && editBrush) {
+      try {
+        editDocument.cancelEdit(editToken);
+        const snapshot = readColorCycleBrushLayerSnapshotFromDocumentRead(baseline);
+        if (snapshot) applyColorCycleBrushLayerSnapshotToRuntime(editBrush, targetLayerId, snapshot, undefined, 'stroke-rollback');
+        getAppStoreState().updateLayer(targetLayerId, { colorCycleData: {
+          ...beforeCommitLayer.colorCycleData,
+          ...projectColorCycleDocumentMasks(baseline.snapshot),
+          nextGradientDefId: beforeCommitLayer.colorCycleData?.nextGradientDefId,
+          hasContent: baseline.snapshot.hasContent,
+          slotPalettes: baseline.snapshot.slotPalettes,
+          gradientDefs: baseline.snapshot.gradientDefs,
+          gradientDefStore: baseline.snapshot.gradientDefStore,
+          paintSlot: baseline.snapshot.paintSlot,
+          fgActiveSlot: baseline.snapshot.fgActiveSlot,
+        } }, { skipColorCycleSync: true, allowColorCycleFieldClears: true });
+        editDocument.replaceBaseline(baseline.snapshot, {
+          version: baseline.version, pixelVersion: baseline.pixelVersion, clearAudit: false,
+        });
+      } catch {
+        // A replaced baseline belongs to a newer edit; never roll it back.
+      }
+    }
     didCommitFail = true;
     commitError = error;
   }

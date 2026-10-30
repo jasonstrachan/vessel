@@ -1,3 +1,4 @@
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import type { Layer } from '@/types';
 import { DEFAULT_BRUSH_COLOR_CYCLE_SPEED } from '@/constants/colorCycle';
@@ -52,6 +53,27 @@ const canonicalBrushState = (overrides: Partial<PersistedColorCycleBrushState> =
 });
 
 describe('captureColorCyclePersistenceSnapshot', () => {
+  it('saves a coherent committed generation during pending edits and isolates mask copies', () => {
+    const document = new ColorCycleLayerDocument({
+      layerId: 'layer-1', width: 2, height: 2,
+      paintBuffer: buffer(4), gradientIdBuffer: buffer(4), gradientDefIdBuffer: buffer(8),
+      speedBuffer: buffer(4), flowBuffer: buffer(4), phaseBuffer: buffer(4), hasContent: true,
+      eraseMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([255, 128, 0, 0]), version: 2 },
+      sources: { brushStateSnapshot: true, topLevelBuffers: false, legacyStateRefs: false },
+    });
+    const edit = document.beginEdit('pending');
+    document.replaceState({ ...document.read().snapshot, paintBuffer: buffer(4, 9), eraseMask: undefined }, 'preview');
+    const result = captureColorCyclePersistenceSnapshot(makeLayer(), {
+      projectWidth: 2, projectHeight: 2, requirePaint: true, mode: 'canonical-save', document,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    expect(Array.from(new Uint8Array(result.documentState.paintBuffer as ArrayBuffer))).toEqual([1, 1, 1, 1]);
+    expect(Array.from(result.documentState.eraseMask!.alpha)).toEqual([255, 128, 0, 0]);
+    result.documentState.eraseMask!.alpha[0] = 0;
+    expect(document.read().snapshot.eraseMask!.alpha[0]).toBe(255);
+    document.cancelEdit(edit);
+  });
+
   it('references the immutable document generation for history without cloning canonical buffers', () => {
     const documentState = {
       layerId: 'layer-1',

@@ -1,5 +1,7 @@
 import type { StateCreator } from 'zustand';
 
+import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
+import { publishColorCycleLayerMetadata } from '@/lib/colorCycle/document/documentMasks';
 import { requestGradientApply } from '@/hooks/brushEngine/ccGradientApplyScheduler';
 import { clearSequentialLayerRendererLayer } from '@/lib/sequential/SequentialLayerRenderer';
 import { syncPlaybackColorCycleLayers } from '@/stores/ccRuntime';
@@ -125,9 +127,9 @@ export const createLayerUpdateActions = ({
               });
               // Skip this update - don't add colorCycleData to normal layers
             } else {
-              const sanitizedColorCyclePatch = omitUndefinedEntries(
-                updates.colorCycleData as Record<string, unknown>
-              ) as Layer['colorCycleData'];
+              const sanitizedColorCyclePatch = options?.allowColorCycleFieldClears
+                ? updates.colorCycleData
+                : omitUndefinedEntries(updates.colorCycleData as Record<string, unknown>) as Layer['colorCycleData'];
               // Merging colorCycleData for color-cycle layer
               const mergedColorCycleData = {
                 ...layer.colorCycleData,
@@ -251,6 +253,19 @@ export const createLayerUpdateActions = ({
       });
     }
 
+    const metadataKeys = [
+      'eraseMask', 'eraseMaskImageData', 'eraseMaskVersion',
+      'softEdgeMask', 'softEdgeMaskImageData', 'softEdgeMaskVersion', 'softEdgeMaskEnabled',
+      'slotPalettes', 'gradientDefs', 'gradientDefStore', 'activeGradientId', 'paintSlot', 'fgActiveSlot',
+    ] as const;
+    const hasAuthoredMetadataChange = metadataKeys.some((key) =>
+      Boolean(updates.colorCycleData && key in updates.colorCycleData)
+      && (options?.allowColorCycleFieldClears || updates.colorCycleData?.[key] !== undefined)
+      && updates.colorCycleData?.[key] !== originalLayer?.colorCycleData?.[key]
+    );
+    if (updatedLayer && hasAuthoredMetadataChange) {
+      publishColorCycleLayerMetadata(getColorCycleBrushManager().getDocument?.(id), updatedLayer, 'layer-metadata-change');
+    }
     trackLayerChanges('updateLayer RETURN', updatedLayers);
     const syncedLayers = syncPercentOffsetsFromPixels(updatedLayers, state.project ?? null);
 

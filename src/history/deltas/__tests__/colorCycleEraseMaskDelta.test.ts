@@ -91,7 +91,7 @@ describe('ColorCycleEraseMaskDelta', () => {
     expect(maskState()).toEqual({ width: 3, height: 2, version: 7, alpha: [0, 1, 48, 127, 254, 255] });
     await replayDeltaForTest(delta, 'forward');
     expect(maskState()).toEqual({ width: 2, height: 1, version: 8, alpha: [48, 127] });
-    expect(managerRead).not.toHaveBeenCalled();
+    expect(managerRead).toHaveBeenCalled();
     expect(useAppStore.getState().layersNeedRecomposition).toBe(true);
     expect(useAppStore.getState().pendingCompositeDirtyBatches[0]?.layerId).toBe(layerId);
   });

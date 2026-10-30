@@ -34,6 +34,8 @@ const cloneDocumentStateForPersistence = (
   state: ColorCyclePersistenceDocumentState,
 ): ColorCyclePersistenceDocumentState => ({
   ...state,
+  eraseMask: state.eraseMask ? { ...state.eraseMask, alpha: state.eraseMask.alpha.slice() } : undefined,
+  softEdgeMask: state.softEdgeMask ? { ...state.softEdgeMask, alpha: state.softEdgeMask.alpha.slice() } : undefined,
   paintBuffer: cloneBufferRef(state.paintBuffer),
   gradientIdBuffer: cloneBufferRef(state.gradientIdBuffer),
   gradientDefIdBuffer: cloneBufferRef(state.gradientDefIdBuffer),
@@ -229,20 +231,25 @@ const captureFromColdArchiveDocument = (
     return undefined;
   }
 
-  const { version, pixelVersion } = document.read();
+  const { snapshot, version, pixelVersion } = document.read();
   const selectedDiagnostic = {
     source: 'document' as const,
     kind: 'source-selected' as const,
     message: `Selected cold color-cycle document archive refs from version ${version} as persistence source.`,
     documentVersion: version,
   };
-  const documentState = emitColorCycleDocumentStateFromDeferredArchive(
+  const archivedState = emitColorCycleDocumentStateFromDeferredArchive(
     layer,
     deferredRuntime,
     context.projectWidth,
     context.projectHeight,
   );
 
+  const documentState = archivedState ? {
+    ...archivedState,
+    eraseMask: snapshot.eraseMask ? { ...snapshot.eraseMask, alpha: snapshot.eraseMask.alpha.slice() } : undefined,
+    softEdgeMask: snapshot.softEdgeMask ? { ...snapshot.softEdgeMask, alpha: snapshot.softEdgeMask.alpha.slice() } : undefined,
+  } : undefined;
   if (!documentState) {
     const diagnostics = [selectedDiagnostic, {
       source: 'document' as const,

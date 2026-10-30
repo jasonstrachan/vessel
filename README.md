@@ -25,7 +25,7 @@ The app is a Next.js App Router project that runs as a client-mounted workspace.
 
 - Color-cycle brush layers with indexed color buffers, gradient/slot metadata, speed/flow/phase buffers, erase masks, soft-edge masks, and playback controls.
 - Recolor layers and color-cycle/recolor controls through the brush library/settings flow.
-- Worker-assisted color-cycle composition and WebGL-backed Goblet playback/export paths.
+- Worker-assisted color-cycle fills and WebGL-backed Goblet playback/export paths.
 
 ### Persistence
 

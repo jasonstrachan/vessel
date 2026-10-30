@@ -1,3 +1,4 @@
+import { getSharedAnimationRuntime } from '@/runtime/playback/animationRuntime';
 import type { ColorCycleAnimator } from '@/lib/ColorCycleAnimator';
 import type { ColorCycleLayerDocumentRead } from '@/lib/colorCycle/document';
 import { recordColorCycleRuntimePerf } from '@/utils/perf/ccPerfProbe';
@@ -19,8 +20,9 @@ export class ColorCyclePlaybackController {
   private isPausedValue = false;
   private fpsValue: number;
   private playbackSpeedScaleValue: number;
-  private animationFrameId: number | null = null;
-  private lastAnimationTimestamp = 0;
+  private unregisterAnimation: (() => void) | null = null;
+  private lastAnimationTimestamp: number | null = null;
+  private elapsedSinceRenderMs = 0;
   private playbackAccumulatorMs = 0;
 
   constructor(private readonly options: ColorCyclePlaybackControllerOptions) {
@@ -83,17 +85,17 @@ export class ColorCyclePlaybackController {
   }
 
   hasScheduledFrame(): boolean {
-    return this.animationFrameId !== null;
+    return this.unregisterAnimation !== null;
   }
 
   resetTiming(): void {
     this.playbackAccumulatorMs = 0;
-    this.lastAnimationTimestamp = 0;
+    this.lastAnimationTimestamp = null;
+    this.elapsedSinceRenderMs = 0;
   }
 
   setFps(fps: number): void {
     this.fpsValue = fps;
-    this.resetTiming();
     this.forEachAnimator((animator) => animator.setFPS(fps));
   }
 
@@ -113,7 +115,7 @@ export class ColorCyclePlaybackController {
     });
   }
 
-  updateAnimation(): void {
+  updateAnimation(deltaSeconds?: number): void {
     this.forEachAnimator((animator, layerId) => {
       recordColorCycleRuntimePerf('playbackTick', { layerId });
       const documentRead = this.options.getDocumentRead(layerId);
@@ -121,7 +123,7 @@ export class ColorCyclePlaybackController {
         animator.rebuild(documentRead.snapshot, documentRead.version);
       }
       if (this.options.shouldUpdateAnimator(layerId)) {
-        animator.updateFrame();
+        animator.updateFrame(deltaSeconds);
       }
     });
     this.options.render();
@@ -129,6 +131,7 @@ export class ColorCyclePlaybackController {
 
   start(): void {
     if (this.isAnimatingValue) {
+      if (this.isPausedValue) this.resume();
       return;
     }
 
@@ -139,7 +142,7 @@ export class ColorCyclePlaybackController {
   }
 
   stop(): void {
-    if (!this.isAnimatingValue && this.animationFrameId === null) {
+    if (!this.isAnimatingValue && this.unregisterAnimation === null) {
       return;
     }
 
@@ -165,6 +168,7 @@ export class ColorCyclePlaybackController {
 
   pause(): void {
     this.isPausedValue = true;
+    this.cancelLoop();
   }
 
   resume(): void {
@@ -185,54 +189,42 @@ export class ColorCyclePlaybackController {
   }
 
   private ensureLoop(): void {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    if (this.animationFrameId !== null) {
+    if (typeof window === 'undefined' || this.unregisterAnimation !== null) {
       return;
     }
     this.resetTiming();
-    this.animationFrameId = requestAnimationFrame(this.handleAnimationTick);
+    const runtime = getSharedAnimationRuntime();
+    this.unregisterAnimation = runtime.register(this.handleAnimationTick);
+    runtime.start();
   }
 
   private cancelLoop(): void {
-    if (this.animationFrameId !== null && typeof cancelAnimationFrame === 'function') {
-      cancelAnimationFrame(this.animationFrameId);
-    }
-    this.animationFrameId = null;
+    this.unregisterAnimation?.();
+    this.unregisterAnimation = null;
+    this.resetTiming();
   }
 
   private handleAnimationTick = (timestamp: number): void => {
-    if (!this.isAnimatingValue) {
-      this.animationFrameId = null;
+    if (!this.isPlaying()) {
       return;
     }
-
-    if (!this.options.hasAnimatedContent()) {
-      this.animationFrameId = requestAnimationFrame(this.handleAnimationTick);
-      return;
-    }
-
-    if (this.lastAnimationTimestamp === 0) {
-      this.lastAnimationTimestamp = timestamp;
-    }
-
-    const delta = timestamp - this.lastAnimationTimestamp;
+    const previousTimestamp = this.lastAnimationTimestamp;
     this.lastAnimationTimestamp = timestamp;
-
-    if (!this.isPausedValue) {
-      const interval = this.frameIntervalMs();
-      this.playbackAccumulatorMs += delta;
-      const maxCatchup = interval * 4;
-      if (this.playbackAccumulatorMs > maxCatchup) {
-        this.playbackAccumulatorMs = interval;
-      }
-      while (this.playbackAccumulatorMs >= interval) {
-        this.playbackAccumulatorMs -= interval;
-        this.updateAnimation();
-      }
+    if (!this.options.hasAnimatedContent()) {
+      this.playbackAccumulatorMs = 0;
+      this.elapsedSinceRenderMs = 0;
+      return;
     }
-
-    this.animationFrameId = requestAnimationFrame(this.handleAnimationTick);
+    const delta = previousTimestamp === null ? 0 : Math.max(0, timestamp - previousTimestamp);
+    this.playbackAccumulatorMs += delta;
+    this.elapsedSinceRenderMs += delta;
+    const interval = this.frameIntervalMs();
+    if (this.playbackAccumulatorMs + 1e-6 < interval) {
+      return;
+    }
+    this.playbackAccumulatorMs %= interval;
+    const deltaSeconds = this.elapsedSinceRenderMs / 1000;
+    this.elapsedSinceRenderMs = 0;
+    this.updateAnimation(deltaSeconds);
   };
 }

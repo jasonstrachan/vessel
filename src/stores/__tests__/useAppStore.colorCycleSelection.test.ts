@@ -212,6 +212,23 @@ describe('useAppStore color cycle layer selection', () => {
     expect(syncPlaybackColorCycleLayersMock).toHaveBeenCalled();
   });
 
+  it('allows rollback to clear introduced mask and definition fields explicitly', () => {
+    const store = useAppStore.getState();
+    const layerId = store.addLayer(makeColorCycleLayer('rollback-mask-fields'));
+    store.updateLayer(layerId, { colorCycleData: {
+      eraseMask: document.createElement('canvas'),
+      gradientDefStore: [{ id: 2, kind: 'linear', stops: [], hash: 'provisional', source: 'manual', createdAtMs: 1 }],
+      nextGradientDefId: 3,
+    } }, { skipColorCycleSync: true });
+    store.updateLayer(layerId, { colorCycleData: {
+      eraseMask: undefined, gradientDefStore: undefined, nextGradientDefId: undefined,
+    } }, { skipColorCycleSync: true, allowColorCycleFieldClears: true });
+    const data = useAppStore.getState().layers.find(layer => layer.id === layerId)!.colorCycleData!;
+    expect(data.eraseMask).toBeUndefined();
+    expect(data.gradientDefStore).toBeUndefined();
+    expect(data.nextGradientDefId).toBeUndefined();
+  });
+
   it('preserves slot palettes when colorCycleData update includes undefined fields', () => {
     const store = useAppStore.getState();
     const layerId = store.addLayer(

@@ -1,10 +1,12 @@
+import { getSharedAnimationRuntime } from '@/runtime/playback/animationRuntime';
+
 /**
  * SimplifiedColorCycleManager - Cleaner animation and compositing management
  * Removes complexity from DrawingCanvas while maintaining functionality
  */
 
 export class SimplifiedColorCycleManager {
-  private animationFrameId: number | null = null;
+  private unregisterAnimation: (() => void) | null = null;
   private isAnimating: boolean = false;
   private targetFPS: number = 24;
   private lastFrameTime: number = 0;
@@ -30,7 +32,9 @@ export class SimplifiedColorCycleManager {
     
     this.isAnimating = true;
     this.lastFrameTime = performance.now();
-    this.animate();
+    const runtime = getSharedAnimationRuntime();
+    this.unregisterAnimation = runtime.register(this.animate);
+    runtime.start();
   }
   
   /**
@@ -39,22 +43,18 @@ export class SimplifiedColorCycleManager {
   stop() {
     this.isAnimating = false;
     
-    if (this.animationFrameId !== null) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
-    }
+    this.unregisterAnimation?.();
+    this.unregisterAnimation = null;
   }
   
   /**
    * Main animation loop
    */
-  private animate = () => {
+  private animate = (currentTime: number) => {
     if (!this.isAnimating) {
-      this.animationFrameId = null;
       return;
     }
     
-    const currentTime = performance.now();
     const frameInterval = 1000 / this.targetFPS;
     const elapsed = currentTime - this.lastFrameTime;
     
@@ -69,8 +69,6 @@ export class SimplifiedColorCycleManager {
       this.lastFrameTime = currentTime - (elapsed % frameInterval);
     }
     
-    // Continue loop
-    this.animationFrameId = requestAnimationFrame(this.animate);
   }
   
   /**

@@ -4,7 +4,6 @@ import { useSyncExternalStore } from 'react';
 export type FeatureFlagKey =
   | 'useCanvas2DColorCycle'
   | 'logColorCycleOperations'
-  | 'useColorCycleWorker'
   | 'enableSequentialRecordMode'
   | 'enableSequentialGpuAcceleration'
   | 'enableSequentialWorkerMaterialization'
@@ -17,7 +16,6 @@ type FeatureFlagState = Record<FeatureFlagKey, boolean>;
 const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
   useCanvas2DColorCycle: 'vessel:flag:useCanvas2DColorCycle',
   logColorCycleOperations: 'vessel:flag:logColorCycleOperations',
-  useColorCycleWorker: 'vessel:flag:useColorCycleWorker',
   enableSequentialRecordMode: 'vessel:flag:enableSequentialRecordMode',
   enableSequentialGpuAcceleration: 'vessel:flag:enableSequentialGpuAcceleration',
   enableSequentialWorkerMaterialization: 'vessel:flag:enableSequentialWorkerMaterialization',
@@ -29,7 +27,6 @@ const STORAGE_KEYS: Record<FeatureFlagKey, string> = {
 const defaultState: FeatureFlagState = {
   useCanvas2DColorCycle: false,
   logColorCycleOperations: false,
-  useColorCycleWorker: true,
   enableSequentialRecordMode: true,
   enableSequentialGpuAcceleration: false,
   enableSequentialWorkerMaterialization: true,
@@ -103,10 +100,7 @@ export const setFeatureFlag = (key: FeatureFlagKey, value: boolean): void => {
       const mode = value ? 'Canvas2D' : 'WebGL';
       debugLog('raw-console', `[featureFlags] useCanvas2DColorCycle set to ${mode}`);
     }
-    if (key === 'useColorCycleWorker') {
-      const status = value ? 'worker' : 'main-thread';
-      debugLog('raw-console', `[featureFlags] useColorCycleWorker set to ${status}`);
-    }
+
   }
 
   if (typeof window !== 'undefined') {

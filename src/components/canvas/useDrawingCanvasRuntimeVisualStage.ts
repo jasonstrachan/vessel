@@ -13,8 +13,6 @@ export const useDrawingCanvasRuntimeVisualStage = ({
   const visualRuntime = useDrawingCanvasVisualRuntimeSetup({
     runtime: {
       colorCycleBrushManagerRef: state.colorCycleBrushManagerRef,
-      shouldUseColorCycleWorker: state.shouldUseColorCycleWorker,
-      hasWarnedColorCycleWorkerRef: state.hasWarnedColorCycleWorkerRef,
       layers: state.layers,
       compositeSegmentsVersion: state.compositeSegmentsVersion,
       getCompositeSegmentsSnapshot: state.getCompositeSegmentsSnapshot,

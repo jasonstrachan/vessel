@@ -1,3 +1,4 @@
+import { getSharedAnimationRuntime } from '@/runtime/playback/animationRuntime';
 /**
  * RecolorAnimationController - Manages global animation state for recolor layers
  * Handles timing, tick progression, and multi-layer synchronization
@@ -36,7 +37,7 @@ export class RecolorAnimationController {
   private targetFPS: number = 60;
   private frameInterval: number = 1000 / 60; // ms between frames
   private lastFrameTime: number = 0;
-  private animationFrameId: number | null = null;
+  private unregisterAnimation: (() => void) | null = null;
   
   // Performance monitoring
   private stats: AnimationStats = {
@@ -202,7 +203,7 @@ export class RecolorAnimationController {
     this.isPlaying = true;
     this.lastFrameTime = performance.now();
     // Avoid spawning multiple RAF loops if already running
-    if (this.animationFrameId === null) {
+    if (this.unregisterAnimation === null) {
       this.startAnimationLoop();
     }
     
@@ -233,10 +234,8 @@ export class RecolorAnimationController {
   stop(): void {
     this.isPlaying = false;
     
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
-    }
+    this.unregisterAnimation?.();
+    this.unregisterAnimation = null;
     
     // Reset all layers to tick 0
     for (const animatedLayer of Array.from(this.animatedLayers.values())) {
@@ -255,10 +254,8 @@ export class RecolorAnimationController {
   pause(): void {
     this.isPlaying = false;
     
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
-    }
+    this.unregisterAnimation?.();
+    this.unregisterAnimation = null;
     
     // paused
   }
@@ -292,7 +289,7 @@ export class RecolorAnimationController {
     this.isPlaying = true;
     this.lastFrameTime = performance.now();
     // Avoid spawning multiple RAF loops if already running
-    if (this.animationFrameId === null) {
+    if (this.unregisterAnimation === null) {
       this.startAnimationLoop();
     }
     
@@ -362,32 +359,26 @@ export class RecolorAnimationController {
    * Main animation loop
    */
   private startAnimationLoop(): void {
-    if (!this.isPlaying) return;
-    
-    const frameStart = performance.now();
-    const deltaTime = frameStart - this.lastFrameTime;
-    
-    // Only render if enough time has passed (frame rate limiting)
-    if (deltaTime >= this.frameInterval) {
-      this.updateFrame();
-      this.lastFrameTime = frameStart;
-      
-      // Track performance
-      const frameEnd = performance.now();
-      const frameTime = frameEnd - frameStart;
+    if (!this.isPlaying || this.unregisterAnimation) return;
+    const runtime = getSharedAnimationRuntime();
+    this.unregisterAnimation = runtime.register((timestampMs) => {
+      if (!this.isPlaying) return;
+      const deltaMs = Math.max(0, timestampMs - this.lastFrameTime);
+      if (deltaMs + 1e-6 < this.frameInterval) return;
+      this.lastFrameTime = timestampMs;
+      const frameStart = performance.now();
+      this.updateFrame(deltaMs / 1000);
+      const frameTime = performance.now() - frameStart;
       this.trackFrameTime(frameTime);
-      
-      // Adaptive quality adjustment
       this.adjustQuality(frameTime);
-    }
-    
-    this.animationFrameId = requestAnimationFrame(() => this.startAnimationLoop());
+    });
+    runtime.start();
   }
-  
+
   /**
    * Update all enabled layers for current frame
    */
-  private updateFrame(): void {
+  private updateFrame(deltaSeconds: number): void {
     const activeLayers: AnimatedLayer[] = [];
     
     for (const animatedLayer of Array.from(this.animatedLayers.values())) {
@@ -399,7 +390,7 @@ export class RecolorAnimationController {
       if (!settings) continue;
       
       // Calculate new tick for this layer (fractional support)
-      const tickIncrement = settings.animation.ticksPerFrame;
+      const tickIncrement = settings.animation.speed * settings.cycleColors * deltaSeconds;
       const newTickFloat = (settings.animation.currentTick || 0) + tickIncrement;
       const wrappedTick = Math.floor(newTickFloat) % Math.max(1, settings.cycleColors);
 

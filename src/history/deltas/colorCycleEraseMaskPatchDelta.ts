@@ -284,6 +284,8 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
     mutation?.markMutated();
 
     const state = useAppStore.getState();
+    const document = getColorCycleBrushManager().getDocument(this.layerId);
+    const anchor = document?.read();
     const layer = state.layers.find((candidate) => candidate.id === this.layerId);
     if (layer?.layerType === 'color-cycle' && layer.colorCycleData) {
       state.updateLayer(
@@ -306,14 +308,11 @@ class ColorCycleEraseMaskPatchDelta implements HistoryDelta {
     }
     const targetDocumentVersion = direction === 'forward' ? this.afterVersion : this.beforeVersion;
     const targetPixelVersion = direction === 'forward' ? this.afterPixelVersion : this.beforePixelVersion;
-    if (
-      this.restoreDocumentAnchors &&
-      (typeof targetDocumentVersion === 'number' || typeof targetPixelVersion === 'number')
-    ) {
+    if (anchor || typeof targetDocumentVersion === 'number' || typeof targetPixelVersion === 'number') {
       // Mask-only entries may omit an unchanged indexed patch, which normally restores these anchors.
       getColorCycleBrushManager().getDocument(this.layerId)?.rebaseVersionAnchors({
-        version: targetDocumentVersion,
-        pixelVersion: targetPixelVersion,
+        version: this.restoreDocumentAnchors ? targetDocumentVersion ?? anchor?.version : anchor?.version,
+        pixelVersion: this.restoreDocumentAnchors ? targetPixelVersion ?? anchor?.pixelVersion : anchor?.pixelVersion,
       });
     }
     useAppStore.setState({ layersNeedRecomposition: true });

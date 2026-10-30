@@ -2,7 +2,6 @@ import { getColorCycleBrushManager, type ColorCycleBrushManager } from '@/stores
 import type { Layer } from '@/types';
 import { useDrawingCanvasBrushManagerInit } from './useDrawingCanvasBrushManagerInit';
 import { useDrawingCanvasColorCycleSegmentRefresh } from './useDrawingCanvasColorCycleSegmentRefresh';
-import { useDrawingCanvasColorCycleWorkerInit } from './useDrawingCanvasColorCycleWorkerInit';
 import { useDrawingCanvasCursorStyleState } from './useDrawingCanvasCursorStyleState';
 import { useDrawingCanvasDefaultCursorStyle } from './useDrawingCanvasDefaultCursorStyle';
 import { useDrawingCanvasPointerInside } from './useDrawingCanvasPointerInside';
@@ -13,8 +12,6 @@ type DefaultCursorOptions = Parameters<typeof useDrawingCanvasDefaultCursorStyle
 
 export interface UseDrawingCanvasVisualSetupBridgeOptions {
   colorCycleBrushManagerRef: React.MutableRefObject<ColorCycleBrushManager | null>;
-  shouldUseColorCycleWorker: boolean;
-  hasWarnedColorCycleWorkerRef: React.MutableRefObject<boolean>;
   layers: Layer[];
   compositeSegmentsVersion: number;
   getCompositeSegmentsSnapshot: () => CompositeSegment[];
@@ -35,8 +32,6 @@ export interface UseDrawingCanvasVisualSetupBridgeOptions {
 
 export const useDrawingCanvasVisualSetupBridge = ({
   colorCycleBrushManagerRef,
-  shouldUseColorCycleWorker,
-  hasWarnedColorCycleWorkerRef,
   layers,
   compositeSegmentsVersion,
   getCompositeSegmentsSnapshot,
@@ -57,11 +52,6 @@ export const useDrawingCanvasVisualSetupBridge = ({
   useDrawingCanvasBrushManagerInit({
     colorCycleBrushManagerRef,
     getBrushManager: getColorCycleBrushManager,
-  });
-
-  useDrawingCanvasColorCycleWorkerInit({
-    shouldUseColorCycleWorker,
-    hasWarnedColorCycleWorkerRef,
   });
 
   const { refreshColorCycleSegments } = useDrawingCanvasColorCycleSegmentRefresh({

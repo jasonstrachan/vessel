@@ -1,6 +1,5 @@
-import { getAppStoreState } from '@/stores/appStoreAccess';
 import type { GradientDefSource } from '@/utils/colorCycleGradientDefs';
-import { ensureGradientDefForStops, hashStops } from '@/utils/colorCycleGradientDefs';
+import { ensureGradientDefForStops, ensureGradientDefsForStops, hashStops } from '@/utils/colorCycleGradientDefs';
 import {
   resolveActiveColorCycleGradient,
   type ForegroundGradientParams,
@@ -131,21 +130,16 @@ export const resolveColorCycleGradientRenderSession = ({
     const inks = buildCcCycleInkPalettes(sourceStops,
       canUseCcInkSpread(brushSettings, session.source, 'shape') ? brushSettings.ditherPaletteSpread : 0,
       session.seamProfile);
-    const allocate = (stops: typeof sourceStops, retainedDefIds?: number[]) => ensureGradientDefForStops({
-      layerId, kind: session.gradientKind, stops, source: session.source,
-      speedCps: session.speedCps ?? undefined, seamProfile: 'hard', retainedDefIds,
-      updateOptions: { skipColorCycleSync: true },
-    });
-    const primary = allocate(inks.primary);
-    const secondary = primary ? allocate(inks.secondary, [primary.def.id]) : null;
+    const bindings = ensureGradientDefsForStops(layerId, [inks.primary, inks.secondary].map((stops) => ({
+      kind: session.gradientKind, stops, source: session.source,
+      speedCps: session.speedCps ?? undefined, seamProfile: 'hard',
+    })), { skipColorCycleSync: true });
+    const primary = bindings?.[0];
+    const secondary = bindings?.[1];
     if (!primary || !secondary) throw new Error('No gradient slots available for the dither ink pair.');
-    // Slot cleanup may compact the primary while allocating the second ink.
-    const primarySlot = getAppStoreState().layers.find(layer => layer.id === layerId)
-      ?.colorCycleData?.gradientDefStore?.find(def => def.id === primary.def.id)?.slot;
-    if (primarySlot === undefined) throw new Error('The primary dither ink binding was lost.');
     return {
       ...session,
-      binding: { kind: 'def', defId: primary.def.id, slot: primarySlot },
+      binding: { kind: 'def', defId: primary.def.id, slot: primary.slot },
       secondaryBinding: { kind: 'def', defId: secondary.def.id, slot: secondary.slot },
       frozenStopsStored: inks.primary,
       secondaryStopsStored: inks.secondary,

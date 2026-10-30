@@ -33,6 +33,14 @@ export const GOBLET_BRUSH_MASK_FIELDS = Object.freeze([
   'softEdgeMask',
 ]);
 
+export type ColorCycleDocumentMask = {
+  width: number;
+  height: number;
+  alpha: Uint8ClampedArray;
+  version: number;
+  enabled?: boolean;
+};
+
 export type ColorCycleLayerDocumentState = {
   layerId: string;
   width: number;
@@ -43,6 +51,8 @@ export type ColorCycleLayerDocumentState = {
   speedBuffer?: ArrayBuffer;
   flowBuffer?: ArrayBuffer;
   phaseBuffer?: ArrayBuffer;
+  eraseMask?: ColorCycleDocumentMask;
+  softEdgeMask?: ColorCycleDocumentMask;
   slotPalettes?: ColorCycleSlotPalette[];
   gradientDefs?: ColorCycleGradientDef[];
   gradientDefStore?: ColorCycleGradientDefStoreEntry[];
@@ -102,6 +112,8 @@ export const COLOR_CYCLE_DOCUMENT_CONTRACT_KEYS = [
   'speedBuffer',
   'flowBuffer',
   'phaseBuffer',
+  'eraseMask',
+  'softEdgeMask',
   'slotPalettes',
   'gradientDefs',
   'gradientDefStore',
@@ -133,6 +145,8 @@ export const COLOR_CYCLE_DOCUMENT_FIELD_MAPPING = {
   speedBuffer: { archive: 'canonical-buffer', goblet: 'payload-buffer' },
   flowBuffer: { archive: 'canonical-buffer', goblet: 'payload-buffer' },
   phaseBuffer: { archive: 'canonical-buffer', goblet: 'payload-buffer' },
+  eraseMask: { archive: 'metadata', goblet: 'payload-metadata' },
+  softEdgeMask: { archive: 'metadata', goblet: 'payload-metadata' },
   slotPalettes: { archive: 'metadata', goblet: 'payload-gradient' },
   gradientDefs: { archive: 'metadata', goblet: 'payload-gradient' },
   gradientDefStore: { archive: 'metadata', goblet: 'payload-gradient' },
@@ -263,6 +277,8 @@ export const mapDocumentSnapshotToArchiveState = (
   snapshot: ColorCycleLayerDocumentSnapshot,
 ): ColorCycleLayerDocumentState => ({
   ...snapshot,
+  eraseMask: snapshot.eraseMask ? { ...snapshot.eraseMask, alpha: snapshot.eraseMask.alpha.slice() } : undefined,
+  softEdgeMask: snapshot.softEdgeMask ? { ...snapshot.softEdgeMask, alpha: snapshot.softEdgeMask.alpha.slice() } : undefined,
   paintBuffer: cloneArrayBuffer(snapshot.paintBuffer),
   gradientIdBuffer: cloneArrayBuffer(snapshot.gradientIdBuffer),
   gradientDefIdBuffer: cloneArrayBuffer(snapshot.gradientDefIdBuffer),

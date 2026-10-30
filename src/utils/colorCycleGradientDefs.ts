@@ -1,3 +1,4 @@
+import type { LayerColorCycleData } from '@/types';
 import type { SampledPathPalette } from '@/lib/colorCycle/sampledPathPalette';
 import { logError } from '@/utils/debug';
 import { useAppStore } from '@/stores/useAppStore';
@@ -217,7 +218,7 @@ const runProjectSlotRebuild = (layerId: string, retainedDefIds?: number[]) => {
   return result;
 };
 
-export const ensureGradientDefForStops = (params: {
+export type EnsureColorCycleGradientDefinitionParams = {
   layerId: string;
   kind: 'linear' | 'concentric';
   stops: StoredStop[];
@@ -231,170 +232,180 @@ export const ensureGradientDefForStops = (params: {
   updateOptions?: {
     skipColorCycleSync?: boolean;
   };
-}): EnsuredColorCycleGradientDefinition | null => {
-  type SlotFailure = {
-    reason: 'no-slot';
-    usedSlots: Set<number>;
-    context: string;
+};
+
+type PreparedGradientDefinition = {
+  result: EnsuredColorCycleGradientDefinition | null;
+  colorCycleData?: LayerColorCycleData;
+  exhaustedDefIds?: boolean;
+  failure?: { reason: 'no-slot'; usedSlots: Set<number>; context: string };
+};
+
+export const prepareGradientDefForStops = (
+  colorCycleData: LayerColorCycleData,
+  params: EnsureColorCycleGradientDefinitionParams,
+  createdAtMs: number,
+): PreparedGradientDefinition => {
+  const frozenStops = cloneStops(params.stops);
+  const sourceStops = params.sourceStops?.length ? cloneStops(params.sourceStops) : undefined;
+  const hash = hashStops(frozenStops, params.kind);
+  const defStore = colorCycleData.gradientDefStore ?? [];
+  const incomingSpeed = Number.isFinite(params.speedCps) ? params.speedCps : null;
+  const incomingSpeedQ = quantizeColorCycleSpeed(incomingSpeed);
+  const incomingSeamProfile = normalizeGradientSeamProfile(params.seamProfile);
+  const matchesSpeed = (entry: ColorCycleGradientDefStore): boolean => {
+    if (incomingSpeedQ === null) {
+      return !Number.isFinite(entry.speedCps ?? NaN);
+    }
+    const entryQ = quantizeColorCycleSpeed(entry.speedCps);
+    if (entryQ === null) {
+      return false;
+    }
+    return Math.abs(entryQ - incomingSpeedQ) <= 1e-6;
   };
-  const attemptEnsure = (): {
-    result: EnsuredColorCycleGradientDefinition | null;
-    failure?: SlotFailure;
-  } => {
+  const matchesSeamProfile = (entry: ColorCycleGradientDefStore): boolean =>
+    normalizeGradientSeamProfile(entry.seamProfile) === incomingSeamProfile;
+  const matchesSourceStops = (entry: ColorCycleGradientDefStore): boolean => (
+    sourceStops === undefined
+      ? entry.sourceStops === undefined
+      : Boolean(entry.sourceStops && haveMatchingStops(entry.sourceStops, sourceStops))
+  );
+  const existing = defStore.find(
+    (entry) => entry.hash === hash && matchesSpeed(entry) && matchesSeamProfile(entry)
+      && matchesSourceStops(entry)
+  ) ?? null;
+  const existingSlot = existing?.slot;
+  const slotPalettes = colorCycleData.slotPalettes ?? [];
+  const usedSlots = collectUsedSlots({
+    slotPalettes,
+    gradientDefs: colorCycleData.gradientDefs,
+    gradientDefStore: defStore,
+  });
+  const preferredSlot =
+    typeof params.preferredSlot === 'number' ? clampSlot(params.preferredSlot) : null;
+
+  let slot: number | null = null;
+  let nextDefStore = defStore;
+  let nextId = normalizeNextColorCycleDefId(
+    defStore.map((entry) => entry.id),
+    colorCycleData.nextGradientDefId ?? 1
+  );
+  let def: ColorCycleGradientDefStore;
+
+  if (existing) {
+    slot = typeof existingSlot === 'number'
+      ? existingSlot
+      : (preferredSlot !== null && !usedSlots.has(preferredSlot))
+        ? preferredSlot
+        : getNextGradientSlot(usedSlots);
+    if (typeof slot !== 'number') {
+      return { result: null, failure: { reason: 'no-slot', usedSlots, context: 'existing-def' } };
+    }
+    const nextSpeed = incomingSpeed !== null ? incomingSpeed : existing.speedCps;
+    if (
+      existing.slot !== slot ||
+      (incomingSpeed !== null && existing.speedCps !== nextSpeed) ||
+      normalizeGradientSeamProfile(existing.seamProfile) !== incomingSeamProfile
+    ) {
+      def = { ...existing, slot, speedCps: nextSpeed, seamProfile: incomingSeamProfile };
+      nextDefStore = defStore.map((entry) => (entry.id === existing.id ? def : entry));
+    } else {
+      def = existing;
+    }
+  } else {
+    if (preferredSlot !== null && !usedSlots.has(preferredSlot)) {
+      slot = preferredSlot;
+    } else {
+      slot = getNextGradientSlot(usedSlots);
+    }
+    if (typeof slot !== 'number') {
+      return { result: null, failure: { reason: 'no-slot', usedSlots, context: 'new-def' } };
+    }
+    const allocation = allocateNextColorCycleDefId({
+      ids: defStore.map((entry) => entry.id),
+      nextId,
+    });
+    if (allocation.id === null) {
+      return { result: null, exhaustedDefIds: true };
+    }
+    nextId = allocation.nextGradientDefId;
+    def = {
+      id: allocation.id,
+      kind: params.kind,
+      stops: frozenStops,
+      ...(sourceStops ? { sourceStops } : {}),
+      hash,
+      source: params.source,
+      seamProfile: incomingSeamProfile,
+      createdAtMs,
+      slot,
+      speedCps: incomingSpeed ?? undefined,
+    };
+    nextDefStore = [...defStore, def];
+  }
+
+  const existingPalette = slotPalettes.find((entry) => entry.slot === slot);
+  const nextSig = signatureForStops(frozenStops);
+  const existingSig = existingPalette ? signatureForStops(existingPalette.stops) : null;
+  const canHealExistingDefPalette =
+    Boolean(existing) &&
+    existing?.slot === slot &&
+    existing?.hash === hash &&
+    existingSig !== null &&
+    existingSig !== nextSig;
+  if (existingPalette && existingSig !== nextSig && !canHealExistingDefPalette) {
+    if (process.env.NODE_ENV !== 'production') {
+      throw new Error(
+        `[CC] Slot overwrite blocked: slot ${slot} has different palette (layer ${params.layerId})`
+      );
+    }
+    return { result: null };
+  }
+  const hasSlotPalette = Boolean(existingPalette);
+  const paletteAlreadyMatches = Boolean(existingPalette && haveMatchingStops(existingPalette.stops, frozenStops));
+  const nextSlotPalettes = hasSlotPalette
+    ? paletteAlreadyMatches
+      ? slotPalettes
+      : slotPalettes.map((entry) =>
+          entry.slot === slot
+            ? { slot, stops: cloneStops(frozenStops) }
+            : entry
+        )
+    : [...slotPalettes, { slot, stops: cloneStops(frozenStops) }];
+  const nextNextGradientDefId = normalizeNextColorCycleDefId(
+    nextDefStore.map((entry) => entry.id),
+    nextId
+  );
+  const didChangeStore =
+    nextDefStore !== defStore ||
+    nextSlotPalettes !== slotPalettes ||
+    nextNextGradientDefId !== (colorCycleData.nextGradientDefId ?? 1);
+
+  return {
+    result: { def, slot, hash },
+    colorCycleData: didChangeStore ? {
+      ...colorCycleData,
+      gradientDefStore: nextDefStore,
+      nextGradientDefId: nextNextGradientDefId,
+      slotPalettes: nextSlotPalettes,
+    } : colorCycleData,
+  };
+};
+
+export const ensureGradientDefForStops = (
+  params: EnsureColorCycleGradientDefinitionParams,
+): EnsuredColorCycleGradientDefinition | null => {
+  const attemptEnsure = (): PreparedGradientDefinition => {
     const state = useAppStore.getState();
     const layer = state.layers.find((entry) => entry.id === params.layerId);
-    if (!layer || layer.layerType !== 'color-cycle') {
-      return { result: null };
-    }
+    if (!layer || layer.layerType !== 'color-cycle') return { result: null };
     const colorCycleData = layer.colorCycleData ?? {};
-    const frozenStops = cloneStops(params.stops);
-    const sourceStops = params.sourceStops?.length ? cloneStops(params.sourceStops) : undefined;
-    const hash = hashStops(frozenStops, params.kind);
-    const defStore = colorCycleData.gradientDefStore ?? [];
-    const incomingSpeed = Number.isFinite(params.speedCps) ? params.speedCps : null;
-    const incomingSpeedQ = quantizeColorCycleSpeed(incomingSpeed);
-    const incomingSeamProfile = normalizeGradientSeamProfile(params.seamProfile);
-    const matchesSpeed = (entry: ColorCycleGradientDefStore): boolean => {
-      if (incomingSpeedQ === null) {
-        return !Number.isFinite(entry.speedCps ?? NaN);
-      }
-      const entryQ = quantizeColorCycleSpeed(entry.speedCps);
-      if (entryQ === null) {
-        return false;
-      }
-      return Math.abs(entryQ - incomingSpeedQ) <= 1e-6;
-    };
-    const matchesSeamProfile = (entry: ColorCycleGradientDefStore): boolean =>
-      normalizeGradientSeamProfile(entry.seamProfile) === incomingSeamProfile;
-    const matchesSourceStops = (entry: ColorCycleGradientDefStore): boolean => (
-      sourceStops === undefined
-        ? entry.sourceStops === undefined
-        : Boolean(entry.sourceStops && haveMatchingStops(entry.sourceStops, sourceStops))
-    );
-    const existing = defStore.find(
-      (entry) => entry.hash === hash && matchesSpeed(entry) && matchesSeamProfile(entry)
-        && matchesSourceStops(entry)
-    ) ?? null;
-    const existingSlot = existing?.slot;
-    const slotPalettes = colorCycleData.slotPalettes ?? [];
-    const usedSlots = collectUsedSlots({
-      slotPalettes,
-      gradientDefs: colorCycleData.gradientDefs,
-      gradientDefStore: defStore,
-    });
-    const preferredSlot =
-      typeof params.preferredSlot === 'number' ? clampSlot(params.preferredSlot) : null;
-
-    let slot: number | null = null;
-    let nextDefStore = defStore;
-    let nextId = normalizeNextColorCycleDefId(
-      defStore.map((entry) => entry.id),
-      colorCycleData.nextGradientDefId ?? 1
-    );
-    let def: ColorCycleGradientDefStore;
-
-    if (existing) {
-      slot = typeof existingSlot === 'number'
-        ? existingSlot
-        : (preferredSlot !== null && !usedSlots.has(preferredSlot))
-          ? preferredSlot
-          : getNextGradientSlot(usedSlots);
-      if (typeof slot !== 'number') {
-        return { result: null, failure: { reason: 'no-slot', usedSlots, context: 'existing-def' } };
-      }
-      const nextSpeed = incomingSpeed !== null ? incomingSpeed : existing.speedCps;
-      if (
-        existing.slot !== slot ||
-        (incomingSpeed !== null && existing.speedCps !== nextSpeed) ||
-        normalizeGradientSeamProfile(existing.seamProfile) !== incomingSeamProfile
-      ) {
-        def = { ...existing, slot, speedCps: nextSpeed, seamProfile: incomingSeamProfile };
-        nextDefStore = defStore.map((entry) => (entry.id === existing.id ? def : entry));
-      } else {
-        def = existing;
-      }
-    } else {
-      if (preferredSlot !== null && !usedSlots.has(preferredSlot)) {
-        slot = preferredSlot;
-      } else {
-        slot = getNextGradientSlot(usedSlots);
-      }
-      if (typeof slot !== 'number') {
-        return { result: null, failure: { reason: 'no-slot', usedSlots, context: 'new-def' } };
-      }
-      const allocation = allocateNextColorCycleDefId({
-        ids: defStore.map((entry) => entry.id),
-        nextId,
-      });
-      if (allocation.id === null) {
-        reportDefIdAllocationFailure(params.layerId);
-        return { result: null };
-      }
-      nextId = allocation.nextGradientDefId;
-      def = {
-        id: allocation.id,
-        kind: params.kind,
-        stops: frozenStops,
-        ...(sourceStops ? { sourceStops } : {}),
-        hash,
-        source: params.source,
-        seamProfile: incomingSeamProfile,
-        createdAtMs: Date.now(),
-        slot,
-        speedCps: incomingSpeed ?? undefined,
-      };
-      nextDefStore = [...defStore, def];
+    const prepared = prepareGradientDefForStops(colorCycleData, params, Date.now());
+    if (prepared.exhaustedDefIds) reportDefIdAllocationFailure(params.layerId);
+    if (prepared.result && prepared.colorCycleData !== colorCycleData) {
+      state.updateLayer(layer.id, { colorCycleData: prepared.colorCycleData }, params.updateOptions);
     }
-
-    const existingPalette = slotPalettes.find((entry) => entry.slot === slot);
-    const nextSig = signatureForStops(frozenStops);
-    const existingSig = existingPalette ? signatureForStops(existingPalette.stops) : null;
-    const canHealExistingDefPalette =
-      Boolean(existing) &&
-      existing?.slot === slot &&
-      existing?.hash === hash &&
-      existingSig !== null &&
-      existingSig !== nextSig;
-    if (existingPalette && existingSig !== nextSig && !canHealExistingDefPalette) {
-      if (process.env.NODE_ENV !== 'production') {
-        throw new Error(
-          `[CC] Slot overwrite blocked: slot ${slot} has different palette (layer ${params.layerId})`
-        );
-      }
-      return { result: null };
-    }
-    const hasSlotPalette = Boolean(existingPalette);
-    const paletteAlreadyMatches = Boolean(existingPalette && haveMatchingStops(existingPalette.stops, frozenStops));
-    const nextSlotPalettes = hasSlotPalette
-      ? paletteAlreadyMatches
-        ? slotPalettes
-        : slotPalettes.map((entry) =>
-            entry.slot === slot
-              ? { slot, stops: cloneStops(frozenStops) }
-              : entry
-          )
-      : [...slotPalettes, { slot, stops: cloneStops(frozenStops) }];
-    const nextNextGradientDefId = normalizeNextColorCycleDefId(
-      nextDefStore.map((entry) => entry.id),
-      nextId
-    );
-    const didChangeStore =
-      nextDefStore !== defStore ||
-      nextSlotPalettes !== slotPalettes ||
-      nextNextGradientDefId !== (colorCycleData.nextGradientDefId ?? 1);
-
-    if (didChangeStore) {
-      state.updateLayer(layer.id, {
-        colorCycleData: {
-          ...colorCycleData,
-          gradientDefStore: nextDefStore,
-          nextGradientDefId: nextNextGradientDefId,
-          slotPalettes: nextSlotPalettes,
-        },
-      }, params.updateOptions);
-    }
-
-    return { result: { def, slot, hash } };
+    return prepared;
   };
 
   const initial = attemptEnsure();
@@ -441,4 +452,42 @@ export const ensureGradientDefForStops = (params: {
   }
 
   return retryResult;
+};
+
+/** Prepare all bindings against one local generation, then publish them together. */
+export const ensureGradientDefsForStops = (
+  layerId: string,
+  definitions: Array<Omit<EnsureColorCycleGradientDefinitionParams, 'layerId' | 'updateOptions'>>,
+  updateOptions?: EnsureColorCycleGradientDefinitionParams['updateOptions'],
+): EnsuredColorCycleGradientDefinition[] | null => {
+  const attempt = (): EnsuredColorCycleGradientDefinition[] | null => {
+    const state = useAppStore.getState();
+    const layer = state.layers.find((entry) => entry.id === layerId);
+    if (!layer || layer.layerType !== 'color-cycle') return null;
+    const original = layer.colorCycleData ?? {};
+    let next = original;
+    const results: EnsuredColorCycleGradientDefinition[] = [];
+    const createdAtMs = Date.now();
+    for (const definition of definitions) {
+      const prepared = prepareGradientDefForStops(next, { ...definition, layerId }, createdAtMs);
+      if (!prepared.result || !prepared.colorCycleData) return null;
+      next = prepared.colorCycleData;
+      results.push(prepared.result);
+    }
+    if (next !== original) state.updateLayer(layerId, { colorCycleData: next }, updateOptions);
+    return results;
+  };
+  const initial = attempt();
+  if (initial) return initial;
+  let result: EnsuredColorCycleGradientDefinition[] | null = null;
+  rebuildOnDemandAndRetryAllocate({
+    attemptAllocate: () => {
+      result = attempt();
+      return result?.[0]?.slot ?? null;
+    },
+    runRebuild: () => runProjectSlotRebuild(layerId, definitions.flatMap((entry) => entry.retainedDefIds ?? [])),
+    throttleKey: `cc-slot-rebuild:${layerId}`,
+    throttleMs: process.env.NODE_ENV === 'test' ? 0 : undefined,
+  });
+  return result;
 };

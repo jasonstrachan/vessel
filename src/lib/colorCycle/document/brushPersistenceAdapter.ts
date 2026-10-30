@@ -612,7 +612,7 @@ export type ExecuteColorCycleBrushPaintPatchRuntimeApplyOptions<
 };
 
 export type ColorCycleBrushLayerSnapshotRuntimeReader = {
-  getColorCycleLayerDocument?(layerId: string): { read(): ColorCycleLayerDocumentRead } | undefined;
+  getColorCycleLayerDocument?(layerId: string): { read(): ColorCycleLayerDocumentRead; readPreview?(): ColorCycleLayerDocumentRead } | undefined;
 };
 
 export type ColorCycleBrushLayerSnapshotRuntimeWriter = object;
@@ -958,7 +958,7 @@ export type ColorCycleCommittedLayerRuntime = {
   ) => void;
   commitToLayer?: (targetCanvas: HTMLCanvasElement, layerId: string, opacity?: number) => void;
   renderDirectToCanvas?: (targetCanvas: HTMLCanvasElement, layerId: string) => void;
-  getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | undefined;
+  getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead; readPreview?(): ColorCycleLayerDocumentRead } | undefined;
 };
 
 export type ColorCycleBrushLayerSnapshotApplyResult = {
@@ -1886,9 +1886,11 @@ const syncColorCycleCommittedBuffersToLayerStoreFromRuntime = (
   brush: ColorCycleCommittedLayerRuntime,
   layerId: string,
 ): void => {
+  const document = brush.getColorCycleLayerDocument?.(layerId);
+  const previewRead = document?.readPreview?.() ?? document?.read();
   const strokeState = getColorCycleBrushStrokeStateForOwner(brush, layerId);
   const snapshot = readColorCycleBrushLayerSnapshotFromDocumentRead(
-    brush.getColorCycleLayerDocument?.(layerId)?.read(),
+    previewRead,
     { fallbackStrokeCounter: strokeState?.strokeCounter ?? 0 },
   ) ?? readColorCycleBrushLayerSnapshot({
     strokeState,
@@ -1904,7 +1906,7 @@ const syncColorCycleCommittedBuffersToLayerStoreFromRuntime = (
   }
   const patch = createColorCycleCommittedLayerStoreSyncPatch({
     snapshot,
-    documentSnapshot: brush.getColorCycleLayerDocument?.(layerId)?.read().snapshot,
+    documentSnapshot: previewRead?.snapshot,
   });
   if (!patch) {
     return;
@@ -1920,11 +1922,13 @@ const syncColorCycleCommittedBuffersToLayerStoreFromRuntime = (
 export const readColorCycleCommittedLayerStateFromRuntime = (
   brush: ColorCycleCommittedLayerRuntime | null | undefined,
   layerId: string,
+  includePreview = false,
 ): ColorCycleCommittedLayerRuntimeRead | null => {
   if (!brush) {
     return null;
   }
-  const snapshot = brush.getColorCycleLayerDocument?.(layerId)?.read().snapshot;
+  const document = brush.getColorCycleLayerDocument?.(layerId);
+  const snapshot = (includePreview ? document?.readPreview?.() ?? document?.read() : document?.read())?.snapshot;
   if (!snapshot?.paintBuffer || !snapshot.gradientIdBuffer) {
     return null;
   }
@@ -2437,12 +2441,14 @@ export const executeColorCycleBrushLayerSnapshotRuntimeApply = <
 export const readColorCycleBrushLayerSnapshotFromRuntime = (
   brush: ColorCycleBrushLayerSnapshotRuntimeReader | null | undefined,
   layerId: string,
+  includePreview = false,
 ): ColorCycleBrushLayerSnapshot | null => {
   if (!brush) {
     return null;
   }
+  const document = brush.getColorCycleLayerDocument?.(layerId);
   const documentSnapshot = readColorCycleBrushLayerSnapshotFromDocumentRead(
-    brush.getColorCycleLayerDocument?.(layerId)?.read(),
+    includePreview ? document?.readPreview?.() ?? document?.read() : document?.read(),
     { fallbackStrokeCounter: 0 },
   );
   if (documentSnapshot) {
@@ -2451,10 +2457,10 @@ export const readColorCycleBrushLayerSnapshotFromRuntime = (
   return null;
 };
 
-export const canReadColorCycleBrushLayerSnapshotFromRuntime = (
-  brush: ColorCycleBrushLayerSnapshotRuntimeReader | null | undefined,
-): brush is ColorCycleBrushLayerSnapshotRuntimeReader => (
-  Boolean(brush && typeof brush.getColorCycleLayerDocument === 'function')
+export const canReadColorCycleBrushLayerSnapshotFromRuntime = <T>(
+  brush: T,
+): brush is T & ColorCycleBrushLayerSnapshotRuntimeReader => (
+  Boolean(brush && typeof (brush as ColorCycleBrushLayerSnapshotRuntimeReader).getColorCycleLayerDocument === 'function')
 );
 
 export const applyColorCycleBrushLayerSnapshotToRuntime = (

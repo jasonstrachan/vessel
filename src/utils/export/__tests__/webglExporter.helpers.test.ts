@@ -318,6 +318,9 @@ describe('webglExporter helpers', () => {
     maskCtx.fillStyle = `rgba(0, 0, 0, ${alpha / 255})`;
     maskCtx.fillRect(0, 0, 2, 2);
     const documentState = createExportDocument('live-full-erase');
+    documentState.replaceState({ ...documentState.read().snapshot,
+      eraseMask: { width: 2, height: 2, alpha: new Uint8ClampedArray(4).fill(alpha), version: 1 },
+    }, 'mask-fixture');
     const layer = {
       id: 'live-full-erase',
       name: 'Erased CC',
@@ -862,7 +865,13 @@ describe('webglExporter helpers', () => {
           ]),
         },
         colorCycleBrush: {
-          getColorCycleLayerDocument: () => createExportDocument('layer-cc-erased-brush', [1, 2, 3, 4], false),
+          getColorCycleLayerDocument: () => {
+            const document = createExportDocument('layer-cc-erased-brush', [1, 2, 3, 4], false);
+            document.replaceState({ ...document.read().snapshot,
+              eraseMask: { width: 2, height: 2, alpha: new Uint8ClampedArray(4).fill(255), version: 1 },
+            }, 'fully-erased-fixture');
+            return document;
+          },
           serialize: () => ({
             layers: [{
               layerId: 'layer-cc-erased-brush',

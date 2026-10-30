@@ -1,3 +1,4 @@
+import { publishColorCycleLayerMetadata } from '@/lib/colorCycle/document/documentMasks';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import type { ColorCycleEraseMaskSnapshot, ColorCycleSerializedState } from '@/history/helpers/colorCycle';
@@ -166,7 +167,7 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
     const expectedDocumentVersion = direction === 'forward'
       ? this.beforeVersion ?? this.afterVersion
       : this.afterVersion ?? this.beforeVersion;
-    const documentRead = getColorCycleBrushManager().getDocument(this.layerId)?.read?.();
+    const documentRead = getColorCycleBrushManager().getDocument?.(this.layerId)?.read?.();
     if (
       typeof expectedDocumentVersion === 'number' &&
       documentRead &&
@@ -198,10 +199,15 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
       throw new Error(`Color-cycle layer ${this.layerId} is unavailable for history replay.`);
     }
 
+    const targetVersion = direction === 'forward' ? this.afterVersion : this.beforeVersion;
+    const document = getColorCycleBrushManager().getDocument?.(this.layerId);
+    const anchor = document?.read();
     if (!snapshot) {
       const nextVersion = (layer.colorCycleData?.softEdgeMaskVersion ?? 0) + 1;
       const dirtyRect = getSoftEdgeDirtyRect(layer, snapshot, state.project);
       mutation?.markMutated();
+      publishColorCycleLayerMetadata(document, removeSoftEdgeMaskFromLayer(layer, nextVersion), 'history-soft-mask-clear', true);
+      if (typeof targetVersion === 'number') document?.rebaseVersionAnchors?.({ version: targetVersion });
       useAppStore.setState((current) => ({
         layers: current.layers.map((candidate) => (
           candidate.id === this.layerId
@@ -235,6 +241,7 @@ class ColorCycleSoftEdgeMaskDelta implements HistoryDelta {
         dirtyRects: dirtyRect ? [dirtyRect] : undefined,
       },
     );
+    if (anchor) document?.rebaseVersionAnchors?.({ version: targetVersion ?? anchor.version, pixelVersion: anchor.pixelVersion });
     useAppStore.setState({ layersNeedRecomposition: true });
   }
 

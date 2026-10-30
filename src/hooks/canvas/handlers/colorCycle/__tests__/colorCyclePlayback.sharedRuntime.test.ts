@@ -24,6 +24,9 @@ jest.mock('@/stores/colorCycleBrushManager', () => ({
 jest.mock('@/hooks/canvas/handlers/animation/animationRuntime', () => ({
   dispatchGlobalAnimationFrameUpdate: (...args: unknown[]) =>
     dispatchGlobalAnimationFrameUpdate(...args),
+}));
+
+jest.mock('@/runtime/playback/animationRuntime', () => ({
   getSharedAnimationRuntime: () => ({
     register: (...args: unknown[]) => registerSharedRuntimeConsumer(...args),
     start: (...args: unknown[]) => startSharedRuntime(...args),

@@ -1,3 +1,4 @@
+import { ColorCycleLayerDocument } from '@/lib/colorCycle/document/ColorCycleLayerDocument';
 import {
   commitBrushHistory,
   commitColorCycleLayerStroke,
@@ -879,5 +880,72 @@ describe('commitBrushHistory', () => {
         description: 'CC Brush',
       })
     );
+  });
+});
+
+
+describe('color-cycle committed edit boundary', () => {
+  it.each([false, true])('publishes healed masks atomically and rolls back a failed finalizer (failure=%s)', async (fail) => {
+    const layer = createLayer();
+    layer.layerType = 'color-cycle';
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 8;
+    layer.colorCycleData = { canvas, gradient: [], hasContent: true };
+    const canonical = new ColorCycleLayerDocument({
+      layerId: layer.id, width: 8, height: 8,
+      paintBuffer: new Uint8Array(64).fill(1).buffer,
+      gradientIdBuffer: new Uint8Array(64).buffer,
+      hasContent: true,
+      sources: { brushStateSnapshot: true, topLevelBuffers: false, legacyStateRefs: false },
+    });
+    const before = canonical.read();
+    const brush = {
+      ...makeCommittedBrush(0),
+      getColorCycleLayerDocument: () => canonical,
+      finalizeCurrentStroke: () => canonical.replaceState({
+        ...canonical.readPreview().snapshot, paintBuffer: new Uint8Array(64).fill(9).buffer,
+      }, 'stroke-pixels'),
+    };
+    const state = {
+      layers: [layer], updateLayer: jest.fn(), setCcGradientSampleCount: jest.fn(),
+      colorCyclePlayback: { desiredPlaying: false, suspendDepth: 0 },
+    };
+    const getState = jest.spyOn(useAppStore, 'getState').mockReturnValue(state as never);
+    (finalizeMarkGradientSession as jest.Mock).mockReturnValue(null);
+    try {
+      const result = commitColorCycleLayerStroke({
+        layer, drawingCanvas: canvas, brushSettings: { opacity: 1 } as never,
+        project: { width: 8, height: 8 }, strokeBoundingBox: null,
+        strokeCapturePadding: 0, roiPadding: 0, enableCaptureRoi: false,
+      }, {
+        getBrushForLayer: () => brush as never, bindBrushToCanvas: jest.fn(), markLayerHasContent: jest.fn(),
+        perfMark: jest.fn(), perfMeasure: jest.fn(), startFinalizeVisibleTimer: jest.fn(), endFinalizeVisibleTimer: jest.fn(),
+        dispatchFrameUpdate: jest.fn(),
+        finalizeMasks: () => {
+          expect(canonical.read()).toEqual(before);
+          expect(new Uint8Array(canonical.readPreview().snapshot.paintBuffer!)[0]).toBe(9);
+          if (fail) throw new Error('mask preparation failed');
+          const mask = document.createElement('canvas');
+          mask.width = mask.height = 8;
+          const image = new ImageData(8, 8);
+          image.data[3] = 128;
+          mask.getContext('2d')!.putImageData(image, 0, 0);
+          layer.colorCycleData!.eraseMask = mask;
+          layer.colorCycleData!.eraseMaskVersion = 1;
+        },
+      });
+      if (fail) {
+        await expect(result).rejects.toThrow('mask preparation failed');
+        expect(canonical.read()).toEqual(before);
+      } else {
+        await result;
+        expect(canonical.read().version).toBe(before.version + 1);
+        expect(new Uint8Array(canonical.read().snapshot.paintBuffer!)[0]).toBe(9);
+        expect(canonical.read().snapshot.eraseMask?.alpha[0]).toBe(128);
+      }
+      expect(canonical.hasPendingEdit).toBe(false);
+    } finally {
+      getState.mockRestore();
+    }
   });
 });

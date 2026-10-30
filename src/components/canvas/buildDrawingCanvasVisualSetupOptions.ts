@@ -4,8 +4,6 @@ interface BuildDrawingCanvasVisualSetupOptionsArgs {
   runtime: Pick<
     UseDrawingCanvasVisualSetupBridgeOptions,
     | 'colorCycleBrushManagerRef'
-    | 'shouldUseColorCycleWorker'
-    | 'hasWarnedColorCycleWorkerRef'
     | 'layers'
     | 'compositeSegmentsVersion'
     | 'getCompositeSegmentsSnapshot'

@@ -7,7 +7,6 @@ const config = {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
     '^@/workers/colorCycleFillClient$': '<rootDir>/__mocks__/colorCycleFillClient.ts',
-    '^@/workers/colorCycleCompositorClient$': '<rootDir>/__mocks__/colorCycleCompositorClient.ts',
     '^@/lib/sequential/SequentialWorkerMaterializerBridge$': '<rootDir>/__mocks__/SequentialWorkerMaterializerBridge.ts',
     '^@/(.*)$': '<rootDir>/src/$1',
   },

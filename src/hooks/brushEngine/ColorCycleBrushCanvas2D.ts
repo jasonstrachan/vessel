@@ -13,7 +13,7 @@ import {
   setColorCycleBrushPersistenceLayerMeta,
   type ColorCycleBrushPersistenceLayerMeta,
 } from '@/lib/colorCycle/document';
-import { ColorCycleRuntimeMetadataApiRuntime } from '@/hooks/brushEngine/colorCycleRuntimeMetadataApiRuntime';
+import { ColorCycleRuntimeMetadataState } from '@/hooks/brushEngine/colorCycleRuntimeMetadataState';
 import {
   deserializeColorCycleCanvasRuntime,
 } from './colorCycleCanvasDeserializeRuntime';
@@ -72,7 +72,7 @@ export class ColorCycleBrushCanvas2D {
   readonly [COLOR_CYCLE_RUNTIME_OWNER] = (): object => this.layerDocumentApi.owner;
 
   // Core settings (match original API)
-  private readonly runtimeMetadataApi = new ColorCycleRuntimeMetadataApiRuntime();
+  private readonly runtimeMetadataApi = new ColorCycleRuntimeMetadataState();
 
   private readonly settingsApi = new ColorCycleBrushSettingsApiRuntime({
     getShapeFillSettings: () => this.shapeFillApi.getSettings(),
@@ -426,7 +426,7 @@ export class ColorCycleBrushCanvas2D {
       this.strokeApi.setStrokeCounter(strokeCounter);
     },
     getAnimators: () => this.presentationApi.getAnimatorMap(),
-    getDocumentRead: (layerId) => this.layerDocumentApi.getLayerDocumentRead(layerId),
+    getDocumentRead: (layerId) => this.layerDocumentApi.getLayerDocument(layerId)?.read(),
     ensureStrokeSnapshot: (strokeState) => {
       this.layerDocumentApi.snapshotFromBuffers(strokeState);
     },

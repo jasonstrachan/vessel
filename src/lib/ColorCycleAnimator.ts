@@ -1701,17 +1701,13 @@ export class ColorCycleAnimator implements CCIndexSurface, DerivedSurface {
    * Manually update animation frame
    * Used when animation is driven externally
    */
-  updateFrame() {
-    // Calculate delta time based on target FPS when driven externally
-    // Use controller stats to avoid hardcoding 30fps
-    const stats = this.animationController.getStats();
-    const fps = Math.max(1, stats.targetFPS || 30);
-    const deltaTime = 1 / fps;
-
-    // Advance time manually (real time + speed-scaled offset)
-    this.animationController.advanceExternalFrame(deltaTime);
-
-    // Trigger frame render
+  updateFrame(deltaSeconds?: number) {
+    const fps = Math.max(1, this.animationController.getStats().targetFPS || 30);
+    const elapsedSeconds = deltaSeconds ?? 1 / fps;
+    if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0) {
+      return;
+    }
+    this.animationController.advanceExternalFrame(elapsedSeconds);
     this.handleAnimationFrame();
   }
 

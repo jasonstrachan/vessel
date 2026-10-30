@@ -1,3 +1,4 @@
+import { publishColorCycleLayerMetadata } from '@/lib/colorCycle/document/documentMasks';
 import type { StateCreator } from 'zustand';
 
 import { RecolorManager } from '@/lib/colorCycle/RecolorManager';
@@ -287,9 +288,10 @@ export const createLayerColorCycleEditActions = ({
     if (!layer.colorCycleData.softEdgeMask && !layer.colorCycleData.softEdgeMaskImageData) {
       return;
     }
-    const beforeColorState = captureSoftEdgeMaskOnlyState(layer);
+    const beforeColorState = captureSoftEdgeMaskOnlyState(layer, colorCycleBrushManager.getDocument?.(layerId)?.read());
 
     const nextVersion = (layer.colorCycleData.softEdgeMaskVersion ?? 0) + 1;
+    publishColorCycleLayerMetadata(colorCycleBrushManager.getDocument?.(layerId), removeColorCycleSoftEdgeMaskFromLayer(layer, nextVersion), 'soft-mask-clear');
     set((current) => ({
       layers: current.layers.map((candidate) => (
         candidate.id === layerId

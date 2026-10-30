@@ -3,6 +3,7 @@ import {
   readColorCycleBrushSerializedStateFromRuntime,
   resolveColorCyclePaintCoverageFromSerializedState,
   type ColorCycleBrushSerializedStateRuntimeReader,
+  type ColorCycleLayerDocumentRead,
 } from '@/lib/colorCycle/document';
 import type { ColorCycleSoftEdgeCoverage } from '@/utils/colorCycleSoftEdgeMask';
 import type { Layer } from '@/types';
@@ -95,7 +96,10 @@ export const prepareColorCycleCompositeSource = (
   return maskedCanvas;
 };
 
-export const captureSoftEdgeMaskOnlyState = (layer: Layer): ColorCycleSerializedState => {
+export const captureSoftEdgeMaskOnlyState = (
+  layer: Layer,
+  documentRead?: ColorCycleLayerDocumentRead,
+): ColorCycleSerializedState => {
   const toState = (
     snapshot?: NonNullable<ColorCycleSerializedState>['layers'][number]['softEdgeMaskSnapshot'],
   ): ColorCycleSerializedState => ({
@@ -104,6 +108,13 @@ export const captureSoftEdgeMaskOnlyState = (layer: Layer): ColorCycleSerialized
       softEdgeMaskSnapshot: snapshot,
     } as NonNullable<ColorCycleSerializedState>['layers'][number]],
   } as ColorCycleSerializedState);
+  if (documentRead) {
+    return {
+      ...toState(documentRead.snapshot.softEdgeMask),
+      documentVersion: documentRead.version,
+      pixelVersion: documentRead.pixelVersion,
+    } as ColorCycleSerializedState;
+  }
   const mask = layer.colorCycleData?.softEdgeMask;
   const imageData = layer.colorCycleData?.softEdgeMaskImageData;
   const version = layer.colorCycleData?.softEdgeMaskVersion ?? 0;

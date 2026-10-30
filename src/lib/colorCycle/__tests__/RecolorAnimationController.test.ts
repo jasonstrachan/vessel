@@ -1,8 +1,12 @@
 import type { Layer } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
 import { RecolorAnimationController } from '../RecolorAnimationController';
+import { getSharedAnimationRuntime } from '@/runtime/playback/animationRuntime';
 
-jest.mock('../RecolorEngine', () => ({ RecolorEngine: class { getStats() { return { memoryUsage: 0 }; } } }));
+jest.mock('../RecolorEngine', () => ({ RecolorEngine: class {
+  getStats() { return { memoryUsage: 0 }; }
+  renderFrame() { return null; }
+} }));
 
 describe('RecolorAnimationController configured FPS', () => {
   it('updates timing for every registered layer without changing clock or indexed source', () => {
@@ -44,5 +48,43 @@ describe('RecolorAnimationController configured FPS', () => {
     controller.setFPS(1);
     expect(controller.getConfiguredFPS()).toBe(15);
     controller.cleanup();
+  });
+
+  it('uses the shared clock and advances by elapsed time across delayed frames and resume', () => {
+    const controller = new RecolorAnimationController();
+    const layer = {
+      id: 'recolor-clock', visible: true, imageData: new ImageData(1, 1),
+      colorCycleData: { mode: 'recolor', recolorSettings: {
+        indexBuffer: new Uint8Array([1]), cycleColors: 16, currentLOD: 'full',
+        animation: { speed: 0.5, currentTick: 0, ticksPerFrame: 0, fps: 60 },
+      } },
+    } as Layer;
+    const runtime = getSharedAnimationRuntime();
+    let consume: ((timestamp: number, delta: number) => void) | undefined;
+    const unregister = jest.fn();
+    const registration = jest.spyOn(runtime, 'register').mockImplementation((callback) => {
+      consume = callback;
+      return unregister;
+    });
+    const start = jest.spyOn(runtime, 'start').mockImplementation(() => {});
+    const now = jest.spyOn(performance, 'now').mockReturnValue(0);
+    try {
+      controller.registerLayer(layer);
+      controller.playAll();
+      consume?.(100, 100);
+      expect(layer.colorCycleData?.recolorSettings?.animation.currentTick).toBeCloseTo(0.8);
+      controller.pause();
+      expect(unregister).toHaveBeenCalledTimes(1);
+      now.mockReturnValue(10_000);
+      controller.resume();
+      consume?.(10_100, 100);
+      expect(layer.colorCycleData?.recolorSettings?.animation.currentTick).toBeCloseTo(1.6);
+      expect(registration).toHaveBeenCalledTimes(2);
+    } finally {
+      controller.cleanup();
+      now.mockRestore();
+      start.mockRestore();
+      registration.mockRestore();
+    }
   });
 });

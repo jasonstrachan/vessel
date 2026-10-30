@@ -179,7 +179,6 @@ jest.mock('@/layers/MaskManager', () => ({
 
 jest.mock('@/stores/colorCycleBrushManager', () => ({ getColorCycleBrushManager: jest.fn(() => null) }));
 jest.mock('@/lib/colorCycle/RecolorManager', () => ({ RecolorManager: { getInstance: () => ({ updateGradient: jest.fn(), processLayer: jest.fn() }) } }));
-jest.mock('@/workers/colorCycleCompositorClient', () => ({ getColorCycleCompositorClient: () => null }));
 
 describe('DrawingCanvas smoke', () => {
   const resizeObserverMock = jest.fn(() => ({ observe: jest.fn(), unobserve: jest.fn(), disconnect: jest.fn() }));

@@ -200,6 +200,35 @@ describe('colorCycleBrushManager integration', () => {
     expectLastCallBefore(createdBrushes[0].setColorCycleLayerDocument, createdBrushes[0].setLayerId);
   });
 
+  it('replaces the document in the live runtime and attached brush together', () => {
+    const manager = createColorCycleBrushManager();
+    manager.createBrush('replacement', 4, 4);
+    const runtime = manager.getRuntime('replacement');
+    const replacement = new ColorCycleLayerDocument({
+      ...manager.getDocument('replacement')!.read().snapshot,
+      hasContent: false,
+    });
+
+    manager.registerDocument('replacement', replacement);
+
+    expect(manager.getDocument('replacement')).toBe(replacement);
+    expect(runtime?.document).toBe(replacement);
+    expect(createdBrushes[0].setColorCycleLayerDocument).toHaveBeenLastCalledWith('replacement', replacement);
+  });
+
+  it('cleans up cold documents without allocating brush runtimes', () => {
+    const manager = createColorCycleBrushManager();
+    manager.ensureDocument('cold-keep', 4, 4);
+    manager.ensureDocument('cold-orphan', 4, 4);
+    manager.cleanupOrphanedBrushes(new Set(['cold-keep']));
+    expect(manager.getDocument('cold-orphan')).toBeUndefined();
+    expect(manager.getDocument('cold-keep')).toBeDefined();
+    manager.cleanupAll();
+    expect(manager.documents.size).toBe(0);
+    expect(manager.runtimes.size).toBe(0);
+    expect(createdBrushes).toHaveLength(0);
+  });
+
   it('attaches the registry document before binding a restored brush layer id', () => {
     const manager = createColorCycleBrushManager();
     const brush = createMockBrush();

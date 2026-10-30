@@ -20,7 +20,6 @@ export const useDrawingCanvasCoreState = () => {
   const checkerPatternCacheRef = useRef<WeakMap<CanvasRenderingContext2D, CanvasPattern | null>>(new WeakMap());
   const isZoomingRef = useRef(false);
   const zoomEndTimeoutRef = useRef<number | null>(null);
-  const hasWarnedColorCycleWorkerRef = useRef(false);
 
   return {
     canvasRef,
@@ -40,6 +39,5 @@ export const useDrawingCanvasCoreState = () => {
     checkerPatternCacheRef,
     isZoomingRef,
     zoomEndTimeoutRef,
-    hasWarnedColorCycleWorkerRef,
   };
 };

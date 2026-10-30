@@ -1,7 +1,5 @@
 import { useMemo } from 'react';
-import { useFeatureFlag } from '@/config/featureFlags';
 import { useCropState } from '@/hooks/useCropState';
-import { detectColorCycleWorkerSupport } from '@/utils/colorCycleWorkerSupport';
 import { getMaskManager } from '@/layers/MaskManager';
 import { useToolSwitcher } from '@/utils/toolSwitch';
 import { useDrawingCanvasHandlerAdapters } from './useDrawingCanvasHandlerAdapters';
@@ -60,9 +58,6 @@ export const useDrawingCanvasSetupBridge = ({
     mousePositionRef,
     brushCursorHandleRef,
   });
-  const colorCycleWorkerEnabled = useFeatureFlag('useColorCycleWorker');
-  const colorCycleWorkerSupport = useMemo(() => detectColorCycleWorkerSupport(), []);
-  const shouldUseColorCycleWorker = colorCycleWorkerEnabled && colorCycleWorkerSupport.supported;
 
   return {
     maskManager,
@@ -79,6 +74,5 @@ export const useDrawingCanvasSetupBridge = ({
     setCurrentToolById,
     setFloatingPasteFromHandlers,
     setCursorScreenPosition,
-    shouldUseColorCycleWorker,
   };
 };

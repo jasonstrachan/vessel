@@ -79,7 +79,7 @@ export const FeatureFlagToggle: React.FC<FeatureFlagToggleProps> = ({
         }}>
           ▶
         </span>
-        Feature Flags ({flags.useColorCycleWorker ? 'Worker' : 'Main Thread'} · {flags.useCanvas2DColorCycle ? 'Canvas2D' : 'WebGL'})
+        Feature Flags ({flags.useCanvas2DColorCycle ? 'Canvas2D' : 'WebGL'})
       </button>
 
       {isExpanded && (
@@ -163,46 +163,25 @@ export const FeatureFlagToggle: React.FC<FeatureFlagToggleProps> = ({
               Toggle Implementation
             </button>
 
-            <button
-              onClick={() => {
-                const current = flags.useColorCycleWorker;
-                setFeatureFlag('useColorCycleWorker', !current);
-              }}
-              style={{
-                padding: '6px 12px',
-                background: '#3c5d8c',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '12px'
-              }}
-            >
-              Toggle Worker Mode
-            </button>
           </div>
 
           {/* Implementation status indicator */}
           <div style={{ 
             marginTop: '12px', 
             padding: '8px', 
-            background: flags.useColorCycleWorker ? '#22384f' : (flags.useCanvas2DColorCycle ? '#2a4d3a' : '#4d3a2a'),
+            background: flags.useCanvas2DColorCycle ? '#2a4d3a' : '#4d3a2a',
             borderRadius: '4px',
             fontSize: '11px',
             color: '#ccc'
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <div>Rendering: <strong>{flags.useCanvas2DColorCycle ? 'Canvas2D' : 'WebGL'}</strong></div>
-              <div>Compositor: <strong>{flags.useColorCycleWorker ? 'Worker' : 'Main Thread'}</strong></div>
             </div>
             <div style={{ marginTop: '4px', opacity: 0.7 }}>
               {flags.useCanvas2DColorCycle 
                 ? '✓ Better compatibility, no WebGL required'
                 : '✓ Hardware accelerated, better for complex gradients'}
-              <br />
-              {flags.useColorCycleWorker
-                ? 'Worker isolates CC animation from UI thread'
-                : 'Main thread handles CC animation (legacy)'}
+
             </div>
           </div>
         </div>

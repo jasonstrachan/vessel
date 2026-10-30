@@ -98,7 +98,7 @@ export type ColorCycleRestoredBrushRegistrationOptions = {
 
 export interface ColorCycleBrushManager {
   runtimes: Map<string, ColorCycleLayerRuntime>;
-  brushes: Map<string, ColorCycleBrushRuntimeHost>;
+  readonly brushes: ReadonlyMap<string, ColorCycleBrushRuntimeHost>;
   documents: Map<string, ColorCycleLayerDocument>;
   brushMetadata: Map<string, ColorCycleBrushMetadata>;
   activeResources: Set<string>;
@@ -275,7 +275,6 @@ const buildColorCycleBrushSettingsPatch = (
  */
 export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps): ColorCycleBrushManager => {
   const runtimes = new Map<string, ColorCycleLayerRuntime>();
-  const brushes = new Map<string, ColorCycleBrushRuntimeHost>();
   const documents = new Map<string, ColorCycleLayerDocument>();
   const brushMetadata = new Map<string, ColorCycleBrushMetadata>();
   const activeResources = new Set<string>();
@@ -367,7 +366,6 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
   ): ColorCycleLayerRuntime => {
     const runtime = { layerId, brush, document };
     runtimes.set(layerId, runtime);
-    brushes.set(layerId, brush);
     documents.set(layerId, document);
     attachDocumentToBrush(layerId, brush, document);
     return runtime;
@@ -913,12 +911,11 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     layerId: string,
     options: { removeDocument: boolean },
   ): void => {
-    const brush = brushes.get(layerId) as BrushWithOptionalControls | undefined;
+    const brush = runtimes.get(layerId)?.brush as BrushWithOptionalControls | undefined;
     if (brush) {
       brush.cleanup?.();
     }
 
-    brushes.delete(layerId);
     if (options.removeDocument) {
       documents.delete(layerId);
     }
@@ -931,7 +928,9 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
 
   return {
     runtimes,
-    brushes,
+    get brushes() {
+      return new Map(Array.from(runtimes, ([layerId, runtime]) => [layerId, runtime.brush]));
+    },
     documents,
     brushMetadata,
     activeResources,
@@ -1010,7 +1009,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     getBrush(layerId: string): ColorCycleBrushRuntimeHost | undefined {
-      const brush = runtimes.get(layerId)?.brush ?? brushes.get(layerId);
+      const brush = runtimes.get(layerId)?.brush;
       if (brush) {
         const metadata = brushMetadata.get(layerId);
         if (metadata) {
@@ -1021,7 +1020,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     hasBrush(layerId: string): boolean {
-      return runtimes.has(layerId) || brushes.has(layerId);
+      return runtimes.has(layerId);
     },
 
     registerRestoredBrush(
@@ -1065,7 +1064,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     applySettingsToBrushes(patch: CCBrushSettingsPatch): void {
-      brushes.forEach((brush) => {
+      runtimes.forEach(({ brush }) => {
         applyColorCycleBrushSettingsPatch(brush, patch);
       });
     },
@@ -1161,10 +1160,15 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     getDocument(layerId: string): ColorCycleLayerDocument | undefined {
-      return runtimes.get(layerId)?.document ?? documents.get(layerId);
+      return documents.get(layerId);
     },
 
     registerDocument(layerId: string, document: ColorCycleLayerDocument): void {
+      const runtime = runtimes.get(layerId);
+      if (runtime) {
+        attachDocumentToBrush(layerId, runtime.brush, document);
+        runtime.document = document;
+      }
       documents.set(layerId, document);
     },
 
@@ -1232,16 +1236,13 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
     },
 
     cleanupAll() {
-      Array.from(runtimes.keys()).forEach((layerId) => {
-        this.deleteBrush(layerId);
-      });
-      Array.from(brushes.keys()).forEach((layerId) => {
+      Array.from(new Set([...runtimes.keys(), ...documents.keys()])).forEach((layerId) => {
         this.deleteBrush(layerId);
       });
     },
 
     setCanvasImplementation(useCanvas2D: boolean) {
-      brushes.forEach((brush, layerId) => {
+      runtimes.forEach(({ brush }, layerId) => {
         const brushControls = brush as BrushWithOptionalControls;
         brushControls.setUseCanvas2D?.(useCanvas2D);
         updateBrushWebGLState(layerId, brushControls, !useCanvas2D);
@@ -1335,19 +1336,17 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
           }
         }
 
-        brushes.delete(layerId);
-        documents.delete(layerId);
-        runtimes.delete(layerId);
-        brushMetadata.delete(layerId);
-
-        activeResources.delete(layerId);
-        activeResources.delete(`canvas_${layerId}`);
-        activeResources.delete(`webgl_${layerId}`);
       }
+      documents.delete(layerId);
+      runtimes.delete(layerId);
+      brushMetadata.delete(layerId);
+      activeResources.delete(layerId);
+      activeResources.delete(`canvas_${layerId}`);
+      activeResources.delete(`webgl_${layerId}`);
     },
 
     cleanupOrphanedBrushes(validLayerIds: Set<string>): void {
-      const orphaned = Array.from(new Set([...runtimes.keys(), ...brushes.keys()]))
+      const orphaned = Array.from(new Set([...runtimes.keys(), ...documents.keys()]))
         .filter(id => !validLayerIds.has(id));
 
       if (orphaned.length === 0) return;
@@ -1364,7 +1363,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         stack: new Error().stack?.split('\n').slice(0, 4).join('\n'),
       });
       const sourceRuntime = this.getRuntime(fromLayerId);
-      const sourceBrush = (sourceRuntime?.brush ?? brushes.get(fromLayerId)) as BrushWithOptionalControls | undefined;
+      const sourceBrush = sourceRuntime?.brush as BrushWithOptionalControls | undefined;
       const sourceDocument = sourceRuntime?.document ?? documents.get(fromLayerId);
       const sourceMetadata = brushMetadata.get(fromLayerId);
 
@@ -1376,7 +1375,7 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         return false;
       }
 
-      if (brushes.has(toLayerId)) {
+      if (runtimes.has(toLayerId)) {
         this.removeColorCycleBrush(toLayerId);
       }
 
@@ -1410,7 +1409,6 @@ export const createColorCycleBrushRegistry = (deps: ColorCycleBrushRegistryDeps)
         activeResources.add(`webgl_${toLayerId}`);
       }
 
-      brushes.delete(fromLayerId);
       documents.delete(fromLayerId);
       runtimes.delete(fromLayerId);
       brushMetadata.delete(fromLayerId);

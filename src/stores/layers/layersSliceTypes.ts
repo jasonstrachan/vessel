@@ -48,6 +48,8 @@ export type MarkCompositeSegmentsDirtyOptions = {
 
 export type UpdateLayerOptions = {
   skipColorCycleSync?: boolean;
+  /** Restore/rollback may explicitly remove optional fields with undefined. */
+  allowColorCycleFieldClears?: boolean;
   dirtyRects?: ColorCycleDirtyRect[];
 };
 

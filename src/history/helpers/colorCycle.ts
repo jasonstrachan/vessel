@@ -1,3 +1,4 @@
+import type { ColorCycleDocumentMask } from '@/lib/colorCycle/document/colorCycleDocumentContract';
 import { getColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
 import { useAppStore } from '@/stores/useAppStore';
 import { captureColorCyclePersistenceSnapshot } from '@/lib/colorCycle/persistence';
@@ -18,13 +19,7 @@ type HistoryColorCycleBrush = ColorCycleBrushSerializedStateRuntimeReader & {
   getColorCycleLayerDocument?: (layerId: string) => { read(): ColorCycleLayerDocumentRead } | null | undefined;
 };
 
-export type ColorCycleEraseMaskSnapshot = {
-  width: number;
-  height: number;
-  alpha: Uint8ClampedArray;
-  enabled?: boolean;
-  version: number;
-};
+export type ColorCycleEraseMaskSnapshot = ColorCycleDocumentMask;
 
 export type ColorCycleSerializedLayerState = BaseColorCycleSerializedLayer & {
   eraseMaskSnapshot?: ColorCycleEraseMaskSnapshot;
@@ -347,6 +342,7 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
     const document = brush?.getColorCycleLayerDocument?.(layerId)
       ?? manager.getDocument?.(layerId)
       ?? null;
+    const committedRead = document?.read();
     const rawRuntimeSnapshot = brush && !document
       ? readColorCycleBrushSerializedStateFromRuntime(brush) as BaseColorCycleSerializedState | undefined
       : undefined;
@@ -503,8 +499,8 @@ export const captureColorCycleBrushState = (layerId: string): ColorCycleSerializ
                         : layer.strokeData.phaseBuffer?.slice(0),
                     }
                   : undefined,
-                eraseMaskSnapshot: captureEraseMaskSnapshot(layer.layerId),
-                softEdgeMaskSnapshot: captureSoftEdgeMaskSnapshot(layer.layerId),
+                eraseMaskSnapshot: committedRead ? committedRead.snapshot.eraseMask : captureEraseMaskSnapshot(layer.layerId),
+                softEdgeMaskSnapshot: committedRead ? committedRead.snapshot.softEdgeMask : captureSoftEdgeMaskSnapshot(layer.layerId),
               })) ?? [],
           }
         : null;

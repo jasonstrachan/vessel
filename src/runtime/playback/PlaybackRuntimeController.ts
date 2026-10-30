@@ -1,6 +1,6 @@
 import {
   getSharedAnimationRuntime,
-} from '@/hooks/canvas/handlers/animation/animationRuntime';
+} from '@/runtime/playback/animationRuntime';
 import { colorCyclePlaybackParticipant } from '@/runtime/playback/colorCyclePlaybackParticipant';
 import { PlaybackParticipantRegistry, type PlaybackRuntimeConsumer } from '@/runtime/playback/playbackParticipants';
 import { sequentialPlaybackParticipant } from '@/runtime/playback/sequentialPlaybackParticipant';

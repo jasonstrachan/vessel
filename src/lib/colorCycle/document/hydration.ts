@@ -1,3 +1,4 @@
+import { captureColorCycleDocumentMasks } from './documentMasks';
 import type { ColorCycleLayerDocumentRead } from './ColorCycleLayerDocument';
 import {
   classifyColorCycleCanonicalContent,
@@ -138,7 +139,7 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
       data?.canvasHeight ?? data?.canvas?.height ?? layer.imageData?.height ?? layer.framebuffer?.height ?? 1,
     );
     const lazyRuntime = dependencies.getLazyColorCycleArchiveRuntime(layer);
-    manager.ensureDocument(layer.id, width, height, {
+    const document = manager.ensureDocument(layer.id, width, height, {
       residency,
       archiveRefs: residency === 'cold-archive-ref' && lazyRuntime
         ? {
@@ -150,6 +151,10 @@ export const restoreColorCycleBrushesWithDocumentHydration = async (
             phaseRef: lazyRuntime.phaseRef,
           }
         : null,
+    });
+    const read = document.read();
+    document.replaceBaseline({ ...read.snapshot, ...captureColorCycleDocumentMasks(data) }, {
+      version: read.version, pixelVersion: read.pixelVersion, clearAudit: false,
     });
   };
 

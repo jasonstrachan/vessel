@@ -1,3 +1,4 @@
+import { captureColorCycleDocumentMasks } from '@/lib/colorCycle/document/documentMasks';
 import JSZip from 'jszip';
 
 import { exportProjectAsWebGL } from '@/utils/export/webglExporter';
@@ -176,6 +177,7 @@ const createDocumentReaderFromBrushState = (
 
     return {
       snapshot: {
+        ...captureColorCycleDocumentMasks(colorCycleData),
         layerId,
         width,
         height,
@@ -2008,7 +2010,7 @@ describe('exportProjectAsWebGL color cycle integration', () => {
     });
   });
 
-  it('omits stale Goblet 2 alpha masks that would erase all visible brush paint', async () => {
+  it('ignores stale cached alpha when the committed document has no erase mask', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 128;
     canvas.height = 128;
@@ -2020,6 +2022,13 @@ describe('exportProjectAsWebGL color cycle integration', () => {
       8,
       (x, y) => x >= 3 && x <= 4 && y >= 2 && y <= 3
     );
+    const reader = createDocumentReaderForLayer(layer)!;
+    layer.colorCycleData!.colorCycleBrush = {
+      getColorCycleLayerDocument: () => ({ read: () => {
+        const read = reader.read();
+        return { ...read, snapshot: { ...read.snapshot, eraseMask: undefined } };
+      } }),
+    } as never;
     const project = createProject(layer);
 
     const metadata = await exportProjectAsWebGL({
