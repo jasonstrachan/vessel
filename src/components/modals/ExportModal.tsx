@@ -51,7 +51,7 @@ interface ExportModalProps {
   onClose: () => void;
 }
 
-const MODAL_PANEL_CLASS = 'bg-[#2C2C2C] border border-[#2A2A2A]';
+const MODAL_PANEL_CLASS = 'vessel-dialog';
 
 const showGobletTestStatus = (
   previewWindow: Window,
@@ -750,7 +750,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
       }}
     >
       <div
-        className={`${MODAL_PANEL_CLASS} fixed flex w-[580px] max-w-[calc(100vw-32px)] flex-col overflow-hidden shadow-xl`}
+        className={`${MODAL_PANEL_CLASS} fixed flex w-[580px] max-w-[calc(100vw-32px)] flex-col overflow-hidden`}
         style={{
           left: position.x,
           top: position.y,

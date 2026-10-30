@@ -11,7 +11,7 @@ export interface LabeledSliderProps {
   ariaLabel?: string;
   className?: string;
   labelWidthClass?: string; // e.g., 'w-16'
-  fontSizePx?: number; // default 14
+  fontSizePx?: number; // default 11
 }
 
 const LabeledSlider: React.FC<LabeledSliderProps> = ({
@@ -24,12 +24,12 @@ const LabeledSlider: React.FC<LabeledSliderProps> = ({
   ariaLabel,
   className = '',
   labelWidthClass = 'w-16',
-  fontSizePx = 14
+  fontSizePx = 11
 }) => {
   return (
     <div className={className}>
-      <div className="flex items-center gap-2">
-        <label className={`text-[#D9D9D9] ${labelWidthClass}`} style={{ fontSize: `${fontSizePx}px` }}>
+      <div className="flex min-h-7 items-center gap-2">
+        <label className={`text-[#D9D9D9] ${labelWidthClass} shrink-0`} style={{ fontSize: `${fontSizePx}px` }}>
           {label}
         </label>
         <ProgressSlider

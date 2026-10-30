@@ -172,7 +172,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ class
   const labelClass = 'text-sm font-medium text-[#D3D3DC]';
 
   const fieldClass = [
-    'w-full rounded-none border border-[#D9D9D9] bg-transparent text-[#D9D9D9] placeholder:text-[#8F8FA3]',
+    'w-full rounded-none vessel-input text-[#D9D9D9] placeholder:text-[#8F8FA3]',
     'transition-colors focus:border-[#F3F3F7] focus:outline-none focus:ring-0',
     'disabled:cursor-not-allowed disabled:opacity-50',
     'h-6 px-2 text-sm'
@@ -315,7 +315,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ class
                             'h-1.5 w-1.5 block',
 
                             isSelected
-                              ? 'bg-[#F3F3F7]'
+                              ? 'bg-[var(--vessel-accent)]'
                               : 'border border-current bg-transparent'
                           ].join(' ')}
                           aria-hidden
@@ -366,7 +366,7 @@ export const LayerAlignmentControls = memo<LayerAlignmentControlsProps>(({ class
                       className={[
                         'h-3 w-3 block',
                         isSelected
-                          ? 'bg-[#F3F3F7] border border-transparent'
+                          ? 'bg-[var(--vessel-accent)] border border-transparent'
                           : 'bg-transparent border border-current'
                       ].join(' ')}
                       aria-hidden
@@ -423,9 +423,9 @@ interface AlignmentPanelProps extends DensityProps {
   defaultExpanded?: boolean;
 }
 
-const AlignmentPanel: React.FC<AlignmentPanelProps> = ({ density = 'comfortable', defaultExpanded = true, className = '' }) => {
+const AlignmentPanel: React.FC<AlignmentPanelProps> = ({ density = 'comfortable', defaultExpanded = false, className = '' }) => {
   const panelClass = [
-    'bg-[#1A1A1A] border-t border-[#404040] px-2 py-0.5',
+    'bg-[var(--vessel-panel)] border-t border-[#404040] px-2 py-0.5',
     className
   ].filter(Boolean).join(' ');
 

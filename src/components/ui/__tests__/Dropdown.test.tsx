@@ -8,6 +8,34 @@ describe('Dropdown', () => {
     { value: 'b', label: 'Beta' },
   ];
 
+  it('supports keyboard selection and returns focus to the trigger', () => {
+    const onChange = jest.fn();
+    render(<Dropdown value="a" options={options} onChange={onChange} />);
+    const trigger = screen.getByRole('button');
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: 'Alpha' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+    expect(screen.getByRole('option', { name: 'Beta' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+    expect(onChange).toHaveBeenCalledWith('b');
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('closes the keyboard menu with Escape without selecting', () => {
+    const onChange = jest.fn();
+    render(<Dropdown value="a" options={options} onChange={onChange} />);
+    const trigger = screen.getByRole('button');
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    fireEvent.keyDown(document.activeElement!, { key: 'End' });
+    expect(screen.getByRole('option', { name: 'Beta' })).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(trigger).toHaveFocus();
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('opens menu when trigger is clicked', async () => {
     const onChange = jest.fn();
     render(<Dropdown value="a" options={options} onChange={onChange} />);

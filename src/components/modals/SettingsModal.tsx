@@ -236,12 +236,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       onClick={handleClose}
     >
       <div
-        className="bg-[#2C2C2C] rounded-lg w-[28rem] max-w-[calc(100vw-2rem)] shadow-xl"
+        className="vessel-dialog w-[28rem] max-w-[calc(100vw-2rem)]"
         style={{ position: 'fixed', left: pos.x, top: pos.y }}
         onClick={(event) => event.stopPropagation()}
       >
         <div
-          className="flex items-center justify-between border-b border-[#555] px-6 pb-3 pt-4 cursor-move"
+          className="flex items-center justify-between border-b border-[var(--vessel-border)] px-6 pb-3 pt-4 cursor-move"
           onMouseDown={onDragStart}
         >
           <h2 className="text-base font-semibold text-[#D9D9D9]">Settings</h2>
@@ -263,11 +263,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   key={section.id}
                   type="button"
                   onClick={() => setSettingsSection(section.id)}
-                  className="rounded border px-2 py-1 text-[11px] uppercase tracking-[0.08em] transition-colors"
+                  className="border px-2 py-1 text-[11px] uppercase tracking-[0.08em] transition-colors"
                   style={{
-                    borderColor: isActive ? '#D9D9D9' : '#555',
-                    backgroundColor: isActive ? '#D9D9D9' : 'transparent',
-                    color: isActive ? '#1A1A1A' : '#A5A5A5',
+                    borderColor: isActive ? 'var(--vessel-accent)' : 'var(--vessel-border)',
+                    backgroundColor: isActive ? 'var(--vessel-selected)' : 'transparent',
+                    color: isActive ? 'var(--vessel-accent)' : 'var(--vessel-text)',
                   }}
                 >
                   {section.label}
@@ -327,7 +327,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         setTransparencyBackgroundMode(mode);
                       }
                     }}
-                    className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"
+                    className="border border-[var(--vessel-border)] bg-[var(--vessel-control)] px-3 py-1 text-base text-[#D9D9D9]"
                   >
                     <option value="checker">Checkered</option>
                     <option value="gray">Grey</option>
@@ -343,7 +343,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       type="color"
                       value={frameColor}
                       onChange={(event) => setFrameColor(event.target.value)}
-                      className="h-8 w-10 cursor-pointer rounded border border-[#555] bg-[#444] p-1"
+                      className="h-8 w-10 cursor-pointer border border-[var(--vessel-border)] bg-[var(--vessel-control)] p-1"
                       aria-label="Frame color"
                     />
                     <span className="w-20 font-mono text-sm text-[#A5A5A5]">
@@ -374,7 +374,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       id={`${id}-save-interval`}
                       value={autosaveInterval}
                       onChange={(event) => setAutosaveInterval(Number(event.target.value))}
-                      className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"
+                      className="border border-[var(--vessel-border)] bg-[var(--vessel-control)] px-3 py-1 text-base text-[#D9D9D9]"
                     >
                       <option value={1}>1 minute</option>
                       <option value={2}>2 minutes</option>
@@ -404,7 +404,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     id={`${id}-history-size`}
                     value={historySize}
                     onChange={(event) => setHistorySize(Number(event.target.value))}
-                    className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9]"
+                    className="border border-[var(--vessel-border)] bg-[var(--vessel-control)] px-3 py-1 text-base text-[#D9D9D9]"
                   >
                     <option value={10}>10 actions</option>
                     <option value={25}>25 actions</option>
@@ -413,14 +413,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   </select>
                 </div>
 
-                <div className="mt-2 border-t border-[#555] pt-3">
+                <div className="mt-2 border-t border-[var(--vessel-border)] pt-3">
                   <div className="flex items-center justify-between gap-3">
                     <label className="text-base text-[#888]">Save Size Inspector</label>
                     <button
                       type="button"
                       onClick={handleAnalyzeSaveSize}
                       disabled={isAnalyzingSize || !project}
-                      className="rounded border border-[#555] bg-[#444] px-3 py-1 text-base text-[#D9D9D9] disabled:opacity-50"
+                      className="border border-[var(--vessel-border)] bg-[var(--vessel-control)] px-3 py-1 text-base text-[#D9D9D9] disabled:opacity-50"
                     >
                       {isAnalyzingSize ? 'Analyzing…' : 'Analyze'}
                     </button>
@@ -443,7 +443,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         Largest Layer: {sizeReport.largestLayers[0]?.layerName ?? 'n/a'} ({formatBytes(sizeReport.largestLayers[0]?.bytes ?? 0)})
                       </div>
                       {sizeReport.warnings.length > 0 && (
-                        <div className="mt-2 rounded border border-amber-700/40 bg-amber-950/30 p-2">
+                        <div className="mt-2 border border-amber-700/40 bg-amber-950/30 p-2">
                           <div className="mb-1 text-[11px] uppercase tracking-wide text-amber-200">Warnings</div>
                           <div className="space-y-1">
                             {sizeReport.warnings.slice(0, 3).map((warningEntry) => (
@@ -453,7 +453,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                         </div>
                       )}
                       {sizeReport.recommendations.length > 0 && (
-                        <div className="mt-2 rounded border border-[#273127] bg-[#182018] p-2">
+                        <div className="mt-2 border border-[#273127] bg-[#182018] p-2">
                           <div className="mb-1 text-[11px] uppercase tracking-wide text-[#B7D0B7]">Recommendations</div>
                           <div className="space-y-1">
                             {sizeReport.recommendations.slice(0, 3).map((recommendation) => (

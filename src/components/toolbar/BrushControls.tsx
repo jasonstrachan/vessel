@@ -106,7 +106,7 @@ import {
 } from './brushGradientStorage';
 
 const CONTROL_LABEL_CLASS = 'text-[#D9D9D9] w-16';
-const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '14px' };
+const CONTROL_LABEL_STYLE: React.CSSProperties = { fontSize: '11px' };
 type SliderComponent = React.ComponentType<React.ComponentProps<typeof ProgressSlider>>;
 const BRUSH_COLOR_CYCLE_SLIDER_MIN = 0;
 const BRUSH_COLOR_CYCLE_SLIDER_MAX = 1;
@@ -152,7 +152,7 @@ const PressureRangeInputs: React.FC<PressureRangeInputsProps> = ({
         ariaLabel="Pressure minimum percent"
       />
       {showSeparator && (
-        <span className="text-[#D9D9D9]" style={{ fontSize: '14px' }}>
+        <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
           -
         </span>
       )}
@@ -2226,7 +2226,7 @@ const BrushControls = () => {
               <label
                 htmlFor="pressure-enabled-color-cycle"
                 className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
+                style={{ fontSize: '11px' }}
               >
                 Pressure %
               </label>
@@ -2257,7 +2257,7 @@ const BrushControls = () => {
               <label
                 htmlFor="rotation-enabled-color-cycle"
                 className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
+                style={{ fontSize: '11px' }}
               >
                 Rotation
               </label>
@@ -2275,7 +2275,7 @@ const BrushControls = () => {
         {/* Lost Edge (edge fade) */}
         <div className="mb-2">
           <div className="flex items-center gap-1">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Lostedge
             </label>
             <NonCcSlider
@@ -2303,7 +2303,7 @@ const BrushControls = () => {
               <label
                 htmlFor="dashed-enabled-color-cycle"
                 className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
+                style={{ fontSize: '11px' }}
               >
                 Dashed
               </label>
@@ -2316,7 +2316,7 @@ const BrushControls = () => {
               />
               {(activeSettings.dashedEnabled || false) && (
                 <>
-                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     L
                   </span>
                   <CommittedNumberInput
@@ -2328,7 +2328,7 @@ const BrushControls = () => {
                     className="w-8 bg-transparent text-right"
                     title="Length units (×brush size)"
                   />
-                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     G
                   </span>
                   <CommittedNumberInput
@@ -2340,7 +2340,7 @@ const BrushControls = () => {
                     className="w-8 bg-transparent text-right"
                     title="Gap units (×brush size)"
                   />
-                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     V
                   </span>
                   <CommittedNumberInput
@@ -2364,7 +2364,7 @@ const BrushControls = () => {
               <label
                 htmlFor="grid-snap-enabled-cc"
                 className="text-[#D9D9D9] w-16"
-                style={{ fontSize: '14px' }}
+                style={{ fontSize: '11px' }}
               >
                 Grid Snap
               </label>
@@ -2387,7 +2387,7 @@ const BrushControls = () => {
                 className="w-14 bg-transparent text-right"
                 title="Grid size in pixels"
               />
-              <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+              <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                 px
               </span>
             </div>
@@ -2397,7 +2397,7 @@ const BrushControls = () => {
                   <label
                     htmlFor="rounded-corners-enabled-cc"
                     className="w-16 text-[#D9D9D9]"
-                    style={{ fontSize: '13px' }}
+                    style={{ fontSize: '11px' }}
                   >
                     Rounded
                   </label>
@@ -2424,7 +2424,7 @@ const BrushControls = () => {
                   <label
                     htmlFor="corner-radius-px-cc"
                     className="text-[#D9D9D9]"
-                    style={{ fontSize: '13px' }}
+                    style={{ fontSize: '11px' }}
                   >
                     Radius
                   </label>
@@ -2464,7 +2464,7 @@ const BrushControls = () => {
         {/* Content Type - dropdown that pre-populates text */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Content
             </label>
             <Dropdown
@@ -2494,14 +2494,14 @@ const BrushControls = () => {
             onChange={(e) => setActiveSettings({ spamCustomText: e.target.value })}
             placeholder="Enter custom text here..."
             className="w-full h-20 p-2 border border-[#D9D9D9] bg-transparent text-[#D9D9D9] resize-none focus:outline-none focus:border-[#F3F3F7]"
-            style={{ fontSize: "12px", fontFamily: 'monospace' }}
+            style={{ fontSize: '11px', fontFamily: 'inherit' }}
           />
         </div>
 
         {/* Font Selection */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Font
             </label>
             <Dropdown
@@ -2525,7 +2525,7 @@ const BrushControls = () => {
         {/* Size */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Size px
             </label>
             <NonCcSlider
@@ -2549,7 +2549,7 @@ const BrushControls = () => {
         {/* Opacity */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Opacity
             </label>
             <NonCcSlider
@@ -2567,7 +2567,7 @@ const BrushControls = () => {
         {/* Spacing */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Spacing
             </label>
               <NonCcSlider
@@ -2594,7 +2594,7 @@ const BrushControls = () => {
         {/* Lost Edge (edge fade) */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Lostedge
             </label>
             <NonCcSlider
@@ -2639,7 +2639,7 @@ const BrushControls = () => {
             <label
               htmlFor="pressure-enabled-spam"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               Pressure %
             </label>
@@ -2664,7 +2664,7 @@ const BrushControls = () => {
             <label
               htmlFor="grid-snap-enabled-spam"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               Grid Snap
             </label>
@@ -2689,7 +2689,7 @@ const BrushControls = () => {
               className="w-14 bg-transparent text-right"
               title="Grid size in pixels"
             />
-            <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+            <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
               px
             </span>
           </div>
@@ -2704,7 +2704,7 @@ const BrushControls = () => {
       <div className="p-4">
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Size {sizeUnit}
             </label>
             <NonCcSlider
@@ -2738,7 +2738,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Spacing
             </label>
             <NonCcSlider
@@ -2763,7 +2763,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Opacity
             </label>
             <NonCcSlider
@@ -2783,7 +2783,7 @@ const BrushControls = () => {
             <label
               htmlFor="mosaic-pixel-perfect"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: '14px' }}
+              style={{ fontSize: '11px' }}
             >
               Pixel
             </label>
@@ -2803,7 +2803,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Tile
             </label>
             <NonCcSlider
@@ -2822,7 +2822,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Blocks
             </label>
             <NonCcSlider
@@ -2841,7 +2841,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Palette
             </label>
             <NonCcSlider
@@ -2860,7 +2860,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Segment
             </label>
             <NonCcSlider
@@ -2879,7 +2879,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Seg Jit
             </label>
             <NonCcSlider
@@ -2901,7 +2901,7 @@ const BrushControls = () => {
             <label
               htmlFor="mosaic-dither-enabled"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: '14px' }}
+              style={{ fontSize: '11px' }}
             >
               Dither
             </label>
@@ -2917,7 +2917,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Seed
             </label>
             <Input
@@ -2956,7 +2956,7 @@ const BrushControls = () => {
             <label
               htmlFor="pressure-enabled-mosaic"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: '14px' }}
+              style={{ fontSize: '11px' }}
             >
               Pressure %
             </label>
@@ -2982,7 +2982,7 @@ const BrushControls = () => {
             <label
               htmlFor="rotation-enabled-mosaic"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: '14px' }}
+              style={{ fontSize: '11px' }}
             >
               Rotation
             </label>
@@ -3012,7 +3012,7 @@ const BrushControls = () => {
             <label
               htmlFor="continuous-sampling"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               Continuous
             </label>
@@ -3029,7 +3029,7 @@ const BrushControls = () => {
         {/* Resample Interval Slider - always shown for resampler brush */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Interval
             </label>
             <NonCcSlider
@@ -3049,7 +3049,7 @@ const BrushControls = () => {
         {/* Size */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Size {sizeUnit}
             </label>
             <NonCcSlider
@@ -3084,7 +3084,7 @@ const BrushControls = () => {
         {/* Opacity */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Opacity
             </label>
             <NonCcSlider
@@ -3102,7 +3102,7 @@ const BrushControls = () => {
         {/* Spacing */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Spacing
             </label>
             <NonCcSlider
@@ -3149,7 +3149,7 @@ const BrushControls = () => {
             <label
               htmlFor="pressure-enabled-resampler"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               Pressure %
             </label>
@@ -3177,7 +3177,7 @@ const BrushControls = () => {
               <label
                 htmlFor="rotation-enabled-resampler"
                 className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
+                style={{ fontSize: '11px' }}
               >
                 Rotation
               </label>
@@ -3199,7 +3199,7 @@ const BrushControls = () => {
               <label
                 htmlFor="dashed-enabled-resampler"
                 className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
+                style={{ fontSize: '11px' }}
               >
                 Dashed
               </label>
@@ -3212,7 +3212,7 @@ const BrushControls = () => {
               />
               {(activeSettings.dashedEnabled || false) && (
                 <>
-                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     L
                   </span>
                   <CommittedNumberInput
@@ -3224,7 +3224,7 @@ const BrushControls = () => {
                     className="w-8 bg-transparent text-right"
                     title="Length units (×brush size)"
                   />
-                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     G
                   </span>
                   <CommittedNumberInput
@@ -3236,7 +3236,7 @@ const BrushControls = () => {
                     className="w-8 bg-transparent text-right"
                     title="Gap units (×brush size)"
                   />
-                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     V
                   </span>
                   <CommittedNumberInput
@@ -3260,7 +3260,7 @@ const BrushControls = () => {
             <label
               htmlFor="grid-snap-enabled-resampler"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               Grid Snap
             </label>
@@ -3285,7 +3285,7 @@ const BrushControls = () => {
               className="w-14 bg-transparent text-right"
               title="Grid size in pixels"
             />
-            <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+            <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
               px
             </span>
           </div>
@@ -3306,7 +3306,7 @@ const BrushControls = () => {
         {/* Polygon Sides */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Sides
             </label>
             <NonCcSlider
@@ -3326,7 +3326,7 @@ const BrushControls = () => {
         {/* Dither Resolution */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Dither
             </label>
             <NonCcSlider
@@ -3367,7 +3367,7 @@ const BrushControls = () => {
         {/* Standard brush controls */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Size px
             </label>
             <NonCcSlider
@@ -3390,7 +3390,7 @@ const BrushControls = () => {
 
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Opacity
             </label>
             <NonCcSlider
@@ -3407,7 +3407,7 @@ const BrushControls = () => {
         {/* Lost Edge (edge fade) */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Lostedge
             </label>
             <NonCcSlider
@@ -3440,7 +3440,7 @@ const BrushControls = () => {
         {activeSettings.brushShape === BrushShape.RECTANGLE_GRADIENT && (
           <div className="mb-2">
             <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
                 Gradient
               </label>
               <Dropdown
@@ -3492,7 +3492,7 @@ const BrushControls = () => {
         {/* Colors (final bands). Rectangle: 2-64; Polygon: 1-10 (unchanged) */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Colors
             </label>
             <NonCcSlider
@@ -3515,7 +3515,7 @@ const BrushControls = () => {
               <label
                 htmlFor="polygon-sample-colors"
                 className="text-[#D9D9D9] w-16"
-                style={{ fontSize: "14px" }}
+                style={{ fontSize: '11px' }}
               >
                 Sample
               </label>
@@ -3533,7 +3533,7 @@ const BrushControls = () => {
         {/* Lost Edge (edge fade) */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Lostedge
             </label>
             <NonCcSlider
@@ -3587,7 +3587,7 @@ const BrushControls = () => {
           <button
             onClick={drawTestSwatches}
             className="w-full px-3 py-1 text-sm bg-[#4a4a4a] text-[#D9D9D9] rounded hover:bg-[#5a5a5a] transition-colors"
-            style={{ fontSize: "12px" }}
+            style={{ fontSize: '11px' }}
           >
             Draw Test Swatches
           </button>
@@ -3629,7 +3629,7 @@ const BrushControls = () => {
             beforeResolution={
               <>
                 <div className="flex items-center gap-2 mt-2">
-                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
                     Colors
                   </label>
                   <NonCcSlider
@@ -3665,7 +3665,7 @@ const BrushControls = () => {
             afterResolution={
               <>
                 <div className="flex items-center gap-2 mt-2">
-                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
                     Length
                   </label>
                   <NonCcSlider
@@ -3687,7 +3687,7 @@ const BrushControls = () => {
                   <label
                     htmlFor="dither-grad-sample"
                     className="text-[#D9D9D9] w-16"
-                    style={{ fontSize: '14px' }}
+                    style={{ fontSize: '11px' }}
                   >
                     Sample
                   </label>
@@ -3726,7 +3726,7 @@ const BrushControls = () => {
                 </div>
 
                 <div className="flex items-center gap-2 mt-2">
-                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                  <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
                     Trans
                   </label>
                   <NonCcSlider
@@ -3747,7 +3747,7 @@ const BrushControls = () => {
                 <div className="flex items-center gap-2 mt-2">
                   <label
                     className="text-[#D9D9D9] w-16"
-                    style={{ fontSize: '14px' }}
+                    style={{ fontSize: '11px' }}
                     title="Keep a solid fill behind the dither gradient pattern"
                   >
                     BG Fill
@@ -3766,7 +3766,7 @@ const BrushControls = () => {
         {/* Opacity */}
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Opacity
             </label>
             <NonCcSlider
@@ -3786,7 +3786,7 @@ const BrushControls = () => {
             <label
               htmlFor="grid-snap-enabled-dither-grad"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: '14px' }}
+              style={{ fontSize: '11px' }}
             >
               Grid Snap
             </label>
@@ -3810,7 +3810,7 @@ const BrushControls = () => {
               className="w-14 bg-transparent text-right"
               title="Grid size in pixels"
             />
-            <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+            <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
               px
             </span>
           </div>
@@ -3873,7 +3873,7 @@ const BrushControls = () => {
       {isActiveCustomBrush && (
         <div className="mb-3">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               CC
             </label>
             <CustomSwitch
@@ -3885,7 +3885,7 @@ const BrushControls = () => {
 
           <div className="mt-2">
             <div className="flex items-center gap-2">
-              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+              <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
                 Size px
               </label>
               <NonCcSlider
@@ -3909,7 +3909,7 @@ const BrushControls = () => {
           {!isDitherGradient && (
             <div className="mt-2">
               <div className="flex items-center gap-2">
-                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+                <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
                   Spacing
                 </label>
                 <NonCcSlider
@@ -4128,7 +4128,7 @@ const BrushControls = () => {
       {!isDitherGradient && !isActiveCustomBrush && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Size {sizeUnit}
             </label>
             <NonCcSlider
@@ -4157,7 +4157,7 @@ const BrushControls = () => {
       {/* Opacity */}
       <div className="mb-2">
         <div className="flex items-center gap-2">
-          <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+          <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
             Opacity
           </label>
           <NonCcSlider
@@ -4176,7 +4176,7 @@ const BrushControls = () => {
       {!isDitherGradient && !isActiveCustomBrush && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Spacing
             </label>
             <NonCcSlider
@@ -4204,7 +4204,7 @@ const BrushControls = () => {
       {!isDitherPreset && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: "14px" }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Lostedge
             </label>
             <NonCcSlider
@@ -4326,7 +4326,7 @@ const BrushControls = () => {
             <label
               htmlFor="shape-mode"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               {isMosaicPreset ? 'Mode' : 'Shape'}
             </label>
@@ -4363,7 +4363,7 @@ const BrushControls = () => {
           <label
             htmlFor="pressure-enabled"
             className="text-[#D9D9D9] w-16"
-            style={{ fontSize: "14px" }}
+            style={{ fontSize: '11px' }}
           >
             Pressure %
           </label>
@@ -4393,7 +4393,7 @@ const BrushControls = () => {
             <label
               htmlFor="rotation-enabled"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               Rotation
             </label>
@@ -4415,7 +4415,7 @@ const BrushControls = () => {
             <label
               htmlFor="dashed-enabled"
               className="text-[#D9D9D9] w-16"
-              style={{ fontSize: "14px" }}
+              style={{ fontSize: '11px' }}
             >
               Dashed
             </label>
@@ -4428,7 +4428,7 @@ const BrushControls = () => {
             />
             {(activeSettings.dashedEnabled || false) && (
               <>
-                <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                   L
                 </span>
                   <CommittedNumberInput
@@ -4440,7 +4440,7 @@ const BrushControls = () => {
                     className="w-8 bg-transparent text-right"
                     title="Length units (×brush size)"
                   />
-                  <span className="text-[#D9D9D9]" style={{ fontSize: "12px" }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     G
                   </span>
                   <CommittedNumberInput
@@ -4452,7 +4452,7 @@ const BrushControls = () => {
                     className="w-8 bg-transparent text-right"
                     title="Gap units (×brush size)"
                   />
-                  <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+                  <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
                     V
                   </span>
                   <CommittedNumberInput
@@ -4473,7 +4473,7 @@ const BrushControls = () => {
       {isActiveCustomBrush && (
         <div className="mb-2">
           <div className="flex items-center gap-2">
-            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '14px' }}>
+            <label className="text-[#D9D9D9] w-16" style={{ fontSize: '11px' }}>
               Brush Snap
             </label>
             <CustomSwitch
@@ -4492,7 +4492,7 @@ const BrushControls = () => {
           <label
             htmlFor="grid-snap-enabled"
             className="text-[#D9D9D9] w-16"
-            style={{ fontSize: "14px" }}
+            style={{ fontSize: '11px' }}
           >
             Grid Snap
           </label>
@@ -4517,7 +4517,7 @@ const BrushControls = () => {
             className="w-14 bg-transparent text-right"
             title="Grid size in pixels"
           />
-          <span className="text-[#D9D9D9]" style={{ fontSize: '12px' }}>
+          <span className="text-[#D9D9D9]" style={{ fontSize: '11px' }}>
             px
           </span>
         </div>

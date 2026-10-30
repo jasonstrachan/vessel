@@ -256,9 +256,9 @@ describe('Home page client rendering', () => {
   it('protects the layers region and scrolls secondary layer tools', () => {
     render(<Home />);
 
-    expect(screen.getByTestId('layers-panel-region')).toHaveClass('min-h-48');
+    expect(screen.getByTestId('layers-panel-region')).toHaveClass('min-h-[40%]');
     expect(screen.getByTestId('layer-tools-region')).toHaveClass(
-      'max-h-[calc(100vh-12rem)]',
+      'max-h-[calc(100dvh-12rem-36px)]',
       'overflow-y-auto',
     );
   });

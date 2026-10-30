@@ -55,3 +55,18 @@ Inputs/Dropdowns
 Notes
 - ButtonGroup and Tabs share styling; prefer ButtonGroup for option sets.
 - Keep labels concise; prefer label-less groups where context is obvious.
+
+Graphite UI theme
+- `src/app/globals.css` owns the shared `--vessel-*` surface, text, border, amber accent, and bevel tokens. Use these tokens for UI chrome; artwork, colour swatches, and colour gradients retain their actual colours.
+- The workspace uses the bundled Departure Mono font. Controls stay square, with a one-pixel raised edge for buttons and a recessed edge for editable fields.
+- `ProgressSlider` keeps the native range input and its commit lifecycle, with the value alongside the track. `CustomSwitch` is the shared checkbox visual, including the legacy `retroui/Switch` entrypoint.
+- `PixelToolIcon` bundles thirteen unmodified Pixelarticons 2.4.2 SVGs (MIT), rendered at their native 24 × 24 size. Keep accessible tool names and shortcuts on their buttons; icons are decorative. Preserve separate SVG paths and their default nonzero fill rule when updating the subset. The upstream licence ships in `public/assets/icons/pixelarticons-LICENSE.txt`.
+- Main dialogs use `vessel-dialog`; primary actions use `Button`. Focus indicators use the amber accent and must remain visible for keyboard navigation.
+
+- Use Departure Mono at its native 11px size (or integer multiples), without synthetic bold, on a 16px text line. Shared slider rows are 28px; module headers are 32px. Align panel labels on the same inset.
+- Amber denotes selected controls, keyboard focus, or active playback. Idle actions and slider thumbs use graphite/neutral colours.
+- Grid follows grid visibility and Sequence follows the active sequence layer until explicitly expanded/collapsed; explicit choices persist. Workspace Alignment starts collapsed. Layers consumes the remaining column height, with a 40% minimum even when the secondary modules are open.
+- Toolbar hover labels appear after 450ms, keyboard focus shows them immediately, and Escape/window blur dismisses them. Save status stays in the canvas corner with neutral success styling and a distinct error colour.
+
+- The primary toolbar scrolls in short windows. Its tooltips render outside the scroll container and dismiss on resize, blur, or Escape.
+- Dropdown listboxes support Arrow keys, Home/End, Enter/Space selection, and Escape dismissal with focus returned to the trigger; nested editing controls retain their own keyboard input.

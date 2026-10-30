@@ -1,6 +1,9 @@
 "use client";
 
 import React from 'react';
+import { createPortal } from 'react-dom';
+
+import { PixelToolIcon } from '@/components/icons/PixelToolIcon';
 import {
   startVesselMultiplayerSession,
   stopVesselMultiplayerSession,
@@ -16,7 +19,7 @@ import { useToolSwitcher } from '@/utils/toolSwitch';
 
 type ToolbarItemId = Tool | 'grid-toggle' | 'magic-wand' | 'multiplayer' | 'reference-studio';
 
-export const TOOLBAR_TOOLTIP_DELAY_MS = 750;
+export const TOOLBAR_TOOLTIP_DELAY_MS = 450;
 
 const toolShortcuts: Partial<Record<ToolbarItemId, { aria: string; display: string }>> = {
   brush: { aria: 'KeyB', display: 'B' },
@@ -40,7 +43,6 @@ const getMultiplayerLabel = (
 
 const LeftToolbar = () => {
   const StudioToolbarItems = studioExtension.ToolbarItems;
-  // Force refresh - toolbar black background fix
   const {
     tools: toolState,
     ui,
@@ -54,7 +56,8 @@ const LeftToolbar = () => {
   const switchTool = useToolSwitcher();
   const multiplayer = useVesselMultiplayerSnapshot();
   const [multiplayerPending, setMultiplayerPending] = React.useState(false);
-  const [visibleTooltipId, setVisibleTooltipId] = React.useState<ToolbarItemId | null>(null);
+  const [tooltip, setTooltip] = React.useState<{ id: ToolbarItemId; top: number; left: number } | null>(null);
+  const toolButtons = React.useRef(new Map<ToolbarItemId, HTMLButtonElement>());
   const tooltipTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const multiplayerActive = multiplayer.status === 'active' || multiplayer.status === 'stopping';
   const multiplayerTransitioning = multiplayerPending || multiplayer.status === 'stopping';
@@ -66,35 +69,46 @@ const LeftToolbar = () => {
     }
   }, []);
 
+  const showTooltip = React.useCallback((id: ToolbarItemId) => {
+    const button = toolButtons.current.get(id);
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    setTooltip({ id, top: Math.min(Math.max(rect.top + rect.height / 2, 16), window.innerHeight - 16), left: rect.right + 8 });
+  }, []);
+
   const scheduleTooltip = React.useCallback((toolId: ToolbarItemId) => {
     clearTooltipTimer();
-    setVisibleTooltipId(null);
+    setTooltip(null);
     tooltipTimerRef.current = setTimeout(() => {
-      setVisibleTooltipId(toolId);
+      showTooltip(toolId);
       tooltipTimerRef.current = null;
     }, TOOLBAR_TOOLTIP_DELAY_MS);
-  }, [clearTooltipTimer]);
+  }, [clearTooltipTimer, showTooltip]);
 
   const showTooltipImmediately = React.useCallback((toolId: ToolbarItemId) => {
     clearTooltipTimer();
-    setVisibleTooltipId(toolId);
-  }, [clearTooltipTimer]);
+    showTooltip(toolId);
+  }, [clearTooltipTimer, showTooltip]);
 
   const hideTooltip = React.useCallback(() => {
     clearTooltipTimer();
-    setVisibleTooltipId(null);
+    setTooltip(null);
   }, [clearTooltipTimer]);
 
   React.useEffect(() => clearTooltipTimer, [clearTooltipTimer]);
-
-  const baseButtonStyle: React.CSSProperties = {
-    fontFamily: 'IBM Plex Mono, "Courier New", monospace',
-    fontSize: '0.95rem',
-    fontWeight: 600,
-    letterSpacing: '0.02em',
-    border: '1px solid transparent',
-    transition: 'background-color 0.15s ease, color 0.15s ease',
-  };
+  React.useEffect(() => {
+    const dismissTooltip = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') hideTooltip();
+    };
+    document.addEventListener('keydown', dismissTooltip);
+    window.addEventListener('blur', hideTooltip);
+    window.addEventListener('resize', hideTooltip);
+    return () => {
+      document.removeEventListener('keydown', dismissTooltip);
+      window.removeEventListener('blur', hideTooltip);
+      window.removeEventListener('resize', hideTooltip);
+    };
+  }, [hideTooltip]);
 
   const toolGroups = [
     [
@@ -185,10 +199,14 @@ const LeftToolbar = () => {
 
   return (
     <div
-      className="w-[48px] flex flex-col pt-4 pb-0 border-r"
+      className="w-[48px] min-h-0 shrink-0 flex flex-col items-center overflow-y-auto pt-2 pb-2 border-r"
+      onScroll={() => {
+        if (tooltip && document.activeElement === toolButtons.current.get(tooltip.id)) showTooltip(tooltip.id);
+        else hideTooltip();
+      }}
       style={{
-        backgroundColor: '#1A1A1A',
-        borderColor: '#242424'
+        backgroundColor: 'var(--vessel-panel)',
+        borderColor: 'var(--vessel-shadow)'
       }}
       role="toolbar"
       aria-label="Primary tool selection"
@@ -196,7 +214,7 @@ const LeftToolbar = () => {
       {toolGroups.map((group, groupIndex) => (
         <React.Fragment key={groupIndex}>
           {groupIndex > 1 && (
-            <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+            <div className="h-px w-8 my-2 flex-shrink-0" style={{ backgroundColor: 'var(--vessel-border)' }} />
           )}
           {group.map((tool, toolIndex) => {
             const isToolSectionActive = ui.brushPanelSection === 'tool';
@@ -216,17 +234,21 @@ const LeftToolbar = () => {
             const shortcut = tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display;
             const tooltipText = shortcut ? `${tool.label} (${shortcut})` : tool.label;
             const tooltipId = `toolbar-tooltip-${tool.id}`;
-            const isTooltipVisible = visibleTooltipId === tool.id;
+            const isTooltipVisible = tooltip?.id === tool.id;
 
             return (
               <React.Fragment key={tool.id}>
                 {tool.id === 'export' && StudioToolbarItems && <StudioToolbarItems />}
                 <div
-                  className="relative mx-auto mb-1 h-10 w-[44px] flex-shrink-0"
+                  className="relative mx-auto mb-1 h-9 w-9 flex-shrink-0"
                   onMouseEnter={() => scheduleTooltip(tool.id)}
                   onMouseLeave={hideTooltip}
                 >
                   <button
+                    ref={(button) => {
+                      if (button) toolButtons.current.set(tool.id, button);
+                      else toolButtons.current.delete(tool.id);
+                    }}
                     onClick={() => {
                       hideTooltip();
                       void handleToolClick(tool.id);
@@ -240,47 +262,33 @@ const LeftToolbar = () => {
                     data-shortcut={tool.id === 'grid-toggle' ? undefined : toolShortcuts[tool.id]?.display}
                     disabled={tool.id === 'multiplayer' && multiplayerTransitioning}
                     type="button"
-                    className="flex h-10 min-h-[36px] w-[44px] items-center justify-center border-0 bg-transparent appearance-none outline-none disabled:cursor-wait disabled:opacity-60"
-                    style={baseButtonStyle}
+                    className="vessel-tool-button disabled:cursor-wait"
                   >
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: isActive ? '1px 3px' : 0,
-                        color: isActive ? '#1A1A1A' : '#FFFFFF',
-                        backgroundColor: isActive
-                          ? tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'
-                          : 'transparent',
-                        boxShadow: isActive
-                          ? `0 0 0 1px ${tool.id === 'multiplayer' ? '#ff4fd8' : '#FFFFFF'}`
-                          : 'none',
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {tool.abbr}
-                    </span>
+                    <PixelToolIcon tool={tool.id} />
                   </button>
-                  {isTooltipVisible && (
+                  {isTooltipVisible && tooltip && createPortal(
                     <div
-                      className="pointer-events-none absolute left-full top-1/2 z-[80] ml-2 -translate-y-1/2 whitespace-nowrap border border-[#4A4A4A] bg-[#111] px-2 py-1 text-[11px] font-normal text-[#F2F2F2] shadow-lg"
+                      style={{ left: tooltip.left, top: tooltip.top }}
+                      className="pointer-events-none fixed z-[80] -translate-y-1/2 whitespace-nowrap border border-[#4A4A4A] bg-[#111] px-2 py-1 text-[11px] font-normal text-[#F2F2F2] shadow-lg"
                       id={tooltipId}
                       role="tooltip"
                     >
                       {tooltipText}
-                    </div>
+                    </div>,
+                    document.body,
                   )}
                 </div>
                 {groupIndex === 0 && toolIndex === 0 && (
-                  <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+                  <div className="h-px w-8 my-2 flex-shrink-0" style={{ backgroundColor: 'var(--vessel-border)' }} />
                 )}
                 {tool.id === 'export' && (
-                  <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+                  <div className="h-px w-8 my-2 flex-shrink-0" style={{ backgroundColor: 'var(--vessel-border)' }} />
                 )}
               </React.Fragment>
             );
           })}
           {groupIndex === toolGroups.length - 1 && (
-            <div className="h-[2px] w-full my-2 flex-shrink-0" style={{ backgroundColor: '#D9D9D9' }} />
+            <div className="h-px w-8 my-2 flex-shrink-0" style={{ backgroundColor: 'var(--vessel-border)' }} />
           )}
         </React.Fragment>
       ))}

@@ -754,12 +754,12 @@ describe('LayersPanel interactions', () => {
     expect(rowLayerA).toBeDefined();
     expect(rowLayerC).toBeDefined();
 
-    expect(rowLayerA?.className).toContain('bg-[#E8F2FF]');
+    expect(rowLayerA?.className).toContain('bg-[var(--vessel-selected)]');
     expect(rowLayerA?.className).not.toContain('bg-[#2C3B47]');
     expect(rowLayerA?.className).not.toContain('border-l-4');
     expect(rowLayerA?.className).not.toContain('inset_4px_0_0');
-    expect(rowLayerC?.className).toContain('bg-[#E8F2FF]');
-    expect(screen.getByTitle('Hide group: Foreground').className).toContain('text-[#1A1A1A]');
+    expect(rowLayerC?.className).toContain('bg-[var(--vessel-selected)]');
+    expect(screen.getByTitle('Hide group: Foreground').className).toContain('text-[var(--vessel-accent)]');
   });
 
   it('supports dragging a layer into a group via the group header', () => {

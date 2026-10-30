@@ -261,7 +261,7 @@ const AnimationControlsPanel: React.FC = () => {
   const StudioPlaybackControls = studioExtension.PlaybackControls ?? React.Fragment;
 
   return (
-    <div className="bg-[#1A1A1A] border-t border-[#404040]">
+    <div className="bg-[var(--vessel-panel)] border-t border-[#404040]">
       <div className="px-4 py-1 space-y-1">
         <SequentialControlsModule
           controlsDisabled={controlsDisabled}
@@ -301,26 +301,27 @@ const AnimationControlsPanel: React.FC = () => {
           onPlaybackSpeedScaleChange={handlePlaybackSpeedScaleChange}
         />
 
-        <div className="sticky bottom-0 bg-[#1A1A1A] py-1" data-playback-transport>
+        <div className="sticky bottom-0 bg-[var(--vessel-panel)] py-1" data-playback-transport>
           <StudioPlaybackControls>
             <button
               type="button"
               onClick={handleTogglePlayback}
               aria-busy={isPlaybackBuffering}
+              aria-pressed={playbackToggleUi.action === 'pause'}
               aria-label={isPlaybackBuffering
                 ? `${buttonLabel} playback; ${bufferingStatus}`
                 : buttonLabel}
               title={isPlaybackBuffering
                 ? `${bufferingStatus.charAt(0).toUpperCase()}${bufferingStatus.slice(1)}`
                 : undefined}
-              className="w-full h-8 bg-[#D9D9D9] text-[#31313A] hover:bg-[#C4C4C4] transition-colors text-xs outline-none focus:outline-none flex items-center justify-center"
+              className="w-full h-8 vessel-button vessel-playback-button transition-colors text-xs flex items-center justify-center"
             >
               {isPlaybackBuffering ? (
                 <LoaderCircle aria-hidden="true" className="animate-spin" size={10} />
               ) : (
-                <span className="text-[10px]" aria-hidden="true">{buttonIcon}</span>
+                <span className="text-[11px]" aria-hidden="true">{buttonIcon}</span>
               )}
-              <span className="ml-1 text-[10px]">{buttonLabel}</span>
+              <span className="ml-1 text-[11px]">{buttonLabel}</span>
             </button>
           </StudioPlaybackControls>
         </div>

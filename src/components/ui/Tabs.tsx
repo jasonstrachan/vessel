@@ -11,7 +11,7 @@ interface TabsProps {
   wrap?: boolean;
 }
 
-const ACCENT_COLOR = '#D9D9D9';
+const ACCENT_COLOR = 'var(--vessel-accent)';
 type RowMeta = {
   isRowStart: boolean;
   isFirstRow: boolean;
@@ -26,7 +26,7 @@ const Tabs: React.FC<TabsProps> = ({
   wrap = true,
 }) => {
   const isExtraSmall = size === 'xs';
-  const fontSize = isExtraSmall ? '10px' : size === 'sm' ? '12px' : size === 'lg' ? '16px' : '14px';
+  const fontSize = '11px';
   const containerRef = useRef<HTMLDivElement>(null);
   const [rowMeta, setRowMeta] = useState<RowMeta[]>([]);
   const rowMetaRef = useRef<RowMeta[]>([]);
@@ -101,9 +101,9 @@ const Tabs: React.FC<TabsProps> = ({
 
         const style: CSSProperties = {
           fontSize,
-          borderColor: isActive ? ACCENT_COLOR : '#d9d9d9',
-          color: isDisabled ? '#777777' : isActive ? '#1A1A1A' : '#d9d9d9',
-          backgroundColor: isActive ? '#F2F2F2' : 'transparent',
+          borderColor: isActive ? ACCENT_COLOR : 'var(--vessel-border)',
+          color: isDisabled ? '#777777' : isActive ? ACCENT_COLOR : 'var(--vessel-text)',
+          backgroundColor: isActive ? 'var(--vessel-selected)' : 'var(--vessel-control)',
           marginLeft: !layout.isRowStart ? '-1px' : undefined,
           marginTop: !layout.isFirstRow ? '-1px' : undefined,
           borderLeftWidth: !layout.isRowStart ? 0 : undefined,
@@ -112,7 +112,7 @@ const Tabs: React.FC<TabsProps> = ({
         };
 
         if (isActive) {
-          style.outline = '1px solid #f2f2f2';
+          style.outline = '1px solid var(--vessel-accent)';
           style.outlineOffset = '-1px';
         }
 
@@ -125,7 +125,7 @@ const Tabs: React.FC<TabsProps> = ({
             disabled={isDisabled}
             title={tab.title}
             className={`
-              ${isExtraSmall ? 'px-0.5 whitespace-nowrap' : 'px-2.5'} h-[25px] transition-all duration-200 border bg-transparent
+              ${isExtraSmall ? 'px-0.5 whitespace-nowrap' : 'px-2.5'} h-[25px] transition-colors duration-100 border bg-transparent
               ${isActive ? 'font-semibold' : isDisabled ? 'cursor-not-allowed opacity-60' : 'hover:text-[#F3F3F7] hover:border-[#F3F3F7]'}
             `}
             style={style}

@@ -171,6 +171,29 @@ describe('LeftToolbar accessibility', () => {
     expect(eraserButton).toHaveAttribute('aria-describedby', 'toolbar-tooltip-eraser');
   });
 
+  it('dismisses visible and pending hover tooltips with Escape', () => {
+    jest.useFakeTimers();
+    render(<LeftToolbar />);
+    const brush = screen.getByRole('button', { name: /brush \(b\)/i });
+    fireEvent.mouseEnter(brush.parentElement as HTMLElement);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    act(() => jest.advanceTimersByTime(TOOLBAR_TOOLTIP_DELAY_MS));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    fireEvent.focus(brush);
+    expect(screen.getByRole('tooltip')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('keeps tooltips outside the scrolling toolbar and dismisses them on resize', () => {
+    render(<LeftToolbar />);
+    const brush = screen.getByRole('button', { name: /brush \(b\)/i });
+    fireEvent.focus(brush);
+    expect(screen.getByRole('tooltip').parentElement).toBe(document.body);
+    fireEvent(window, new Event('resize'));
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
   it('invokes the tool switcher for standard tool clicks', async () => {
     render(<LeftToolbar />);
 

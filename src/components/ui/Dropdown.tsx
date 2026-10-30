@@ -62,6 +62,10 @@ const Dropdown: React.FC<DropdownProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pendingFocusIndex = useRef<number | null>(null);
+  const menuId = React.useId();
+  const triggerId = React.useId();
   const optionRefs = useRef<(HTMLDivElement | null)[]>([]);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dragTargetSlot, setDragTargetSlot] = useState<number | null>(null);
@@ -136,6 +140,49 @@ const Dropdown: React.FC<DropdownProps> = ({
   const closeDropdown = useCallback(() => {
     setIsOpen(false);
   }, []);
+
+  useEffect(() => {
+    if (isOpen && pendingFocusIndex.current !== null) {
+      optionRefs.current[pendingFocusIndex.current]?.focus();
+      pendingFocusIndex.current = null;
+    }
+  }, [isOpen]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && isOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeDropdown();
+      triggerRef.current?.focus();
+      return;
+    }
+    const index = optionRefs.current.findIndex((option) => option === event.target);
+    const isTrigger = event.target === triggerRef.current;
+    if (!isTrigger && index < 0) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || (isOpen && (event.key === 'Home' || event.key === 'End'))) {
+      if (!options.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? options.length - 1
+        : index < 0 ? selectedIndex : (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+      if (isOpen) optionRefs.current[next]?.focus();
+      else {
+        pendingFocusIndex.current = next;
+        setIsOpen(true);
+      }
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (isTrigger) {
+        pendingFocusIndex.current = Math.max(0, options.findIndex((option) => option.value === value));
+        setIsOpen(!isOpen);
+      } else if (index >= 0) {
+        handleSelect(options[index].value, options[index].isAction);
+        triggerRef.current?.focus();
+      }
+    }
+  };
 
   const handlePointerDown = useCallback((option: DropdownOption, optionIndex: number) => (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
@@ -313,14 +360,22 @@ const dropIndicator = useMemo(() => {
       setDragTargetSlot(null);
     }
   }, [isOpen, dragState]);
-  
+
   return (
-    <div ref={dropdownRef} className={`relative min-w-0 ${className}`}>
+    <div ref={dropdownRef} className={`relative min-w-0 ${className}`} onKeyDown={handleKeyDown}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) closeDropdown();
+      }}>
       {/* Dropdown trigger button */}
       <button
+        ref={triggerRef}
+        id={triggerId}
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-transparent border border-[#d9d9d9] text-[#D9D9D9] px-2 py-1 text-xs outline-none focus:outline-none flex items-center justify-between"
+        aria-controls={isOpen ? menuId : undefined}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        className="vessel-input w-full px-2 py-1 text-xs flex items-center justify-between"
       >
         <span className="flex-1 min-w-0 mr-2 truncate whitespace-nowrap text-left">
           {renderValue ? renderValue(selectedOption || null) : (selectedOption ? selectedOption.label : placeholder)}
@@ -329,17 +384,21 @@ const dropIndicator = useMemo(() => {
           className={`w-3 h-3 ml-2 transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
           stroke="currentColor"
-          viewBox="0 0 24 24"
+          viewBox="0 0 12 12"
+          aria-hidden="true"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          <path fill="currentColor" stroke="none" d="M2 4h8v2H8v2H6v2H4V8H2z" />
         </svg>
       </button>
-      
+
       {/* Dropdown menu */}
       {isOpen && (
         <div
           ref={menuRef}
-          className={`absolute z-50 w-full mt-1 bg-[#1A1A1A] border border-[#d9d9d9] shadow-lg ${menuClassName}`}
+          role="listbox"
+          id={menuId}
+          aria-labelledby={triggerId}
+          className={`vessel-dropdown-menu absolute z-50 w-full mt-1 ${menuClassName}`}
         >
           {options.map((option, index) => {
             const isSelected = option.value === value;
@@ -372,11 +431,12 @@ const dropIndicator = useMemo(() => {
                     option.isAction
                       ? 'text-[#D9D9D9] hover:bg-[#555]'
                       : isSelected
-                        ? 'bg-[#555] text-[#D9D9D9]'
+                        ? 'bg-[var(--vessel-selected)] text-[var(--vessel-text)]'
                         : 'text-[#D9D9D9] hover:bg-[#555]'
                   } ${isDraggingOption ? 'z-10 shadow-lg bg-[#3a3a3a]' : ''} ${dropBefore ? 'border-t border-[#5E96FF]' : ''} ${dropAfter ? 'border-b border-[#5E96FF]' : ''}`}
                   style={isDraggingOption ? { transform: `translateY(${dragOffset}px)` } : undefined}
                   role="option"
+                  tabIndex={-1}
                   aria-selected={isSelected}
                   data-draggable={isReorderable ? 'true' : 'false'}
                 >

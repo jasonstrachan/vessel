@@ -91,7 +91,7 @@ const BrushSettingsPanel: React.FC = () => {
   const isUnresolveSection = brushPanelSection === 'unresolve' && Boolean(StudioUnresolveSettings);
 
   return (
-    <div className="bg-[#1A1A1A] flex flex-col h-full">
+    <div className="bg-[var(--vessel-panel)] flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">
         {StudioPlaybackSettings && (
           <div hidden={!isReplaySection} className="px-4 py-4">

@@ -33,8 +33,8 @@ const PlusButton: React.FC<PlusButtonProps> = ({
   // text variant (default)
   return (
     <button
-      className={`${baseClasses} border border-white text-[#D9D9D9] hover:bg-white hover:text-[#31313A] disabled:hover:bg-transparent disabled:hover:text-[#D9D9D9] ${className}`}
-      style={{ fontSize: '14px' }}
+      className={`${baseClasses} vessel-button ${className}`}
+      style={{ fontSize: '11px' }}
       {...props}
     >
       +

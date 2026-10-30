@@ -74,8 +74,13 @@ describe('AlignmentPanel persistence', () => {
     state.updateLayerAlignment.mockReset();
   });
 
+  it('starts the workspace alignment module collapsed', () => {
+    render(<AlignmentPanel />);
+    expect(screen.getByRole('button', { name: /Layer alignment/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('restores collapsed state across remounts', () => {
-    const view = render(<AlignmentPanel />);
+    const view = render(<AlignmentPanel defaultExpanded />);
 
     fireEvent.click(screen.getByRole('button', { name: /Layer alignment/i }));
 
@@ -83,7 +88,7 @@ describe('AlignmentPanel persistence', () => {
     expect(screen.queryByText('Anchor')).toBeNull();
 
     view.unmount();
-    render(<AlignmentPanel />);
+    render(<AlignmentPanel defaultExpanded />);
 
     expect(screen.getByRole('button', { name: /Layer alignment/i })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Anchor')).toBeNull();
@@ -103,7 +108,7 @@ describe('AlignmentPanel owned offset edits and accessible controls', () => {
       const b = aligned('cover', 'right', 'bottom', 9, 11);
       state.layers = [{ id: 'a', alignment: a }, { id: 'b', alignment: b }];
       state.activeLayerId = 'b'; state.selectedLayerIds = ['a', 'b'];
-      render(<AlignmentPanel />);
+      render(<AlignmentPanel defaultExpanded />);
       fireEvent.change(screen.getByLabelText(label), { target: { value: String(value) } });
       expect(state.updateLayerAlignment.mock.calls).toEqual([
         ['a', { ...a, offsetPx: { ...a.offsetPx, [axis]: value } }],
@@ -118,7 +123,7 @@ describe('AlignmentPanel owned offset edits and accessible controls', () => {
     const state = getState();
     state.layers = [{ id: 'a', alignment: aligned('cover', 'right', 'bottom', 0, 0) }];
     state.activeLayerId = 'a'; state.selectedLayerIds = ['a'];
-    const view = render(<AlignmentPanel />);
+    const view = render(<AlignmentPanel defaultExpanded />);
     for (const vertical of ['top', 'middle', 'bottom']) {
       for (const horizontal of ['left', 'center', 'right']) {
         const control = screen.getByRole('button', { name: `Align ${vertical} ${horizontal}` });
@@ -134,7 +139,7 @@ describe('AlignmentPanel owned offset edits and accessible controls', () => {
     expect(state.updateLayerAlignment).toHaveBeenLastCalledWith('a', aligned('cover', 'left', 'top', 0, 0));
     state.layers = [{ id: 'a', alignment: { ...aligned('contain', 'center', 'center', 0, 0), positioning: 'auto' } }];
     view.unmount();
-    render(<AlignmentPanel />);
+    render(<AlignmentPanel defaultExpanded />);
     expect(screen.getByRole('button', { name: 'Auto' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Align bottom right' })).toHaveAttribute('aria-pressed', 'false');
   });

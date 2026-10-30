@@ -12,15 +12,13 @@ const DEFAULT_GRID_STATE = {
   columns: 8,
 } as const;
 
-const loadInitialExpandedState = (): boolean => {
-  if (typeof window === 'undefined') {
-    return true;
-  }
-
+const loadInitialExpandedState = (): boolean | null => {
+  if (typeof window === 'undefined') return null;
   try {
-    return window.localStorage.getItem(GRID_PANEL_EXPANDED_STORAGE_KEY) !== '0';
+    const stored = window.localStorage.getItem(GRID_PANEL_EXPANDED_STORAGE_KEY);
+    return stored === '1' ? true : stored === '0' ? false : null;
   } catch {
-    return true;
+    return null;
   }
 };
 
@@ -40,15 +38,14 @@ const GridSettingsPanel: React.FC = () => {
   const grid = useAppStore((state) => state.ui?.grid ?? DEFAULT_GRID_STATE);
   const setGridEnabled = useAppStore((state) => state.setGridEnabled);
   const setGridDimensions = useAppStore((state) => state.setGridDimensions);
-  const [isExpanded, setIsExpanded] = React.useState<boolean>(loadInitialExpandedState);
+  const [expandedPreference, setExpandedPreference] = React.useState(loadInitialExpandedState);
+  const isExpanded = expandedPreference ?? grid.enabled;
 
   const handleToggleExpanded = React.useCallback(() => {
-    setIsExpanded((prev) => {
-      const next = !prev;
-      persistExpandedState(next);
-      return next;
-    });
-  }, []);
+    const next = !isExpanded;
+    setExpandedPreference(next);
+    persistExpandedState(next);
+  }, [isExpanded]);
 
   const handleRowsChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,7 +70,7 @@ const GridSettingsPanel: React.FC = () => {
   );
 
   return (
-    <section className="bg-[#1A1A1A] border-t border-[#404040] px-4 py-1" aria-labelledby="grid-settings-heading">
+    <section className="bg-[var(--vessel-panel)] border-t border-[#404040] px-4 py-1" aria-labelledby="grid-settings-heading">
       <ModuleHeader title="Grid" headingId="grid-settings-heading" expanded={isExpanded} onToggle={handleToggleExpanded} />
 
       {isExpanded ? (

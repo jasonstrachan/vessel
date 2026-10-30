@@ -334,11 +334,11 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
       onClick={onClose}
     >
       <div 
-        className="bg-[#2C2C2C] rounded-lg w-[48rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-3rem)] flex flex-col shadow-xl"
+        className="vessel-dialog w-[48rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-3rem)] flex flex-col"
         style={{ position: 'fixed', left: pos.x, top: pos.y }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[#555] cursor-move" onMouseDown={onDragStart}>
+        <div className="flex items-center justify-between px-6 pt-4 pb-3 border-b border-[var(--vessel-border)] cursor-move" onMouseDown={onDragStart}>
           <h2 className="text-[#D9D9D9] text-base font-semibold">Document</h2>
           <button
             onClick={onClose}
@@ -392,8 +392,8 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
                           }}
                           className={`min-w-0 px-1 py-1 text-[11px] transition-colors ${
                             isSelected
-                              ? 'bg-[#D9D9D9] text-[#2C2C2C]'
-                              : 'bg-[#444] text-[#D9D9D9] hover:bg-[#555]'
+                              ? 'bg-[var(--vessel-selected)] text-[var(--vessel-accent)]'
+                              : 'bg-[var(--vessel-control)] text-[#D9D9D9] hover:bg-[#555]'
                           }`}
                           aria-label={`Set ${group.ratio} ${group.name} to ${dimensions}`}
                           aria-pressed={isSelected}
@@ -477,7 +477,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
           </div>
 
           {/* Divider */}
-          <div className="border-t border-[#555]"></div>
+          <div className="border-t border-[var(--vessel-border)]"></div>
 
           {/* Resize Section */}
           <div>
@@ -559,7 +559,7 @@ export const DocumentModal: React.FC<DocumentModalProps> = ({ isOpen, onClose })
           </div>
 
           {/* Divider */}
-          <div className="border-t border-[#555]"></div>
+          <div className="border-t border-[var(--vessel-border)]"></div>
 
           {/* Canvas Shape Section */}
           <div>

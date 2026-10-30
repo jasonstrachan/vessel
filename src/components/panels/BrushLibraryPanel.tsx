@@ -5,7 +5,7 @@ import BrushLibrary from '@/components/BrushLibrary';
 
 const BrushLibraryPanel: React.FC = () => {
   return (
-    <div className="bg-[#1A1A1A] h-full overflow-y-auto">
+    <div className="bg-[var(--vessel-panel)] h-full overflow-y-auto">
       <BrushLibrary />
     </div>
   );

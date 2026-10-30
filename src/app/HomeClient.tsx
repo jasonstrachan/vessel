@@ -65,6 +65,9 @@ export default function Home() {
   const newProject = useAppStore((state) => state.newProject);
   const ensureCustomBrushHydrated = useAppStore((state) => state.ensureCustomBrushHydrated);
   const layers = useAppStore(selectLayers);
+  const projectName = useAppStore((state) => state.project?.name ?? 'Untitled');
+  const projectWidth = useAppStore((state) => state.project?.width);
+  const projectHeight = useAppStore((state) => state.project?.height);
   const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
   const autosaveIntervalMinutes = useAppStore((state) => state.autosave.interval);
   const saveStatus = useAppStore(selectAutosaveSaveStatus);
@@ -218,7 +221,15 @@ export default function Home() {
   // Save/Open keyboard shortcuts are centralized in useComprehensiveKeyboard
 
   return (
-    <main className="w-screen h-screen bg-[#141514] text-[#D9D9D9] flex overflow-clip">
+    <main className="vessel-workspace">
+      <header className="vessel-titlebar">
+        <strong>VESSEL</strong>
+        <span className="document-name">{projectName}</span>
+        {projectWidth && projectHeight ? (
+          <span className="document-size">{projectWidth} × {projectHeight}</span>
+        ) : null}
+      </header>
+      <div className="flex flex-1 min-h-0 overflow-hidden">
       <ConsoleSilencer />
       <ReferenceStudioBridge />
       
@@ -227,7 +238,7 @@ export default function Home() {
 
       {/* Main Canvas Area */}
       <div
-        className="relative isolate flex-1 bg-[#141514]"
+        className="relative isolate flex-1 min-w-0 bg-[var(--vessel-canvas)]"
         style={{
           overflow: 'hidden',
           position: 'relative'
@@ -246,18 +257,18 @@ export default function Home() {
 
       {/* Layers / Alignment Column */}
       <div
-        className="flex flex-col h-screen flex-shrink-0 bg-[#1A1A1A] border-l"
-        style={{ width: '260px', minWidth: '260px', maxWidth: '260px', borderColor: '#242424' }}
+        className="vessel-dock flex flex-col h-full flex-shrink-0 bg-[var(--vessel-panel)] border-l"
+        style={{ width: '260px', minWidth: '260px', maxWidth: '260px', borderColor: 'var(--vessel-shadow)' }}
       >
         <div className="flex min-h-0 flex-1 flex-col">
           <div
-            className="min-h-48 flex-1 overflow-hidden"
+            className="min-h-[40%] flex-1 overflow-hidden"
             data-testid="layers-panel-region"
           >
             <LayersPanel />
           </div>
           <div
-            className="max-h-[calc(100vh-12rem)] min-h-0 flex-shrink-0 overflow-y-auto"
+            className="max-h-[calc(100dvh-12rem-36px)] min-h-0 shrink overflow-y-auto"
             data-testid="layer-tools-region"
           >
             <GridSettingsPanel />
@@ -268,10 +279,10 @@ export default function Home() {
       </div>
 
       {/* Vertical Separator Between Right Columns */}
-      <div className="self-stretch border-l" style={{ borderColor: '#242424' }} />
+      <div className="self-stretch border-l" style={{ borderColor: 'var(--vessel-shadow)' }} />
 
       {/* Right Panel Column */}
-      <div className="flex flex-col h-screen flex-shrink-0 bg-[#1A1A1A]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
+      <div className="vessel-dock flex flex-col h-full flex-shrink-0 bg-[var(--vessel-panel)]" style={{ width: '260px', minWidth: '260px', maxWidth: '260px' }}>
         <div className="flex-shrink-0">
           <ColorPickerPanel />
         </div>
@@ -284,6 +295,8 @@ export default function Home() {
         </div>
       </div>
       
+      </div>
+
       {/* Document Modal */}
       <DocumentModal 
         isOpen={isDocumentModalOpen}

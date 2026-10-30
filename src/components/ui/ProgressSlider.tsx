@@ -28,7 +28,6 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
   className = ''
 }) => {
   const isDraggingRef = React.useRef(false);
-  const percentage = ((value - min) / (max - min)) * 100;
   const commitDrag = React.useCallback(() => {
     if (!isDraggingRef.current) {
       return;
@@ -73,37 +72,11 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
       ? value.toFixed(2)
       : Math.round(value).toString();
 
-  const sliderStyle = React.useMemo(
-    () => ({
-      background: 'transparent',
-      '--slider-track-gradient': 'linear-gradient(to right, transparent, transparent)',
-      '--ascii-thumb-hitbox': '20px',
-      '--slider-progress': `${percentage}%`
-    }) as React.CSSProperties & { '--slider-progress': string },
-    [percentage]
-  );
-
   return (
-    <div className={`relative h-[20px] ${className}`}>
-      <div className="absolute inset-0 z-0 pointer-events-none">
-        <div className="h-full ascii-slider-track">
-          <div
-            className="ascii-slider-range"
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-      </div>
-      <div
-        className="absolute inset-0 flex items-center justify-center text-xs font-medium z-20 pointer-events-none"
-      >
-        <span className={`bg-black px-1 tabular-nums ${disabled ? 'text-[#aaa]' : 'text-white'}`}>
-          {displayValue}
-        </span>
-      </div>
+    <div className={`vessel-progress-slider ${className}`} data-disabled={disabled || undefined}>
       <input
         type="range"
-        className="slider relative z-10 touch-none"
-        style={sliderStyle}
+        className="slider touch-none"
         value={value}
         min={min}
         max={max}
@@ -130,6 +103,7 @@ const ProgressSlider: React.FC<ProgressSliderProps> = ({
         }}
         aria-label={ariaLabel}
       />
+      <span className="vessel-slider-value" aria-hidden="true">{displayValue}</span>
     </div>
   );
 };

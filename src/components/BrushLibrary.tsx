@@ -399,7 +399,7 @@ const BrushLibrary = () => {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#1A1A1A]">
+    <div className="h-full flex flex-col bg-[var(--vessel-panel)]">
       <div className="flex items-center gap-2 px-2 py-1 border-b border-[#4a4a4a]">
         <div role="group" aria-label="Library filter" className="min-w-0 flex-1">
           <ButtonGroup
@@ -436,7 +436,7 @@ const BrushLibrary = () => {
         <div hidden={libraryFilter === 'effects'}>
           {(['custom', 'fill'] as const).map((tool) => (
             <button key={tool} type="button" aria-pressed={currentTool === tool && brushPanelSection === 'tool'}
-              className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${currentTool === tool && brushPanelSection === 'tool' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+              className={`flex w-full items-center gap-0.5 px-2.5 h-7 text-xs text-left ${currentTool === tool && brushPanelSection === 'tool' ? 'bg-[var(--vessel-selected)] text-[var(--vessel-accent)]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
               onClick={() => { setBrushPanelSection('tool'); void switchTool(tool); }}>
               <span aria-hidden="true" className="w-[26px] shrink-0 text-center">{tool === 'custom' ? 'Cb' : 'Fi'}</span>
               {tool === 'custom' ? 'Custom Brush' : 'Fill'}
@@ -446,7 +446,7 @@ const BrushLibrary = () => {
             const isSpamBrush = preset.id === 'spam-text';
             const iconSizePx = BRUSH_ICON_SIZE;
             const textStyle = {
-              fontSize: isSpamBrush ? '13px' : '12px',
+              fontSize: '11px',
               lineHeight: `${BRUSH_TEXT_LINE_HEIGHT}px`
             };
             const renderFallbackIcon = (shape: 'square' | 'circle' | 'text', highlight: boolean) => {
@@ -455,9 +455,9 @@ const BrushLibrary = () => {
                   <div
                     className="flex items-center"
                     style={{
-                      color: highlight ? '#1A1A1A' : '#D9D9D9',
-                      fontSize: isSpamBrush ? '13px' : '11px',
-                      fontFamily: 'IBM Plex Mono, "Courier New", monospace',
+                      color: highlight ? 'var(--vessel-accent)' : 'var(--vessel-text)',
+                      fontSize: '11px',
+                      fontFamily: 'var(--vessel-font)',
                       paddingLeft: isSpamBrush ? '4px' : '3px',
                       width: `${iconSizePx}px`,
                       height: `${iconSizePx}px`,
@@ -480,7 +480,7 @@ const BrushLibrary = () => {
                     style={{
                       width: '100%',
                       height: '100%',
-                      border: highlight ? '2px solid #1A1A1A' : '2px solid #D9D9D9',
+                      border: highlight ? '2px solid var(--vessel-accent)' : '2px solid var(--vessel-text)',
                       borderRadius,
                       boxSizing: 'border-box'
                     }}
@@ -490,10 +490,10 @@ const BrushLibrary = () => {
             };
 
             const isActive = activeBrushId === preset.id;
-            const rowClass = isActive ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9]';
+            const rowClass = isActive ? 'bg-[var(--vessel-selected)] text-[var(--vessel-accent)]' : 'text-[#D9D9D9]';
             const nameStyle = {
               ...textStyle,
-              color: isActive ? '#1A1A1A' : '#D9D9D9'
+              color: isActive ? 'var(--vessel-accent)' : 'var(--vessel-text)'
             };
             const nameClass = isActive ? '' : 'transition-colors group-hover:text-[#F3F3F7]';
 
@@ -510,7 +510,7 @@ const BrushLibrary = () => {
                       event.stopPropagation();
                       toggleDefaultForPreset(preset);
                     }}
-                    className={`group flex items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${rowClass}`}
+                    className={`group flex min-h-7 items-center justify-between px-2.5 py-0 cursor-pointer transition-colors ${rowClass}`}
                   >
                     <button
                       type="button"
@@ -529,7 +529,7 @@ const BrushLibrary = () => {
                             alignItems: 'center',
                             justifyContent: 'center',
                             backgroundColor: '#FFFFFF',
-                            borderRadius: '4px',
+                            borderRadius: '0',
                             border: isActive ? '1px solid #1A1A1A' : '1px solid #3D3D3D',
                             padding: '2px',
                             boxSizing: 'border-box'
@@ -574,8 +574,7 @@ const BrushLibrary = () => {
                             width: `${iconSizePx}px`,
                             height: `${iconSizePx}px`,
                             display: 'block',
-                            flexShrink: 0,
-                            filter: isActive ? 'invert(1)' : 'none'
+                            flexShrink: 0
                           }}
                         />
                       ) : (
@@ -599,9 +598,9 @@ const BrushLibrary = () => {
                             toggleDefaultForPreset(preset);
                           }}
                           className={`w-3 h-3 text-center flex items-center justify-center transition-colors ${
-                            isActive ? 'text-[#5A5A5A]' : 'text-[#D9D9D9]'
+                            isActive ? 'text-[var(--vessel-text)]' : 'text-[#D9D9D9]'
                           } ${preset.isDefault ? 'opacity-100' : 'opacity-70 hover:opacity-100'}`}
-                          style={{ fontSize: '12px' }}
+                          style={{ fontSize: '11px' }}
                           title={preset.isDefault ? 'Unset as default brush' : 'Set as default brush'}
                           aria-pressed={preset.isDefault}
                         >
@@ -613,10 +612,10 @@ const BrushLibrary = () => {
                             handleDeletePreset(preset.id);
                           }}
                           className={`w-3 h-3 transition-colors opacity-60 hover:opacity-100 text-center flex items-center justify-center ${
-                            isActive ? 'text-[#5A5A5A] hover:text-red-600' : 'text-[#D9D9D9] hover:text-red-400'
+                            isActive ? 'text-[var(--vessel-text)] hover:text-red-400' : 'text-[#D9D9D9] hover:text-red-400'
                           }`}
                           title={`Delete ${preset.name}`}
-                          style={{ fontSize: '14px' }}
+                          style={{ fontSize: '11px' }}
                         >
                           ×
                         </button>
@@ -644,7 +643,7 @@ const BrushLibrary = () => {
                 key={effect}
                 type="button"
                 aria-pressed={active}
-                className={`flex w-full items-center gap-0.5 px-2.5 h-[26px] text-xs text-left ${active ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+                className={`flex w-full items-center gap-0.5 px-2.5 h-7 text-xs text-left ${active ? 'bg-[var(--vessel-selected)] text-[var(--vessel-accent)]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
                 onClick={() => {
                   if (effect === 'filters') {
                     setBrushPanelSection('filters');
@@ -676,7 +675,7 @@ const BrushLibrary = () => {
               type="button"
               aria-pressed={brushPanelSection === 'unresolve'}
               onClick={() => setBrushPanelSection('unresolve')}
-              className={`flex h-[26px] w-full items-center gap-0.5 px-2.5 text-left text-xs ${brushPanelSection === 'unresolve' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+              className={`flex h-7 w-full items-center gap-0.5 px-2.5 text-left text-xs ${brushPanelSection === 'unresolve' ? 'bg-[var(--vessel-selected)] text-[var(--vessel-accent)]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
             >
               <span aria-hidden="true" className="w-[26px] shrink-0 text-center">Un</span>
               Unresolve
@@ -687,7 +686,7 @@ const BrushLibrary = () => {
               type="button"
               aria-pressed={brushPanelSection === 'replay'}
               onClick={() => setBrushPanelSection('replay')}
-              className={`flex h-[26px] w-full items-center gap-0.5 px-2.5 text-left text-xs ${brushPanelSection === 'replay' ? 'bg-[#D9D9D9] text-[#1A1A1A]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
+              className={`flex h-7 w-full items-center gap-0.5 px-2.5 text-left text-xs ${brushPanelSection === 'replay' ? 'bg-[var(--vessel-selected)] text-[var(--vessel-accent)]' : 'text-[#D9D9D9] hover:bg-[#333]'}`}
             >
               <span aria-hidden="true" className="w-[26px] shrink-0 text-center">Rp</span>
               Replay

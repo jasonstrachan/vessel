@@ -1097,11 +1097,11 @@ const LayersPanel: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-[#1A1A1A]">
+    <div className="flex flex-col h-full min-h-0 bg-[var(--vessel-panel)]">
       <div className="flex-shrink-0 flex gap-1 border-b border-[#404040] bg-[#202020] p-1">
         <button
           onClick={handleAddRegularLayer}
-          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[11px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add Regular Layer"
         >
           <Plus size={12} className="text-[#D9D9D9]" />
@@ -1109,7 +1109,7 @@ const LayersPanel: React.FC = () => {
         </button>
         <button
           onClick={handleAddColorCycleLayer}
-          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[11px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add CC Layer"
         >
           <Plus size={12} className="text-[#D9D9D9]" />
@@ -1117,7 +1117,7 @@ const LayersPanel: React.FC = () => {
         </button>
         <button
           onClick={handleAddSequentialLayer}
-          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[11px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add Sequence Layer"
           aria-label="Add Sequence Layer"
         >
@@ -1126,7 +1126,7 @@ const LayersPanel: React.FC = () => {
         </button>
         <button
           onClick={handleAddAdjustmentLayer}
-          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[10px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
+          className="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 border border-[#3F3F3F] bg-[#252525] px-1 text-[11px] text-[#D9D9D9] transition-colors hover:border-[#555555] hover:bg-[#303030] focus-visible:outline focus-visible:outline-1 focus-visible:outline-white/70"
           title="Add Adjustment Layer"
           aria-label="Add Adjustment Layer"
         >
@@ -1162,18 +1162,18 @@ const LayersPanel: React.FC = () => {
           const groupLayerIds = groupId ? (layerIdsByGroupId.get(groupId) ?? []) : [];
           const isGroupSelected = groupLayerIds.length > 0 && groupLayerIds.every((id) => selectedLayerIds.includes(id));
           const groupVisibleIconClass = groupAllVisible
-            ? (isGroupSelected ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
-            : (isGroupSelected ? 'text-[#5A5A5A]' : 'text-[#666]');
+            ? (isGroupSelected ? 'text-[var(--vessel-accent)]' : 'text-[#D9D9D9]')
+            : (isGroupSelected ? 'text-[var(--vessel-muted)]' : 'text-[#666]');
           const rowVisualClass = isHighlighted
-            ? 'bg-[#E8F2FF] text-[#0F172A] shadow-[0_0_0_1px_rgba(14,165,233,0.25)]'
+            ? 'bg-[var(--vessel-selected)] text-[var(--vessel-text)] shadow-[inset_2px_0_var(--vessel-accent)]'
             : 'hover:bg-[#383838]/20 text-[#D9D9D9]';
           const visibleIconClass = layer.visible
-            ? (isHighlighted ? 'text-[#1A1A1A]' : 'text-[#D9D9D9]')
-            : (isHighlighted ? 'text-[#5A5A5A]' : 'text-[#666]');
+            ? (isHighlighted ? 'text-[var(--vessel-accent)]' : 'text-[#D9D9D9]')
+            : (isHighlighted ? 'text-[var(--vessel-muted)]' : 'text-[#666]');
           const layerTitle = `${layer.name}\nLayer ID: ${layer.id}`;
-          const labelClass = `inline-flex h-4 w-8 shrink-0 items-center justify-center rounded border text-[8px] font-semibold leading-none ${
+          const labelClass = `inline-flex h-4 w-8 shrink-0 items-center justify-center border text-[11px] font-normal leading-none ${
             isHighlighted
-              ? 'bg-[#D7E7F7] text-[#23425C] border-[#9BC7E8]'
+              ? 'bg-[var(--vessel-control)] text-[var(--vessel-accent)] border-[var(--vessel-border)]'
               : 'bg-[#2E2E34] text-[#AEB6C2] border-[#4B4B55]'
           }`;
           const layerKindLabel = isColorCycle ? 'CC' : isSequential ? 'Seq' : isAdjustment ? 'Adj' : 'Reg';
@@ -1210,8 +1210,8 @@ const LayersPanel: React.FC = () => {
               {shouldRenderGroupHeader && groupId && (
                 <div
                   draggable
-                  className={`relative flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[10px] uppercase tracking-wide ${
-                    isGroupSelected ? 'bg-[#E8F2FF] text-[#0F172A]' : 'bg-[#25252A] text-[#B8C0CC]'
+                  className={`relative flex items-center gap-2 border-b border-[#3F3F3F] px-2 py-1 text-[11px] uppercase tracking-wide ${
+                    isGroupSelected ? 'bg-[var(--vessel-selected)] text-[var(--vessel-text)]' : 'bg-[#25252A] text-[#B8C0CC]'
                   } ${draggedGroupId === groupId ? 'opacity-60' : ''}`}
                   onDragStart={(event) => {
                     handleGroupDragStart(event, groupId);
@@ -1280,7 +1280,7 @@ const LayersPanel: React.FC = () => {
                   </button>
                   <span className="truncate">{groupName}</span>
                   {isInterlaceMember && (
-                    <span className="border border-[#38BDF8] px-1 text-[8px] font-semibold normal-case text-[#7DD3FC]">
+                    <span className="border border-[#38BDF8] px-1 text-[11px] font-normal normal-case text-[#7DD3FC]">
                       In
                     </span>
                   )}
@@ -1344,7 +1344,7 @@ const LayersPanel: React.FC = () => {
                         }}
                       />
                     ) : isAdjustment ? (
-                      <div className="flex h-3 w-full items-center justify-center bg-[#3A3151] text-[7px] font-bold text-[#D8C8FF]">
+                      <div className="flex h-4 w-full items-center justify-center bg-[#3A3151] text-[11px] font-normal text-[#D8C8FF]">
                         fx
                       </div>
                     ) : (
@@ -1355,7 +1355,7 @@ const LayersPanel: React.FC = () => {
                     <input
                       aria-label={`Rename layer ${layer.name}`}
                       autoFocus
-                      className="h-5 min-w-0 flex-1 border border-[#5EC7FF] bg-[#16181D] px-1 text-[11px] font-semibold leading-4 text-[#F2F2F2] outline-none"
+                      className="h-5 min-w-0 flex-1 border border-[#5EC7FF] bg-[#16181D] px-1 text-[11px] font-normal leading-4 text-[#F2F2F2] outline-none"
                       value={layerNameDraft}
                       onBlur={() => commitLayerRename(layer.id)}
                       onChange={(event) => setLayerNameDraft(event.target.value)}
@@ -1387,7 +1387,7 @@ const LayersPanel: React.FC = () => {
                     />
                   ) : (
                     <span
-                      className={`min-w-0 flex-1 truncate text-[11px] font-semibold leading-4 ${isHighlighted ? 'text-[#0F172A]' : 'text-[#F2F2F2]'}`}
+                      className={`min-w-0 flex-1 truncate text-[11px] font-normal leading-4 ${isHighlighted ? 'text-[var(--vessel-text)]' : 'text-[#F2F2F2]'}`}
                       title={layerTitle}
                       onDoubleClick={(event) => {
                         event.stopPropagation();

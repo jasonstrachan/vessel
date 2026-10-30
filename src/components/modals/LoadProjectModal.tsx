@@ -269,7 +269,7 @@ export function LoadProjectModal({ isOpen, onClose }: LoadProjectModalProps) {
           onClick={closeModal}
         >
           <div
-            className="fixed bg-[#1A1A1A] border border-[#333] rounded-lg shadow-2xl flex h-full flex-col"
+            className="vessel-dialog fixed flex h-full flex-col"
             style={{
               width: modalDimensions.width,
               height: modalDimensions.height,

@@ -78,7 +78,7 @@ const PlaybackSpeedControlsModule: React.FC<PlaybackSpeedControlsModuleProps> = 
 
       {isExpanded && (
         <div className="mt-1.5 space-y-2">
-          <label className="block text-[10px] text-[#BDBDBD]">
+          <label className="block text-[11px] text-[#BDBDBD]">
             CC + Interlace playback rate
             <div className="mt-1 flex items-center gap-2">
               <input
@@ -92,14 +92,14 @@ const PlaybackSpeedControlsModule: React.FC<PlaybackSpeedControlsModuleProps> = 
                 className="w-full accent-[#D9D9D9] disabled:opacity-50"
                 aria-label="CC and Interlace playback rate"
               />
-              <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
+              <span className="w-10 text-right text-[11px] text-[#D6D6D6]">
                 {playbackScaleLabel}
               </span>
             </div>
           </label>
 
           {activeCcBaseSpeed !== null && (
-            <label className="block text-[10px] text-[#BDBDBD]">
+            <label className="block text-[11px] text-[#BDBDBD]">
               Layer speed multiplier
               <div className="mt-1 flex items-center gap-2">
                 <input
@@ -113,7 +113,7 @@ const PlaybackSpeedControlsModule: React.FC<PlaybackSpeedControlsModuleProps> = 
                   className="w-full accent-[#D9D9D9] disabled:opacity-50"
                   aria-label="Layer speed multiplier"
                 />
-                <span className="w-10 text-right text-[10px] text-[#D6D6D6]">
+                <span className="w-10 text-right text-[11px] text-[#D6D6D6]">
                   {(activeCcBaseSpeed ?? DEFAULT_CC_LAYER_SPEED_MULTIPLIER).toFixed(2)}x
                 </span>
               </div>

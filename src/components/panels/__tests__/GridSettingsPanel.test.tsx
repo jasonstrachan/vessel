@@ -7,6 +7,7 @@ import { createDefaultUIState } from '@/stores/slices/uiSlice';
 
 describe('GridSettingsPanel', () => {
   beforeEach(() => {
+    window.localStorage.removeItem('vessel-grid-panel-expanded');
     act(() => {
       useAppStore.setState((state) => ({
         ...state,
@@ -15,8 +16,24 @@ describe('GridSettingsPanel', () => {
     });
   });
 
+  it('follows grid visibility until the user chooses an expansion state', () => {
+    const view = render(<GridSettingsPanel />);
+    const header = screen.getByRole('button', { name: 'Grid' });
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    act(() => useAppStore.getState().setGridEnabled(true));
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    act(() => useAppStore.getState().setGridEnabled(false));
+    expect(header).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(header);
+    expect(header).toHaveAttribute('aria-expanded', 'true');
+    view.unmount();
+    render(<GridSettingsPanel />);
+    expect(screen.getByRole('button', { name: 'Grid' })).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('renders current grid settings and updates dimensions', () => {
     render(<GridSettingsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Grid' }));
 
     const rowsInput = screen.getByLabelText('Grid rows') as HTMLInputElement;
     const columnsInput = screen.getByLabelText('Grid columns') as HTMLInputElement;
@@ -33,6 +50,7 @@ describe('GridSettingsPanel', () => {
 
   it('toggles the grid from the settings panel', () => {
     render(<GridSettingsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Grid' }));
 
     const toggle = screen.getByLabelText('On') as HTMLInputElement;
     expect(toggle.checked).toBe(false);

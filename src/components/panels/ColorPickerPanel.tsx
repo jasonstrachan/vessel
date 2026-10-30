@@ -324,7 +324,7 @@ const ColorPickerPanel = React.memo(() => {
   }, [activeColor, activeSlot, selectedGradientStop, setPaletteColor, updateActiveColorCycleGradient]);
 
   return (
-    <div className="h-full overflow-y-auto bg-[#1A1A1A]">
+    <div className="h-full overflow-y-auto bg-[var(--vessel-panel)]">
       {/* Color Picker - Full Width Section */}
       <div className="px-0">
         <ColorPicker
@@ -337,7 +337,7 @@ const ColorPickerPanel = React.memo(() => {
         />
       </div>
 
-      <div className="flex items-center gap-2 border-t border-white/10 bg-[#1A1A1A] px-2 py-1.5">
+      <div className="flex items-center gap-2 border-t border-white/10 bg-[var(--vessel-panel)] px-2 py-1.5">
         <label className="w-16 text-sm text-[#D9D9D9]">
           Opacity
         </label>
@@ -355,7 +355,7 @@ const ColorPickerPanel = React.memo(() => {
       </div>
 
       {/* RGB Sliders - Full Width Section */}
-      <div className="px-0 pb-1 bg-[#1A1A1A]">
+      <div className="px-0 pb-1 bg-[var(--vessel-panel)]">
         <div className="flex items-start gap-0">
           <PaletteSwatches
             foregroundColor={foregroundColor}

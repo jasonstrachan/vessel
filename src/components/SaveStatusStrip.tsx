@@ -14,16 +14,16 @@ const SaveStatusStrip: React.FC<SaveStatusStripProps> = ({ phase, message }) => 
 
   const bgClass =
     phase === 'error'
-      ? 'bg-red-700/95 border-red-500/70'
-      : phase === 'saved'
-        ? 'bg-emerald-800/95 border-emerald-500/70'
-        : 'bg-black/90 border-[#3B3B3B]';
+      ? 'bg-[var(--vessel-panel)] border-red-400 text-red-200'
+      : 'bg-[var(--vessel-panel)] border-[var(--vessel-border)] text-[var(--vessel-text)]';
 
   return (
     <div
-      className={`fixed bottom-3 left-1/2 z-50 -translate-x-1/2 rounded border px-3 py-1 text-[12px] text-white shadow-lg pointer-events-none select-none ${bgClass}`}
+      className={`absolute bottom-3 right-3 z-50 border px-3 py-2 text-[11px] pointer-events-none select-none ${bgClass}`}
       role="status"
       aria-live="polite"
+      aria-atomic="true"
+      data-save-phase={phase}
     >
       {message}
     </div>

@@ -210,7 +210,7 @@ const appStore = useAppStore as unknown as {
 
 describe('AnimationControlsPanel', () => {
   beforeEach(() => {
-    window.localStorage.removeItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY);
+    window.localStorage.setItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY, '1');
     window.localStorage.removeItem(PLAYBACK_SPEED_PANEL_EXPANDED_STORAGE_KEY);
     toggleToolbarColorCyclePlayback.mockClear();
     const store = appStore.getState();
@@ -244,6 +244,34 @@ describe('AnimationControlsPanel', () => {
         isPointerDown: false,
       },
     });
+  });
+
+  it.each([false, true])('opens by context for a sequence layer: %s', (sequential) => {
+    window.localStorage.removeItem(SEQUENTIAL_PANEL_EXPANDED_STORAGE_KEY);
+    if (sequential) {
+      appStore.setState({
+        layers: [{ id: 'seq', layerType: 'sequential', sequentialData: {
+          fps: 12, frameCount: 12, durationMs: 1000, events: [],
+        } }],
+        activeLayerId: 'seq',
+      });
+    }
+    const view = render(<AnimationControlsPanel />);
+    const header = screen.getByRole('button', { name: 'Sequence' });
+    expect(header).toHaveAttribute('aria-expanded', String(sequential));
+    fireEvent.click(header);
+    view.unmount();
+    render(<AnimationControlsPanel />);
+    expect(screen.getByRole('button', { name: 'Sequence' })).toHaveAttribute('aria-expanded', String(!sequential));
+  });
+
+  it('marks playback active only while the pause action is available', () => {
+    const view = render(<AnimationControlsPanel />);
+    expect(screen.getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false');
+    appStore.setState({ colorCyclePlayback: { desiredPlaying: true, suspendDepth: 0, playbackSpeedScale: 1 } });
+    view.unmount();
+    render(<AnimationControlsPanel />);
+    expect(screen.getByRole('button', { name: 'Pause' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('pauses when effective playback is active', () => {
