@@ -1,6 +1,7 @@
 import historyManager from '@/history/historyService';
 import { captureSelectionSnapshot, commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import type { SelectionSnapshot } from '@/history/selectionState';
+import { alphaCompositeImageDataRegion } from '@/stores/layers/layerCanvasCapture';
 import { useAppStore } from '@/stores/useAppStore';
 import type { Layer, Project } from '@/types';
 import { createDefaultLayerAlignment } from '@/utils/layoutDefaults';
@@ -106,6 +107,56 @@ describe('selection command history', () => {
     historyManager.clear();
     resetSelection();
     useAppStore.setState({ project: null, layers: [], activeLayerId: null });
+  });
+
+  it.each([
+    [{ x: 2, y: 2 }, { x: 2, y: 2 }],
+    [{ x: 1, y: 2 }, { x: 4, y: 2 }],
+    [{ x: 2, y: 1 }, { x: 2, y: 4 }],
+    [{ x: NaN, y: 1 }, { x: 3, y: 4 }],
+    [{ x: 1, y: 1 }, { x: Infinity, y: 4 }],
+  ])('does not retain empty or invalid marquee bounds %j -> %j or discard subsequent paint', (start, end) => {
+    seedMaskedSelection();
+    useAppStore.getState().setSelectionBounds(start, end, 'selection-marquee-final');
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toBeNull();
+    expect(state.selectionEnd).toBeNull();
+    expect(state.selectionMask).toBeNull();
+    expect(state.selectionMaskBounds).toBeNull();
+    expect(state.selectionVectorPath).toBeNull();
+    expect(state.selectionLastAction).toBeNull();
+
+    const stroke = new ImageData(new Uint8ClampedArray([180, 40, 20, 255]), 1, 1);
+    const committed = alphaCompositeImageDataRegion(null, stroke, 4, 3, 6, 5, 'replace', state);
+    expect(Array.from(committed.data.slice((3 * 6 + 4) * 4, (3 * 6 + 4) * 4 + 4)))
+      .toEqual([180, 40, 20, 255]);
+  });
+
+  it('retains reversed positive-area bounds and clips paint to them', () => {
+    useAppStore.getState().setSelectionBounds({ x: 4, y: 4 }, { x: 2, y: 2 }, 'selection-marquee-final');
+    const state = useAppStore.getState();
+    expect(state.selectionStart).toEqual({ x: 4, y: 4 });
+    expect(state.selectionEnd).toEqual({ x: 2, y: 2 });
+    const stroke = new ImageData(new Uint8ClampedArray([180, 40, 20, 255]), 1, 1);
+    expect(alphaCompositeImageDataRegion(null, stroke, 3, 3, 6, 5, 'replace', state).data[(3 * 6 + 3) * 4 + 3]).toBe(255);
+    expect(alphaCompositeImageDataRegion(null, stroke, 4, 3, 6, 5, 'replace', state).data[(3 * 6 + 4) * 4 + 3]).toBe(0);
+  });
+
+  it('does not resurrect legacy zero-area selections through undo or redo', async () => {
+    const empty: SelectionSnapshot = { start: { x: 2, y: 2 }, end: { x: 2, y: 2 } };
+    useAppStore.getState().setSelectionBounds({ x: 1, y: 1 }, { x: 4, y: 4 }, 'selection-marquee-final');
+    commitSelectionHistory({ before: empty, description: 'Select rectangle' });
+    await historyManager.undo();
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    expect(useAppStore.getState().selectionEnd).toBeNull();
+    await historyManager.redo();
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 1, y: 1 });
+    commitSelectionHistory({ before: captureSelectionSnapshot(), after: empty, description: 'Clear selection' });
+    await historyManager.undo();
+    expect(useAppStore.getState().selectionStart).toEqual({ x: 1, y: 1 });
+    await historyManager.redo();
+    expect(useAppStore.getState().selectionStart).toBeNull();
+    expect(useAppStore.getState().selectionEnd).toBeNull();
   });
 
   it.each(commands)('%s records one reversible transaction with exact prior mask/vector/provenance', async (_name, command) => {

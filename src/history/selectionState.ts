@@ -30,7 +30,14 @@ export const clonePoint = (point: SelectionPoint | null): SelectionPoint | null 
   point ? { x: point.x, y: point.y } : null;
 
 export const normalizeSelectionSnapshot = (snapshot: SelectionSnapshot): SelectionSnapshot => {
-  if (!snapshot.start || !snapshot.end) {
+  // A click or drag with no width or height has no selected pixels. Keeping its endpoints
+  // would create an invisible clip that rejects every subsequent raster stroke.
+  if (
+    !snapshot.start || !snapshot.end ||
+    !Number.isFinite(snapshot.start.x) || !Number.isFinite(snapshot.start.y) ||
+    !Number.isFinite(snapshot.end.x) || !Number.isFinite(snapshot.end.y) ||
+    snapshot.start.x === snapshot.end.x || snapshot.start.y === snapshot.end.y
+  ) {
     return { start: null, end: null, provenance: null, mask: null, maskBounds: null, maskLayerId: null, vectorPath: null };
   }
   return {

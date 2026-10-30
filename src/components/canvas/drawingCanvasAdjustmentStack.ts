@@ -14,6 +14,7 @@ import type { AppState } from '@/stores/useAppStore';
 import type { Layer } from '@/types';
 import { composeLayerOwnedProjectObjectsIntoLayerSource } from '@/utils/layerOwnedProjectObjects';
 
+import { drawCanvasOverlayLayer } from './drawingCanvasOverlay';
 import {
   getColorCyclePresentationCanvas,
   resolveColorCyclePresentation,
@@ -167,7 +168,29 @@ export const drawAdjustmentCompositeStack = ({
             surface.height,
           );
         }
-        if (overlay) {
+        if (overlay?.mode === 'over') {
+          target.save();
+          try {
+            target.scale(surface.width / renderRect.width, surface.height / renderRect.height);
+            target.translate(-renderRect.x, -renderRect.y);
+            drawCanvasOverlayLayer({
+              ctx: target as CanvasRenderingContext2D,
+              layers: sortedLayers,
+              activeLayer: layer,
+              visibleRect: renderRect,
+              overlayCanvasElement: overlay.canvas,
+              overlayActive: true,
+              colorCycleManager: null,
+              selectionStart: storeState.selectionStart,
+              selectionEnd: storeState.selectionEnd,
+              selectionMask: storeState.selectionMask,
+              selectionMaskBounds: storeState.selectionMaskBounds,
+              selectionVectorPath: storeState.selectionVectorPath,
+            });
+          } finally {
+            target.restore();
+          }
+        } else if (overlay) {
           target.drawImage(
             overlay.canvas,
             renderRect.x,

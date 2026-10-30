@@ -3,7 +3,7 @@ import type { StateCreator } from 'zustand';
 import { getSequentialLayerRenderFrame } from '@/runtime/playback/sequentialFrameCursor';
 import type { Layer, Rectangle, SequentialLayerData } from '@/types';
 import type { ColorCycleBrushManager } from '@/stores/colorCycleBrushManager';
-import { selectionSnapshotFromState } from '@/history/selectionState';
+import { selectionSnapshotFromState, selectionSnapshotFromValues } from '@/history/selectionState';
 import { commitSelectionHistory } from '@/history/helpers/selectionHistory';
 import type { SelectionSnapshot } from '@/history/selectionState';
 import { cloneLayerImageData, commitLayerHistory } from '@/history/helpers/layerHistory';
@@ -1197,9 +1197,10 @@ export const createSelectionSlice = ({
     selectionLastAction: null,
     setSelectionBounds: (start, end, source = 'setSelectionBounds', provenanceOverride) =>
       set((state) => {
+        const selection = selectionSnapshotFromValues(start, end);
         const activeLayer = state.layers.find((layer) => layer.id === state.activeLayerId) ?? null;
-        const bounds = start && end ? computeBoundsFromSelection(start, end) : null;
-        const provenance = start && end
+        const bounds = selection.start && selection.end ? computeBoundsFromSelection(selection.start, selection.end) : null;
+        const provenance = selection.start && selection.end
           ? createSelectionProvenance({
               action: 'set-bounds',
               source,
@@ -1238,8 +1239,8 @@ export const createSelectionSlice = ({
           });
         }
         return {
-          selectionStart: start,
-          selectionEnd: end,
+          selectionStart: selection.start,
+          selectionEnd: selection.end,
           selectionVectorPath: null,
           selectionMask: null,
           selectionMaskBounds: null,

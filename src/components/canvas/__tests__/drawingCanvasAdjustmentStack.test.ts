@@ -82,6 +82,54 @@ describe('drawAdjustmentCompositeStack', () => {
     expect(ctx.globalCompositeOperation).toBe('multiply');
   });
 
+  it.each(['rectangle', 'mask'] as const)('clips live paint to the %s selection without clipping committed layer pixels', (kind) => {
+    const originalPath2D = global.Path2D;
+    class SelectionPath {
+      rect = jest.fn();
+      moveTo = jest.fn();
+      lineTo = jest.fn();
+      closePath = jest.fn();
+    }
+    global.Path2D = SelectionPath as unknown as typeof Path2D;
+    try {
+      const output = document.createElement('canvas');
+      output.width = output.height = 8;
+      const ctx = output.getContext('2d')!;
+      const layer = createLayer('paint', 0, { opacity: 0.5 });
+      const overlay = document.createElement('canvas');
+      overlay.width = overlay.height = 16;
+      const mask = new ImageData(2, 2);
+      mask.data[3] = 255;
+      const clip = jest.spyOn(CanvasRenderingContext2D.prototype, 'clip');
+      const originalDraw = CanvasRenderingContext2D.prototype.drawImage;
+      const clippedDraws: Array<{ source: CanvasImageSource; clipCount: number; alpha: number }> = [];
+      jest.spyOn(CanvasRenderingContext2D.prototype, 'drawImage').mockImplementation(function (this: CanvasRenderingContext2D, ...args: Parameters<typeof originalDraw>) {
+        clippedDraws.push({ source: args[0], clipCount: clip.mock.calls.length, alpha: this.globalAlpha });
+        return originalDraw.apply(this, args);
+      });
+      expect(drawAdjustmentCompositeStack({
+        ctx, visibleRect: { x: 4, y: 6, width: 8, height: 8 },
+        destination: { x: 0, y: 0, width: 8, height: 8 }, sortedLayers: [layer],
+        storeState: {
+          project: { width: 16, height: 16, backgroundColor: 'transparent' }, layerGroups: [],
+          selectionStart: { x: 5, y: 7 }, selectionEnd: { x: 7, y: 9 },
+          selectionMask: kind === 'mask' ? mask : null,
+          selectionMaskBounds: kind === 'mask' ? { x: 5, y: 7, width: 2, height: 2 } : null,
+        } as unknown as AppState,
+        shouldHoldPreviousSequentialFrame: false,
+        liveLayerOverlay: { layerId: layer.id, canvas: overlay, mode: 'over' },
+      })).toBe(true);
+      expect(clippedDraws.find(draw => draw.source === layer.framebuffer)?.clipCount).toBe(0);
+      expect(clippedDraws.find(draw => draw.source === overlay)).toMatchObject({ clipCount: 1, alpha: 0.5 });
+      expect(clip).toHaveBeenCalledTimes(1);
+      if (kind === 'rectangle') {
+        expect((clip.mock.calls[0][0] as unknown as SelectionPath).rect).toHaveBeenCalledWith(5, 7, 2, 2);
+      }
+    } finally {
+      global.Path2D = originalPath2D;
+    }
+  });
+
   it('disables smoothing on the viewport surface before resampling visible pixels', () => {
     const outputCanvas = document.createElement('canvas');
     outputCanvas.width = 16;
