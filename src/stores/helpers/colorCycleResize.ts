@@ -4,7 +4,7 @@ import type {
 } from '@/lib/colorCycle/document';
 
 const scaleUint8Nearest = (
-  source: Uint8Array,
+  source: Uint8Array | Uint8ClampedArray,
   sourceWidth: number,
   sourceHeight: number,
   width: number,
@@ -77,6 +77,17 @@ const scaleExactUint16Buffer = (
   return scaleUint16Nearest(source, sourceWidth, sourceHeight, width, height);
 };
 
+const scaleMaskNearest = (
+  mask: ColorCycleLayerDocumentState['eraseMask'],
+  width: number,
+  height: number,
+): ColorCycleLayerDocumentState['eraseMask'] => mask ? {
+  ...mask,
+  width,
+  height,
+  alpha: new Uint8ClampedArray(scaleUint8Nearest(mask.alpha, mask.width, mask.height, width, height)),
+} : undefined;
+
 export const scaleColorCycleDocumentStateNearest = ({
   snapshot,
   width,
@@ -96,6 +107,8 @@ export const scaleColorCycleDocumentStateNearest = ({
     ...snapshot,
     width: targetWidth,
     height: targetHeight,
+    eraseMask: scaleMaskNearest(snapshot.eraseMask, targetWidth, targetHeight),
+    softEdgeMask: scaleMaskNearest(snapshot.softEdgeMask, targetWidth, targetHeight),
     paintBuffer: scaleExactUint8Buffer(
       snapshot.paintBuffer,
       sourcePixels,

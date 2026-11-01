@@ -1652,6 +1652,45 @@ describe('useAppStore commitCrop', () => {
     expect(manager.getDocument(layer.id)).toBeUndefined();
   });
 
+  it.each([true, false])('resizes canonical masks with resident runtime=%s and restores them through history', async (resident) => {
+    const manager = getColorCycleBrushManager();
+    const layer = { ...createColorCycleLayer(2, 2), id: `resize-masks-${resident}` };
+    manager.deleteBrush(layer.id);
+    primeStoreForResize(layer, 2, 2);
+    useAppStore.getState().initColorCycleForLayer(layer.id, 2, 2);
+    const document = manager.getDocument(layer.id)!;
+    const masks = {
+      eraseMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([0, 64, 128, 255]), version: 7 },
+      softEdgeMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([255, 128, 64, 0]), version: 9, enabled: false },
+    };
+    document.replaceState({ ...document.read().snapshot, ...masks }, 'resize-mask-fixture');
+    if (!resident) manager.discardRuntimeRetainingDocument(layer.id);
+
+    try {
+      const before = document.read();
+      await useAppStore.getState().resizeCanvas(4, 4);
+      const after = document.read();
+      expect(after.version).toBe(before.version + 1);
+      expect(after.snapshot.eraseMask).toEqual({
+        width: 4, height: 4, version: 7,
+        alpha: new Uint8ClampedArray([0, 0, 64, 64, 0, 0, 64, 64, 128, 128, 255, 255, 128, 128, 255, 255]),
+      });
+      expect(after.snapshot.softEdgeMask).toEqual({
+        width: 4, height: 4, version: 9, enabled: false,
+        alpha: new Uint8ClampedArray([255, 255, 128, 128, 255, 255, 128, 128, 64, 64, 0, 0, 64, 64, 0, 0]),
+      });
+      expect(before.snapshot.eraseMask).toEqual(masks.eraseMask);
+      await useAppStore.getState().undo();
+      expect(manager.getDocument(layer.id)?.read().snapshot.eraseMask).toEqual(masks.eraseMask);
+      expect(manager.getDocument(layer.id)?.read().snapshot.softEdgeMask).toEqual(masks.softEdgeMask);
+      await useAppStore.getState().redo();
+      expect(manager.getDocument(layer.id)?.read().snapshot.eraseMask).toEqual(after.snapshot.eraseMask);
+      expect(manager.getDocument(layer.id)?.read().snapshot.softEdgeMask).toEqual(after.snapshot.softEdgeMask);
+    } finally {
+      manager.deleteBrush(layer.id);
+    }
+  });
+
   it('undoes and redoes color-cycle resize dimensions and canonical buffers', async () => {
     const manager = getColorCycleBrushManager();
     const layer = {

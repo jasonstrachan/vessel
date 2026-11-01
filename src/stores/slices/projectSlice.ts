@@ -632,6 +632,10 @@ export const createProjectSlice =
           }
 
           const layerCanvas = resizedLayer.colorCycleData.canvas;
+          const resizeEdit = prepared.document.beginEdit('project-resize');
+          prepared.document.replaceState(prepared.nextState, 'project-resize', {
+            pixelsChanged: true,
+          });
           if (prepared.brush) {
             if (
               !layerCanvas ||
@@ -681,11 +685,8 @@ export const createProjectSlice =
                 hasContent: prepared.nextState.hasContent,
               },
             });
-          } else {
-            prepared.document.replaceState(prepared.nextState, 'project-resize', {
-              pixelsChanged: true,
-            });
           }
+          prepared.document.commitEdit(resizeEdit);
 
           const migratedDocument = prepared.document.read().snapshot;
           if (migratedDocument.width !== width || migratedDocument.height !== height) {

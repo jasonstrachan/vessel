@@ -81,4 +81,35 @@ describe('scaleColorCycleDocumentStateNearest', () => {
       height: 4,
     })).toThrow('Cannot resize color-cycle phase buffer');
   });
+
+  it('scales both mask alpha planes without mutating their source or metadata', () => {
+    const snapshot = {
+      ...createSnapshot(),
+      eraseMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([0, 64, 128, 255]), version: 7 },
+      softEdgeMask: { width: 2, height: 2, alpha: new Uint8ClampedArray([255, 128, 64, 0]), version: 9, enabled: false },
+    };
+    const scaled = scaleColorCycleDocumentStateNearest({ snapshot, width: 4, height: 4 });
+    expect(scaled.eraseMask).toEqual({
+      width: 4, height: 4, version: 7,
+      alpha: new Uint8ClampedArray([0, 0, 64, 64, 0, 0, 64, 64, 128, 128, 255, 255, 128, 128, 255, 255]),
+    });
+    expect(scaled.softEdgeMask).toEqual({
+      width: 4, height: 4, version: 9, enabled: false,
+      alpha: new Uint8ClampedArray([255, 255, 128, 128, 255, 255, 128, 128, 64, 64, 0, 0, 64, 64, 0, 0]),
+    });
+    expect(snapshot.eraseMask.alpha).toEqual(new Uint8ClampedArray([0, 64, 128, 255]));
+    expect(snapshot.softEdgeMask.alpha).toEqual(new Uint8ClampedArray([255, 128, 64, 0]));
+    expect(scaled.eraseMask?.alpha).not.toBe(snapshot.eraseMask.alpha);
+
+    const reduced = scaleColorCycleDocumentStateNearest({ snapshot: scaled, width: 1, height: 2 });
+    expect(reduced.eraseMask?.alpha).toEqual(new Uint8ClampedArray([0, 128]));
+    expect(reduced.softEdgeMask?.alpha).toEqual(new Uint8ClampedArray([255, 64]));
+    expect([reduced.eraseMask?.width, reduced.eraseMask?.height]).toEqual([1, 2]);
+  });
+
+  it('keeps absent masks absent', () => {
+    const scaled = scaleColorCycleDocumentStateNearest({ snapshot: createSnapshot(), width: 4, height: 4 });
+    expect(scaled.eraseMask).toBeUndefined();
+    expect(scaled.softEdgeMask).toBeUndefined();
+  });
 });
