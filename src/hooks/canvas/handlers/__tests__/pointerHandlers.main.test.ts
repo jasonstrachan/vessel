@@ -1893,6 +1893,61 @@ describe('pointerHandlers main flows', () => {
     });
   });
 
+  it.each([
+    [BrushShape.PIXEL_ROUND, 1, 1.75, 1.75],
+    [BrushShape.PIXEL_ROUND, 8, 1.25, 1.75],
+    [BrushShape.PIXEL_DITHER, 30, 1.75, 1.25],
+    [BrushShape.SQUARE, 30, 1.75, 1.75],
+    [BrushShape.COLOR_CYCLE, 30, 2.75, 2.75],
+    [BrushShape.ROUND, 1, 1.75, 1.75],
+  ])('fills the pixel under the pointer after %s at zoom %s', (brushShape, zoom, x, y) => {
+    const source = new ImageData(3, 3);
+    for (let py = 0; py < 3; py += 1) {
+      for (let px = 0; px < 3; px += 1) {
+        source.data.set([px * 80, py * 80, 70, 255], (py * 3 + px) * 4);
+      }
+    }
+    const framebuffer = document.createElement('canvas');
+    framebuffer.width = 3;
+    framebuffer.height = 3;
+    framebuffer.getContext('2d')?.putImageData(source, 0, 0);
+    const { deps } = createDeps({
+      tools: {
+        ...baseDynamic.tools,
+        currentTool: 'fill',
+        brushSettings: { ...baseDynamic.tools.brushSettings, brushShape, antialiasing: false },
+      },
+      canvas: { width: 3, height: 3, scale: 1, zoom },
+      project: { ...mockProject, width: 3, height: 3 },
+      layers: [{
+        id: 'layer-1',
+        name: 'Fill target',
+        visible: true,
+        locked: false,
+        opacity: 1,
+        blendMode: 'source-over',
+        order: 0,
+        alignment: createDefaultLayerAlignment(),
+        layerType: 'normal',
+        imageData: source,
+        framebuffer,
+      }],
+      activeLayerId: 'layer-1',
+    });
+    deps.pan.screenToWorld = (sx, sy, scale = 1) => ({ x: (sx - 8) / scale, y: (sy - 12) / scale });
+
+    const handlers = createPointerHandlers(deps);
+    handlers.handlePointerDown(makePointerEvent({ clientX: 8 + x * zoom, clientY: 12 + y * zoom }));
+
+    expect(deps.updateLayer).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(deps.updateLayer).mock.calls[0][2]).toEqual({
+      dirtyRects: [{ x: Math.floor(x), y: Math.floor(y), width: 1, height: 1 }],
+    });
+    const expected = new Uint8ClampedArray(source.data);
+    expected.set([0, 0, 0, 255], (Math.floor(y) * 3 + Math.floor(x)) * 4);
+    expect(jest.mocked(deps.updateLayer).mock.calls[0][1].imageData?.data).toEqual(expected);
+  });
+
   it('fills only visible pixels in a mask-backed selection', () => {
     const framebuffer = document.createElement('canvas');
     framebuffer.width = 3;
