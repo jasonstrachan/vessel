@@ -950,8 +950,7 @@ export const useBrushEngineSimplified = () => {
       const sampleBounds = inflateRect(normalizeRectForCanvas(bounds, rawCanvas.width, rawCanvas.height), 2);
       previewBounds = { ...sampleBounds, x: Math.max(0, sampleBounds.x), y: Math.max(0, sampleBounds.y) };
     }
-    const previewSource = isEraserStroke &&
-      !(shouldApplyStrokeDither && tools.brushSettings.pressureLinkedFillResolution) && rawCanvas && previewBounds
+    const previewSource = !(shouldApplyStrokeDither && tools.brushSettings.pressureLinkedFillResolution) && rawCanvas && previewBounds
       ? brushEngine.getPixelStrokePreview({ rawCanvas, bounds: previewBounds })
       : null;
     renderLiveStrokePreviewController({

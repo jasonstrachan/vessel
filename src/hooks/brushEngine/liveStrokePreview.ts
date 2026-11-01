@@ -67,7 +67,7 @@ export const renderLiveStrokePreview = ({
   liveRenderScheduledRef.current = false;
 
   const isEraserStroke = restoreBase || visibleCtx.globalCompositeOperation === 'destination-out';
-  const hasReleasePresentation = isEraserStroke &&
+  const hasReleasePresentation = (isEraserStroke || Boolean(previewSource)) &&
     !(shouldApplyStrokeDither && brushSettings.pressureLinkedFillResolution);
   const presentation = hasReleasePresentation ? previewSource : null;
   const rawCanvas = presentation?.canvas ?? liveStrokeRawRef.current;

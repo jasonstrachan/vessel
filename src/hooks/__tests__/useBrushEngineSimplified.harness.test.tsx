@@ -334,6 +334,39 @@ describe('useBrushEngineSimplified harness', () => {
     }
   });
 
+  it('requests the pending pixel presentation for ordinary painting', async () => {
+    const state = (jest.requireMock('@/stores/useAppStore') as { useAppStore: { getState: () => {
+      tools: { brushSettings: Record<string, unknown>; currentTool?: string };
+    } } }).useAppStore.getState();
+    const previousTools = state.tools;
+    const originalRaf = global.requestAnimationFrame;
+    state.tools = {
+      currentTool: 'brush',
+      brushSettings: {
+        ...previousTools.brushSettings, brushShape: 'square', size: 1, color: '#ff00ff',
+        opacity: 1, antialiasing: false, ditherEnabled: false, lostEdge: 0,
+      },
+    };
+    global.requestAnimationFrame = (callback: FrameRequestCallback) => { callback(0); return 0; };
+    try {
+      let runtime: ReturnType<typeof useBrushEngineSimplified> | undefined;
+      await act(async () => {
+        render(<Harness onReady={(engine) => { runtime = engine; }} />);
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 32;
+      const ctx = canvas.getContext('2d')!;
+      ctx.globalCompositeOperation = 'source-over';
+      act(() => { runtime!.drawBrush(ctx, { x: 10, y: 10 }, { x: 11, y: 10 }, { pressure: 1 }); });
+      expect(mockGetPixelStrokePreview).toHaveBeenCalledWith({
+        rawCanvas: expect.any(HTMLCanvasElement), bounds: expect.any(Object),
+      });
+    } finally {
+      state.tools = previousTools;
+      global.requestAnimationFrame = originalRaf;
+    }
+  });
+
   it.each([
     ['raster/sequence', false, false, false], ['raster/sequence', false, true, false],
     ['CC', true, false, false], ['CC', true, true, false],

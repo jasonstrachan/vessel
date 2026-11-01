@@ -154,7 +154,7 @@ export const useDrawingCanvasSampling = ({
 
   const sampleCompositeOpaque = useCallback(
     (x: number, y: number, options: CompositeSampleOptions = {}): string => {
-      const { radius = 1, preferSolid = true } = options;
+      const { radius = 0, preferSolid = true } = options;
       const comp = compositeCanvasRef.current;
       if (!comp) return '#ffffff';
 
@@ -348,7 +348,7 @@ export const useDrawingCanvasSampling = ({
         }
       }
 
-      const color = sampleCompositeOpaque(clampedX, clampedY, { radius: 1, preferSolid: true });
+      const color = sampleCompositeOpaque(clampedX, clampedY);
       lastSampleRef.current = { x: clampedX, y: clampedY, color, layerId: cacheLayerId, preferReference: prefersReference };
       return color;
     },

@@ -1101,6 +1101,28 @@ describe('pointerHandlers main flows', () => {
     expect(deps.setShowBrushCursor).toHaveBeenCalledWith(false);
   });
 
+  it.each([BrushShape.SQUARE, BrushShape.PIXEL_ROUND, BrushShape.COLOR_CYCLE])(
+    'keeps eyedropper coordinates independent of the selected %s brush raster policy',
+    (brushShape) => {
+      const { deps } = createDeps({
+        canvas: { width: 100, height: 100, scale: 1, zoom: 4 },
+        tools: {
+          ...baseDynamic.tools,
+          currentTool: 'color-picker',
+          brushSettings: { ...baseDynamic.tools.brushSettings, brushShape, antialiasing: false },
+        },
+      });
+      deps.pan.screenToWorld = (x, y, scale = 1) => ({ x: (x - 8) / scale, y: (y - 12) / scale });
+      const handlers = createPointerHandlers(deps);
+
+      handlers.handlePointerDown(makePointerEvent({ clientX: 31, clientY: 39 }));
+      expect(deps.sampleColorAtPosition).toHaveBeenLastCalledWith(5.75, 6.75);
+
+      handlers.handlePointerMove(makePointerEvent({ clientX: 35, clientY: 43, buttons: 1 }));
+      expect(deps.sampleColorAtPosition).toHaveBeenLastCalledWith(6.75, 7.75);
+    },
+  );
+
   it('adds an exact CC pixel gradient to the shared palette instead of sampling one color', () => {
     const layer = {
       id: 'cc-layer',

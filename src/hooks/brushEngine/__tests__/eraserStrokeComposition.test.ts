@@ -3,7 +3,8 @@ import { finalizeStrokeAfterEngine } from '../strokeFinalizeController';
 import { ditherRegionWithCurrentPressure } from '../strokeDitherRegion';
 import { inflateRect, type Rect } from '../engineShared';
 import { applyLostEdgeMaskInRegion, applyLostEdgeToStrokeAlphaData } from '../strokeDitherUtils';
-import type { BrushSettings } from '@/types';
+import { BrushEngineFacade } from '../BrushEngineFacade';
+import { BrushShape, type BrushSettings } from '@/types';
 
 describe('cumulative eraser mask composition', () => {
   it.each([
@@ -217,7 +218,7 @@ describe('presentation-only deferred endpoint source', () => {
   it.each([
     [true, false, 'destination-out', true],
     [true, true, 'destination-out', true],
-    [false, false, 'source-over', false],
+    [false, false, 'source-over', true],
     [false, false, 'destination-out', true],
   ] as const)('keeps composition ownership with restore=%s dither=%s composite=%s', (restoreBase, shouldApplyStrokeDither, composite, usesPreview) => {
     const make = () => {
@@ -278,6 +279,59 @@ describe('presentation-only deferred endpoint source', () => {
       withAlphaLock, applyStrokeDither: jest.fn(), applyStrokeRisographOverlay: jest.fn(),
     });
     expect(blits).toHaveLength(count);
+  });
+
+  it('publishes the held paint pixel and retracts a discarded corner without changing accepted raw', () => {
+    const rasterWindow = globalThis as typeof globalThis & { __VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__?: boolean };
+    const previousRaster = rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+    rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = true;
+    const make = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 32;
+      return canvas;
+    };
+    const raw = make(), base = make(), visible = make();
+    const rawCtx = raw.getContext('2d')!;
+    const visibleCtx = visible.getContext('2d')!;
+    const brushSettings = {
+      brushShape: BrushShape.SQUARE, size: 1, color: '#ff00ff', opacity: 1,
+      antialiasing: false, spacing: 1, pressureEnabled: false,
+      ditherEnabled: false, risographIntensity: 0,
+    } as BrushSettings;
+    const engine = new BrushEngineFacade({ brushSettings });
+    const bounds = { x: 0, y: 0, width: 32, height: 32 };
+    const points = [{ x: 10, y: 10 }, { x: 11, y: 10 }, { x: 11, y: 11 }, { x: 11, y: 12 }];
+    let last = points[0];
+    try {
+      engine.beginStroke('paint');
+      for (const [index, point] of points.entries()) {
+        engine.renderBrushStroke(rawCtx, { from: last, to: point, pressure: 1, velocity: 0, timestamp: index });
+        const before = rawCtx.getImageData(0, 0, 32, 32).data;
+        visibleCtx.globalCompositeOperation = 'source-over';
+        renderLiveStrokePreview({
+          previewSource: engine.getPixelStrokePreview({ rawCanvas: raw, bounds }),
+          visibleCtx, liveRenderScheduledRef: { current: true },
+          liveStrokeRawRef: { current: raw }, liveStrokeDitherRef: { current: null },
+          liveStrokeBaseRef: { current: base }, liveStrokeBoundsRef: { current: bounds },
+          strokeBoundsRef: { current: bounds }, liveDirtyRectRef: { current: bounds },
+          shouldApplyStrokeDither: false, brushSettings, isPixelDitherNoBg: false,
+          warnIfDitherStrokePath: jest.fn(), withAlphaLock: (target, draw) => draw(target),
+          applyStrokeDither: jest.fn(), applyStrokeRisographOverlay: jest.fn(),
+        });
+        expect(rawCtx.getImageData(0, 0, 32, 32).data).toEqual(before);
+        expect([...visibleCtx.getImageData(point.x, point.y, 1, 1).data]).toEqual([255, 0, 255, 255]);
+        if (index === 1) expect(rawCtx.getImageData(11, 10, 1, 1).data[3]).toBe(0);
+        if (index >= 2) expect(visibleCtx.getImageData(11, 10, 1, 1).data[3]).toBe(0);
+        last = point;
+      }
+      const held = visibleCtx.getImageData(0, 0, 32, 32).data;
+      engine.finalizeStroke(rawCtx);
+      expect(rawCtx.getImageData(0, 0, 32, 32).data).toEqual(held);
+    } finally {
+      engine.resetStroke();
+      if (previousRaster === undefined) delete rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__;
+      else rasterWindow.__VESSEL_RASTERIZE_CANVAS_DRAW_IMAGE__ = previousRaster;
+    }
   });
 });
 

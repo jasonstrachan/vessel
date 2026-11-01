@@ -73,6 +73,39 @@ const createLastSampleRef = (): React.MutableRefObject<{
 });
 
 describe('useDrawingCanvasSampling', () => {
+  it('samples the pixel containing the pointer instead of an opaque neighbour', () => {
+    const composite = sceneCanvas('#ff0000');
+    const context = composite.getContext('2d')!;
+    context.fillStyle = '#00ff00';
+    context.fillRect(6, 6, 1, 1);
+    const { result } = renderHook(() => useDrawingCanvasSampling({
+      compositeCanvasRef: { current: composite },
+      lastSampleRef: createLastSampleRef(),
+      layers: [],
+      referenceLayerId: null,
+      preferReferenceSampling: false,
+    }));
+
+    expect(result.current.sampleColorAtPosition(6.75, 6.75)).toBe('#00ff00');
+    expect(result.current.sampleColorAtPosition(7, 6.75)).toBe('#ff0000');
+  });
+
+  it('does not pull a neighbouring colour into a transparent sampled pixel', () => {
+    const composite = sceneCanvas('transparent');
+    const context = composite.getContext('2d')!;
+    context.fillStyle = '#ff0000';
+    context.fillRect(5, 5, 1, 1);
+    const { result } = renderHook(() => useDrawingCanvasSampling({
+      compositeCanvasRef: { current: composite },
+      lastSampleRef: createLastSampleRef(),
+      layers: [],
+      referenceLayerId: null,
+      preferReferenceSampling: false,
+    }));
+
+    expect(result.current.sampleColorAtPosition(6.25, 6.25)).toBe('#ffffff');
+  });
+
   it('samples the live CC presentation instead of stale layer raster data', () => {
     const runtimeCanvas = createCanvas('#123456');
     const framebuffer = createCanvas('#ff0000');
@@ -304,13 +337,24 @@ describe('visible project Canvas sampling through the real composite stack', () 
     const { result } = renderHook(() => useDrawingCanvasSampling(scene.options));
     expect(result.current.sampleColorAtPosition(6, 6)).toBe('#0000ff');
     const ctx = scene.renderSamplingComposite.mock.calls[0][0];
-    expect([ctx.canvas.width, ctx.canvas.height]).toEqual([3, 3]);
-    expect(scene.renderSamplingComposite.mock.calls[0][1]).toEqual({ x: 5, y: 5, width: 3, height: 3 });
+    expect([ctx.canvas.width, ctx.canvas.height]).toEqual([1, 1]);
+    expect(scene.renderSamplingComposite.mock.calls[0][1]).toEqual({ x: 6, y: 6, width: 1, height: 1 });
     expect(canvasBytes(scene.staticCanvas)).toEqual(original); expect(canvasBytes(scene.blue)).toEqual(source);
     expect(JSON.stringify(scene.state.history)).toBe(history);
     expect(scene.state.currentCompositeBitmap).toBe(bitmap);
     expect(scene.state.setCurrentCompositeBitmap).not.toHaveBeenCalled();
     expect(scene.options.compositeCanvasRef.current).toBe(scene.staticCanvas);
+  });
+
+  it.each(['color-cycle', 'sequential'] as const)('samples the exact %s pixel at a colour boundary', kind => {
+    const scene = createSamplingScene(kind);
+    const context = scene.blue.getContext('2d')!;
+    context.fillStyle = '#00ff00';
+    context.fillRect(6, 6, 1, 1);
+    const { result } = renderHook(() => useDrawingCanvasSampling(scene.options));
+
+    expect(result.current.sampleColorAtPosition(6.75, 6.75)).toBe('#00ff00');
+    expect(result.current.sampleColorAtPosition(7, 6.75)).toBe('#0000ff');
   });
 
   it('reads the current sequence frame again at the same coordinate', () => {

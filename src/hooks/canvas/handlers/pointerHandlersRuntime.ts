@@ -1735,6 +1735,10 @@ export const createPointerHandlers = (deps: EventHandlerDependencies): PointerHa
       brushSettings: { brushShape?: BrushShape; antialiasing?: boolean };
     }
   ): boolean => {
+    // Sampling floors the raw project point to the pixel under the crosshair.
+    if (tools.currentTool === 'color-picker') {
+      return false;
+    }
     return (
       tools.currentTool === 'selection' ||
       tools.currentTool === 'custom' ||
