@@ -419,6 +419,7 @@ export interface AppState {
   toggleRulers: () => void;
   setShowFPSMeter: (visible: boolean) => void;
   setShowPixelGridAtMaxZoom: (visible: boolean) => void;
+  setPixelGridZoomThreshold: (zoom: number) => void;
   setTransparencyBackgroundMode: (mode: CanvasState['transparencyBackgroundMode']) => void;
   setFrameColor: (color: string) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;

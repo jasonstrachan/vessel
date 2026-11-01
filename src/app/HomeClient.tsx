@@ -61,13 +61,16 @@ export default function Home() {
   const setGridDimensions = useAppStore((state) => state.setGridDimensions);
   const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
   const setShowPixelGridAtMaxZoom = useAppStore((state) => state.setShowPixelGridAtMaxZoom);
+  const setPixelGridZoomThreshold = useAppStore((state) => state.setPixelGridZoomThreshold);
   const setHistorySize = useAppStore((state) => state.setHistorySize);
   const newProject = useAppStore((state) => state.newProject);
   const ensureCustomBrushHydrated = useAppStore((state) => state.ensureCustomBrushHydrated);
   const layers = useAppStore(selectLayers);
-  const projectName = useAppStore((state) => state.project?.name ?? 'Untitled');
+  const projectName = useAppStore((state) => state.projectFilename ?? state.project?.name ?? 'Untitled');
   const projectWidth = useAppStore((state) => state.project?.width);
   const projectHeight = useAppStore((state) => state.project?.height);
+  const canvasZoom = useAppStore((state) => state.canvas.zoom);
+  const setZoom = useAppStore((state) => state.setZoom);
   const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
   const autosaveIntervalMinutes = useAppStore((state) => state.autosave.interval);
   const saveStatus = useAppStore(selectAutosaveSaveStatus);
@@ -165,6 +168,9 @@ export default function Home() {
           if (typeof settings.canvas.showPixelGridAtMaxZoom === 'boolean') {
             setShowPixelGridAtMaxZoom(settings.canvas.showPixelGridAtMaxZoom);
           }
+          if (typeof settings.canvas.pixelGridZoomThreshold === 'number') {
+            setPixelGridZoomThreshold(settings.canvas.pixelGridZoomThreshold);
+          }
           if (
             settings.canvas.transparencyBackgroundMode === 'checker' ||
             settings.canvas.transparencyBackgroundMode === 'gray'
@@ -186,7 +192,7 @@ export default function Home() {
     } finally {
       setIsSettingsHydrated(true);
     }
-  }, [setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setShowPixelGridAtMaxZoom, setTransparencyBackgroundMode, setGridDimensions, toggleRulers]);
+  }, [setAutosaveEnabled, setAutosaveInterval, setHistorySize, setShowFPSMeter, setShowPixelGridAtMaxZoom, setPixelGridZoomThreshold, setTransparencyBackgroundMode, setGridDimensions, toggleRulers]);
 
   useEffect(() => {
     if (!isAutosaveEnabled) {
@@ -222,12 +228,20 @@ export default function Home() {
 
   return (
     <main className="vessel-workspace">
-      <header className="vessel-titlebar">
-        <strong>VESSEL</strong>
-        <span className="document-name">{projectName}</span>
+      <header className="vessel-titlebar" aria-label="Document status">
+        <span className="document-name" title={projectName}>{projectName}</span>
         {projectWidth && projectHeight ? (
           <span className="document-size">{projectWidth} × {projectHeight}</span>
         ) : null}
+        <button
+          type="button"
+          className="document-zoom"
+          onDoubleClick={() => setZoom(1)}
+          aria-label="Reset canvas zoom to 100%"
+          title="Double-click to reset zoom to 100%"
+        >
+          {Math.round((canvasZoom || 1) * 100)}%
+        </button>
       </header>
       <div className="flex flex-1 min-h-0 overflow-hidden">
       <ConsoleSilencer />

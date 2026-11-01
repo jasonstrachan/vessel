@@ -14,7 +14,6 @@ interface UseDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions {
     | 'project'
     | 'floatingPaste'
     | 'canvasZoom'
-    | 'displayProjectName'
     | 'displayMode'
     | 'frameColor'
     | 'temporaryCustomBrush'

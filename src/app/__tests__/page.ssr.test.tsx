@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { autosaveService as mockAutosaveService } from '@/utils/autosave';
 import type { DisplayFilterConfig } from '@/types';
 import Home from '../HomeClient';
@@ -130,6 +130,8 @@ jest.mock('@/utils/risographTexture', () => ({
 function createMockStore() {
   const store = {
     toggleModal: jest.fn(),
+    project: null as { name: string; width: number; height: number } | null,
+    projectFilename: null as string | null,
     autosave: {
       isEnabled: true,
       isRunning: false,
@@ -154,13 +156,16 @@ function createMockStore() {
       },
     },
     canvas: {
+      zoom: 1,
       showRulers: false,
       showFPSMeter: true,
       showPixelGridAtMaxZoom: true,
+      pixelGridZoomThreshold: 30,
       transparencyBackgroundMode: 'checker',
       displayFilters: [] as DisplayFilterConfig[],
     },
     setAutosaveEnabled: jest.fn(),
+    setZoom: jest.fn(),
     setAutosaveInterval: jest.fn(),
     clearSaveStatus: jest.fn(),
     toggleRulers: jest.fn(() => {
@@ -172,6 +177,7 @@ function createMockStore() {
     setShowPixelGridAtMaxZoom: jest.fn((visible: boolean) => {
       store.canvas.showPixelGridAtMaxZoom = visible;
     }),
+    setPixelGridZoomThreshold: jest.fn(),
     setTransparencyBackgroundMode: jest.fn((mode: 'checker' | 'gray') => {
       store.canvas.transparencyBackgroundMode = mode;
     }),
@@ -238,6 +244,26 @@ describe('Home page client rendering', () => {
     expect(screen.getByTestId('drawing-canvas')).toBeInTheDocument();
     expect(screen.getByTestId('layers-panel')).toBeInTheDocument();
     expect(screen.getByTestId('brush-settings')).toBeInTheDocument();
+  });
+
+  it('keeps the filename, dimensions and working zoom reset in the document bar', () => {
+    mockStore.project = { name: 'Portrait', width: 1024, height: 768 };
+    mockStore.projectFilename = 'character.vs';
+    mockStore.canvas.zoom = 10.33;
+    const { rerender } = render(<Home />);
+    const bar = screen.getByLabelText('Document status');
+
+    expect(within(bar).getByText('character.vs')).toHaveAttribute('title', 'character.vs');
+    expect(within(bar).getByText('1024 × 768')).toBeInTheDocument();
+    const zoom = within(bar).getByRole('button', { name: 'Reset canvas zoom to 100%' });
+    expect(zoom).toHaveTextContent('1033%');
+    fireEvent.doubleClick(zoom);
+    expect(mockStore.setZoom).toHaveBeenCalledWith(1);
+    expect(screen.queryByText('VESSEL')).not.toBeInTheDocument();
+
+    mockStore.projectFilename = null;
+    rerender(<Home />);
+    expect(within(bar).getByText('Portrait')).toBeInTheDocument();
   });
 
   it('isolates canvas overlays below the global modal stack', () => {
@@ -341,13 +367,14 @@ describe('Home page client rendering', () => {
     localStorage.setItem(
       'vessel-settings',
       JSON.stringify({
-        canvas: { showPixelGridAtMaxZoom: false },
+        canvas: { showPixelGridAtMaxZoom: false, pixelGridZoomThreshold: 20 },
       })
     );
 
     render(<Home />);
 
     expect(mockStore.setShowPixelGridAtMaxZoom).toHaveBeenCalledWith(false);
+    expect(mockStore.setPixelGridZoomThreshold).toHaveBeenCalledWith(20);
   });
 
   it('applies persisted transparency background preference from settings', () => {

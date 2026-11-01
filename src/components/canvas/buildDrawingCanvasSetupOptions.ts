@@ -1,7 +1,7 @@
 import type { UseDrawingCanvasSetupBridgeOptions } from './useDrawingCanvasSetupBridge';
 
 interface BuildDrawingCanvasSetupOptionsArgs {
-  projectState: Pick<UseDrawingCanvasSetupBridgeOptions, 'project' | 'projectFilename'>;
+  projectState: Pick<UseDrawingCanvasSetupBridgeOptions, 'project'>;
   toolState: Pick<
     UseDrawingCanvasSetupBridgeOptions,
     | 'currentTool'

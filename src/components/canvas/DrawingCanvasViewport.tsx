@@ -28,7 +28,6 @@ export interface DrawingCanvasViewportProps {
   offsetY: number;
   currentTool: Tool;
   isSpacePressed: boolean;
-  displayProjectName: string;
   sampleColorAtPosition: (x: number, y: number) => string;
   brushCursorHandleRef: React.RefObject<BrushCursorHandle | null>;
   cursorDescriptor: BrushCursorDescriptor;
@@ -58,7 +57,6 @@ export const DrawingCanvasViewport = ({
   offsetY,
   currentTool,
   isSpacePressed,
-  displayProjectName,
   sampleColorAtPosition,
   brushCursorHandleRef,
   cursorDescriptor,
@@ -112,7 +110,6 @@ export const DrawingCanvasViewport = ({
       offsetY={offsetY}
       currentTool={currentTool}
       isSpacePressed={isSpacePressed}
-      displayProjectName={displayProjectName}
       sampleColorAtPosition={sampleColorAtPosition}
     />
 

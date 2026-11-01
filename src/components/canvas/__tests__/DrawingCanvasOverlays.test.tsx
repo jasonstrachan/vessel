@@ -2,7 +2,6 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { DrawingCanvasOverlays } from '../DrawingCanvasOverlays';
 
-const setZoom = jest.fn();
 const canvasRef = React.createRef<HTMLCanvasElement>();
 const stopVesselMultiplayerSession = jest.fn();
 const sampleColorAtPosition = jest.fn(() => '#123456');
@@ -59,7 +58,6 @@ jest.mock('@/extensions/studioExtension', () => ({
 jest.mock('@/stores/useAppStore', () => ({
   useAppStore: (selector?: (state: unknown) => unknown) => {
     const state = {
-      setZoom,
       canvas: {
         showPixelGridAtMaxZoom: true,
         showRulers,
@@ -83,7 +81,6 @@ describe('DrawingCanvasOverlays', () => {
   beforeEach(() => {
     showRulers = false;
     viewport = { width: 800, height: 600 };
-    setZoom.mockClear();
     stopVesselMultiplayerSession.mockClear();
     sampleColorAtPosition.mockClear();
     multiplayer = {
@@ -122,7 +119,6 @@ describe('DrawingCanvasOverlays', () => {
         offsetY={7}
         currentTool="brush"
         isSpacePressed={false}
-        displayProjectName="Portrait"
         sampleColorAtPosition={sampleColorAtPosition}
       />
     );
@@ -155,7 +151,6 @@ describe('DrawingCanvasOverlays', () => {
         offsetY={0}
         currentTool="brush"
         isSpacePressed={false}
-        displayProjectName="Portrait"
         sampleColorAtPosition={sampleColorAtPosition}
       />
     );
@@ -165,64 +160,6 @@ describe('DrawingCanvasOverlays', () => {
       'title',
       'The Vessel project changed during multiplayer painting',
     );
-  });
-
-  it('resets canvas zoom to 100% when the zoom badge is double-clicked', () => {
-    render(
-      <DrawingCanvasOverlays
-        canvasRef={canvasRef}
-        project={null}
-        floatingPaste={null}
-        canvasZoom={2.5}
-        offsetX={0}
-        offsetY={0}
-        currentTool="brush"
-        isSpacePressed={false}
-        displayProjectName="Demo"
-        sampleColorAtPosition={sampleColorAtPosition}
-      />
-    );
-
-    fireEvent.doubleClick(screen.getByRole('button', { name: 'Reset canvas zoom to 100%' }));
-
-    expect(setZoom).toHaveBeenCalledWith(1);
-  });
-
-  it('keeps zoom badge pointer and click events out of the canvas handlers', () => {
-    const handlePointerDown = jest.fn();
-    const handleClick = jest.fn();
-    const handleDoubleClick = jest.fn();
-
-    render(
-      <div
-        onPointerDown={handlePointerDown}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
-      >
-        <DrawingCanvasOverlays
-          canvasRef={canvasRef}
-          project={null}
-          floatingPaste={null}
-          canvasZoom={2.5}
-          offsetX={0}
-          offsetY={0}
-          currentTool="brush"
-          isSpacePressed={false}
-          displayProjectName="Demo"
-          sampleColorAtPosition={sampleColorAtPosition}
-        />
-      </div>
-    );
-
-    const zoomButton = screen.getByRole('button', { name: 'Reset canvas zoom to 100%' });
-    fireEvent.pointerDown(zoomButton);
-    fireEvent.click(zoomButton);
-    fireEvent.doubleClick(zoomButton);
-
-    expect(handlePointerDown).not.toHaveBeenCalled();
-    expect(handleClick).not.toHaveBeenCalled();
-    expect(handleDoubleClick).not.toHaveBeenCalled();
-    expect(setZoom).toHaveBeenCalledWith(1);
   });
 
   it('keeps studio extension gestures out of the canvas drawing handlers', () => {
@@ -245,7 +182,6 @@ describe('DrawingCanvasOverlays', () => {
           offsetY={0}
           currentTool="brush"
           isSpacePressed={false}
-          displayProjectName="Demo"
           sampleColorAtPosition={sampleColorAtPosition}
         />
       </div>
@@ -272,7 +208,6 @@ describe('DrawingCanvasOverlays', () => {
         offsetY={0}
         currentTool="brush"
         isSpacePressed
-        displayProjectName="Demo"
         sampleColorAtPosition={sampleColorAtPosition}
       />
     );
@@ -298,7 +233,6 @@ describe('persisted ruler visibility mounted owner', () => {
     offsetY: 40,
     currentTool: 'brush' as const,
     isSpacePressed: false,
-    displayProjectName: 'Rulers',
     sampleColorAtPosition,
   };
 
@@ -322,7 +256,6 @@ describe('persisted ruler visibility mounted owner', () => {
   });
 
   it('resizes CSS strips without changing camera/source props or invoking store actions', () => {
-    setZoom.mockClear();
     showRulers = true;
     viewport = { width: 320, height: 240 };
     const { rerender } = render(<DrawingCanvasOverlays {...props} />);
@@ -331,7 +264,6 @@ describe('persisted ruler visibility mounted owner', () => {
     rerender(<DrawingCanvasOverlays {...props} />);
     expect(screen.getByRole('img', { name: 'Horizontal ruler' })).toHaveAttribute('width', '640');
     expect(screen.getByRole('img', { name: 'Vertical ruler' })).toHaveAttribute('height', '480');
-    expect(setZoom).not.toHaveBeenCalled();
     expect(props).toMatchObject({ canvasZoom: 2, offsetX: 30, offsetY: 40 });
   });
 });

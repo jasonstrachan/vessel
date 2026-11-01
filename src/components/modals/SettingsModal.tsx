@@ -1,5 +1,6 @@
 import { getAppStoreState } from '@/stores/appStoreAccess';
 import React, { useEffect, useState, useId } from 'react';
+import { DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD, PIXEL_GRID_ZOOM_THRESHOLDS } from '@/constants/canvas';
 import { CC_DEBUG } from '@/debug/ccDebug';
 import { useAppStore } from '../../stores/useAppStore';
 import { XIcon } from '../icons/XIcon';
@@ -53,6 +54,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const showRulers = useAppStore((state) => state.canvas.showRulers);
   const showFPSMeter = useAppStore((state) => state.canvas.showFPSMeter);
   const showPixelGridAtMaxZoom = useAppStore((state) => state.canvas.showPixelGridAtMaxZoom);
+  const pixelGridZoomThreshold = useAppStore((state) => state.canvas.pixelGridZoomThreshold ?? DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD);
   const transparencyBackgroundMode = useAppStore((state) => state.canvas.transparencyBackgroundMode);
   const frameColor = useAppStore((state) => state.canvas.frameColor);
   const isAutosaveEnabled = useAppStore((state) => state.autosave.isEnabled);
@@ -65,6 +67,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const toggleRulers = useAppStore((state) => state.toggleRulers);
   const setShowFPSMeter = useAppStore((state) => state.setShowFPSMeter);
   const setShowPixelGridAtMaxZoom = useAppStore((state) => state.setShowPixelGridAtMaxZoom);
+  const setPixelGridZoomThreshold = useAppStore((state) => state.setPixelGridZoomThreshold);
   const setTransparencyBackgroundMode = useAppStore((state) => state.setTransparencyBackgroundMode);
   const setFrameColor = useAppStore((state) => state.setFrameColor);
   const setSettingsSection = useAppStore((state) => state.setSettingsSection);
@@ -92,6 +95,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         showRulers: currentState.canvas.showRulers,
         showFPSMeter: currentState.canvas.showFPSMeter,
         showPixelGridAtMaxZoom: currentState.canvas.showPixelGridAtMaxZoom,
+        pixelGridZoomThreshold: currentState.canvas.pixelGridZoomThreshold ?? DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD,
         transparencyBackgroundMode: currentState.canvas.transparencyBackgroundMode,
         frameColor: currentState.canvas.frameColor,
       },
@@ -292,15 +296,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     onChange={(enabled) => setShowFPSMeter(enabled)}
                   />
                 </div>
-                <div className="flex items-center justify-between">
-                  <label htmlFor="show-pixel-grid-at-max-zoom" className="text-base text-[#888]">
-                    Pixel Grid at 2000%
+                <div className="flex items-center justify-between gap-4">
+                  <label htmlFor="pixel-grid-zoom" className="text-base text-[#888]">
+                    Pixel Grid
                   </label>
-                  <Switch
-                    id="show-pixel-grid-at-max-zoom"
-                    checked={showPixelGridAtMaxZoom}
-                    onChange={(enabled) => setShowPixelGridAtMaxZoom(enabled)}
-                  />
+                  <select
+                    id="pixel-grid-zoom"
+                    value={showPixelGridAtMaxZoom ? pixelGridZoomThreshold : 'off'}
+                    onChange={(event) => {
+                      if (event.target.value === 'off') {
+                        setShowPixelGridAtMaxZoom(false);
+                      } else {
+                        setPixelGridZoomThreshold(Number(event.target.value));
+                        setShowPixelGridAtMaxZoom(true);
+                      }
+                    }}
+                    className="border border-[var(--vessel-border)] bg-[var(--vessel-control)] px-3 py-1 text-base text-[#D9D9D9]"
+                  >
+                    <option value="off">Off</option>
+                    {PIXEL_GRID_ZOOM_THRESHOLDS.map((zoom) => (
+                      <option key={zoom} value={zoom}>{zoom * 100}%</option>
+                    ))}
+                  </select>
                 </div>
                 {isDevBuild && (
                   <div className="flex items-center justify-between">

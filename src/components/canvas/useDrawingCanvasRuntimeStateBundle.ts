@@ -14,7 +14,6 @@ export const useDrawingCanvasRuntimeStateBundle = () => {
   const setupRuntime = useDrawingCanvasSetupRuntime({
     projectState: {
       project: storeState.project,
-      projectFilename: storeState.projectFilename,
     },
     toolState: {
       currentTool: storeState.currentTool,

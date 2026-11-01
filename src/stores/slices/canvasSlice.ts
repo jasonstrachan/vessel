@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { CanvasState, DisplayFilterConfig, DisplayFilterId } from '@/types';
-import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM } from '@/constants/canvas';
+import { MIN_CANVAS_ZOOM, MAX_CANVAS_ZOOM, DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD, isPixelGridZoomThreshold } from '@/constants/canvas';
 import { createDefaultDisplayFilters, disableDisplayFilters, sanitizeDisplayFilters } from '@/lib/displayFilters';
 import { mergeLocalSettings, readLocalSettings } from '@/utils/localSettings';
 
@@ -22,6 +22,7 @@ export interface CanvasSlice {
   toggleRulers: () => void;
   setShowFPSMeter: (visible: boolean) => void;
   setShowPixelGridAtMaxZoom: (visible: boolean) => void;
+  setPixelGridZoomThreshold: (zoom: number) => void;
   setTransparencyBackgroundMode: (mode: CanvasState['transparencyBackgroundMode']) => void;
   setFrameColor: (color: string) => void;
   setDisplayMode: (mode: 'pixelated' | 'smooth') => void;
@@ -55,6 +56,11 @@ export const getStoredShowPixelGridAtMaxZoom = (): boolean => {
   return typeof storedValue === 'boolean' ? storedValue : true;
 };
 
+export const getStoredPixelGridZoomThreshold = (): number => {
+  const storedValue = readLocalSettings().canvas?.pixelGridZoomThreshold;
+  return isPixelGridZoomThreshold(storedValue) ? storedValue : DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD;
+};
+
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 export const DEFAULT_FRAME_COLOR = '#1A1A1A';
 
@@ -80,6 +86,7 @@ export const defaultCanvasState: CanvasState = {
   showRulers: false,
   showFPSMeter: true,
   showPixelGridAtMaxZoom: getStoredShowPixelGridAtMaxZoom(),
+  pixelGridZoomThreshold: getStoredPixelGridZoomThreshold(),
   transparencyBackgroundMode: getStoredTransparencyBackgroundMode(),
   frameColor: getStoredFrameColor(),
   displayMode: 'pixelated',
@@ -169,6 +176,14 @@ export const createCanvasSlice: StateCreator<AppState, [], [], CanvasSlice> = (s
       return {
         canvas: { ...state.canvas, showPixelGridAtMaxZoom: visible },
       };
+    }),
+  setPixelGridZoomThreshold: (zoom) =>
+    set((state) => {
+      if (!isPixelGridZoomThreshold(zoom) || state.canvas.pixelGridZoomThreshold === zoom) {
+        return state;
+      }
+      mergeLocalSettings({ canvas: { pixelGridZoomThreshold: zoom } });
+      return { canvas: { ...state.canvas, pixelGridZoomThreshold: zoom } };
     }),
   setTransparencyBackgroundMode: (mode) =>
     set((state) => {

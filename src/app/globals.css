@@ -136,7 +136,7 @@
     display: flex;
     flex: 0 0 36px;
     align-items: center;
-    gap: 24px;
+    gap: 16px;
     padding: 0 14px;
     border-bottom: 1px solid var(--vessel-shadow);
     background: var(--vessel-panel);
@@ -144,9 +144,22 @@
     font-size: 11px;
   }
 
-  .vessel-titlebar strong { font-size: 22px; font-weight: 400; letter-spacing: 2px; }
-  .vessel-titlebar .document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .vessel-titlebar .document-size { margin-left: auto; color: var(--vessel-muted); white-space: nowrap; }
+  .vessel-titlebar .document-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vessel-titlebar .document-size { flex-shrink: 0; color: var(--vessel-muted); white-space: nowrap; }
+  .vessel-titlebar .document-zoom {
+    align-self: stretch;
+    flex-shrink: 0;
+    min-width: 64px;
+    margin-right: -14px;
+    padding: 0 14px;
+    border-left: 1px solid var(--vessel-shadow);
+    background: transparent;
+    color: var(--vessel-text);
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+  }
+  .vessel-titlebar .document-zoom:hover { background: var(--vessel-control); }
+  .vessel-titlebar .document-zoom:focus-visible { outline: 1px solid var(--vessel-accent); outline-offset: -3px; }
   .vessel-dock { box-shadow: inset 1px 0 var(--vessel-highlight); }
 
   .vessel-button {

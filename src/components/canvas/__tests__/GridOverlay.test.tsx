@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 
 import GridOverlay from '@/components/canvas/GridOverlay';
-import { PIXEL_GRID_ZOOM_THRESHOLD } from '@/constants/canvas';
+import { DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD } from '@/constants/canvas';
 
 describe('GridOverlay', () => {
   it('does not render when disabled', () => {
@@ -46,13 +46,24 @@ describe('GridOverlay', () => {
     expect(lines).toHaveLength(14);
   });
 
-  it('renders a pixel grid from 2000% zoom when enabled', () => {
+  it('uses the selected pixel-grid threshold', () => {
+    const props = {
+      enabled: false, projectWidth: 100, projectHeight: 50, zoom: 20,
+      offsetX: 0, offsetY: 0, rows: 4, columns: 4, showPixelGridAtMaxZoom: true,
+    };
+    const { rerender } = render(<GridOverlay {...props} pixelGridZoomThreshold={20} />);
+    expect(screen.getByTestId('pixel-grid-overlay')).toBeInTheDocument();
+    rerender(<GridOverlay {...props} pixelGridZoomThreshold={30} />);
+    expect(screen.queryByTestId('pixel-grid-overlay')).not.toBeInTheDocument();
+  });
+
+  it('keeps the pixel grid hidden at 2000% and renders it from 3000% zoom by default', () => {
     const { rerender } = render(
       <GridOverlay
         enabled={false}
         projectWidth={100}
         projectHeight={50}
-        zoom={PIXEL_GRID_ZOOM_THRESHOLD - 0.01}
+        zoom={20}
         offsetX={15}
         offsetY={20}
         rows={5}
@@ -68,7 +79,7 @@ describe('GridOverlay', () => {
         enabled={false}
         projectWidth={100}
         projectHeight={50}
-        zoom={PIXEL_GRID_ZOOM_THRESHOLD}
+        zoom={DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD}
         offsetX={15}
         offsetY={20}
         rows={5}
@@ -78,9 +89,9 @@ describe('GridOverlay', () => {
     );
 
     const pixelGrid = screen.getByTestId('pixel-grid-overlay');
-    expect(pixelGrid).toHaveAttribute('viewBox', '0 0 2000 1000');
-    expect(pixelGrid).toHaveStyle({ left: '15px', top: '20px', width: '2000px', height: '1000px' });
-    expect(pixelGrid.querySelector('pattern')).toHaveAttribute('width', String(PIXEL_GRID_ZOOM_THRESHOLD));
+    expect(pixelGrid).toHaveAttribute('viewBox', '0 0 3000 1500');
+    expect(pixelGrid).toHaveStyle({ left: '15px', top: '20px', width: '3000px', height: '1500px' });
+    expect(pixelGrid.querySelector('pattern')).toHaveAttribute('width', String(DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD));
     const pixelGridPaths = pixelGrid.querySelectorAll('path');
     expect(pixelGridPaths).toHaveLength(1);
     expect(pixelGridPaths[0]).toHaveAttribute('stroke', 'rgba(255, 255, 255, 0.5)');

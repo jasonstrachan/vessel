@@ -21,7 +21,6 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationArgs = ({
     project: state.project,
     floatingPaste: state.floatingPaste,
     canvasZoom: state.canvasZoom,
-    displayProjectName: state.displayProjectName,
     displayMode: state.displayMode,
     frameColor: state.frameColor,
     temporaryCustomBrush: state.temporaryCustomBrush,

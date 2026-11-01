@@ -10,6 +10,7 @@ const mockState = {
     showRulers: false,
     showFPSMeter: false,
     showPixelGridAtMaxZoom: true,
+    pixelGridZoomThreshold: 30,
     transparencyBackgroundMode: 'checker',
     frameColor: '#000000',
   },
@@ -24,6 +25,7 @@ const mockState = {
   toggleRulers: jest.fn(),
   setShowFPSMeter: jest.fn(),
   setShowPixelGridAtMaxZoom: jest.fn(),
+  setPixelGridZoomThreshold: jest.fn(),
   setTransparencyBackgroundMode: jest.fn(),
   setFrameColor: jest.fn(),
   setSettingsSection: jest.fn(),
@@ -48,6 +50,8 @@ describe('SettingsModal transition lifecycle', () => {
     jest.clearAllMocks();
     mockState.ui.settingsSection = 'display';
     mockState.autosave.isEnabled = false;
+    mockState.canvas.showPixelGridAtMaxZoom = true;
+    mockState.canvas.pixelGridZoomThreshold = 30;
   });
 
   afterEach(() => {
@@ -87,6 +91,19 @@ describe('SettingsModal transition lifecycle', () => {
     expect(heading()).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Autosave' })).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('defaults the pixel-grid dropdown to 3000% and applies a threshold or Off', async () => {
+    const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
+    render(<SettingsModal isOpen onClose={jest.fn()} />);
+    advance(10);
+    const select = screen.getByRole('combobox', { name: 'Pixel Grid' });
+    expect(select).toHaveValue('30');
+    await user.selectOptions(select, '20');
+    expect(mockState.setPixelGridZoomThreshold).toHaveBeenCalledWith(20);
+    expect(mockState.setShowPixelGridAtMaxZoom).toHaveBeenCalledWith(true);
+    await user.selectOptions(select, 'off');
+    expect(mockState.setShowPixelGridAtMaxZoom).toHaveBeenLastCalledWith(false);
   });
 
   it('keeps a reopened modal mounted after the superseded close transition', () => {

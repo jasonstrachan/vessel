@@ -14,7 +14,6 @@ interface BuildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptionsArgs {
     | 'project'
     | 'floatingPaste'
     | 'canvasZoom'
-    | 'displayProjectName'
     | 'displayMode'
     | 'frameColor'
     | 'temporaryCustomBrush'
@@ -58,7 +57,6 @@ export const buildDrawingCanvasRuntimeViewportPropsFromOrchestrationOptions = ({
     offsetY: orchestration.interactionRuntime.pan.panState.offsetY,
     currentTool: state.tools.currentTool,
     isSpacePressed: orchestration.interactionRuntime.stateMachine.state.isSpacePressed,
-    displayProjectName: state.displayProjectName,
     sampleColorAtPosition: orchestration.renderRuntime.sampleColorAtPosition,
     brushCursorHandleRef: orchestration.brushCursorHandleRef,
   },

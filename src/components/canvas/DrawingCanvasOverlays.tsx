@@ -24,7 +24,6 @@ interface DrawingCanvasOverlaysProps {
   offsetY: number;
   currentTool: Tool;
   isSpacePressed: boolean;
-  displayProjectName: string;
   sampleColorAtPosition: (x: number, y: number) => string;
 }
 
@@ -37,16 +36,15 @@ export const DrawingCanvasOverlays = ({
   offsetY,
   currentTool,
   isSpacePressed,
-  displayProjectName,
   sampleColorAtPosition,
 }: DrawingCanvasOverlaysProps) => {
   const StudioCanvasOverlay = studioExtension.CanvasOverlay;
   const grid = useAppStore(selectGridState);
   const showPixelGridAtMaxZoom = useAppStore((state) => state.canvas.showPixelGridAtMaxZoom);
+  const pixelGridZoomThreshold = useAppStore((state) => state.canvas.pixelGridZoomThreshold);
   const showRulers = useAppStore((state) => state.canvas.showRulers);
   const viewportWidth = useAppStore((state) => state.canvas.canvasWidth);
   const viewportHeight = useAppStore((state) => state.canvas.canvasHeight);
-  const setZoom = useAppStore((state) => state.setZoom);
   const multiplayer = useVesselMultiplayerSnapshot();
   const aiCursor = multiplayer.aiCursor;
   const showSession = multiplayer.status !== 'idle';
@@ -111,6 +109,7 @@ export const DrawingCanvasOverlays = ({
           rows={grid.rows}
           columns={grid.columns}
           showPixelGridAtMaxZoom={showPixelGridAtMaxZoom}
+          pixelGridZoomThreshold={pixelGridZoomThreshold}
         />
       ) : null}
 
@@ -190,29 +189,6 @@ export const DrawingCanvasOverlays = ({
         </div>
       ) : null}
 
-      <div className="absolute bottom-4 right-4 flex items-center gap-2 text-[#b5b5b5] text-xs">
-        <div className="bg-black/60 px-2 py-1 rounded max-w-[240px] truncate" title={displayProjectName}>
-          {displayProjectName}
-        </div>
-        <button
-          type="button"
-          className="bg-black/60 px-2 py-1 rounded min-w-[58px] text-center cursor-pointer select-none hover:bg-black/75 transition-colors"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-          }}
-          onClick={(event) => {
-            event.stopPropagation();
-          }}
-          onDoubleClick={(event) => {
-            event.stopPropagation();
-            setZoom(1);
-          }}
-          aria-label="Reset canvas zoom to 100%"
-          title="Double-click to reset zoom to 100%"
-        >
-          {Math.round((canvasZoom || 1) * 100)}%
-        </button>
-      </div>
     </>
   );
 };

@@ -11,7 +11,6 @@ type ShapeEditorStateArgs = Parameters<typeof useDrawingCanvasShapeEditorState>[
 type HandlerAdaptersArgs = Parameters<typeof useDrawingCanvasHandlerAdapters>[0];
 
 export interface UseDrawingCanvasSetupBridgeOptions extends ToolSnapshotArgs, ShapeEditorStateArgs {
-  projectFilename: string | null | undefined;
   setFloatingPaste: HandlerAdaptersArgs['setFloatingPaste'];
   mousePositionRef: HandlerAdaptersArgs['mousePositionRef'];
   brushCursorHandleRef: HandlerAdaptersArgs['brushCursorHandleRef'];
@@ -19,7 +18,6 @@ export interface UseDrawingCanvasSetupBridgeOptions extends ToolSnapshotArgs, Sh
 
 export const useDrawingCanvasSetupBridge = ({
   project,
-  projectFilename,
   currentTool,
   selectionMode,
   brushSettings,
@@ -44,7 +42,6 @@ export const useDrawingCanvasSetupBridge = ({
     customBrushCapture,
   });
   const { crop, commitCrop, cancelCrop } = useCropState();
-  const displayProjectName = projectFilename ?? project?.name ?? 'Untitled';
   const { activeCanvasShape, canvasBounds, canvasShapeEditRef, freehandPointsRef } =
     useDrawingCanvasShapeEditorState({ project });
   const switchTool = useToolSwitcher();
@@ -65,7 +62,6 @@ export const useDrawingCanvasSetupBridge = ({
     crop,
     commitCrop,
     cancelCrop,
-    displayProjectName,
     activeCanvasShape,
     canvasBounds,
     canvasShapeEditRef,

@@ -6,7 +6,6 @@ export const useDrawingCanvasStoreState = () => {
   const stateValues = useAppStore(
     useShallow((state) => ({
       project: state.project,
-      projectFilename: state.projectFilename,
       layers: state.layers,
       referenceLayerId: state.referenceLayerId,
       preferReferenceSampling: state.colorPickerPreferReferenceLayer,

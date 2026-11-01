@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-import { PIXEL_GRID_ZOOM_THRESHOLD } from '@/constants/canvas';
+import { DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD } from '@/constants/canvas';
 
 interface GridOverlayProps {
   enabled: boolean;
@@ -14,6 +14,7 @@ interface GridOverlayProps {
   rows: number;
   columns: number;
   showPixelGridAtMaxZoom?: boolean;
+  pixelGridZoomThreshold?: number;
 }
 
 const strokeOuter = 'rgba(0, 0, 0, 0.78)';
@@ -30,9 +31,10 @@ const GridOverlay: React.FC<GridOverlayProps> = ({
   rows,
   columns,
   showPixelGridAtMaxZoom = false,
+  pixelGridZoomThreshold = DEFAULT_PIXEL_GRID_ZOOM_THRESHOLD,
 }) => {
   const pixelPatternId = `pixel-grid-${React.useId().replace(/:/g, '')}`;
-  const isPixelGridVisible = showPixelGridAtMaxZoom && zoom >= PIXEL_GRID_ZOOM_THRESHOLD;
+  const isPixelGridVisible = showPixelGridAtMaxZoom && zoom >= pixelGridZoomThreshold;
 
   if ((!enabled && !isPixelGridVisible) || projectWidth <= 0 || projectHeight <= 0) {
     return null;

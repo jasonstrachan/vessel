@@ -69,4 +69,6 @@ Graphite UI theme
 - Toolbar hover labels appear after 450ms, keyboard focus shows them immediately, and Escape/window blur dismisses them. Save status stays in the canvas corner with neutral success styling and a distinct error colour.
 
 - The primary toolbar scrolls in short windows. Its tooltips render outside the scroll container and dismiss on resize, blur, or Escape.
+- The document bar owns the filename (falling back to the project name), pixel dimensions, and zoom. Double-click the zoom value to reset to 100%; document status does not float over the canvas.
+- Display settings use one Pixel Grid dropdown: Off, 1000%, 2000%, 3000%, or 4000%. The default is 3000%, and the choice is saved locally.
 - Dropdown listboxes support Arrow keys, Home/End, Enter/Space selection, and Escape dismissal with focus returned to the trigger; nested editing controls retain their own keyboard input.

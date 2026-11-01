@@ -1275,6 +1275,7 @@ export interface CanvasState {
   showRulers: boolean;
   showFPSMeter: boolean;
   showPixelGridAtMaxZoom: boolean;
+  pixelGridZoomThreshold?: number;
   transparencyBackgroundMode: 'checker' | 'gray';
   frameColor: string;
   displayMode: 'pixelated' | 'smooth';

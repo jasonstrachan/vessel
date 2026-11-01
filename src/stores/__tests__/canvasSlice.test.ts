@@ -6,6 +6,7 @@ import {
   getStoredDisplayFilterDefaults,
   getStoredFrameColor,
   getStoredShowPixelGridAtMaxZoom,
+  getStoredPixelGridZoomThreshold,
   getStoredTransparencyBackgroundMode,
 } from '@/stores/slices/canvasSlice';
 
@@ -21,6 +22,7 @@ describe('canvas slice invariants', () => {
         showRulers: false,
         showFPSMeter: true,
         showPixelGridAtMaxZoom: true,
+        pixelGridZoomThreshold: 30,
         transparencyBackgroundMode: 'checker',
         frameColor: DEFAULT_FRAME_COLOR,
       },
@@ -95,6 +97,23 @@ describe('canvas slice invariants', () => {
     }));
 
     expect(getStoredShowPixelGridAtMaxZoom()).toBe(true);
+  });
+
+  it('persists a selected grid threshold without losing the visibility preference', () => {
+    useAppStore.getState().setShowPixelGridAtMaxZoom(false);
+    useAppStore.getState().setPixelGridZoomThreshold(20);
+    expect(useAppStore.getState().canvas.pixelGridZoomThreshold).toBe(20);
+    expect(getStoredPixelGridZoomThreshold()).toBe(20);
+    expect(readLocalSettings().canvas?.showPixelGridAtMaxZoom).toBe(false);
+    const before = useAppStore.getState().canvas;
+    useAppStore.getState().setPixelGridZoomThreshold(20);
+    useAppStore.getState().setPixelGridZoomThreshold(24);
+    expect(useAppStore.getState().canvas).toBe(before);
+  });
+
+  it.each([undefined, '20', 24, 0, 100, null])('defaults an absent or invalid grid threshold %s to 3000%', value => {
+    localStorage.setItem('vessel-settings', JSON.stringify({ canvas: { pixelGridZoomThreshold: value } }));
+    expect(getStoredPixelGridZoomThreshold()).toBe(30);
   });
 
   it('keeps transparency background mode setter idempotent when unchanged', () => {
