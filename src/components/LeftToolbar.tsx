@@ -3,7 +3,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 
-import { PixelToolIcon } from '@/components/icons/PixelToolIcon';
+import { ToolIcon } from '@/components/icons/ToolIcon';
 import {
   startVesselMultiplayerSession,
   stopVesselMultiplayerSession,
@@ -264,7 +264,7 @@ const LeftToolbar = () => {
                     type="button"
                     className="vessel-tool-button disabled:cursor-wait"
                   >
-                    <PixelToolIcon tool={tool.id} />
+                    <ToolIcon tool={tool.id} />
                   </button>
                   {isTooltipVisible && tooltip && createPortal(
                     <div

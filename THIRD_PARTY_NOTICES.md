@@ -60,12 +60,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-The primary toolbar bundles thirteen unchanged SVG icons from Pixelarticons
-2.4.2 by Gerrit Halfmann, released under the MIT License:
-https://github.com/halfmage/pixelarticons
-
-Copyright (c) 2019 Gerrit Halfmann
-
-The complete license is distributed at
-`public/assets/icons/pixelarticons-LICENSE.txt`.

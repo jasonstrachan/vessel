@@ -60,7 +60,7 @@ Graphite UI theme
 - `src/app/globals.css` owns the shared `--vessel-*` surface, text, border, amber accent, and bevel tokens. Use these tokens for UI chrome; artwork, colour swatches, and colour gradients retain their actual colours.
 - The workspace uses the bundled Departure Mono font. Controls stay square, with a one-pixel raised edge for buttons and a recessed edge for editable fields.
 - `ProgressSlider` keeps the native range input and its commit lifecycle, with the value alongside the track. `CustomSwitch` is the shared checkbox visual, including the legacy `retroui/Switch` entrypoint.
-- `PixelToolIcon` bundles thirteen unmodified Pixelarticons 2.4.2 SVGs (MIT), rendered at their native 24 × 24 size. Keep accessible tool names and shortcuts on their buttons; icons are decorative. Preserve separate SVG paths and their default nonzero fill rule when updating the subset. The upstream licence ships in `public/assets/icons/pixelarticons-LICENSE.txt`.
+- `ToolIcon` draws Vessel's own 20 × 20 pixel icons for the thirteen primary toolbar actions. Each icon is an ASCII bitmap (`#` ink, `+` 40% tone, `.` empty) rendered one CSS pixel per cell with `crispEdges`, matching Departure Mono's pixel density; keep 1px line weight and inherited colour when adding icons. Keep accessible tool names and shortcuts on their buttons; icons are decorative.
 - Main dialogs use `vessel-dialog`; primary actions use `Button`. Focus indicators use the amber accent and must remain visible for keyboard navigation.
 
 - Use Departure Mono at its native 11px size (or integer multiples), without synthetic bold, on a 16px text line. Shared slider rows are 28px; module headers are 32px. Align panel labels on the same inset.
