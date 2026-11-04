@@ -120,7 +120,7 @@ export async function decodeJsonArchive(
       } else if (kind === 'o' && Array.isArray(payload)) {
         const object: Record<string, unknown> = {};
         for (const pair of payload) {
-          if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string' || Object.hasOwn(object, pair[0])) throw new Error('Invalid project extension archive property.');
+          if (!Array.isArray(pair) || pair.length !== 2 || typeof pair[0] !== 'string' || Object.prototype.hasOwnProperty.call(object, pair[0])) throw new Error('Invalid project extension archive property.');
           const index = ref(pair[1]);
           nodeDepth = Math.max(nodeDepth, depths[index] + 1);
           Object.defineProperty(object, pair[0], { value: nodes[index], writable: true, enumerable: true, configurable: true });

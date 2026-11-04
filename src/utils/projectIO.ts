@@ -5815,7 +5815,7 @@ export async function deserializeProjectWithReport(
   }
   const vesselProject = await parseVesselProjectJson(projectJson, { archiveZip });
   const serializedProject = vesselProject.project;
-  if (Object.hasOwn(serializedProject, 'extensionDataArchive')) {
+  if (Object.prototype.hasOwnProperty.call(serializedProject, 'extensionDataArchive')) {
     if (!archiveZip || serializedProject.extensionData !== undefined) {
       throw new Error('Project extension data requires its archive and a single storage authority.');
     }

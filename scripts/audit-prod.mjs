@@ -1,16 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 
-function isAcceptedNextPostcssFinding(report) {
-  const vulnerabilities = report.vulnerabilities ?? {};
-  const names = Object.keys(vulnerabilities);
+const DEEPMERGE_ADVISORY_URL = 'https://github.com/advisories/GHSA-gcqx-w48m-w2h4';
 
-  if (names.length === 0) {
-    return false;
-  }
-
-  const allowedNames = new Set(['next', 'postcss']);
-  const hasOnlyAcceptedNames = names.every((name) => allowedNames.has(name));
+function isAcceptedNextPostcssFinding(vulnerabilities) {
   const postcss = vulnerabilities.postcss;
   const next = vulnerabilities.next;
   const postcssIsNestedUnderNext = postcss?.nodes?.some(
@@ -25,32 +18,75 @@ function isAcceptedNextPostcssFinding(report) {
     return typeof via === 'object' && via !== null && via.name === 'postcss';
   });
 
-  return hasOnlyAcceptedNames && postcssIsNestedUnderNext && postcssRangeMatches && nextViaPostcss;
+  return Boolean(postcssIsNestedUnderNext && postcssRangeMatches && nextViaPostcss);
+}
+
+// deepmerge only runs inside the @heroui/theme Tailwind plugin at build time,
+// merging Vessel's own static theme config; no user input reaches it.
+function isAcceptedHerouiDeepmergeFinding(vulnerabilities) {
+  const deepmerge = vulnerabilities.deepmerge;
+  const deepmergeIsKnownAdvisory = deepmerge?.severity === 'low'
+    && deepmerge.via?.length === 1
+    && deepmerge.via[0]?.url === DEEPMERGE_ADVISORY_URL
+    && deepmerge.nodes?.every((node) => node === 'node_modules/deepmerge');
+  const herouiOnlyViaDeepmerge = Object.entries(vulnerabilities)
+    .filter(([name]) => name.startsWith('@heroui/'))
+    .every(([, finding]) => finding.severity === 'low' && finding.via?.every(
+      (via) => typeof via === 'string' && (via === 'deepmerge' || via.startsWith('@heroui/')),
+    ));
+
+  return Boolean(deepmergeIsKnownAdvisory && herouiOnlyViaDeepmerge);
+}
+
+const ACCEPTED_FINDINGS = [
+  { owns: (name) => name === 'next' || name === 'postcss', accepts: isAcceptedNextPostcssFinding },
+  { owns: (name) => name === 'deepmerge' || name.startsWith('@heroui/'), accepts: isAcceptedHerouiDeepmergeFinding },
+];
+
+function isAcceptedReport(report) {
+  const vulnerabilities = report.vulnerabilities ?? {};
+  const names = Object.keys(vulnerabilities);
+
+  if (names.length === 0) {
+    return false;
+  }
+
+  const everyNameOwned = names.every((name) => ACCEPTED_FINDINGS.some(({ owns }) => owns(name)));
+  const everyPresentFindingAccepted = ACCEPTED_FINDINGS
+    .filter(({ owns }) => names.some(owns))
+    .every(({ accepts }) => accepts(vulnerabilities));
+
+  return everyNameOwned && everyPresentFindingAccepted;
 }
 
 function runSelfTest() {
-  const acceptedReport = {
-    vulnerabilities: {
-      next: { via: ['postcss'] },
-      postcss: {
-        range: '<8.5.10',
-        nodes: ['node_modules/next/node_modules/postcss'],
-      },
+  const nextPostcss = {
+    next: { via: ['postcss'] },
+    postcss: {
+      range: '<8.5.10',
+      nodes: ['node_modules/next/node_modules/postcss'],
     },
   };
-  const rejectedReport = {
-    vulnerabilities: {
-      next: { via: ['postcss'] },
-      postcss: {
-        range: '<8.5.10',
-        nodes: ['node_modules/next/node_modules/postcss'],
-      },
-      react: { via: [] },
+  const herouiDeepmerge = {
+    deepmerge: {
+      severity: 'low',
+      via: [{ name: 'deepmerge', url: DEEPMERGE_ADVISORY_URL }],
+      nodes: ['node_modules/deepmerge'],
     },
+    '@heroui/theme': { severity: 'low', via: ['deepmerge'] },
+    '@heroui/react': { severity: 'low', via: ['@heroui/theme'] },
   };
 
-  assert.equal(isAcceptedNextPostcssFinding(acceptedReport), true);
-  assert.equal(isAcceptedNextPostcssFinding(rejectedReport), false);
+  assert.equal(isAcceptedReport({ vulnerabilities: nextPostcss }), true);
+  assert.equal(isAcceptedReport({ vulnerabilities: herouiDeepmerge }), true);
+  assert.equal(isAcceptedReport({ vulnerabilities: { ...nextPostcss, ...herouiDeepmerge } }), true);
+  assert.equal(isAcceptedReport({ vulnerabilities: { ...nextPostcss, react: { via: [] } } }), false);
+  assert.equal(isAcceptedReport({
+    vulnerabilities: { ...herouiDeepmerge, '@heroui/react': { severity: 'high', via: ['@heroui/theme'] } },
+  }), false);
+  assert.equal(isAcceptedReport({
+    vulnerabilities: { ...herouiDeepmerge, deepmerge: { ...herouiDeepmerge.deepmerge, via: [{ url: 'other' }] } },
+  }), false);
   console.log('audit-prod self-test passed.');
 }
 
@@ -80,9 +116,9 @@ function runAudit() {
     process.exit(0);
   }
 
-  if (isAcceptedNextPostcssFinding(report)) {
+  if (isAcceptedReport(report)) {
     console.warn(
-      'Production dependency audit accepted: Next currently vendors postcss@8.4.31, flagged as postcss <8.5.10. Vessel deploys a static export with no production Next server runtime. Recheck when stable Next updates nested PostCSS.',
+      'Production dependency audit accepted known findings only. Next vendors postcss <8.5.10, but Vessel deploys a static export with no production Next server runtime. @heroui/theme uses deepmerge (GHSA-gcqx-w48m-w2h4) only in its build-time Tailwind plugin on static config. Recheck both when patched releases ship.',
     );
     process.exit(0);
   }

@@ -73,3 +73,14 @@ Rationale:
 - Canary Next is out of scope for this release.
 
 Remove this exception when stable Next ships patched nested PostCSS metadata and `npm audit --omit=dev` passes directly.
+
+## Accepted Release Exception - 2026-11-04
+
+`scripts/audit-prod.mjs` also accepts GHSA-gcqx-w48m-w2h4 (`deepmerge` prototype poisoning, low) when:
+
+- `deepmerge` reports only that advisory, at `node_modules/deepmerge`;
+- every other finding is a low-severity `@heroui/*` package reached only through `@heroui/*` or `deepmerge`.
+
+Rationale: `@heroui/theme` calls `deepmerge` only in its Tailwind plugin at build time, merging Vessel's own static theme config. No user input reaches it, and the static export does not ship it as a runtime path. npm reports no fix within `@heroui/react` 2.x.
+
+Remove this exception when a patched `deepmerge` or `@heroui/theme` release lands and `npm run audit:prod` passes without it.
