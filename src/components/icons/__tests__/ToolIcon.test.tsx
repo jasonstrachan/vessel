@@ -3,9 +3,9 @@ import { render } from '@testing-library/react';
 import { TOOL_BITMAPS, ToolIcon } from '@/components/icons/ToolIcon';
 
 describe('ToolIcon', () => {
-  it.each(Object.entries(TOOL_BITMAPS))('%s is a 20 × 20 bitmap of known cells', (_tool, rows) => {
-    expect(rows).toHaveLength(20);
-    rows.forEach((row) => expect(row).toMatch(/^[.#+]{20}$/));
+  it.each(Object.entries(TOOL_BITMAPS))('%s is a 12 × 12 bitmap of known cells', (_tool, rows) => {
+    expect(rows).toHaveLength(12);
+    rows.forEach((row) => expect(row).toMatch(/^[.#+]{12}$/));
   });
 
   it('merges each tone into a single crisp path', () => {
@@ -13,7 +13,8 @@ describe('ToolIcon', () => {
     const svg = container.querySelector('svg');
     const [tone, ink] = Array.from(container.querySelectorAll('path'));
 
-    expect(svg).toHaveAttribute('viewBox', '0 0 20 20');
+    expect(svg).toHaveAttribute('viewBox', '0 0 12 12');
+    expect(svg).toHaveAttribute('width', '24');
     expect(svg).toHaveAttribute('shape-rendering', 'crispEdges');
     expect(tone).toHaveAttribute('opacity', '0.4');
     expect(ink.getAttribute('d')).toMatch(/^M\d+ \d+h\d+v1h-\d+z/);
